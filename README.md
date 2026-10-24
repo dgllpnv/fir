@@ -29,7 +29,12 @@ fir logs       logs em tempo real
 fir psql       shell psql no banco local
 ```
 
-Depois de `fir`: `http://127.0.0.1:4810`. A semente cria seis pessoas na
+Depois de `fir`, **a janela fica ocupada transmitindo os logs da API e da web.
+Isso é o certo — ela não travou, está servindo.** Deixe aberta e abra
+`http://127.0.0.1:4810` no navegador. `Ctrl+C` encerra os dois e devolve o prompt.
+
+Das 17 telas do menu, só **Hoje** existe hoje. As outras mostram o que vão
+entregar e em qual épico — não dão 404, e não são bug. A semente cria seis pessoas na
 clínica de demonstração (`demo`), todas com a senha `firmare-demonstracao` —
 uma por perfil, para exercitar cada nível de permissão, mais a
 administradora:
