@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@fir/domain": "workspace:*",
+    "@node-rs/argon2": "^2.2.2",
     "pg": "^8"
   },
   "devDependencies": {
