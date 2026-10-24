@@ -8,7 +8,7 @@ import {
   TIPO_ANTIGO,
   TIPOS,
   tipoAoConcluir,
-} from './tipos-de-tarefa.js'
+} from './tipos-de-tarefa'
 
 describe('classificação dos tipos', () => {
   it('o grupo Pagamentos é receita', () => {

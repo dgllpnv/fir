@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { ehErro, ehOk, erro, erroDe, exigir, ok } from './resultado.js'
-import type { Result } from './resultado.js'
+import { ehErro, ehOk, erro, erroDe, exigir, ok } from './resultado'
+import type { Result } from './resultado'
 
 describe('Resultado', () => {
   it('ok carrega o valor e é reconhecido como ok', () => {

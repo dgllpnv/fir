@@ -6,8 +6,8 @@ import {
   deUsoParaMedida,
   Quantidade,
   type Fatores,
-} from './quantidade.js'
-import { ehErro, exigir } from './resultado.js'
+} from './quantidade'
+import { ehErro, exigir } from './resultado'
 
 // 1 caixa = 4 ampolas · 1 ampola = 5 mg
 const AMPOLA: Fatores = { compraParaMedida: 4000n, medidaParaUso: 5000n }

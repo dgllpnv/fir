@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diaCivil, fimDoMes, inicioDoDia, janela, RelogioFixo, somarDias, somarMeses } from './relogio.js'
+import { diaCivil, fimDoMes, inicioDoDia, janela, RelogioFixo, somarDias, somarMeses } from './relogio'
 
 const BAHIA = 'America/Bahia' // UTC−3, sem horário de verão
 

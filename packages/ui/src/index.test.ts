@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatarDinheiro, formatarQuantidade } from './index.js'
+import { formatarDinheiro, formatarQuantidade } from './index'
 
 describe('formatarDinheiro', () => {
   it('formata centavos em pt-BR', () => {

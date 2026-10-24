@@ -75,14 +75,18 @@ extensões para especificador sem nenhuma) e resolve sozinho.
 
 1. **`apps/web` usa o Turbopack padrão do Next** (`next dev` / `next build`,
    sem `--webpack` e sem `experimental.extensionAlias`).
-2. **Os imports e exports relativos internos de `packages/domain`,
-   `packages/contracts` e `apps/api` perdem a extensão `.js`.** Os cinco
-   arquivos de pacote mudados: `packages/domain/src/index.ts`,
-   `packages/domain/src/dinheiro.ts`, `packages/domain/src/quantidade.ts`,
-   `packages/contracts/src/index.ts`,
-   `packages/contracts/src/autenticacao.ts`. Em `apps/api/src`, todo import
-   relativo interno (`./…` e `../…`), em código e em teste, perdeu a mesma
-   extensão, para o projeto inteiro seguir **uma** convenção em vez de duas.
+2. **Todo import e export relativo interno (`./…`, `../…`) do monorepo
+   perde a extensão `.js` — sem exceção de pacote nem de teste.** Isso
+   cobre `packages/domain/src/index.ts`, `packages/domain/src/dinheiro.ts`,
+   `packages/domain/src/quantidade.ts`, `packages/contracts/src/index.ts`,
+   `packages/contracts/src/autenticacao.ts`; todo `apps/api/src/**/*.ts`
+   (código e teste); e os arquivos `*.test.ts` de `packages/domain`,
+   `packages/contracts`, `packages/ui` e `apps/web` que ainda citavam
+   `./arquivo.js` — eles rodam sob Vitest/esbuild, que já resolvia `.js`
+   para `.ts` sem reclamar, então o defeito ali nunca foi funcional; era só
+   a convenção da ADR valendo pela metade do código. Corrigido numa segunda
+   rodada para a convenção não ter exceção: **fonte e teste seguem a mesma
+   regra.**
 3. Imports de **pacote** (`@fir/domain`, `@nestjs/common`, `node:crypto`
    etc.) continuam sem extensão — nunca tiveram `.js` e não mudam.
 
@@ -92,7 +96,10 @@ desenvolvimento) passaram sem alteração de comportamento. `next dev` voltou
 a rodar com `▲ Next.js 16.4.2 (Turbopack)` e serviu `/hoje` com `200`,
 inclusive com o menu completo por permissão (confirmado de novo com o login
 de `rosa@firmare.local`, que só vê Visão do mês por ter `valores` e `finmes`
-juntos).
+juntos). Depois da segunda rodada,
+`grep -rn "from '\(\./\|\.\./\).*\.js'" packages/*/src apps/api/src apps/web/src`
+dá `0` — nenhum import relativo interno com extensão sobra em lugar
+nenhum do monorepo, fonte ou teste.
 
 ## Alternativas rejeitadas
 
@@ -115,12 +122,14 @@ convenção muda então, com ADR nova.
 
 ## Consequências
 
-- **Convenção do projeto a partir de agora: imports e exports relativos
-  internos (`./arquivo`, `../pasta/arquivo`) não levam extensão.** Só
-  imports de pacote (`@fir/...`, `node:...`, bibliotecas de `node_modules`)
-  seguem a própria convenção deles, que nunca teve extensão. Quem criar um
-  arquivo novo em `packages/*` ou `apps/api` segue essa regra sem precisar
-  perguntar.
+- **Convenção do projeto a partir de agora, sem exceção de pacote nem de
+  fonte versus teste: imports e exports relativos internos
+  (`./arquivo`, `../pasta/arquivo`) não levam extensão, em nenhum arquivo
+  do monorepo.** Só imports de pacote (`@fir/...`, `node:...`, bibliotecas
+  de `node_modules`) seguem a própria convenção deles, que nunca teve
+  extensão. Quem criar um arquivo novo — fonte ou teste, em
+  `packages/*`, `apps/api` ou `apps/web` — segue essa regra sem precisar
+  perguntar nem copiar de um arquivo antigo que ainda tinha `.js`.
 - `apps/web` usa o Next sem flags de bundler — Turbopack é o padrão do
   `next dev`/`next build` dessa versão, e nada no projeto força Webpack.
 - Esta ADR não cobre pacotes publicados fora do monorepo nem um eventual

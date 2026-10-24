@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dinheiroEmTexto, EntrarEntrada } from './index.js'
+import { dinheiroEmTexto, EntrarEntrada } from './index'
 
 describe('EntrarEntrada', () => {
   it('aceita clínica, e-mail e senha válidos, normalizando os dois primeiros', () => {

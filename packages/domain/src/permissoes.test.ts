@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CAMPOS_MONETARIOS, PERMS, perfisPadrao, temPerm, type Perfil } from './permissoes.js'
+import { CAMPOS_MONETARIOS, PERMS, perfisPadrao, temPerm, type Perfil } from './permissoes'
 
 const perfis = perfisPadrao()
 const recepcao = { admin: false, perfilId: 'pf_rec' }

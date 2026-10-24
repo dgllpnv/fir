@@ -1,6 +1,6 @@
 import { perfisPadrao } from '@fir/domain'
 import { describe, expect, it } from 'vitest'
-import { itensDoMenu } from './menu.js'
+import { itensDoMenu } from './menu'
 
 const perfis = perfisPadrao()
 const href = (u: { admin: boolean; perfilId: string | null }) =>

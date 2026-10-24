@@ -1,7 +1,7 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { Dinheiro } from './dinheiro.js'
-import { ehErro, ehOk, exigir } from './resultado.js'
+import { Dinheiro } from './dinheiro'
+import { ehErro, ehOk, exigir } from './resultado'
 
 const texto = (s: string) => exigir(Dinheiro.deTexto(s))
 
