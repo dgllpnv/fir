@@ -1,4 +1,4 @@
-import { Controller, Get, Inject } from '@nestjs/common'
+import { Controller, Get, HttpException, HttpStatus, Inject } from '@nestjs/common'
 import { BancoService } from '../banco/banco.service.js'
 
 /**
@@ -18,10 +18,14 @@ export class SaudeController {
   @Get()
   async saude(): Promise<{ ok: boolean; banco: boolean }> {
     try {
-      await this.banco.semClinica('SELECT 1')
+      await this.banco.semIsolamentoDeClinica('SELECT 1')
       return { ok: true, banco: true }
     } catch {
-      return { ok: false, banco: false }
+      // 503, não 200: quem só lê o código HTTP — `HEALTHCHECK CMD curl -f` do
+      // Docker, liveness probe padrão, balanceador simples — precisa
+      // enxergar o banco fora sem interpretar o corpo. O corpo continua
+      // {ok, banco} nos dois casos, para quem lê o JSON.
+      throw new HttpException({ ok: false, banco: false }, HttpStatus.SERVICE_UNAVAILABLE)
     }
   }
 }
