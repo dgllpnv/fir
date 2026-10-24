@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common'
+import { inteiroDoAmbiente } from '../comum/ambiente'
 
 /**
  * Limite de tentativas de entrada **por origem**, em janela deslizante e em
@@ -86,7 +87,9 @@ export class LimitePorOrigem {
  * redução de duas ordens de grandeza na vazão — é atrito, não muralha, e o
  * que faz as vezes de muralha é o Argon2 somado ao limite por conta.
  */
-export const MAX_LOGIN_POR_ORIGEM = Number(process.env['MAX_LOGIN_POR_ORIGEM'] ?? 60)
-export const JANELA_LOGIN_POR_ORIGEM_MS = Number(
-  process.env['JANELA_LOGIN_POR_ORIGEM_MS'] ?? 5 * 60 * 1000,
+export const MAX_LOGIN_POR_ORIGEM = inteiroDoAmbiente('MAX_LOGIN_POR_ORIGEM', 60, { min: 1 })
+export const JANELA_LOGIN_POR_ORIGEM_MS = inteiroDoAmbiente(
+  'JANELA_LOGIN_POR_ORIGEM_MS',
+  5 * 60 * 1000,
+  { min: 1 },
 )

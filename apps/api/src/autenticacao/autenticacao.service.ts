@@ -3,6 +3,7 @@ import { type ChaveDePermissao, type Perfil, temPerm } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../banco/banco.service'
 import { type ClinicaId, clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
+import { inteiroDoAmbiente } from '../comum/ambiente'
 import type { ContextoDaRequisicao, PerfilComChave } from '../comum/contexto'
 import { semaforoArgon2 } from './concorrencia'
 import { conferirSenha } from './senha'
@@ -61,7 +62,7 @@ const HASH_FALSO =
  *
  * Ajustável por ambiente para quem medir uma máquina mais lenta.
  */
-const PISO_DE_RESPOSTA_MS = Number(process.env['PISO_RESPOSTA_ENTRAR_MS'] ?? 100)
+const PISO_DE_RESPOSTA_MS = inteiroDoAmbiente('PISO_RESPOSTA_ENTRAR_MS', 100, { min: 0 })
 
 type LinhaPessoa = {
   id: string

@@ -5,12 +5,13 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { AppModule } from './app.module'
+import { inteiroDoAmbiente } from './comum/ambiente'
 
 export async function registrarCookie(app: NestFastifyApplication): Promise<void> {
   await app.register(cookie as never)
 }
 
-const PORTA = Number(process.env['PORTA'] ?? 4811)
+const PORTA = inteiroDoAmbiente('PORTA', 4811, { min: 1, max: 65_535 })
 const HOST = process.env['HOST'] ?? '127.0.0.1'
 
 /**
@@ -41,7 +42,7 @@ const HOST = process.env['HOST'] ?? '127.0.0.1'
  * e quem sabe quantos saltos existem é o operador que escreveu o compose. Em
  * produção, `PROXY_SALTOS_CONFIAVEIS=1` em `infra/producao`.
  */
-const PROXY_SALTOS_CONFIAVEIS = Number(process.env['PROXY_SALTOS_CONFIAVEIS'] ?? 0)
+const PROXY_SALTOS_CONFIAVEIS = inteiroDoAmbiente('PROXY_SALTOS_CONFIAVEIS', 0, { min: 0 })
 
 export const confiarNoSalto = (_endereco: string, salto: number): boolean =>
   salto < PROXY_SALTOS_CONFIAVEIS

@@ -1,3 +1,5 @@
+import { inteiroDoAmbiente } from '../comum/ambiente'
+
 /**
  * Teto de verificações de Argon2 simultâneas no caminho de `entrar`.
  *
@@ -105,7 +107,7 @@ export class Semaforo {
  * Ajustável por variável de ambiente para quem tiver mais (ou menos) memória
  * de sobra.
  */
-export const MAX_ARGON2_CONCORRENTE = Number(process.env['MAX_ARGON2_CONCORRENTE'] ?? 4)
+export const MAX_ARGON2_CONCORRENTE = inteiroDoAmbiente('MAX_ARGON2_CONCORRENTE', 4, { min: 1 })
 
 /**
  * Sessenta e quatro esperando, e a sexagésima quinta leva 503.
@@ -129,8 +131,10 @@ export const MAX_ARGON2_CONCORRENTE = Number(process.env['MAX_ARGON2_CONCORRENTE
  * Com `MAX_ARGON2_CONCORRENTE` alterado por ambiente, o teto acompanha: é
  * sempre 16× a concorrência.
  */
-export const TETO_DA_FILA_ARGON2 = Number(
-  process.env['TETO_FILA_ARGON2'] ?? MAX_ARGON2_CONCORRENTE * 16,
+export const TETO_DA_FILA_ARGON2 = inteiroDoAmbiente(
+  'TETO_FILA_ARGON2',
+  MAX_ARGON2_CONCORRENTE * 16,
+  { min: 0 },
 )
 
 /** Segundos sugeridos ao cliente no `Retry-After` do 503 de fila cheia. */
