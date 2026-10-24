@@ -10,6 +10,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
+import { nomesForaDoPadrao } from './src/migracoes/nome-de-migration'
 
 const AQUI = dirname(fileURLToPath(import.meta.url))
 const PASTA = join(AQUI, 'migrations')
@@ -39,30 +40,11 @@ await cliente.query('REVOKE ALL ON migrations_aplicadas FROM fir_app')
 const { rows } = await cliente.query<{ nome: string }>('SELECT nome FROM migrations_aplicadas')
 const jaAplicadas = new Set(rows.map((r) => r.nome))
 
-/**
- * `0001_fundacao.sql`: quatro dígitos, sublinhado, minúsculas e dígitos, `.sql`.
- *
- * A ordem de aplicação é `sort()` sobre o nome, e isso só é a ordem CORRETA se
- * todo nome tiver o mesmo número de dígitos no prefixo. Sem esta validação,
- * `10_relatorios.sql` ordena ANTES de `0002_identidade.sql` (porque `'1' <
- * '0'` é falso, mas `'10' < '0002'` compara caractere a caractere e `'1' >
- * '0'`... e com `9_x.sql` e `0010_y.sql` a inversão é certa), e uma migration
- * roda contra um schema que ainda não tem as tabelas de que depende. O erro
- * aparece como falha de SQL num arquivo que está correto.
- *
- * `MAIÚSCULAS` e espaço também recusam de propósito: o repositório roda em
- * Windows (sistema de arquivos insensível a caixa) e em Linux no CI
- * (sensível), e um `0004_Relatorios.sql` que funciona aqui quebra lá, ou
- * pior, é aplicado duas vezes com nomes diferentes em `migrations_aplicadas`.
- *
- * RECUSA, não ignora: um arquivo `.sql` na pasta de migrations que o migrador
- * decidiu pular em silêncio é uma migration que ninguém aplicou e todos
- * acham aplicada.
- */
-const NOME_DE_MIGRATION = /^\d{4}_[a-z0-9_]+\.sql$/
-
-const todos = (await readdir(PASTA)).filter((f) => f.endsWith('.sql'))
-const foraDoPadrao = todos.filter((f) => !NOME_DE_MIGRATION.test(f)).sort()
+// Validação do nome em `src/migracoes/nome-de-migration.ts` — pura e com
+// teste próprio, porque este arquivo é um script de topo (conecta no
+// Postgres na importação) e não é importável por teste nenhum.
+const todos = await readdir(PASTA)
+const foraDoPadrao = nomesForaDoPadrao(todos)
 if (foraDoPadrao.length > 0) {
   process.stderr.write(
     `ERRO: nome(s) de migration fora do padrão: ${foraDoPadrao.join(', ')}\n` +
