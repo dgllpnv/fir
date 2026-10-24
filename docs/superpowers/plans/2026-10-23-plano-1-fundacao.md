@@ -38,7 +38,8 @@ Herdadas de `docs/superpowers/plans/2026-10-23-mapa-de-execucao.md` §1. Resumo 
 | `packages/domain/src/tipos-de-tarefa.ts` | Tabela `TIPOS` com as flags e os helpers |
 | `apps/api/migrations/0001_fundacao.sql` | Papéis, `clinicas`, função de RLS |
 | `apps/api/migrations/0002_identidade.sql` | `perfis`, `pessoas`, `sessoes`, `tentativas_login` |
-| `apps/api/src/comum/clinica.middleware.ts` | Fixa `app.clinica_id` na transação |
+| `apps/api/src/banco/banco.service.ts` | Pool com o papel sujeito à RLS; `naClinica` fixa `app.clinica_id` na transação |
+| `apps/api/src/comum/contexto.ts` | `ContextoDaRequisicao`: clínica, usuário, perfis e `pode()` |
 | `apps/api/src/comum/redacao.interceptor.ts` | **O tradutor único** de campos monetários |
 | `apps/api/src/autenticacao/*` | Argon2id, sessão, limite de tentativas |
 | `apps/api/src/autorizacao/autorizacao.guard.ts` | `@Exige('chave')` no servidor |
@@ -2449,14 +2450,21 @@ import { describe, expect, it } from 'vitest'
 import { dinheiroEmTexto, EntrarEntrada } from './index.js'
 
 describe('EntrarEntrada', () => {
-  it('aceita e-mail e senha válidos, normalizando o e-mail', () => {
-    const r = EntrarEntrada.parse({ email: '  Demo@Firmare.Local ', senha: 'firmare-demonstracao' })
+  it('aceita clínica, e-mail e senha válidos, normalizando os dois primeiros', () => {
+    const r = EntrarEntrada.parse({
+      clinica: '  Demo ',
+      email: '  Demo@Firmare.Local ',
+      senha: 'firmare-demonstracao',
+    })
+    expect(r.clinica).toBe('demo')
     expect(r.email).toBe('demo@firmare.local')
   })
 
-  it('recusa e-mail inválido e senha curta', () => {
-    expect(EntrarEntrada.safeParse({ email: 'nao-e-email', senha: 'firmare-x' }).success).toBe(false)
-    expect(EntrarEntrada.safeParse({ email: 'a@b.local', senha: 'curta' }).success).toBe(false)
+  it('recusa e-mail inválido, senha curta e clínica vazia', () => {
+    const base = { clinica: 'demo', email: 'a@b.local', senha: 'firmare-x' }
+    expect(EntrarEntrada.safeParse({ ...base, email: 'nao-e-email' }).success).toBe(false)
+    expect(EntrarEntrada.safeParse({ ...base, senha: 'curta' }).success).toBe(false)
+    expect(EntrarEntrada.safeParse({ ...base, clinica: '   ' }).success).toBe(false)
   })
 })
 
@@ -2516,6 +2524,10 @@ import { z } from 'zod'
 import { Uuid } from './comum.js'
 
 export const EntrarEntrada = z.object({
+  // A clínica entra aqui, no contrato, e não lida solta do corpo no
+  // controlador: um campo que o schema não conhece é um campo que ninguém
+  // valida.
+  clinica: z.string().trim().toLowerCase().min(1, 'Informe a clínica.').max(60),
   email: z.string().trim().toLowerCase().email('Informe um e-mail válido.'),
   // Oito é o piso; a força real vem do limite de tentativas e do Argon2id.
   senha: z.string().min(8, 'A senha precisa de pelo menos 8 caracteres.').max(200),
@@ -2867,14 +2879,25 @@ Expected: FAIL — `Failed to resolve import "./redacao.interceptor.js"`.
 import type { ChaveDePermissao, Perfil } from '@fir/domain'
 import type { PessoaPublica } from '@fir/contracts'
 
-/** O que o guard de autenticação anexa à requisição. */
+/**
+ * O que o guard de autenticação anexa à requisição.
+ *
+ * A clínica vem inteira (id, código, nome, fuso) porque `GET /v1/eu` a
+ * devolve para a tela, e buscá-la de novo no controlador seria uma consulta a
+ * mais por requisição para um dado que o guard já leu.
+ */
 export type ContextoDaRequisicao = {
   readonly clinicaId: string
+  readonly clinicaCodigo: string
+  readonly clinicaNome: string
   readonly clinicaFuso: string
   readonly usuario: PessoaPublica
-  readonly perfis: readonly Perfil[]
+  readonly perfis: readonly PerfilComChave[]
   readonly pode: (chave: ChaveDePermissao) => boolean
 }
+
+/** `Perfil` do domínio mais a `chave` estável, que a tela usa para rotular. */
+export type PerfilComChave = Perfil & { readonly chave: string }
 
 export type RequisicaoComContexto = { contexto?: ContextoDaRequisicao }
 ```
@@ -3067,11 +3090,17 @@ describe('POST /v1/entrar', () => {
     expect(a.body.message).toBe(b.body.message)
   })
 
-  it('com sessão, /v1/eu responde 200', async () => {
+  it('com sessão, /v1/eu devolve usuário, clínica COMPLETA e perfis', async () => {
     const r = await entrar('senha-de-teste').expect(200)
     const cookie = r.headers['set-cookie']
     const eu = await request(app.getHttpServer()).get('/v1/eu').set('Cookie', cookie).expect(200)
     expect(eu.body.usuario.nome).toBe('Juliana')
+    // Código e nome vêm preenchidos: a tela monta o cabeçalho com eles, e um
+    // campo vazio aqui vira "Firmare" genérico em produção.
+    expect(eu.body.clinica.codigo).toBe(codigo)
+    expect(eu.body.clinica.nome).toBe('Clínica E2E')
+    expect(eu.body.clinica.fuso).toBe('America/Bahia')
+    expect(eu.body.perfis[0].chave).toBe('pf_rec')
   })
 
   it('sair revoga a sessão: o mesmo cookie passa a dar 401', async () => {
@@ -3236,8 +3265,9 @@ export class AutenticacaoService {
       const perfisRaw = await c.query<{ id: string; chave: string; nome: string; perms: string[] }>(
         'SELECT id, chave, nome, perms FROM perfis ORDER BY nome',
       )
-      const perfis: Perfil[] = perfisRaw.rows.map((x) => ({
+      const perfis: PerfilComChave[] = perfisRaw.rows.map((x) => ({
         id: x.id,
+        chave: x.chave,
         nome: x.nome,
         perms: x.perms as ChaveDePermissao[],
       }))
@@ -3246,6 +3276,8 @@ export class AutenticacaoService {
 
       return {
         clinicaId: clinica.id,
+        clinicaCodigo: clinica.codigo,
+        clinicaNome: clinica.nome,
         clinicaFuso: clinica.fuso,
         usuario: {
           id: pessoa.id,
@@ -3343,14 +3375,17 @@ export class AutenticacaoController {
     @Body() corpo: unknown,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<EuSaida> {
-    const dados = EntrarEntrada.extend(EntrarEntrada.shape).safeParse(corpo)
-    const clinica = (corpo as { clinica?: unknown })?.clinica
-    if (!dados.success || typeof clinica !== 'string' || clinica === '') {
+    const dados = EntrarEntrada.safeParse(corpo)
+    if (!dados.success) {
       throw new BadRequestException('Confira a clínica, o e-mail e a senha.')
     }
 
     try {
-      const { eu, token } = await this.auth.entrar(clinica, dados.data.email, dados.data.senha)
+      const { eu, token } = await this.auth.entrar(
+        dados.data.clinica,
+        dados.data.email,
+        dados.data.senha,
+      )
 
       // `__Host-` obriga Secure e Path=/, e proíbe Domain. É o prefixo mais
       // restrito que existe — e é por ele que HTTPS deixa de ser opcional:
@@ -3392,14 +3427,22 @@ export class AutenticacaoController {
     const c = req.contexto!
     return {
       usuario: c.usuario,
-      clinica: { id: c.clinicaId, codigo: '', nome: '', fuso: c.clinicaFuso },
-      perfis: c.perfis.map((p) => ({ id: p.id, chave: '', nome: p.nome, perms: [...p.perms] })),
+      clinica: {
+        id: c.clinicaId,
+        codigo: c.clinicaCodigo,
+        nome: c.clinicaNome,
+        fuso: c.clinicaFuso,
+      },
+      perfis: c.perfis.map((p) => ({
+        id: p.id,
+        chave: p.chave,
+        nome: p.nome,
+        perms: [...p.perms],
+      })),
     }
   }
 }
 ```
-
-> **Nota de implementação:** `GET /v1/eu` precisa devolver `codigo` e `nome` da clínica de verdade. Acrescente-os ao `ContextoDaRequisicao` (`clinicaCodigo`, `clinicaNome`) em `contexto.ts` e preencha-os em `contextoDoToken` — os dados já estão na consulta de `clinicas`. O teste `eu.body.usuario.nome` passa sem isso, mas a tela precisa do nome.
 
 `apps/api/src/autenticacao/autenticacao.module.ts`:
 ```ts
@@ -3625,9 +3668,16 @@ git commit -m "feat(api): semente idempotente da clinica de demonstracao"
   "type": "module",
   "main": "./src/index.ts",
   "exports": { ".": "./src/index.ts", "./tokens.css": "./src/tokens.css" },
-  "scripts": { "typecheck": "tsc --noEmit", "test": "echo sem testes && exit 0" },
-  "devDependencies": { "typescript": "^5.7" }
+  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
+  "devDependencies": { "typescript": "^5.7", "vitest": "^2" }
 }
+```
+
+`packages/ui/vitest.config.ts`:
+```ts
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({ test: { include: ['src/**/*.test.ts'] } })
 ```
 
 `packages/ui/tsconfig.json`:
@@ -3774,16 +3824,57 @@ export function formatarQuantidade(
 }
 ```
 
-- [ ] **Step 2: Verificar**
+- [ ] **Step 2: Escrever o teste do formatador**
 
-Run: `pnpm install && pnpm typecheck`
-Expected: PASS.
+`packages/ui/src/index.test.ts`:
+```ts
+import { describe, expect, it } from 'vitest'
+import { formatarDinheiro, formatarQuantidade } from './index.js'
 
-- [ ] **Step 3: Commit**
+describe('formatarDinheiro', () => {
+  it('formata centavos em pt-BR', () => {
+    expect(formatarDinheiro(125050n)).toBe('R$ 1.250,50')
+    expect(formatarDinheiro(0n)).toBe('R$ 0,00')
+    expect(formatarDinheiro(5n)).toBe('R$ 0,05')
+  })
+
+  it('negativo leva o sinal na frente', () => {
+    expect(formatarDinheiro(-500n)).toBe('-R$ 5,00')
+  })
+
+  it('null é "—", não "R$ 0,00"', () => {
+    // null vem do interceptor de redação e significa "você não tem permissão".
+    // Mostrar R$ 0,00 ali seria mentira.
+    expect(formatarDinheiro(null)).toBe('—')
+    expect(formatarDinheiro(undefined)).toBe('—')
+  })
+})
+
+describe('formatarQuantidade', () => {
+  it('corta zeros à direita', () => {
+    expect(formatarQuantidade(1000n, 'ampola')).toBe('1 ampola')
+    expect(formatarQuantidade(250n, 'ampola')).toBe('0,25 ampola')
+    expect(formatarQuantidade(2500n, 'ampola')).toBe('2,5 ampola')
+    expect(formatarQuantidade(1n, 'mg')).toBe('0,001 mg')
+  })
+
+  it('zero e null são distintos', () => {
+    expect(formatarQuantidade(0n, 'ampola')).toBe('0 ampola')
+    expect(formatarQuantidade(null, 'ampola')).toBe('—')
+  })
+})
+```
+
+- [ ] **Step 3: Rodar e verificar**
+
+Run: `pnpm install && pnpm --filter @fir/ui test && pnpm typecheck`
+Expected: PASS, 5 testes.
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add packages/ui pnpm-lock.yaml
-git commit -m "feat(ui): tokens papel e dourado e formatador central"
+git commit -m "feat(ui): tokens papel e dourado e formatador central com testes"
 ```
 
 ---
@@ -3951,7 +4042,23 @@ describe('menu por permissão', () => {
 })
 ```
 
-Adicione `vitest` ao `@fir/web` e troque o script `test` para `vitest run`.
+Acrescente o vitest ao web:
+
+```bash
+pnpm --filter @fir/web add -D vitest
+```
+
+`apps/web/vitest.config.ts`:
+```ts
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  test: { include: ['src/**/*.test.ts'] },
+  resolve: { alias: { '@': new URL('./src/', import.meta.url).pathname } },
+})
+```
+
+E troque o script `test` de `@fir/web` para `"test": "vitest run"`.
 
 Run: `pnpm --filter @fir/web test`
 Expected: PASS, 5 testes.
@@ -4110,9 +4217,11 @@ import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import type { ReactNode } from 'react'
 import type { EuSaida } from '@fir/contracts'
+import { type ChaveDePermissao, PERMS } from '@fir/domain'
 import { itensDoMenu } from '@/lib/menu'
 
 const API = process.env.FIR_API_URL || 'http://127.0.0.1:4811'
+const CHAVES = new Set<string>(PERMS.map((p) => p[1]))
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   // A sessão é resolvida no SERVIDOR: a tela nunca decide se alguém entrou.
@@ -4121,7 +4230,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   if (!r.ok) redirect('/entrar')
 
   const eu = (await r.json()) as EuSaida
-  const itens = itensDoMenu(eu.usuario, eu.perfis.map((p) => ({ id: p.id, nome: p.nome, perms: p.perms as never })))
+  // `perms` chega como string[] do JSON; o domínio quer ChaveDePermissao[].
+  // O estreitamento acontece aqui, uma vez, e não em cada chamada de temPerm.
+  const perfis = eu.perfis.map((p) => ({
+    id: p.id,
+    nome: p.nome,
+    perms: p.perms.filter((k): k is ChaveDePermissao => CHAVES.has(k)),
+  }))
+  const itens = itensDoMenu(eu.usuario, perfis)
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', minHeight: '100%' }}>
