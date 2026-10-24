@@ -51,8 +51,14 @@ Credenciais valem só neste ambiente.
 pnpm typecheck && pnpm test
 ```
 
-121 testes, hoje, cobrindo domínio, contratos, API, web e os transversais
-(RLS, redação de dinheiro, isolamento de clínica).
+178 testes, hoje, cobrindo domínio (64), API (79), transversais (19), UI (7),
+web (5) e contratos (4). Os transversais são os que mais pegam: RLS com
+canários de view, matview e partição; redação de dinheiro varrendo os esquemas
+Zod; isolamento de clínica; e a varredura que falha se alguma rota do Nest
+ficar sem guard.
+
+`pnpm test` usa o cache do Turborepo. Para uma execução de verdade —
+antes de afirmar que algo passou — use `npx turbo run test --force`.
 
 ## Mapa do repositório
 
@@ -64,6 +70,9 @@ pnpm typecheck && pnpm test
 | `docs/adr/` | Decisões de arquitetura registradas (ADRs) |
 | `docs/team.md` · `docs/pipeline.md` | Quem decide o quê e como o trabalho flui |
 | `docs/decisoes.md` | As escolhas do dono, com data, e o que ainda depende dele |
+| `docs/paridade.md` | **As 59 ações do protótipo, com estado.** É o que "paridade" significa |
+| `docs/dividas.md` | Dívida carregada, cada uma com o gatilho que a torna urgente |
+| `docs/diferencas-versao-po-vs-nossa.md` | As diferenças entre o que a PO entregou e o que construímos |
 | `packages/domain`, `packages/contracts`, `packages/ui` | Domínio puro, contratos (zod) e componentes compartilhados |
 | `apps/api`, `apps/web` | API (NestJS/Fastify) e web (Next.js) |
 | `teste/` | Testes transversais, que atravessam mais de um pacote |
