@@ -23,7 +23,19 @@ describe('todo item do menu tem ícone próprio', () => {
 describe('inicial do avatar', () => {
   it('é a primeira letra, maiúscula, sem o espaço de um nome mal digitado', () => {
     expect(inicial('  helena prado')).toBe('H')
-    expect(inicial('Dra. Helena')).toBe('D')
+  })
+
+  it('pula o tratamento — senão metade da clínica vira o mesmo "D"', () => {
+    expect(inicial('Dra. Helena Prado')).toBe('H')
+    expect(inicial('Dr. Paulo')).toBe('P')
+    expect(inicial('Enf. Camila Rocha')).toBe('C')
+    expect(inicial('Sra. Rosa Andrade')).toBe('R')
+    // Sem o ponto, que é como metade das pessoas digita.
+    expect(inicial('Dra Beatriz')).toBe('B')
+  })
+
+  it('nome que só tem tratamento não inventa letra', () => {
+    expect(inicial('Dra.')).toBe('?')
   })
 
   it('nome vazio não quebra o rodapé do menu', () => {

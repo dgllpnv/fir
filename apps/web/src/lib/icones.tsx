@@ -101,8 +101,25 @@ export const iconeDaRota = (href: string): ReactElement => ICONES[href] ?? PADRA
 /** Só para o teste que confronta o mapa com o menu. */
 export const ROTAS_COM_ICONE: readonly string[] = Object.keys(ICONES)
 
+/**
+ * Tratamentos que vêm antes do nome e não identificam ninguém.
+ *
+ * Numa clínica, metade da equipe é "Dra." e a enfermagem é "Enf.". Se a
+ * inicial sair do tratamento, três pessoas diferentes viram o mesmo "D" — e
+ * distinguir pessoas é a única coisa que o avatar faz.
+ */
+const TRATAMENTOS = new Set([
+  'dr', 'dra', 'drs', 'dras', 'sr', 'sra', 'srta', 'srs', 'sras',
+  'enf', 'enfa', 'prof', 'profa', 'me', 'ma', 'tec', 'téc',
+])
+
 /** A inicial do avatar do rodapé. Nunca o nome inteiro, nunca uma foto. */
-export const inicial = (nome: string): string => (nome.trim()[0] ?? '?').toUpperCase()
+export const inicial = (nome: string): string => {
+  const partes = nome.trim().split(/\s+/).filter(Boolean)
+  // `replace` do ponto final: "Dra." e "Dra" são a mesma coisa para quem digita.
+  const primeiro = partes.find((p) => !TRATAMENTOS.has(p.replace(/\.$/, '').toLowerCase()))
+  return (primeiro?.[0] ?? '?').toUpperCase()
+}
 
 export const ICONE_MENU = svg(<path key="a" d="M4 7h16M4 12h16M4 17h16" />)
 /* Porta à esquerda, seta saindo para a direita: a leitura de "sair" que não
