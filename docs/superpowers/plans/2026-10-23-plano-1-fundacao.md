@@ -1911,6 +1911,14 @@ await cliente.query(`
   )
 `)
 
+// O livro-razão das migrations não é da aplicação. Pelo `ALTER DEFAULT
+// PRIVILEGES` do bootstrap, `fir_app` nasceria com CRUD aqui — e apagar uma
+// linha faria o próximo deploy reaplicar uma migration já aplicada.
+// Idempotente: o `migrar.ts` roda em toda subida, e revogar o que já não existe
+// é inofensivo. Fora de transação, de propósito: vale mesmo se uma migration
+// pendente der rollback logo em seguida.
+await cliente.query('REVOKE ALL ON migrations_aplicadas FROM fir_app')
+
 const { rows } = await cliente.query<{ nome: string }>('SELECT nome FROM migrations_aplicadas')
 const jaAplicadas = new Set(rows.map((r) => r.nome))
 
@@ -1988,6 +1996,19 @@ COMMENT ON FUNCTION app_clinica_id() IS
   'A clínica da transação atual. NULL quando não fixada: a RLS então nega tudo.';
 
 GRANT SELECT ON clinicas TO fir_app;
+
+-- E o REVOKE, que é o que de fato restringe.
+--
+-- O `GRANT` acima não estreita nada: o `ALTER DEFAULT PRIVILEGES` do
+-- `infra/bootstrap-papeis.sql` já concedeu SELECT, INSERT, UPDATE e DELETE em
+-- toda tabela que `fir_migrate` criar — e em Postgres um `GRANT` nunca reduz
+-- um privilégio concedido por outro caminho. Só `REVOKE` faz isso.
+--
+-- Nas tabelas de negócio o privilégio amplo é intencional: é a RLS que contém
+-- o dano. `clinicas` é a exceção — ela é a raiz do tenancy e não pode ter RLS
+-- (escopá-la por `app_clinica_id()` seria circular). Sem este REVOKE, uma
+-- falha na API alcança a tabela que define quem é cada clínica.
+REVOKE INSERT, UPDATE, DELETE ON clinicas FROM fir_app;
 ```
 
 - [ ] **Step 3: Aplicar e verificar**
