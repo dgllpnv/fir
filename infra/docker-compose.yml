@@ -15,6 +15,9 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: fir
+      # Senha em claro de propósito: vale só para este container, que escuta
+      # apenas em 127.0.0.1, com dados descartáveis que `fir reset` apaga.
+      # Nunca reutilize esta senha fora daqui. Ver infra/README.md.
       POSTGRES_PASSWORD: fir_local_dev
       POSTGRES_DB: fir
       # UTC sempre. A conversão para o fuso da clínica é do domínio.

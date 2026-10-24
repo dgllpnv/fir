@@ -5,6 +5,9 @@
 -- Rodar a aplicação com um papel que atravessa a RLS faz todo teste de
 -- isolamento passar sem provar nada.
 
+-- A senha abaixo está em claro de propósito: vale só para este container
+-- local, que escuta apenas em 127.0.0.1, com dados descartáveis. Nunca a
+-- reutilize fora daqui. Ver infra/README.md.
 CREATE ROLE fir_migrate LOGIN PASSWORD 'fir_local_dev' BYPASSRLS;
 CREATE ROLE fir_app     LOGIN PASSWORD 'fir_local_dev';
 

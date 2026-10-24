@@ -70,3 +70,21 @@ Se o SQL de bootstrap for alterado depois que o volume já existe, ele não é
 reaplicado automaticamente. Use `fir reset` (ou
 `docker compose -f infra/docker-compose.yml down -v`) para apagar o volume e
 subir limpo.
+
+## Sobre a senha no docker-compose.yml
+
+A senha `fir_local_dev`, usada pelo usuário do Postgres e pelos papéis
+`fir_migrate`/`fir_app`, está em claro no `docker-compose.yml` e no
+`bootstrap-papeis.sql`, e isso é proposital: o container só escuta em
+`127.0.0.1`, os dados são descartáveis, e `fir reset` apaga tudo com um
+comando. Não há nada ali que precise de sigilo.
+
+Isso não abre exceção nenhuma para credencial de verdade. Segredo de
+produção não entra neste repositório, nem em claro, nem em `.env`
+versionado, nem embutido em imagem. A diferença não é de forma — é de
+conteúdo: a senha deste arquivo protege um banco vazio que qualquer pessoa
+pode recriar do zero; uma credencial de produção protege dado de clínica e
+paciente. Tratar as duas como equivalentes é como se confunde ambiente de
+desenvolvimento com produção.
+
+Nunca reutilize esta senha fora daqui.
