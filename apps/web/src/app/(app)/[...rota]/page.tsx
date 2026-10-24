@@ -37,21 +37,12 @@ export default async function AindaNaoConstruida({
     return (
       <section>
         <h2 style={{ fontSize: 26, marginBottom: 16 }}>Sem acesso a esta tela</h2>
-        <div
-          style={{
-            border: '1px dashed var(--line)',
-            borderRadius: 'var(--r)',
-            padding: 32,
-            background: 'var(--surface)',
-            maxWidth: 560,
-            color: 'var(--muted)',
-          }}
-        >
-          <p style={{ marginBottom: 20 }}>
+        <div className="vazio">
+          <p style={{ margin: 0, color: 'var(--muted)' }}>
             Seu perfil não dá acesso a <strong style={{ color: 'var(--ink)' }}>{item.rotulo}</strong>.
             Quem administra a clínica pode mudar isso.
           </p>
-          <a href="/hoje" style={{ color: 'var(--gold-ink)' }}>
+          <a href="/hoje" style={{ color: 'var(--gold-ink)', fontWeight: 600 }}>
             Voltar para Hoje
           </a>
         </div>
@@ -61,33 +52,16 @@ export default async function AindaNaoConstruida({
 
   return (
     <section>
-      <div
-        style={{
-          color: 'var(--gold-ink)',
-          fontSize: 13,
-          letterSpacing: '.08em',
-          textTransform: 'uppercase',
-        }}
-      >
-        {item.grupo}
-      </div>
+      <div className="eyebrow">{item.grupo}</div>
       <h2 style={{ fontSize: 26, marginBottom: 16 }}>{item.rotulo}</h2>
 
-      <div
-        style={{
-          border: '1px dashed var(--line)',
-          borderRadius: 'var(--r)',
-          padding: 32,
-          background: 'var(--surface)',
-          maxWidth: 560,
-        }}
-      >
-        <p style={{ color: 'var(--ink)', marginBottom: 12, lineHeight: 1.55 }}>{item.promessa}</p>
-        <p style={{ color: 'var(--muted)', fontSize: 14, marginBottom: 20 }}>
+      <div className="vazio">
+        <p style={{ margin: 0, color: 'var(--ink)', lineHeight: 1.55 }}>{item.promessa}</p>
+        <p style={{ margin: 0, color: 'var(--muted)', fontSize: 14 }}>
           Esta tela ainda não foi construída. Ela vem no{' '}
           <strong style={{ color: 'var(--gold-ink)', fontWeight: 600 }}>épico {item.epico}</strong>.
         </p>
-        <a href="/hoje" style={{ color: 'var(--gold-ink)' }}>
+        <a href="/hoje" style={{ color: 'var(--gold-ink)', fontWeight: 600 }}>
           Voltar para Hoje
         </a>
       </div>
