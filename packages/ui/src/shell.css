@@ -1,0 +1,273 @@
+/*
+ * O casco da aplicação: barra lateral no computador, gaveta no celular.
+ *
+ * Desenho herdado do protótipo da PO, que é a especificação e já é reconhecido
+ * pelas quatro clínicas em uso. O corte é 900 px, como lá.
+ *
+ * Por que lateral e não cabeçalho: são 17 telas em 6 grupos. Numa barra
+ * horizontal elas embrulham em três fileiras sem hierarquia, e a navegação
+ * come a altura que as tarefas do dia precisam. Na vertical, o grupo ("Dia a
+ * dia", "Financeiro") faz o trabalho que a fileira não fazia: a pessoa procura
+ * por assunto, não varre 17 rótulos do mesmo peso.
+ *
+ * Ver docs/design.md. O dourado aqui é FUNDO e TRAÇO, nunca texto sobre claro.
+ */
+
+.shell { min-height: 100vh; min-height: 100dvh; }
+
+/* ---------- barra lateral ---------- */
+
+.side {
+  background: var(--surface);
+  color: var(--ink);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.sidehead { display: grid; gap: 2px; padding: 0 8px; min-width: 0; }
+
+.marca {
+  font-family: var(--display);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  color: var(--ink);
+}
+/* O ponto da marca é TEXTO, então sai em --gold-ink (4,91:1 no claro).
+   --gold aqui daria 2,21:1 e reprovaria — é o erro mais comum desta paleta. */
+.marca span { color: var(--gold-ink); }
+
+.sideclin {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--gold-ink);
+  /* "Clínica Modelo" quebrava em duas linhas espremidas no canto do
+     cabeçalho antigo. Aqui a linha é uma só, e o nome longo corta com
+     reticências em vez de empurrar o resto da barra. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A navegação é a única parte que rola: cabeça e rodapé ficam sempre à vista,
+   mesmo no perfil que enxerga as 17 telas numa janela baixa. */
+.sidenav {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* O espaço da barra fica reservado sempre: sem isto o menu da Enfermagem
+     (6 telas, não rola) teria os rótulos 15 px à direita dos da Recepção
+     (13 telas, rola), e a barra pareceria outra a cada perfil. */
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.navgrupo { display: grid; gap: 2px; }
+
+.navtit {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 10px 4px;
+}
+
+.navitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: none;
+  min-width: 0;
+}
+.navitem svg { width: 20px; height: 20px; flex: none; opacity: 0.7; }
+.navitem span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.navitem:hover { background: var(--gold-soft); }
+
+/* O item ativo: dourado de FUNDO com a tinta escura fixa. Sem ele o menu não
+   diz onde a pessoa está, e com 17 telas isso se perde no segundo clique. */
+.navitem[aria-current='page'] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
+.navitem[aria-current='page'] svg { opacity: 1; }
+
+.sidefoot {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding: 14px 6px 0;
+}
+.sideuser { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.sideuser > div { min-width: 0; }
+.sideuser b {
+  display: block;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sideuser small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--gold-soft);
+  color: var(--gold-ink);
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  font-size: 14px;
+  flex: none;
+}
+.sidefoot .btn { padding: 9px 12px; min-height: 40px; font-size: 13.5px; }
+
+/* ---------- barra de topo (só abaixo de 900) ---------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.topbar .barra {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  min-width: 0;
+}
+.topbar .marca { font-size: 22px; }
+.topbar .quem {
+  margin-left: auto;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.botao-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-height: 40px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.botao-menu svg { width: 18px; height: 18px; }
+
+/* O véu fecha a gaveta ao toque em qualquer lugar do conteúdo. É um <button>
+   para funcionar no teclado também, não uma <div> clicável. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  border: 0;
+  padding: 0;
+  background: rgba(15, 10, 5, 0.45);
+}
+
+/* ---------- celular e tablet: a lateral vira gaveta ---------- */
+
+@media (max-width: 899px) {
+  .side {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 21;
+    width: min(290px, 84vw);
+    overflow-y: auto;
+    transform: translateX(-105%);
+    padding-top: calc(20px + env(safe-area-inset-top, 0px));
+    /*
+     * `visibility` e não só `transform`: a gaveta fechada continua no DOM, e
+     * só com transform ela segue na ordem de tabulação. O Tab a partir do
+     * botão "Menu" entrava em dezessete links invisíveis e a pessoa de
+     * teclado ficava presa numa tela que, para ela, não tinha nada.
+     *
+     * A visibilidade só some DEPOIS do deslize (atraso de 0,22s), senão a
+     * gaveta sumiria no lugar de sair andando.
+     */
+    visibility: hidden;
+    transition: transform 0.22s ease, visibility 0s 0.22s;
+  }
+  .side[data-aberta='sim'] {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.22s ease;
+    box-shadow: 0 0 40px rgba(46, 31, 14, 0.25);
+  }
+  .conteudo main { padding-block: 18px 32px; }
+}
+
+/* ---------- computador: a lateral é coluna fixa ---------- */
+
+@media (min-width: 900px) {
+  .shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+  .side { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; }
+  .topbar, .scrim { display: none; }
+  .conteudo main { padding-block: 28px 48px; }
+  /* A coluna de leitura respira na tela larga sem virar linha de 1200 px:
+     texto longo demais na horizontal é mais difícil de ler, não menos. */
+  .conteudo .wrap { max-width: 900px; }
+}
+
+/* Movimento só quando explica algo — e aqui ele explica de onde a gaveta veio.
+   Quem pediu menos movimento recebe o mesmo resultado sem o trajeto. */
+@media (prefers-reduced-motion: reduce) {
+  .side, .side[data-aberta='sim'] { transition: visibility 0s; }
+}
+
+/* ---------- a tela de entrar ---------- */
+
+.entrada {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 32px 16px calc(32px + env(safe-area-inset-bottom, 0px));
+}
+.entrada .caixa { width: 100%; max-width: 380px; display: grid; gap: 18px; }
+.entrada .marcabloco { display: grid; gap: 6px; text-align: center; }
+.entrada .marca { font-size: 40px; }
+
+/* A altura fica reservada mesmo sem erro: a mensagem que aparece não pode
+   empurrar o botão "Entrar" para baixo do dedo que já está indo nele. */
+.erro-entrada {
+  margin: 0;
+  min-height: 18px;
+  font-size: 13px;
+  text-align: center;
+  color: var(--bad);
+}
