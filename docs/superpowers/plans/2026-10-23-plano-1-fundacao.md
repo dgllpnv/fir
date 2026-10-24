@@ -21,6 +21,7 @@ Herdadas de `docs/superpowers/plans/2026-10-23-mapa-de-execucao.md` §1. Resumo 
 - Domínio em português, infraestrutura em inglês.
 - `any` proibido. `UPDATE`/`DELETE` em tabela append-only proibido. Rota sem authz no servidor proibida.
 - **Injeção de dependência do Nest exige `@Inject(Tipo)` explícito em todo construtor.** `tsx` e o Vitest compilam com esbuild, que **não emite `design:paramtypes`** nem com `emitDecoratorMetadata` ligado — então a injeção por tipo refletido não funciona neste projeto. Medido na Task 13 por mutação: remover o `@Inject` quebra o teste. Vale para controladores, serviços, guards e interceptors.
+- **Import relativo interno não leva extensão** (`from './resultado'`, não `'./resultado.js'`), em nenhum arquivo do monorepo — fonte e teste. O Turbopack não resolve especificador que já traz extensão apontando para `.ts`, e `moduleResolution: "Bundler"` permite omiti-la. Ver `docs/adr/0001-bundler-e-extensao-de-import.md`.
 
 ---
 
@@ -589,7 +590,7 @@ git commit -m "feat: ambiente local com docker e fir.bat no bloco 48xx"
 `packages/domain/src/resultado.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
-import { ehErro, ehOk, erro, erroDe, ok } from './resultado.js'
+import { ehErro, ehOk, erro, erroDe, ok } from './resultado'
 
 describe('Resultado', () => {
   it('ok carrega o valor e é reconhecido como ok', () => {
@@ -666,7 +667,7 @@ git commit -m "feat(domain): Result com erros como valores"
 - Create: `packages/domain/src/dinheiro.ts`, `packages/domain/src/dinheiro.test.ts`
 
 **Interfaces:**
-- Consumes: `Result`, `ErroDeDominio`, `erroDe`, `ok`, `erro` de `./resultado.js`
+- Consumes: `Result`, `ErroDeDominio`, `erroDe`, `ok`, `erro` de `./resultado`
 - Produces: classe `Dinheiro` com `Dinheiro.deCentavos(bigint)`, `Dinheiro.zero()`, `Dinheiro.deTexto(string): Result<Dinheiro>`, `.centavos: bigint`, `.mais(Dinheiro)`, `.menos(Dinheiro)`, `.ehZero()`, `.ehNegativo()`, `.ratear(n: number): Dinheiro[]`, `.formatar(): string`
 
 - [ ] **Step 1: Escrever os testes que falham**
@@ -675,8 +676,8 @@ git commit -m "feat(domain): Result com erros como valores"
 ```ts
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { Dinheiro } from './dinheiro.js'
-import { ehErro, ehOk, exigir } from './resultado.js'
+import { Dinheiro } from './dinheiro'
+import { ehErro, ehOk, exigir } from './resultado'
 
 const texto = (s: string) => exigir(Dinheiro.deTexto(s))
 
@@ -765,7 +766,7 @@ Expected: FAIL — `Failed to resolve import "./dinheiro.js"`.
 
 `packages/domain/src/dinheiro.ts`:
 ```ts
-import { erro, erroDe, ok, type Result } from './resultado.js'
+import { erro, erroDe, ok, type Result } from './resultado'
 
 const FORMATADOR = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -881,7 +882,7 @@ git commit -m "feat(domain): Dinheiro em centavos com rateio provado por proprie
 - Create: `packages/domain/src/quantidade.ts`, `packages/domain/src/quantidade.test.ts`
 
 **Interfaces:**
-- Consumes: `Result`, `erroDe`, `ok`, `erro`, `exigir` de `./resultado.js`
+- Consumes: `Result`, `erroDe`, `ok`, `erro`, `exigir` de `./resultado`
 - Produces: classe `Quantidade` com `Quantidade.deMilesimos(bigint, string)`, `Quantidade.deTexto(string, string): Result<Quantidade>`, `.milesimos: bigint`, `.unidade: string`, `.mais(q): Result<Quantidade>`, `.menos(q): Result<Quantidade>`, `.ehZero()`, `.formatar()`; e `type Fatores = { compraParaMedida: bigint; medidaParaUso: bigint }`, `deCompraParaMedida`, `deMedidaParaUso`, `deUsoParaMedida`
 
 - [ ] **Step 1: Escrever os testes que falham**
@@ -896,8 +897,8 @@ import {
   deUsoParaMedida,
   Quantidade,
   type Fatores,
-} from './quantidade.js'
-import { ehErro, exigir } from './resultado.js'
+} from './quantidade'
+import { ehErro, exigir } from './resultado'
 
 // 1 caixa = 4 ampolas · 1 ampola = 5 mg
 const AMPOLA: Fatores = { compraParaMedida: 4000n, medidaParaUso: 5000n }
@@ -984,7 +985,7 @@ Expected: FAIL — `Failed to resolve import "./quantidade.js"`.
 
 `packages/domain/src/quantidade.ts`:
 ```ts
-import { erro, erroDe, ok, type Result } from './resultado.js'
+import { erro, erroDe, ok, type Result } from './resultado'
 
 const MIL = 1000n
 
@@ -1137,7 +1138,7 @@ git commit -m "feat(domain): Quantidade em milesimos com conversao exata ou recu
 `packages/domain/src/relogio.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
-import { diaCivil, fimDoMes, inicioDoDia, janela, RelogioFixo, somarDias, somarMeses } from './relogio.js'
+import { diaCivil, fimDoMes, inicioDoDia, janela, RelogioFixo, somarDias, somarMeses } from './relogio'
 
 const BAHIA = 'America/Bahia' // UTC−3, sem horário de verão
 
@@ -1378,7 +1379,7 @@ git commit -m "feat(domain): relogio injetado, fuso por clinica e janela semiabe
 `packages/domain/src/permissoes.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
-import { CAMPOS_MONETARIOS, PERMS, perfisPadrao, temPerm, type Perfil } from './permissoes.js'
+import { CAMPOS_MONETARIOS, PERMS, perfisPadrao, temPerm, type Perfil } from './permissoes'
 
 const perfis = perfisPadrao()
 const recepcao = { admin: false, perfilId: 'pf_rec' }
@@ -1599,7 +1600,7 @@ import {
   TIPO_ANTIGO,
   TIPOS,
   tipoAoConcluir,
-} from './tipos-de-tarefa.js'
+} from './tipos-de-tarefa'
 
 describe('classificação dos tipos', () => {
   it('o grupo Pagamentos é receita', () => {
@@ -1810,12 +1811,12 @@ Expected: PASS, 10 testes.
 
 `packages/domain/src/index.ts`:
 ```ts
-export * from './resultado.js'
-export * from './dinheiro.js'
-export * from './quantidade.js'
-export * from './relogio.js'
-export * from './permissoes.js'
-export * from './tipos-de-tarefa.js'
+export * from './resultado'
+export * from './dinheiro'
+export * from './quantidade'
+export * from './relogio'
+export * from './permissoes'
+export * from './tipos-de-tarefa'
 ```
 
 - [ ] **Step 6: Rodar a suíte inteira do domínio**
@@ -2312,7 +2313,7 @@ pnpm --filter @fir/api add @node-rs/argon2
 `apps/api/src/autenticacao/senha.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
-import { conferirSenha, hashDeSenha } from './senha.js'
+import { conferirSenha, hashDeSenha } from './senha'
 
 describe('senha', () => {
   it('o hash não contém a senha e é verificável', async () => {
@@ -2340,7 +2341,7 @@ describe('senha', () => {
 `apps/api/src/autenticacao/sessao.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
-import { hashDoToken, limiteExcedido, novoToken } from './sessao.js'
+import { hashDoToken, limiteExcedido, novoToken } from './sessao'
 
 describe('token de sessão', () => {
   it('gera token opaco e o hash correspondente', () => {
@@ -2534,7 +2535,7 @@ export default defineConfig({ test: { include: ['src/**/*.test.ts'] } })
 `packages/contracts/src/autenticacao.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
-import { dinheiroEmTexto, EntrarEntrada } from './index.js'
+import { dinheiroEmTexto, EntrarEntrada } from './index'
 
 describe('EntrarEntrada', () => {
   it('aceita clínica, e-mail e senha válidos, normalizando os dois primeiros', () => {
@@ -2608,7 +2609,7 @@ export type Erro = z.infer<typeof Erro>
 `packages/contracts/src/autenticacao.ts`:
 ```ts
 import { z } from 'zod'
-import { Uuid } from './comum.js'
+import { Uuid } from './comum'
 
 export const EntrarEntrada = z.object({
   // A clínica entra aqui, no contrato, e não lida solta do corpo no
@@ -2662,8 +2663,8 @@ export type EntrarSaida = z.infer<typeof EntrarSaida>
 
 `packages/contracts/src/index.ts`:
 ```ts
-export * from './comum.js'
-export * from './autenticacao.js'
+export * from './comum'
+export * from './autenticacao'
 ```
 
 - [ ] **Step 5: Rodar e ver passar**
@@ -2708,7 +2709,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Test } from '@nestjs/testing'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { AppModule } from '../app.module.js'
+import { AppModule } from '../app.module'
 
 let app: NestFastifyApplication
 
@@ -2852,7 +2853,7 @@ export class BancoService implements OnModuleDestroy {
 `apps/api/src/banco/banco.module.ts`:
 ```ts
 import { Global, Module } from '@nestjs/common'
-import { BancoService } from './banco.service.js'
+import { BancoService } from './banco.service'
 
 @Global()
 @Module({ providers: [BancoService], exports: [BancoService] })
@@ -2864,7 +2865,7 @@ export class BancoModule {}
 `apps/api/src/saude/saude.controller.ts`:
 ```ts
 import { Controller, Get, HttpException, HttpStatus, Inject } from '@nestjs/common'
-import { BancoService } from '../banco/banco.service.js'
+import { BancoService } from '../banco/banco.service'
 
 /**
  * Healthcheck que verifica o **banco**, não só se o processo está de pé.
@@ -2906,8 +2907,8 @@ export class SaudeController {
 `apps/api/src/app.module.ts`:
 ```ts
 import { Module } from '@nestjs/common'
-import { BancoModule } from './banco/banco.module.js'
-import { SaudeController } from './saude/saude.controller.js'
+import { BancoModule } from './banco/banco.module'
+import { SaudeController } from './saude/saude.controller'
 
 @Module({ imports: [BancoModule], controllers: [SaudeController] })
 export class AppModule {}
@@ -2918,7 +2919,7 @@ export class AppModule {}
 import 'reflect-metadata'
 import { NestFactory } from '@nestjs/core'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
-import { AppModule } from './app.module.js'
+import { AppModule } from './app.module'
 
 const PORTA = Number(process.env['PORTA'] ?? 4811)
 
@@ -2973,7 +2974,7 @@ git commit -m "feat(api): Nest com Fastify, pool sujeito a RLS e healthcheck que
 `apps/api/src/comum/redacao.interceptor.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
-import { redigir } from './redacao.interceptor.js'
+import { redigir } from './redacao.interceptor'
 
 const semValores = (c: string) => c !== 'valores' && c !== 'pessoas.gerir'
 const comTudo = () => true
@@ -3067,7 +3068,7 @@ import { CAMPOS_MONETARIOS, type ChaveDePermissao } from '@fir/domain'
 import { type CallHandler, type ExecutionContext, Injectable, type NestInterceptor } from '@nestjs/common'
 import type { Observable } from 'rxjs'
 import { map } from 'rxjs/operators'
-import type { RequisicaoComContexto } from './contexto.js'
+import type { RequisicaoComContexto } from './contexto'
 
 /**
  * O TRADUTOR ÚNICO.
@@ -3291,9 +3292,9 @@ import { Test } from '@nestjs/testing'
 import pg from 'pg'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { AppModule } from '../app.module.js'
-import { registrarCookie } from '../main.js'
-import { hashDeSenha } from './senha.js'
+import { AppModule } from '../app.module'
+import { registrarCookie } from '../main'
+import { hashDeSenha } from './senha'
 
 const URL_MIG =
   process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'
@@ -3424,10 +3425,10 @@ Expected: FAIL — `registrarCookie` não existe.
 import type { EuSaida } from '@fir/contracts'
 import { type ChaveDePermissao, type Perfil, temPerm } from '@fir/domain'
 import { Injectable } from '@nestjs/common'
-import { BancoService } from '../banco/banco.service.js'
-import type { ContextoDaRequisicao } from '../comum/contexto.js'
-import { conferirSenha } from './senha.js'
-import { DURACAO_SESSAO_MS, hashDoToken, limiteExcedido, novoToken } from './sessao.js'
+import { BancoService } from '../banco/banco.service'
+import type { ContextoDaRequisicao } from '../comum/contexto'
+import { conferirSenha } from './senha'
+import { DURACAO_SESSAO_MS, hashDoToken, limiteExcedido, novoToken } from './sessao'
 
 export class CredencialInvalida extends Error {}
 export class LimiteDeTentativas extends Error {}
@@ -3662,8 +3663,8 @@ export class AutenticacaoService {
 `apps/api/src/autenticacao/sessao.guard.ts`:
 ```ts
 import { type CanActivate, type ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common'
-import type { RequisicaoComContexto } from '../comum/contexto.js'
-import { AutenticacaoService } from './autenticacao.service.js'
+import type { RequisicaoComContexto } from '../comum/contexto'
+import { AutenticacaoService } from './autenticacao.service'
 
 export const NOME_DO_COOKIE = '__Host-fir-sessao'
 
@@ -3708,10 +3709,10 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
-import type { RequisicaoComContexto } from '../comum/contexto.js'
-import { AutenticacaoService, CredencialInvalida, LimiteDeTentativas } from './autenticacao.service.js'
-import { DURACAO_SESSAO_MS } from './sessao.js'
-import { NOME_DO_COOKIE, SessaoGuard } from './sessao.guard.js'
+import type { RequisicaoComContexto } from '../comum/contexto'
+import { AutenticacaoService, CredencialInvalida, LimiteDeTentativas } from './autenticacao.service'
+import { DURACAO_SESSAO_MS } from './sessao'
+import { NOME_DO_COOKIE, SessaoGuard } from './sessao.guard'
 
 /** Uma frase só para toda falha de credencial. Ver o teste e2e. */
 const FRASE = 'E-mail ou senha incorretos.'
@@ -3798,9 +3799,9 @@ export class AutenticacaoController {
 `apps/api/src/autenticacao/autenticacao.module.ts`:
 ```ts
 import { Module } from '@nestjs/common'
-import { AutenticacaoController } from './autenticacao.controller.js'
-import { AutenticacaoService } from './autenticacao.service.js'
-import { SessaoGuard } from './sessao.guard.js'
+import { AutenticacaoController } from './autenticacao.controller'
+import { AutenticacaoService } from './autenticacao.service'
+import { SessaoGuard } from './sessao.guard'
 
 @Module({
   controllers: [AutenticacaoController],
@@ -3816,10 +3817,10 @@ export class AutenticacaoModule {}
 ```ts
 import { Module } from '@nestjs/common'
 import { APP_INTERCEPTOR } from '@nestjs/core'
-import { AutenticacaoModule } from './autenticacao/autenticacao.module.js'
-import { BancoModule } from './banco/banco.module.js'
-import { RedacaoInterceptor } from './comum/redacao.interceptor.js'
-import { SaudeController } from './saude/saude.controller.js'
+import { AutenticacaoModule } from './autenticacao/autenticacao.module'
+import { BancoModule } from './banco/banco.module'
+import { RedacaoInterceptor } from './comum/redacao.interceptor'
+import { SaudeController } from './saude/saude.controller'
 
 @Module({
   imports: [BancoModule, AutenticacaoModule],
@@ -3836,7 +3837,7 @@ import 'reflect-metadata'
 import cookie from '@fastify/cookie'
 import { NestFactory } from '@nestjs/core'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
-import { AppModule } from './app.module.js'
+import { AppModule } from './app.module'
 
 export async function registrarCookie(app: NestFastifyApplication): Promise<void> {
   await app.register(cookie as never)
@@ -3891,7 +3892,7 @@ git commit -m "feat(api): entrar, sair e /v1/eu com cookie __Host- e limite de t
  */
 import pg from 'pg'
 import { perfisPadrao } from '@fir/domain'
-import { hashDeSenha } from './src/autenticacao/senha.js'
+import { hashDeSenha } from './src/autenticacao/senha'
 
 const CODIGO = 'demo'
 const EMAIL = 'demo@firmare.local'
@@ -4191,7 +4192,7 @@ export function formatarQuantidade(
 `packages/ui/src/index.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
-import { formatarDinheiro, formatarQuantidade } from './index.js'
+import { formatarDinheiro, formatarQuantidade } from './index'
 
 describe('formatarDinheiro', () => {
   it('formata centavos em pt-BR', () => {
@@ -4370,7 +4371,7 @@ export function itensDoMenu(
 ```ts
 import { perfisPadrao } from '@fir/domain'
 import { describe, expect, it } from 'vitest'
-import { itensDoMenu } from './menu.js'
+import { itensDoMenu } from './menu'
 
 const perfis = perfisPadrao()
 const href = (u: { admin: boolean; perfilId: string | null }) =>
@@ -4724,7 +4725,7 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = ['perfis', 'pessoas', 's
 ```ts
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { ENTIDADES_COM_CLINICA } from './registro.js'
+import { ENTIDADES_COM_CLINICA } from './registro'
 
 const URL_MIG =
   process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'
@@ -4793,7 +4794,7 @@ describe('toda tabela de negócio está protegida', () => {
 ```ts
 import { CAMPOS_MONETARIOS } from '@fir/domain'
 import { describe, expect, it } from 'vitest'
-import { ROTAS_COM_DINHEIRO } from './registro.js'
+import { ROTAS_COM_DINHEIRO } from './registro'
 
 /**
  * Este arquivo ainda não tem muito a fazer no plano 1 — nenhuma rota devolve
