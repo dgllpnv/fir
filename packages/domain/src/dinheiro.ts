@@ -81,15 +81,38 @@ export class Dinheiro {
     })
   }
 
+  /**
+   * A string sai dos DOIS `bigint`, sem passar por `Number` em nenhum ponto.
+   *
+   * O que havia antes: `FORMATADOR.format(Number(inteiros) + Number(decimais)
+   * / 100)` — ponto flutuante colado em dinheiro, a assinatura exata que a
+   * regra 1 do CLAUDE.md existe para barrar, e dentro da classe escrita para
+   * impedi-la. Medido: `90071992547409919` centavos saía como
+   * `R$ 900.719.925.474.099,20` em vez de `...,19`, porque
+   * `900719925474099 + 0.19` não é representável em binário de 64 bits.
+   *
+   * Inócuo abaixo de 90 trilhões de reais, e é justamente por isso que
+   * precisava sair: a Task 12 usou ESTA perda de precisão como prova de por
+   * que dinheiro trafega como string. Um formatador que a comete é o
+   * contra-exemplo do próprio argumento.
+   *
+   * `formatToParts` com `bigint` (aceito desde ES2020) deixa o `Intl` decidir
+   * símbolo, agrupamento e separador decimal — nada disso é escrito à mão
+   * aqui — e a parte `fraction` é substituída pelos centavos exatos. O resto
+   * da string vem do `Intl` intacto.
+   */
   formatar(): string {
     const negativo = this.centavos < 0n
     const abs = negativo ? -this.centavos : this.centavos
-    const inteiros = abs / 100n
-    const decimais = abs % 100n
-    // `Intl.NumberFormat` separa "R$" do valor com U+00A0 (espaço sem quebra),
-    // não com espaço comum — invisível ao olho, mas falha comparação exata de
-    // string. Normaliza para espaço comum (U+0020).
-    const texto = FORMATADOR.format(Number(inteiros) + Number(decimais) / 100).replace(' ', ' ')
-    return negativo && !texto.startsWith('-') ? `-${texto}` : texto
+    const centavos = (abs % 100n).toString().padStart(2, '0')
+    const texto = FORMATADOR.formatToParts(abs / 100n)
+      .map((p) => (p.type === 'fraction' ? centavos : p.value))
+      .join('')
+      // `Intl.NumberFormat` separa "R$" do valor com U+00A0 (espaço sem
+      // quebra), não com espaço comum — invisível ao olho, mas falha
+      // comparação exata de string. `replaceAll`, não `replace`: a de
+      // ocorrência única trocava só o primeiro, e um dia o `Intl` põe dois.
+      .replaceAll(' ', ' ')
+    return `${negativo ? '-' : ''}${texto}`
   }
 }

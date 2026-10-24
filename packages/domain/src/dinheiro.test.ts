@@ -23,6 +23,33 @@ describe('Dinheiro — leitura', () => {
   it('formata em pt-BR', () => {
     expect(Dinheiro.deCentavos(125050n).formatar()).toBe('R$ 1.250,50')
     expect(Dinheiro.zero().formatar()).toBe('R$ 0,00')
+    expect(Dinheiro.deCentavos(5n).formatar()).toBe('R$ 0,05')
+    expect(Dinheiro.deCentavos(-500n).formatar()).toBe('-R$ 5,00')
+  })
+
+  it('formata sem passar por ponto flutuante — o centavo exato acima de 2^53', () => {
+    // A formatação fazia `Number(inteiros) + Number(decimais) / 100`, e
+    // `900719925474099 + 0.19` não é representável em binário de 64 bits:
+    // o resultado saía `...,20`. Dezenove centavos a mais do que existe.
+    //
+    // Inócuo abaixo de 90 trilhões de reais — e é exatamente a assinatura que
+    // a regra 1 barra. A Task 12 usou ESTA perda como prova de por que
+    // dinheiro trafega como string; um formatador que a comete contradiz o
+    // próprio argumento.
+    expect(Dinheiro.deCentavos(90071992547409919n).formatar()).toBe('R$ 900.719.925.474.099,19')
+    // Acima de qualquer valor que `Number` represente de longe: a string
+    // continua exata porque nenhum `Number` participa.
+    expect(Dinheiro.deCentavos(100000000000000000007n).formatar()).toBe(
+      'R$ 1.000.000.000.000.000.000,07',
+    )
+  })
+
+  it('o espaço depois de "R$" é U+0020, não o U+00A0 do Intl', () => {
+    // Invisível ao olho e falha comparação exata de string — então é testado
+    // pelo ponto de código, não pelo que parece na tela.
+    const t = Dinheiro.deCentavos(100n).formatar()
+    expect(t.includes(' ')).toBe(false)
+    expect(t).toBe('R$ 1,00')
   })
 })
 

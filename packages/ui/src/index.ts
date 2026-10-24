@@ -11,14 +11,26 @@ export function formatarDinheiro(centavos: bigint | null | undefined): string {
   if (centavos === null || centavos === undefined) return '—'
   const negativo = centavos < 0n
   const abs = negativo ? -centavos : centavos
-  // `Intl.NumberFormat` separa "R$" do valor com U+00A0 (espaço sem quebra),
-  // não com espaço comum — invisível ao olho, mas falha comparação exata de
-  // string. Normaliza para espaço comum (U+0020), igual ao `Dinheiro.formatar()`
-  // do domínio.
-  const texto = DINHEIRO.format(Number(abs / 100n) + Number(abs % 100n) / 100).replace(
-    ' ',
-    ' ',
-  )
+  /**
+   * Dos DOIS `bigint`, sem `Number` em ponto nenhum — igual ao
+   * `Dinheiro.formatar()` do domínio, e pela mesma razão.
+   *
+   * O que havia antes: `Number(abs / 100n) + Number(abs % 100n) / 100`.
+   * Medido: `90071992547409919` centavos saía `R$ 900.719.925.474.099,20` em
+   * vez de `...,19`. É a assinatura que a regra 1 do CLAUDE.md barra, no
+   * formatador central que existe para centralizar o cuidado.
+   *
+   * `formatToParts` com `bigint` deixa o `Intl` decidir símbolo,
+   * agrupamento e separador decimal; só a parte `fraction` é trocada pelos
+   * centavos exatos. `replaceAll` e não `replace`: o U+00A0 (espaço sem
+   * quebra) que o `Intl` põe entre "R$" e o número é invisível ao olho e
+   * falha comparação exata de string, e a troca de ocorrência única pegava
+   * só o primeiro.
+   */
+  const texto = DINHEIRO.formatToParts(abs / 100n)
+    .map((p) => (p.type === 'fraction' ? (abs % 100n).toString().padStart(2, '0') : p.value))
+    .join('')
+    .replaceAll(' ', ' ')
   return negativo ? `-${texto}` : texto
 }
 
