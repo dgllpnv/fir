@@ -60,6 +60,19 @@ goto :fim
 
 REM ---------------------------------------------------------------------------
 :subir
+REM Recusa em vez de fingir: sem node_modules, "pnpm --silent db:migrate"
+REM falha mais abaixo com um erro opaco do pnpm (ERR_PNPM_...) que nao diz
+REM o que fazer. Falha aqui, antes de subir os containers, com instrucao.
+if not exist "%RAIZ%node_modules\" (
+  echo.
+  echo   [ERRO] As dependencias nao estao instaladas.
+  echo   Rode "pnpm install" na raiz do projeto e tente de novo.
+  echo   Isso e necessario uma vez, depois de clonar.
+  echo.
+  set "CODIGO=1"
+  goto :fim
+)
+
 call :containers
 if errorlevel 1 goto :fim
 

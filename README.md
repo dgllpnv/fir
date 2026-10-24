@@ -14,6 +14,11 @@ Roda **ao lado** do sistema da clínica, não no lugar dele.
 
 Precisa de Docker Desktop e Node 22.
 
+```bash
+pnpm install   # uma vez, depois de clonar — e de novo só quando as
+               # dependências mudarem
+```
+
 ```
 fir            sobe tudo e deixa a aplicação rodando
 fir infra      só os containers (banco, Redis, Mailpit) — para os testes
