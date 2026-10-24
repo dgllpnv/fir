@@ -1259,15 +1259,27 @@ function deslocamentoMinutos(instante: Date, fuso: string): number {
   return (comoSeFosseUtc - instante.getTime()) / 60_000
 }
 
-/** O dia civil (`yyyy-MM-dd`) em que o instante cai, **no fuso da clínica**. */
+/**
+ * O dia civil (`yyyy-MM-dd`) em que o instante cai, **no fuso da clínica**.
+ *
+ * `formatToParts` e montagem à mão, não `format`: a ordem e o separador de um
+ * locale são **dado** do CLDR, não contrato do ECMA-402. `en-CA` costuma dar
+ * `yyyy-MM-dd`, mas pode mudar entre versões de ICU sem erro de compilação e
+ * sem exceção — e este valor é a chave de agrupamento de tarefas por dia no
+ * produto inteiro.
+ */
 export function diaCivil(instante: Date, fuso: string): string {
-  const partes = new Intl.DateTimeFormat('en-CA', {
+  const partes = new Intl.DateTimeFormat('en-US', {
     timeZone: fuso,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(instante)
-  return partes // en-CA já formata como yyyy-MM-dd
+  }).formatToParts(instante)
+
+  const p: Record<string, string> = {}
+  for (const x of partes) if (x.type !== 'literal') p[x.type] = x.value
+
+  return `${p['year']}-${p['month']}-${p['day']}`
 }
 
 /** O instante UTC em que o dia civil começa no fuso da clínica. */
@@ -1279,7 +1291,23 @@ export function inicioDoDia(dia: string, fuso: string): Date {
   // quando o palpite cair do outro lado de uma mudança de horário de verão.
   const primeiro = new Date(comoUtc - deslocamentoMinutos(new Date(comoUtc), fuso) * 60_000)
   const segundo = new Date(comoUtc - deslocamentoMinutos(primeiro, fuso) * 60_000)
-  return segundo
+
+  // Hora inexistente: na virada PARA o horário de verão, a meia-noite local
+  // não acontece — o relógio salta (ex.: 23:59:59 → 01:00:00). As duas
+  // passadas acima devolvem, nesse caso, um instante do dia ANTERIOR ao
+  // pedido. Medido em `America/Sao_Paulo`, 2018-11-04: devolviam 2018-11-03.
+  // O dia começa, então, no primeiro instante que de fato existe.
+  if (diaCivil(segundo, fuso) === dia) return segundo
+
+  let antes = segundo.getTime()
+  let depois = antes + 24 * 60 * 60_000
+  while (depois - antes > 1) {
+    const meio = antes + Math.floor((depois - antes) / 2)
+    // Comparação lexicográfica: para `yyyy-MM-dd` é a mesma ordem da cronológica.
+    if (diaCivil(new Date(meio), fuso) < dia) antes = meio
+    else depois = meio
+  }
+  return new Date(depois)
 }
 
 /**
