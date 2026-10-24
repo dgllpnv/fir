@@ -40,11 +40,23 @@ describe('registro de rotas com dinheiro', () => {
  * Medido contra zod@3.25.76 (ver `package.json`): `ZodObject` expõe
  * `.shape`; `ZodArray` guarda o tipo do elemento em `_def.type`;
  * `ZodNullable`/`ZodOptional` guardam o tipo de dentro em `_def.innerType`;
- * `ZodEffects` (o caso de `dinheiroEmTexto`, que é `z.union(...).transform`)
- * guarda o esquema de entrada em `_def.schema`. Os quatro são checados por
- * `instanceof` contra as classes exportadas por `z`, não por
+ * `ZodEffects` (`.refine()`/`.transform()` sem `.pipe()`) guarda o esquema de
+ * entrada em `_def.schema`. Os quatro (e os seis acrescentados abaixo) são
+ * checados por `instanceof` contra as classes exportadas por `z`, não por
  * `_def.typeName` em string — `instanceof` também estreita o tipo no
  * TypeScript sem precisar de `any`.
+ *
+ * Re-revisão, achado 3: a travessia não descia em `ZodUnion`,
+ * `ZodDiscriminatedUnion`, `ZodRecord` nem `ZodDefault`. Demonstrado pelo
+ * revisor: `valor` escondido em `z.array(z.discriminatedUnion(...))`,
+ * `saldo` em `z.union(...)`, `custo` em `z.record(...)` e `salario` em
+ * `.default(...)` — a varredura passava 4/4 verde sem ver nenhum dos quatro.
+ * União discriminada por tipo de tarefa é a forma que o Plano 2 vai usar
+ * para a resposta de toda rota de tarefa, e é exatamente onde isto teria
+ * ficado cego. Acrescentados também `ZodTuple`, `ZodIntersection` e
+ * `ZodPipeline` (a forma real de `.transform().pipe(...)` no zod 3 — ver
+ * achado 4 do relatório: o `ZodEffects` acima nunca cobriu esse caso) e
+ * `ZodLazy`, para esquema recursivo futuro.
  */
 function camposDoEsquema(esquema: z.ZodTypeAny, achados: Set<string>, visto: Set<z.ZodTypeAny>): void {
   // Visto evita recursão infinita se um esquema algum dia se referenciar — não
@@ -68,11 +80,55 @@ function camposDoEsquema(esquema: z.ZodTypeAny, achados: Set<string>, visto: Set
     camposDoEsquema(esquema._def.innerType, achados, visto)
     return
   }
+  if (esquema instanceof z.ZodDefault) {
+    camposDoEsquema(esquema._def.innerType, achados, visto)
+    return
+  }
   if (esquema instanceof z.ZodEffects) {
     camposDoEsquema(esquema._def.schema, achados, visto)
     return
   }
-  // Tipo-folha (string, uuid, boolean, union sem transform...): nada a descer.
+  // `ZodDiscriminatedUnion` NÃO estende `ZodUnion` em zod 3 — precisa do
+  // próprio `instanceof`, mas as duas guardam as alternativas em
+  // `_def.options` (array), e é só isso que esta travessia precisa.
+  if (esquema instanceof z.ZodUnion || esquema instanceof z.ZodDiscriminatedUnion) {
+    for (const opcao of esquema._def.options as z.ZodTypeAny[]) {
+      camposDoEsquema(opcao, achados, visto)
+    }
+    return
+  }
+  if (esquema instanceof z.ZodRecord) {
+    // `_def.keyType` quase sempre é `ZodString`/`ZodEnum` sem campo a achar,
+    // mas descer nele também é inofensivo e cobre uma chave enumerada que
+    // algum dia envolva um objeto.
+    camposDoEsquema(esquema._def.keyType, achados, visto)
+    camposDoEsquema(esquema._def.valueType, achados, visto)
+    return
+  }
+  if (esquema instanceof z.ZodTuple) {
+    for (const item of esquema._def.items as z.ZodTypeAny[]) {
+      camposDoEsquema(item, achados, visto)
+    }
+    if (esquema._def.rest) camposDoEsquema(esquema._def.rest, achados, visto)
+    return
+  }
+  if (esquema instanceof z.ZodIntersection) {
+    camposDoEsquema(esquema._def.left, achados, visto)
+    camposDoEsquema(esquema._def.right, achados, visto)
+    return
+  }
+  if (esquema instanceof z.ZodPipeline) {
+    // A forma real de `z.union(...).transform(fn).pipe(z.algumaCoisa)` no
+    // zod 3 — ver teste de travessia abaixo ("transformado").
+    camposDoEsquema(esquema._def.in, achados, visto)
+    camposDoEsquema(esquema._def.out, achados, visto)
+    return
+  }
+  if (esquema instanceof z.ZodLazy) {
+    camposDoEsquema(esquema._def.getter(), achados, visto)
+    return
+  }
+  // Tipo-folha (string, uuid, boolean, literal...): nada a descer.
 }
 
 describe('todo campo monetário exposto pelos contratos está registrado', () => {
@@ -167,5 +223,70 @@ describe('todo campo monetário exposto pelos contratos está registrado', () =>
     expect([...achados].sort()).toEqual(
       ['dentroDaLista', 'dentroDoNullable', 'dentroDoOpcional', 'lista', 'opcional', 'talvez', 'topo', 'transformado'].sort(),
     )
+  })
+
+  /**
+   * Re-revisão, achado 3 — os quatro casos que o revisor usou para provar
+   * que a varredura passava 4/4 verde sem ver nenhum deles. Cada `it` aqui
+   * reproduz uma forma, com um campo de `CAMPOS_MONETARIOS` de verdade
+   * (`valor`, `saldo`, `custo`, `salario`) escondido dentro dela, e assere
+   * que `camposDoEsquema` o alcança.
+   *
+   * Antes dos ramos de `ZodUnion`/`ZodDiscriminatedUnion`/`ZodRecord`/
+   * `ZodDefault` acima, os quatro `expect` abaixo FALHAVAM (o campo não
+   * aparecia em `achados`) — é o mesmo defeito que deixava o teste de
+   * integração (acima) passar 4/4 sem nunca examinar o campo. Com os ramos,
+   * os quatro PASSAM. Permanentes: união discriminada por tipo de tarefa e
+   * `.default()` em campo opcional são a forma que os Planos 2 a 8 vão usar.
+   */
+  describe('as quatro formas que escapavam da travessia (re-revisão, achado 3)', () => {
+    it('campo dentro de union discriminada, dentro de array — a forma de uma lista de tarefas', () => {
+      const esquema = z.object({
+        tarefas: z.array(
+          z.discriminatedUnion('tipo', [
+            z.object({ tipo: z.literal('pagamento'), valor: z.number() }),
+            z.object({ tipo: z.literal('recontato'), motivo: z.string() }),
+          ]),
+        ),
+      })
+      const achados = new Set<string>()
+      camposDoEsquema(esquema, achados, new Set())
+      expect(achados.has('valor'), 'campo "valor" dentro de ZodDiscriminatedUnion não foi visto').toBe(true)
+    })
+
+    it('campo dentro de union simples', () => {
+      // `saldo` precisa estar DENTRO de uma alternativa da união, não ser a
+      // chave que a união preenche — senão o `achados.add(campo)` do laço de
+      // `ZodObject` já o capturaria pelo NOME da chave, sem nunca descer na
+      // união, e o teste passaria com ou sem o ramo de `ZodUnion` (não
+      // testaria nada).
+      const esquema = z.object({
+        algumCampo: z.union([z.object({ saldo: z.number() }), z.object({ outro: z.string() })]),
+      })
+      const achados = new Set<string>()
+      camposDoEsquema(esquema, achados, new Set())
+      expect(achados.has('saldo'), 'campo "saldo" dentro de ZodUnion não foi visto').toBe(true)
+    })
+
+    it('campo dentro do valor de um record', () => {
+      const esquema = z.object({
+        porCategoria: z.record(z.string(), z.object({ custo: z.number() })),
+      })
+      const achados = new Set<string>()
+      camposDoEsquema(esquema, achados, new Set())
+      expect(achados.has('custo'), 'campo "custo" dentro de ZodRecord não foi visto').toBe(true)
+    })
+
+    it('campo com .default()', () => {
+      // Mesma razão do caso de union acima: `salario` precisa estar dentro
+      // do `innerType` do `ZodDefault`, não ser a própria chave — senão o
+      // teste passaria mesmo sem o ramo de `ZodDefault`.
+      const esquema = z.object({
+        config: z.object({ salario: z.number() }).default({ salario: 0 }),
+      })
+      const achados = new Set<string>()
+      camposDoEsquema(esquema, achados, new Set())
+      expect(achados.has('salario'), 'campo "salario" dentro de ZodDefault não foi visto').toBe(true)
+    })
   })
 })
