@@ -4,6 +4,13 @@
 
 **O que ele não é:** uma declaração de que já temos as funcionalidades. Não temos. Leia a seção 1 antes de qualquer outra — sem ela, este documento engana.
 
+> **Nota de publicação.** Este repositório é público e **não** contém `versoes/v20-producao/`
+> — o código que roda hoje nas 4 clínicas. Ele continua no disco da equipe, como fonte da
+> migração, e está no `.gitignore`. Por isso as fraquezas da v20 aparecem aqui pela classe
+> do problema, não pelo caminho de exploração: o detalhe com arquivo e linha vive em
+> `docs/seguranca-v20-local.md`, também fora do repositório. Enquanto aquelas clínicas
+> estiverem em produção, descrever como entrar nelas é informação que não se publica.
+
 ---
 
 ## 1. O recorte honesto, antes de tudo
@@ -12,7 +19,7 @@ Há três artefatos, não dois.
 
 | Artefato | O que é | Estado |
 |---|---|---|
-| `versoes/v20-producao/Code.gs` | Google Apps Script sobre Google Sheets. **4 clínicas em produção real.** Implementa **21** ações | Rodando hoje |
+| `versoes/v20-producao/Code.gs` *(fora deste repositório)* | Google Apps Script sobre Google Sheets. **4 clínicas em produção real.** Implementa **21** ações | Rodando hoje |
 | `prototipo-rotinas-de-gestao.html` | 727 KB, 7,4 mil linhas, escrito pela PO. O `demoApiBase` dele define **59** ações. É a especificação funcional e tem autoridade | Especificação |
 | Nosso monorepo | 60 commits, 74 arquivos de código, 24 de teste. Implementa **4** rotas: `POST /v1/entrar`, `POST /v1/sair`, `GET /v1/eu` e `GET /v1/saude` | **Fundação pronta, funcionalidades não** |
 
@@ -69,10 +76,10 @@ As 38 ações que o protótipo tem e a produção não tem (estoque inteiro, fin
 
 | # | Diferença | Explicação |
 |---|---|---|
-| 5.1 | PIN de 4 dígitos → senha com Argon2id | 19 MiB, t=2, p=1 (perfil OWASP de baixa memória). PIN de 4 dígitos são 10.000 combinações. |
-| 5.2 | PIN em texto puro na planilha → só o hash | O PIN era armazenado legível. |
-| 5.3 | `carregar` devolvia o PIN de toda a equipe ao admin (`Code.gs:343`, repetido em `:962`) → nada disso | O admin da clínica lia o PIN de todos. Não há equivalente. |
-| 5.4 | `equipePublica` respondia **antes do login** com a equipe inteira (`Code.gs:302`) → removido | Era enumeração de usuários por desenho, e entregava o `uid` que o ataque de PIN precisa. |
+| 5.1 | PIN de 4 dígitos → senha com Argon2id | 19 MiB, t=2, p=1 (perfil OWASP de baixa memória). O espaço de um PIN de 4 dígitos é de 10.000 combinações. O documento de passagem já registrava isto como **limitação 1**, com a mitigação que adotamos. |
+| 5.2 | Credencial legível no armazenamento → só o hash | Ninguém, em nenhum perfil, consegue ler a senha de ninguém. |
+| 5.3 | Credencial legível por outro usuário da clínica → não existe equivalente | A recuperação é por redefinição, nunca por leitura. |
+| 5.4 | Havia ação respondendo **antes** da autenticação → nenhuma rota de leitura de pessoas é pública | Só três rotas são públicas: `entrar`, `sair` e `saude`. Nenhuma devolve dado de pessoa. |
 | 5.5 | Credencial em cada requisição → sessão opaca | Token de 32 bytes aleatórios; só o SHA-256 é guardado. Cookie `__Host-` com `Secure`, `HttpOnly`, `SameSite`. |
 | 5.6 | Sem limite de tentativas → dois limites | Por conta e **por origem** — o limite por conta sozinho deixa passar 1.000 e-mails distintos. |
 | 5.7 | Erro distinguia casos → resposta uniforme | Tempo igualado com piso fixo, e hash falso quando a pessoa não existe. Medido: 20–68 ms contra 8–9 ms antes; depois, faixas sobrepostas. |
@@ -85,7 +92,7 @@ As 38 ações que o protótipo tem e a produção não tem (estoque inteiro, fin
 
 | # | Diferença | Explicação |
 |---|---|---|
-| 6.1 | `visivel` e `saida` recalculados em cada handler (`Code.gs:308,310`) → dois guards globais | `SessaoGuard` e `AutorizacaoGuard` como `APP_GUARD`, na ordem registrada em `app.module.ts`. |
+| 6.1 | Autorização recalculada à mão dentro de cada handler → dois guards globais | `SessaoGuard` e `AutorizacaoGuard` como `APP_GUARD`, na ordem registrada em `app.module.ts`. |
 | 6.2 | Rota nova nascia sem proteção → `@Publico()` explícito | Hoje o padrão é protegido; abrir uma rota exige escrever que ela é pública. Três são: `entrar`, `sair` e `saude`. |
 | 6.3 | — | `teste/rotas-protegidas.test.ts` varre o `ModulesContainer` do Nest e falha se alguma rota ficar descoberta. Três provas por mutação. |
 | 6.4 | Dinheiro apagado à mão em um ponto → `RedacaoInterceptor` global | Um ponto único, e **falha fechado**: sem contexto de permissão, não libera. |
@@ -96,13 +103,13 @@ As 38 ações que o protótipo tem e a produção não tem (estoque inteiro, fin
 
 | # | Diferença | Explicação |
 |---|---|---|
-| 7.1 | `Math.round(n*100)/100` (`Code.gs:983`) → `bigint` em centavos | Float não representa `0,07` exatamente; somar centenas de lançamentos acumula erro. |
+| 7.1 | `Math.round(n*100)/100` → `bigint` em centavos | Float não representa `0,07` exatamente; somar centenas de lançamentos acumula erro. |
 | 7.2 | Quantidade em `Math.round(x*1000)/1000` → inteiro em milésimos | 1 ampola = `1000n`. Reproduz a precisão do legado **exatamente**, sem float. |
 | 7.3 | Divisão solta → `ratear(partes)` | Duas propriedades garantidas por teste: a soma é igual ao todo, e `max − min <= 1`. A soma sozinha não distingue rateio justo de "todo o resto na primeira parte". |
 | 7.4 | `toFixed` e `Intl` espalhados → formatador central | `packages/domain`. Nunca `toFixed(2)` solto, nunca `Intl` na página. |
 | 7.5 | — | O nosso formatador tinha o mesmo defeito do legado: `Number(inteiros) + Number(decimais)/100` fazia `90071992547409919` centavos sair como `...,20`. Hoje é `formatToParts` sobre os dois `bigint`. |
 | 7.6 | — | `Intl` emite U+00A0 como separador de milhar. Comparação de string quebra por um caractere invisível — tratado explicitamente. |
-| 7.7 | `novoId()` = UUID truncado em 8 hex (`Code.gs:975`) → `uuid` íntegro | 32 bits dão ~50% de colisão aos 65 mil registros. Os prefixos `u`/`pl`/`t` separam domínios, não ampliam o espaço. |
+| 7.7 | Identificador de 8 hex, de UUID truncado → `uuid` íntegro | 32 bits dão ~50% de colisão aos 65 mil registros. Os prefixos `u`/`pl`/`t` separam domínios, não ampliam o espaço. |
 | 7.8 | — | `ClinicaId` é tipo nominal: `naClinica(corpo.x)` passou a ser erro de compilação. |
 | 7.9 | Número desalinhado na tela → `tabular-nums` por padrão em `td` | Coluna que não alinha não se compara, e comparar é o motivo de a coluna existir. |
 

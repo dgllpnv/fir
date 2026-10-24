@@ -78,7 +78,7 @@ antes de afirmar que algo passou — use `npx turbo run test --force`.
 | `teste/` | Testes transversais, que atravessam mais de um pacote |
 | `infra/` | Docker Compose do ambiente local e o SQL de provisionamento de papéis |
 | `prototipo-rotinas-de-gestao.html` | **Especificação funcional.** Nunca entra em build |
-| `versoes/v20-producao/` | **Produção atual e origem dos dados.** Nunca entra em build |
+| `versoes/v20-producao/` | **Produção atual e origem dos dados.** Nunca entra em build — e **não está neste repositório**: é o código rodando em 4 clínicas reais, e o repositório é público. Fica no disco da equipe, no `.gitignore` |
 
 ## Monorepo
 

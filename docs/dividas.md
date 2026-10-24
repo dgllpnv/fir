@@ -6,6 +6,26 @@ Ordem: por gatilho mais próximo primeiro.
 
 ---
 
+## Agora — e não depende de nós entregarmos nada
+
+### D0 · As 4 clínicas continuam na v20, e a autenticação dela é fraca por desenho
+
+Enquanto a migração não acontecer, as clínicas em produção seguem com o modelo de login
+que o documento de passagem já registrava como **limitação 1**: credencial curta, sem
+limite de tentativas, trafegando em cada requisição.
+
+**Três mitigações não dependem da migração** e cabem numa tarde cada uma, no próprio
+Apps Script. Estão descritas, com o detalhe, em `docs/seguranca-v20-local.md` — que fica
+fora deste repositório por ser público.
+
+**Gatilho:** já passou. **Quem decide:** o dono — mexer num sistema em produção que não
+está no escopo da reconstrução é decisão dele, mas ele precisa do tamanho do problema para
+decidir. **O que torna isto diferente das outras dívidas:** as outras são nossas e esperam
+nosso trabalho. Esta é de um sistema vivo, com dado de saúde de paciente real, e o relógio
+dela corre sozinho.
+
+---
+
 ## Antes do primeiro deploy na VPS
 
 ### D1 · `PROXY_SALTOS_CONFIAVEIS` não tem onde ser configurado

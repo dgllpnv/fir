@@ -22,7 +22,7 @@ Domínio: dinheiro de clínicas reais, estoque de medicamento controlado e **dad
 
 | Caminho | Papel |
 |---|---|
-| `versoes/v20-producao/` | **Referência e origem dos dados. Nunca entra em build.** O `Code.gs` é a definição operacional do que os dados significam hoje, e tem precedência sobre qualquer documento quando os dois discordarem |
+| `versoes/v20-producao/` | **Referência e origem dos dados. Nunca entra em build, e não está no repositório** — o repositório é público e isto é o código de 4 clínicas vivas. Está no `.gitignore`; se a pasta não existir na sua máquina, peça ao dono. O `Code.gs` é a definição operacional do que os dados significam hoje, e tem precedência sobre qualquer documento quando os dois discordarem |
 | `prototipo-rotinas-de-gestao.html` | **Especificação funcional. Nunca entra em build.** Divergir dele é decisão de produto, e vira ADR |
 | `DESENVOLVEDOR-gestao-de-rotina.md` | Documento de passagem da PO: propósito, perfis, modelo de dados, API, regras por módulo |
 | `roteiro-implantacao-notas.md` | O que a implantação numa clínica exige, módulo a módulo |

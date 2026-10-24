@@ -7,3 +7,10 @@ dist/
 infra/producao/.env
 infra/producao/redis.conf
 .superpowers/
+
+# A v20 em producao e o detalhe das fraquezas dela nao vao para o repositorio
+# publico: sao o codigo rodando em 4 clinicas reais e o caminho de exploracao
+# dele. Continuam no disco da equipe, como fonte da migracao. Ver a nota de
+# publicacao em docs/diferencas-versao-po-vs-nossa.md.
+versoes/
+docs/seguranca-v20-local.md
