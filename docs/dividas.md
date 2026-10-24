@@ -56,7 +56,7 @@ Pessoas só são criadas por SQL ou pela semente. Convite, cadastro e recuperaç
 
 Decidida em D-5, com as sete restrições que tornam o superadmin seguro. **Precisa vir antes do Plano 2:** todo plano seguinte escreve dado, e numa tabela append-only não há como recuperar o que não foi gravado. Retrofitar em oito planos é fazer oito vezes o mesmo trabalho.
 
-**Gatilho:** agora. É o plano curto entre a fundação e as tarefas.
+**Gatilho:** agora. **Plano escrito** em `docs/superpowers/plans/2026-10-24-plano-auditoria.md` — 7 tarefas. Sai desta lista quando executar.
 
 ### D5 · A redação de valores é por **nome** de campo
 
