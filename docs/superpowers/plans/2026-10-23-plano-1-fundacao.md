@@ -3935,7 +3935,18 @@ try {
 
   // Uma pessoa por perfil, para exercitar a redação de valores sem ficar
   // trocando o perfil da administradora.
+  //
+  // `pf_sup` é obrigatório aqui: é o perfil com mais permissões — tem
+  // `valores` e `painel` — e sem alguém atribuído a ele não haveria como
+  // entrar como supervisão, que é justamente o caso mais interessante para
+  // testar o que a redação deixa passar.
+  //
+  // ⚠️ Armadilha conhecida: o `INSERT ... SELECT ... FROM perfis WHERE chave`
+  // abaixo **não falha** se a chave não existir — ele simplesmente não insere
+  // linha nenhuma, em silêncio, e a semente termina dizendo que deu certo com
+  // uma pessoa a menos. Quem endurecer isto deve afirmar `rowCount === 1`.
   const porPerfil: [string, string, string, string][] = [
+    ['pf_sup', 'Beatriz Nunes', 'beatriz@firmare.local', 'Gestão'],
     ['pf_rec', 'Juliana Santos', 'juliana@firmare.local', 'Recepção'],
     ['pf_enf', 'Camila Rocha', 'camila@firmare.local', 'Enfermagem'],
     ['pf_com', 'Patrícia Lima', 'patricia@firmare.local', 'Comercial interno'],
