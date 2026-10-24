@@ -123,3 +123,153 @@ END $$;
 CREATE TRIGGER auditoria_sem_update
   BEFORE UPDATE OR DELETE OR TRUNCATE ON auditoria
   FOR EACH STATEMENT EXECUTE FUNCTION auditoria_e_append_only();
+
+-- ---------------------------------------------------------------------------
+-- A DENYLIST: o que nunca atravessa para `de`/`para`.
+--
+-- O valor é substituído, e a CHAVE FICA. Omitir a coluna esconderia o segredo
+-- e também o FATO: "a senha de alguém foi trocada, por quem e quando" é
+-- precisamente a pergunta que uma trilha de auditoria existe para responder, e
+-- uma troca de senha que não deixa linha nenhuma é um buraco, não uma
+-- proteção. O nome da coluna não é segredo; o conteúdo é.
+--
+-- Acrescente aqui qualquer segredo novo. É o único lugar.
+-- ---------------------------------------------------------------------------
+CREATE FUNCTION auditoria_sem_segredos(p jsonb) RETURNS jsonb
+  LANGUAGE sql IMMUTABLE
+  SET search_path = pg_catalog
+  AS $$
+    SELECT CASE WHEN p IS NULL THEN NULL ELSE coalesce(
+      (SELECT jsonb_object_agg(
+                k,
+                CASE WHEN k = ANY (ARRAY['senha_hash', 'token_hash'])
+                     THEN '"[oculto]"'::jsonb
+                     ELSE p -> k END)
+         FROM jsonb_object_keys(p) k),
+      -- `jsonb_object_agg` de zero chaves devolve NULL, e `'{}'` precisa
+      -- continuar sendo `'{}'`.
+      p) END
+  $$;
+
+COMMENT ON FUNCTION auditoria_sem_segredos(jsonb) IS
+  'Substitui o VALOR das colunas da denylist por "[oculto]", preservando a '
+  'chave. A trilha registra que o segredo mudou, nunca qual era.';
+
+-- ---------------------------------------------------------------------------
+-- A TRIGGER QUE REGISTRA — e que recusa escrever sem ator.
+--
+-- Por que trigger, e não chamada no serviço:
+--
+--  1. NENHUM CAMINHO ESCAPA. Nem um `psql` manual, nem um job, nem a rota que
+--     o programador esqueceu. Uma chamada no handler é esquecível por
+--     construção, e o handler número quarenta não será revisado com o cuidado
+--     do primeiro.
+--  2. `de → para` SAI DE `OLD`/`NEW`, exato, sem o handler montar o diff —
+--     que é o lugar onde um diff montado à mão fica errado em silêncio.
+--  3. FALHA FECHADO. Sem ator declarado, a escrita é RECUSADA. O contrário —
+--     gravar o dado e não a trilha — seria a falha silenciosa que a regra 20
+--     existe para impedir.
+--
+-- `SECURITY DEFINER`: a função roda como `fir_migrate`, dono da tabela. Sem
+-- isso, a trilha dependeria dos privilégios e da RLS de quem fez a escrita, e
+-- um `REVOKE INSERT ON auditoria FROM fir_app` futuro passaria a derrubar
+-- toda escrita da aplicação em vez de só a da trilha. `search_path` fixo e
+-- tudo qualificado por `public.`, pela mesma razão explicada na 0003.
+--
+-- Não há `REVOKE EXECUTE … FROM PUBLIC` aqui de propósito: quem faz o DML
+-- precisa de EXECUTE na função da trigger, e o Postgres recusa chamar uma
+-- função `RETURNS trigger` fora de uma trigger — não há superfície a fechar.
+-- ---------------------------------------------------------------------------
+CREATE FUNCTION registrar_auditoria() RETURNS trigger
+  LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE
+  -- O valor CRU, não `app_pessoa_id()`: a função devolve NULL tanto para
+  -- "sistema" quanto para "ninguém declarou", e distinguir os dois é o
+  -- trabalho desta trigger.
+  v_cru     text := coalesce(current_setting('app.pessoa_id', true), '');
+  v_tipo    text;
+  v_ator    uuid;
+  v_old     jsonb;
+  v_new     jsonb;
+  v_de      jsonb;
+  v_para    jsonb;
+  v_id      text;
+  v_clinica uuid;
+BEGIN
+  IF v_cru = '' THEN
+    RAISE EXCEPTION 'ator não declarado: escrita em % recusada', TG_TABLE_NAME
+      USING HINT = 'Use banco.naClinica(clinica, ator, …). Em job, semente ou '
+                   'migration de dados, passe SISTEMA — explicitamente.';
+  ELSIF v_cru = 'sistema' THEN
+    v_tipo := 'sistema';
+    v_ator := NULL;
+  ELSE
+    -- Um valor que não é uuid estoura aqui, e isso é o certo: ator ilegível é
+    -- ator ausente.
+    v_tipo := 'pessoa';
+    v_ator := v_cru::uuid;
+  END IF;
+
+  -- `OLD` em trigger de INSERT e `NEW` em trigger de DELETE não estão
+  -- atribuídos; tocá-los levanta. Por isso cada um só é materializado onde
+  -- existe.
+  IF TG_OP <> 'INSERT' THEN v_old := to_jsonb(OLD); END IF;
+  IF TG_OP <> 'DELETE' THEN v_new := to_jsonb(NEW); END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    v_de := v_old;
+    v_para := NULL;
+    v_id := v_old ->> 'id';
+    v_clinica := (v_old ->> 'clinica_id')::uuid;
+  ELSIF TG_OP = 'INSERT' THEN
+    v_de := NULL;
+    v_para := v_new;
+    v_id := v_new ->> 'id';
+    v_clinica := (v_new ->> 'clinica_id')::uuid;
+  ELSE
+    -- SÓ O QUE MUDOU. A trilha fica legível e pequena: ninguém lê um diff de
+    -- vinte colunas para descobrir que a função mudou, e trilha que ninguém lê
+    -- não é trilha. O diff é calculado no valor CRU e redigido depois — fazer
+    -- o contrário tornaria invisível a troca de um segredo, porque os dois
+    -- lados viriam já como '[oculto]'.
+    SELECT jsonb_object_agg(k, v_old -> k), jsonb_object_agg(k, v_new -> k)
+      INTO v_de, v_para
+      FROM jsonb_object_keys(v_new) k
+     WHERE v_old -> k IS DISTINCT FROM v_new -> k;
+    -- UPDATE que não mudou nada: nenhuma linha. Cada salvamento de formulário
+    -- sem alteração viraria um "alterou" sem de → para, e o ruído esconde o
+    -- que importa.
+    IF v_para IS NULL THEN RETURN NULL; END IF;
+    v_id := v_new ->> 'id';
+    v_clinica := (v_new ->> 'clinica_id')::uuid;
+  END IF;
+
+  -- `entidade_id` é NOT NULL: uma tabela futura cuja chave primária não se
+  -- chame `id` estoura aqui, na primeira escrita, em vez de produzir trilha
+  -- sem o registro a que ela se refere.
+  INSERT INTO public.auditoria
+    (clinica_id, ator_tipo, ator_id, acao, entidade, entidade_id, de, para)
+  VALUES (
+    v_clinica,
+    v_tipo,
+    v_ator,
+    CASE TG_OP WHEN 'INSERT' THEN 'criou' WHEN 'UPDATE' THEN 'alterou' ELSE 'removeu' END,
+    TG_TABLE_NAME,
+    v_id,
+    public.auditoria_sem_segredos(v_de),
+    public.auditoria_sem_segredos(v_para));
+
+  RETURN NULL;
+END $$;
+
+COMMENT ON FUNCTION registrar_auditoria() IS
+  'Trigger AFTER INSERT/UPDATE/DELETE de toda tabela de negócio. RECUSA a '
+  'escrita quando ninguém declarou ator: gravar o dado sem a trilha é a falha '
+  'silenciosa que a regra 20 existe para impedir.';
+
+-- ---------------------------------------------------------------------------
+-- E a primeira tabela a usá-la. As demais entram logo abaixo.
+-- ---------------------------------------------------------------------------
+CREATE TRIGGER pessoas_auditoria
+  AFTER INSERT OR UPDATE OR DELETE ON pessoas
+  FOR EACH ROW EXECUTE FUNCTION registrar_auditoria();
