@@ -13,19 +13,43 @@ export type RotaRegistrada = {
   readonly caminho: string
   /** Campos monetários que esta rota pode devolver. */
   readonly camposDeDinheiro: readonly string[]
+  /**
+   * A rota entrega campo de ESQUEMA ABERTO e por isso declara a lista inteira.
+   *
+   * Só `GET /v1/auditoria` é assim, e a marca existe porque a declaração dela
+   * NEUTRALIZAVA a varredura: `redacao-de-valores.test.ts` monta o conjunto de
+   * campos cobertos somando `camposDeDinheiro` de todas as rotas, e uma rota
+   * que declara os quinze cobre qualquer campo de qualquer contrato — o teste
+   * passava verde para um `saldo` que ninguém tinha registrado. Medido ao
+   * acrescentar `PacienteNaLista` com `ltv` e `saldo`: a varredura não disse
+   * nada.
+   *
+   * Rota marcada não entra na cobertura da varredura. Ela continua coberta em
+   * tempo de execução pelo `RedacaoInterceptor` — que é a única camada que ela
+   * jamais teve, já que `de`/`para` são `unknown` e não há `shape` onde descer.
+   */
+  readonly curinga?: boolean
 }
 
 /**
- * Nenhuma rota de NEGÓCIO expõe dinheiro ainda — os planos 2+ preenchem.
+ * `GET /v1/auditoria` entra com a lista inteira porque é literalmente o que
+ * ela pode devolver: `de`/`para` é o diff de qualquer coluna de qualquer
+ * tabela auditada, e no dia em que `pessoas` ganhar `salario` a trilha o
+ * devolve sem ninguém mexer nesta rota. Declará-la com um ou dois campos seria
+ * mais preciso e menos verdadeiro — por isso a marca `curinga`.
  *
- * `GET /v1/auditoria` já entra, e entra com a lista inteira, porque é
- * literalmente o que ela pode devolver: `de`/`para` é o diff de qualquer
- * coluna de qualquer tabela auditada, e no dia em que `pessoas` ganhar
- * `salario` a trilha o devolve sem ninguém mexer nesta rota. Declará-la com
- * um ou dois campos seria mais preciso e menos verdadeiro.
+ * As rotas de paciente devolvem `ltv` e `saldo` por linha. As de tarefa
+ * recebem e devolvem o pagamento embutido (`valor`, `valorAberto`) — elas
+ * nascem no épico 2, Tasks 8 a 11, e estão aqui porque o CONTRATO delas já
+ * existe: `PagamentoEmbutido` e `Concluir` são esquemas exportados de
+ * `@fir/contracts` hoje, e a varredura os enxerga hoje.
  */
 export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
-  { metodo: 'GET', caminho: '/v1/auditoria', camposDeDinheiro: [...CAMPOS_MONETARIOS] },
+  { metodo: 'GET', caminho: '/v1/auditoria', camposDeDinheiro: [...CAMPOS_MONETARIOS], curinga: true },
+  { metodo: 'GET', caminho: '/v1/pacientes', camposDeDinheiro: ['ltv', 'saldo'] },
+  { metodo: 'GET', caminho: '/v1/pacientes/:id', camposDeDinheiro: ['ltv', 'saldo'] },
+  { metodo: 'POST', caminho: '/v1/tarefas', camposDeDinheiro: ['valor', 'valorAberto'] },
+  { metodo: 'POST', caminho: '/v1/tarefas/:id/concluir', camposDeDinheiro: ['valor', 'valorAberto'] },
 ]
 
 /**

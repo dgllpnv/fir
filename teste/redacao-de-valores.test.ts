@@ -133,8 +133,11 @@ function camposDoEsquema(esquema: z.ZodTypeAny, achados: Set<string>, visto: Set
 
 describe('todo campo monetário exposto pelos contratos está registrado', () => {
   it('nenhum esquema de @fir/contracts devolve campo de CAMPOS_MONETARIOS sem rota registrada', () => {
+    // Rota `curinga` NÃO entra na cobertura: ela declara os quinze campos e
+    // cobriria qualquer coisa. Ver o comentário de `curinga` em `registro.ts`.
     const registrados = new Set<string>()
     for (const rota of ROTAS_COM_DINHEIRO) {
+      if (rota.curinga === true) continue
       for (const campo of rota.camposDeDinheiro) registrados.add(campo)
     }
     const monetarios = new Set<string>(CAMPOS_MONETARIOS)
