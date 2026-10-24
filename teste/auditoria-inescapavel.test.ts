@@ -58,6 +58,33 @@ async function comClinicaId(): Promise<{ relname: string; tem_trigger: boolean }
   return r.rows
 }
 
+/** A chave primária de cada tabela auditada, uma linha por tabela. */
+async function chavesPrimarias(): Promise<{ relname: string; colunas: string[] | null }[]> {
+  const r = await migrate.query<{ relname: string; colunas: string[] | null }>(
+    `SELECT c.relname,
+            -- ::text e não name: o pg não tem parser para o tipo name[] e
+            -- devolveria a string crua {id}, que passaria a comparar texto
+            -- com array e reprovar tudo.
+            (SELECT array_agg(a.attname::text ORDER BY a.attnum)
+               FROM pg_index i
+               JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
+              WHERE i.indrelid = c.oid AND i.indisprimary) AS colunas
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       JOIN pg_attribute ci ON ci.attrelid = c.oid
+      WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+        AND ci.attname = 'clinica_id' AND NOT ci.attisdropped
+        AND c.relname <> 'auditoria'
+      ORDER BY c.relname`,
+  )
+  return r.rows
+}
+
+const foraDaConvencao = (linhas: { relname: string; colunas: string[] | null }[]): string[] =>
+  linhas
+    .filter((t) => t.colunas === null || t.colunas.length !== 1 || t.colunas[0] !== 'id')
+    .map((t) => t.relname)
+
 describe('nenhuma escrita de negócio escapa da trilha', () => {
   it('toda tabela com clinica_id tem o trigger de auditoria', async () => {
     const todas = await comClinicaId()
@@ -102,6 +129,56 @@ describe('nenhuma escrita de negócio escapa da trilha', () => {
       `)
       const faltando = (await comClinicaId()).filter((t) => !t.tem_trigger).map((t) => t.relname)
       expect(faltando).toEqual(['_canario_sem_auditoria'])
+    } finally {
+      await migrate.query('ROLLBACK')
+    }
+  })
+
+  it('toda tabela auditada tem chave primária de uma coluna chamada "id"', async () => {
+    /**
+     * A CONVENÇÃO QUE O TRIGGER PRESSUPÕE, cobrada aqui.
+     *
+     * `registrar_auditoria` lê `v_new ->> 'id'` e grava em `entidade_id`, que
+     * é `NOT NULL`. Numa tabela cuja chave primária se chame `codigo`, a
+     * primeira escrita estoura — fail-closed, e isso é bom — mas estoura em
+     * TEMPO DE EXECUÇÃO, e quem descobre é a recepcionista salvando um
+     * formulário, não quem escreveu a migration. Pior é a tabela de chave
+     * COMPOSTA: `->> 'id'` devolve NULL e o sintoma é o mesmo erro genérico
+     * de coluna nula, apontando para o lugar errado.
+     *
+     * Duas saídas foram pesadas. Fazer o trigger descobrir a chave em
+     * `pg_index` a cada linha custa catálogo por escrita e troca um erro alto
+     * por um `entidade_id` que varia de forma entre tabelas — e a trilha
+     * perde a propriedade de ser consultável por `(entidade, entidade_id)`.
+     * A varredura custa nada, roda antes de o código existir e, de quebra,
+     * passa a cobrar uma convenção que já vale em todas as tabelas de hoje.
+     *
+     * Quem precisar MESMO de outra chave primária muda o trigger e este
+     * teste junto, de propósito — que é exatamente o ponto.
+     */
+    const todas = await chavesPrimarias()
+    expect(todas.length, 'a varredura não enxergou tabela alguma').toBeGreaterThan(0)
+
+    expect(
+      foraDaConvencao(todas),
+      'tabela auditada cuja chave primária não é a coluna `id`. O trigger grava `NEW.id` em ' +
+        '`entidade_id` (NOT NULL): toda escrita nela falharia em produção, e numa chave ' +
+        'COMPOSTA a trilha apontaria para registro que ninguém encontra.',
+    ).toEqual([])
+  })
+
+  it('a varredura de chave primária NOMEIA a tabela fora da convenção', async () => {
+    // Mesmo canário transacional do `it` acima: DDL no Postgres faz ROLLBACK,
+    // e nada vaza para os outros arquivos deste pacote.
+    await migrate.query('BEGIN')
+    try {
+      await migrate.query(`
+        CREATE TABLE public._canario_chave_errada (
+          codigo     text PRIMARY KEY,
+          clinica_id uuid NOT NULL REFERENCES clinicas(id)
+        )
+      `)
+      expect(foraDaConvencao(await chavesPrimarias())).toEqual(['_canario_chave_errada'])
     } finally {
       await migrate.query('ROLLBACK')
     }

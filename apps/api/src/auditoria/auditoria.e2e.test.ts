@@ -55,9 +55,22 @@ class ControladorSensivel {
 let app: NestFastifyApplication
 let migrate: pg.Client
 let clinica: string
+let outraClinica: string
 let juliana: string
 let helena: string
+let idsDaOutraClinica: string[] = []
 const codigo = `aud-${Date.now()}`
+
+/**
+ * O registro sintético que prova a redação dentro de `de`/`para`.
+ *
+ * Nenhuma tabela tem coluna de dinheiro hoje — `salario` chega no épico 7 e
+ * `valor_aberto` no 4. Escrever este teste só quando elas existirem seria
+ * escrever um teste para passar: a rota que as entrega existe AGORA, e o
+ * primeiro `ALTER TABLE pessoas ADD COLUMN salario` não deve ser a primeira
+ * vez que alguém descobre se a trilha redige.
+ */
+const SINTETICO = 'registro-sintetico-de-rh'
 
 type LinhaDeTrilha = {
   id: string
@@ -146,6 +159,39 @@ beforeAll(async () => {
     [clinica, hash, cfg],
   )
 
+  await migrate.query(
+    `INSERT INTO auditoria (clinica_id, ator_tipo, ator_id, acao, entidade, entidade_id, de, para)
+     VALUES ($1, 'sistema', NULL, 'alterou', 'pessoas', $2, $3, $4)`,
+    [
+      clinica,
+      SINTETICO,
+      JSON.stringify({ salario: 350_000 }),
+      JSON.stringify({ salario: 450_000, valor_aberto: '900', nome: 'Juliana' }),
+    ],
+  )
+
+  // A SEGUNDA CLÍNICA, com trilha própria e ids conhecidos. Sem ela, "o
+  // admin lê só a própria clínica" passaria num banco onde não existe outra
+  // clínica para vazar — isto é, provaria nada.
+  outraClinica = (
+    await migrate.query<{ id: string }>(
+      `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica Vizinha') RETURNING id`,
+      [`${codigo}-vizinha`],
+    )
+  ).rows[0]!.id
+  await migrate.query(
+    `INSERT INTO perfis (clinica_id, chave, nome, perms)
+     VALUES ($1, 'pf_rec', 'Recepção', ARRAY['jornada'])`,
+    [outraClinica],
+  )
+  idsDaOutraClinica = (
+    await migrate.query<{ id: string }>(
+      'SELECT id::text FROM auditoria WHERE clinica_id = $1',
+      [outraClinica],
+    )
+  ).rows.map((x) => x.id)
+  expect(idsDaOutraClinica.length).toBeGreaterThan(0)
+
   const mod = await Test.createTestingModule({
     imports: [AppModule],
     controllers: [ControladorSensivel],
@@ -158,6 +204,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await apagarClinicaDeTeste(migrate, clinica)
+  await apagarClinicaDeTeste(migrate, outraClinica)
   await migrate.end()
   await app.close()
 })
@@ -272,5 +319,100 @@ describe('acesso que não pôde ser registrado não é acesso entregue', () => {
     expect(ficha.status).toBe(500)
     // E o corpo do erro não leva o dado que a rota ia entregar.
     expect(JSON.stringify(ficha.body)).not.toMatch(/Juliana/)
+  })
+})
+
+/**
+ * A ROTA MAIS PERIGOSA DO SISTEMA.
+ *
+ * A trilha guarda `de`/`para` de toda escrita: hoje nome e e-mail em claro;
+ * no épico 7, salário; no 6, dose e lote por paciente. Um `GET` sem controle
+ * entrega, de uma vez, tudo o que as regras 17 e 18 protegem em todas as
+ * outras rotas — e entrega com a aparência inofensiva de "log".
+ */
+describe('GET /v1/auditoria', () => {
+  const trilha = (cookie: string[], query = '') =>
+    request(app.getHttpServer()).get(`/v1/auditoria${query}`).set('Cookie', cookie)
+
+  it('quem não tem "config" não lê a trilha', async () => {
+    const cookie = await cookieDe('juliana@aud.local')
+    await trilha(cookie).expect(403)
+  })
+
+  it('o admin lê, e só a própria clínica', async () => {
+    const cookie = await cookieDe('helena@aud.local')
+    const r = await trilha(cookie, '?limite=200').expect(200)
+
+    expect(r.body.itens.length).toBeGreaterThan(0)
+    expect(r.body.itens.every((i: { clinicaId: string }) => i.clinicaId === clinica)).toBe(true)
+    // E a prova NEGATIVA, que é a que importa: existe trilha de OUTRA clínica
+    // no mesmo banco, com id conhecido, e nenhuma linha dela atravessou.
+    const ids = new Set(r.body.itens.map((i: { id: string }) => i.id))
+    for (const id of idsDaOutraClinica) expect(ids.has(id)).toBe(false)
+  })
+
+  it('sem "pessoas.gerir", de/para não entregam salário — e nem valor_aberto', async () => {
+    const semRh = await cookieDe('sandra@aud.local')
+    const r = await trilha(semRh, `?entidade=pessoas&entidadeId=${SINTETICO}`).expect(200)
+
+    expect(r.body.itens).toHaveLength(1)
+    const item = r.body.itens[0]
+    // A chave fica, o valor some: a forma da resposta não muda com a
+    // permissão. Mesma regra do `RedacaoInterceptor`.
+    expect(item.para.salario).toBe(null)
+    expect(item.de.salario).toBe(null)
+    // `de`/`para` carregam NOME DE COLUNA do Postgres — `valor_aberto`, não
+    // `valorAberto`. É a única saída da API onde isso acontece, e é onde a
+    // redação por nome de campo erraria em silêncio.
+    expect(item.para.valor_aberto).toBe(null)
+    // O que não é dinheiro continua inteiro: a trilha é dado, e o admin da
+    // clínica tem direito de ler o que aconteceu.
+    expect(item.para.nome).toBe('Juliana')
+  })
+
+  it('com "pessoas.gerir", o mesmo registro entrega o salário', async () => {
+    const cookie = await cookieDe('helena@aud.local')
+    const r = await trilha(cookie, `?entidade=pessoas&entidadeId=${SINTETICO}`).expect(200)
+    expect(r.body.itens).toHaveLength(1)
+    expect(r.body.itens[0].para.salario).toBe(450_000)
+    expect(r.body.itens[0].para.valor_aberto).toBe('900')
+  })
+
+  it('a paginação é por (em, id): linha nova não empurra nem repete item', async () => {
+    const cookie = await cookieDe('helena@aud.local')
+
+    const p1 = await trilha(cookie, '?limite=3').expect(200)
+    expect(p1.body.itens).toHaveLength(3)
+    expect(p1.body.proxima).toBeTypeOf('string')
+
+    // A diferença entre cursor e OFFSET, tornada visível: entre uma página e
+    // a seguinte nasce uma linha MAIS NOVA que a primeira página. Com
+    // `OFFSET 3`, a janela inteira desliza e o terceiro item da página 1
+    // reaparece na página 2. Com `(em, id) < cursor`, a página 2 continua de
+    // onde a 1 parou, aconteça o que acontecer acima dela.
+    await trilha(cookie, '?limite=1').expect(200)
+
+    const p2 = await trilha(cookie, `?limite=3&antesDe=${encodeURIComponent(p1.body.proxima)}`)
+      .expect(200)
+
+    const ids1 = p1.body.itens.map((i: { id: string }) => i.id)
+    const ids2 = p2.body.itens.map((i: { id: string }) => i.id)
+    expect(ids2.some((id: string) => ids1.includes(id))).toBe(false)
+    // E a ordem é a que o índice promete: do mais recente para trás.
+    const todos = [...ids1, ...ids2].map(BigInt)
+    for (let i = 1; i < todos.length; i++) expect(todos[i]! < todos[i - 1]!).toBe(true)
+  })
+
+  it('ler a trilha fica NA trilha — quem lê o prontuário de todo mundo também é alguém', async () => {
+    const cookie = await cookieDe('helena@aud.local')
+    const desde = await ultimoIdDaTrilha()
+
+    await trilha(cookie, '?limite=1').expect(200)
+
+    const acessos = (await trilhaDepoisDe(desde)).filter((l) => l.acao === 'acessou')
+    expect(acessos).toHaveLength(1)
+    expect(acessos[0]!.entidade).toBe('auditoria')
+    expect(acessos[0]!.entidade_id).toBe('(lista)')
+    expect(acessos[0]!.ator_id).toBe(helena)
   })
 })

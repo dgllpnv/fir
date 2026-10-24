@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { AuditoriaController } from './auditoria.controller'
 import { AuditoriaService } from './auditoria.service'
 
 /**
@@ -7,6 +8,7 @@ import { AuditoriaService } from './auditoria.service'
  * módulo que o declara, então o `AppModule` precisa ver o serviço.
  */
 @Module({
+  controllers: [AuditoriaController],
   providers: [AuditoriaService],
   exports: [AuditoriaService],
 })

@@ -32,6 +32,25 @@ const ehObjetoSimples = (x: object): boolean => {
   return proto === Object.prototype || proto === null
 }
 
+/**
+ * `valor_aberto` é `valorAberto`.
+ *
+ * `CAMPOS_MONETARIOS` está em camelCase porque é assim que a API fala. Uma
+ * saída fala outra língua: `GET /v1/auditoria` devolve `de`/`para`, que são
+ * `to_jsonb(NEW)` de uma linha do Postgres — NOME DE COLUNA, em snake_case.
+ * Sem esta normalização, `valor_aberto`, `valor_orcamento`, `valor_pago`,
+ * `valor_total` e `valor_entrada` atravessariam a redação inteiros, numa rota
+ * que entrega o diff de toda escrita da clínica. `salario`, `valor` e `custo`
+ * escapavam por sorte — eles se escrevem igual nas duas convenções.
+ *
+ * Isto é REMENDO, não o conserto: a redação continua decidindo por NOME de
+ * campo, e a dívida D5 descreve o desenho certo (marcar o campo como
+ * monetário no contrato e redigir por tipo). O remendo entra porque a rota da
+ * trilha existe agora e a D5 não tem data.
+ */
+const emCamelCase = (chave: string): string =>
+  chave.includes('_') ? chave.replace(/_([a-z])/g, (_, letra: string) => letra.toUpperCase()) : chave
+
 export function redigir(dado: unknown, pode: (chave: ChaveDePermissao) => boolean): unknown {
   if (dado === null || typeof dado !== 'object') return dado
   if (dado instanceof Date) return dado
@@ -40,10 +59,11 @@ export function redigir(dado: unknown, pode: (chave: ChaveDePermissao) => boolea
 
   const saida: Record<string, unknown> = {}
   for (const [chave, valor] of Object.entries(dado as Record<string, unknown>)) {
-    if (CAMPOS.has(chave)) {
+    const normalizada = emCamelCase(chave)
+    if (CAMPOS.has(normalizada)) {
       // Vira null, não some: a forma da resposta não muda com a permissão, e o
       // cliente distingue "sem acesso" de "sem valor" sem um `if` extra.
-      saida[chave] = pode(CHAVE_DO_CAMPO[chave] ?? 'valores') ? valor : null
+      saida[chave] = pode(CHAVE_DO_CAMPO[normalizada] ?? 'valores') ? valor : null
       continue
     }
     saida[chave] = redigir(valor, pode)

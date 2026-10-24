@@ -30,6 +30,22 @@ describe('redacao', () => {
     expect(r.resumo.recebido).toBe(null)
   })
 
+  it('campo em snake_case também é redigido — é a forma que a trilha entrega', () => {
+    // `GET /v1/auditoria` devolve `de`/`para` com NOME DE COLUNA do Postgres.
+    // Sem normalizar, `valor_aberto` atravessaria inteiro na única rota que
+    // entrega o diff de toda escrita da clínica.
+    const r = redigir(
+      { valor_aberto: '900', valor_orcamento: '1200', nome: 'Ana' },
+      semValores,
+    ) as Record<string, unknown>
+    expect(r['valor_aberto']).toBe(null)
+    expect(r['valor_orcamento']).toBe(null)
+    // A CHAVE fica como veio: a tela da trilha mostra o nome da coluna que
+    // mudou, e reescrevê-lo faria a trilha falar de uma coluna que não existe.
+    expect(Object.keys(r)).toEqual(['valor_aberto', 'valor_orcamento', 'nome'])
+    expect(r['nome']).toBe('Ana')
+  })
+
   it('salario depende de pessoas.gerir, não de valores', () => {
     const soValores = (c: string) => c === 'valores'
     const r = redigir({ salario: '500000', valor: '100' }, soValores) as Record<string, unknown>

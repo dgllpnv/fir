@@ -1,3 +1,5 @@
+import { CAMPOS_MONETARIOS } from '@fir/domain'
+
 /**
  * O registro que os testes transversais varrem.
  *
@@ -13,8 +15,18 @@ export type RotaRegistrada = {
   readonly camposDeDinheiro: readonly string[]
 }
 
-/** Plano 1 não expõe dinheiro ainda. Planos 2+ preenchem. */
-export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = []
+/**
+ * Nenhuma rota de NEGÓCIO expõe dinheiro ainda — os planos 2+ preenchem.
+ *
+ * `GET /v1/auditoria` já entra, e entra com a lista inteira, porque é
+ * literalmente o que ela pode devolver: `de`/`para` é o diff de qualquer
+ * coluna de qualquer tabela auditada, e no dia em que `pessoas` ganhar
+ * `salario` a trilha o devolve sem ninguém mexer nesta rota. Declará-la com
+ * um ou dois campos seria mais preciso e menos verdadeiro.
+ */
+export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
+  { metodo: 'GET', caminho: '/v1/auditoria', camposDeDinheiro: [...CAMPOS_MONETARIOS] },
+]
 
 /**
  * Tabelas de negócio com `clinica_id`. O teste de isolamento varre todas.
