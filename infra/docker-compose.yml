@@ -1,0 +1,70 @@
+# Ambiente local do Firmare Rotinas de Gestão.
+#
+# Bloco 48xx: 47xx é do Mavia, que roda na mesma máquina. 80, 8080, 5432 e
+# 6379 estão fora por decisão do dono. Ver infra/README.md.
+#
+# Toda porta publicada em 127.0.0.1 de propósito: sem o prefixo, o Docker abre
+# no 0.0.0.0 e expõe o banco para a rede local inteira.
+
+name: fir-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: fir-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fir
+      POSTGRES_PASSWORD: fir_local_dev
+      POSTGRES_DB: fir
+      # UTC sempre. A conversão para o fuso da clínica é do domínio.
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - '127.0.0.1:4832:5432'
+    volumes:
+      - postgres-dados:/var/lib/postgresql/data
+      - ./bootstrap-papeis.sql:/docker-entrypoint-initdb.d/10-papeis.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fir -d fir']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: fir-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '127.0.0.1:4879:6379'
+    volumes:
+      - redis-dados:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Sem Mailpit, convite e recuperação de senha não funcionam aqui: as rotas
+  # RECUSAM quando não há SMTP, em vez de responder 202 sem mandar nada.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: fir-mailpit
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: '1'
+      MP_SMTP_AUTH_ALLOW_INSECURE: '1'
+    ports:
+      - '127.0.0.1:4825:8025'
+      - '127.0.0.1:4826:1025'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres-dados:
+  redis-dados:
