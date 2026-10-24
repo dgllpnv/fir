@@ -3448,7 +3448,7 @@ export class AutenticacaoService {
   constructor(private readonly banco: BancoService) {}
 
   private async clinicaPorCodigo(codigo: string) {
-    const r = await this.banco.semClinica<{ id: string; codigo: string; nome: string; fuso: string }>(
+    const r = await this.banco.semIsolamentoDeClinica<{ id: string; codigo: string; nome: string; fuso: string }>(
       'SELECT id, codigo, nome, fuso FROM clinicas WHERE codigo = $1 AND ativa',
       [codigo],
     )
@@ -3476,13 +3476,24 @@ export class AutenticacaoService {
     const clinica = await this.clinicaPorCodigo(codigoClinica)
     if (!clinica) throw new CredencialInvalida()
 
-    return this.banco.naClinica(clinica.id, async (c) => {
+    // ⚠️ **Nunca lance de dentro desta transação.**
+    //
+    // `naClinica` faz `ROLLBACK` em qualquer exceção do callback — e isso
+    // desfaria o `INSERT` em `tentativas_login` gravado milissegundos antes,
+    // na mesma transação. O contador nunca acumularia: a sexta tentativa seria
+    // mais um 401, e a milésima também. Um limite de força bruta que não limita
+    // nada é pior que nenhum, porque dá sensação de proteção.
+    //
+    // Por isso o callback **devolve um resultado** e quem lança é o código
+    // depois do `COMMIT`. Medido: com a correção, cinco 401 e um 429, com as
+    // cinco tentativas no banco.
+    const resultado = await this.banco.naClinica(clinica.id, async (c) => {
       const tentativas = await c.query<{ em: Date; sucesso: boolean }>(
         `SELECT em, sucesso FROM tentativas_login
          WHERE identificador = $1 AND em > now() - interval '15 minutes'`,
         [email],
       )
-      if (limiteExcedido(tentativas.rows, new Date())) throw new LimiteDeTentativas()
+      if (limiteExcedido(tentativas.rows, new Date())) return { tipo: 'limite' as const }
 
       const p = await c.query<LinhaPessoa>(
         `SELECT id, nome, email, funcao, senha_hash, admin, perfil_id, ativo
@@ -3491,12 +3502,28 @@ export class AutenticacaoService {
       )
       const pessoa = p.rows[0]
 
-      const ok = pessoa ? await conferirSenha(senha, pessoa.senha_hash) : false
+      // Quando a pessoa não existe, roda a **mesma** verificação contra um
+      // hash falso constante — e pelo **mesmo semáforo**.
+      //
+      // A frase de erro já era idêntica, mas o relógio entregava a resposta.
+      // Medido antes: e-mail existente respondia em 20–68 ms (o Argon2 roda) e
+      // inexistente em 8–9 ms. Três a oito vezes. Como o limite é por
+      // identificador, mil e-mails distintos custam uma requisição cada e não
+      // disparam nada — dá para mapear a equipe de uma clínica e preparar um
+      // phishing. Depois da correção, 23–49 ms contra 19–26 ms.
+      //
+      // Pelo mesmo semáforo porque, de fora dele, um atacante com e-mails
+      // inexistentes contornaria o teto de concorrência inteiro e somaria
+      // 19 MiB por requisição.
+      const ok = pessoa
+        ? await semaforoArgon2.executar(() => conferirSenha(senha, pessoa.senha_hash))
+        : await semaforoArgon2.executar(() => conferirSenha(senha, HASH_FALSO)).then(() => false)
+
       await c.query(
         'INSERT INTO tentativas_login (clinica_id, identificador, sucesso) VALUES ($1, $2, $3)',
         [clinica.id, email, ok],
       )
-      if (!ok || !pessoa) throw new CredencialInvalida()
+      if (!ok || !pessoa) return { tipo: 'invalida' as const }
 
       const { token, hash } = novoToken()
       await c.query(
@@ -3510,6 +3537,7 @@ export class AutenticacaoService {
       )
 
       return {
+        tipo: 'ok' as const,
         token,
         eu: {
           usuario: {
@@ -3526,6 +3554,11 @@ export class AutenticacaoService {
         },
       }
     })
+
+    // Só aqui, com o `COMMIT` já feito e a tentativa gravada em definitivo.
+    if (resultado.tipo === 'limite') throw new LimiteDeTentativas()
+    if (resultado.tipo === 'invalida') throw new CredencialInvalida()
+    return { eu: resultado.eu, token: resultado.token }
   }
 
   /**
@@ -3539,14 +3572,14 @@ export class AutenticacaoService {
    */
   async contextoDoToken(token: string): Promise<ContextoDaRequisicao | null> {
     const hash = hashDoToken(token)
-    const s = await this.banco.semClinica<{ clinica_id: string; pessoa_id: string }>(
+    const s = await this.banco.semIsolamentoDeClinica<{ clinica_id: string; pessoa_id: string }>(
       'SELECT clinica_id, pessoa_id FROM resolver_sessao($1)',
       [hash],
     )
     const sessao = s.rows[0]
     if (!sessao) return null
 
-    const clinicaRow = await this.banco.semClinica<{ id: string; codigo: string; nome: string; fuso: string; ativa: boolean }>(
+    const clinicaRow = await this.banco.semIsolamentoDeClinica<{ id: string; codigo: string; nome: string; fuso: string; ativa: boolean }>(
       'SELECT id, codigo, nome, fuso, ativa FROM clinicas WHERE id = $1',
       [sessao.clinica_id],
     )
@@ -3604,7 +3637,7 @@ export class AutenticacaoService {
    */
   async sair(token: string): Promise<void> {
     const hash = hashDoToken(token)
-    const s = await this.banco.semClinica<{ clinica_id: string }>(
+    const s = await this.banco.semIsolamentoDeClinica<{ clinica_id: string }>(
       'SELECT clinica_id FROM resolver_sessao($1)',
       [hash],
     )
