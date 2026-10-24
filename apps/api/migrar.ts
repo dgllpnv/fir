@@ -28,6 +28,14 @@ await cliente.query(`
   )
 `)
 
+// O ALTER DEFAULT PRIVILEGES do bootstrap concede SELECT/INSERT/UPDATE/DELETE
+// a `fir_app` em toda tabela que `fir_migrate` criar — inclusive esta, que não
+// é de negócio e não tem o que ver com a API. A API não tem o que fazer com o
+// livro-razão das migrations: apagar uma linha aqui faz o próximo deploy
+// reaplicar uma migration já aplicada. REVOKE de um privilégio que o papel não
+// tem é inofensivo, então isto é seguro de rodar em toda subida.
+await cliente.query('REVOKE ALL ON migrations_aplicadas FROM fir_app')
+
 const { rows } = await cliente.query<{ nome: string }>('SELECT nome FROM migrations_aplicadas')
 const jaAplicadas = new Set(rows.map((r) => r.nome))
 

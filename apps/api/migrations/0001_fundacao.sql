@@ -41,3 +41,12 @@ COMMENT ON FUNCTION app_clinica_id() IS
   'A clínica da transação atual. NULL quando não fixada: a RLS então nega tudo.';
 
 GRANT SELECT ON clinicas TO fir_app;
+
+-- O GRANT acima, por si só, não restringe nada: o ALTER DEFAULT PRIVILEGES do
+-- bootstrap já concedeu SELECT, INSERT, UPDATE, DELETE a `fir_app` em toda
+-- tabela que `fir_migrate` criar, e um GRANT nunca estreita um privilégio já
+-- concedido por outro caminho — só um REVOKE faz isso. `clinicas` é a raiz do
+-- tenancy e não tem RLS (não pode ter: escopá-la por app_clinica_id() seria
+-- circular), então aqui é o REVOKE, e não a RLS, que contém o dano de uma
+-- falha de lógica ou injeção na API.
+REVOKE INSERT, UPDATE, DELETE ON clinicas FROM fir_app;
