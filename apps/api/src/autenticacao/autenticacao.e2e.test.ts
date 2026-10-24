@@ -1,0 +1,164 @@
+import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
+import { Test } from '@nestjs/testing'
+import pg from 'pg'
+import request from 'supertest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { AppModule } from '../app.module.js'
+import { registrarCookie } from '../main.js'
+import { hashDeSenha } from './senha.js'
+
+const URL_MIG =
+  process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'
+
+let app: NestFastifyApplication
+let migrate: pg.Client
+let clinica: string
+const codigo = `e2e-${Date.now()}`
+
+beforeAll(async () => {
+  migrate = new pg.Client({ connectionString: URL_MIG })
+  await migrate.connect()
+
+  const c = await migrate.query<{ id: string }>(
+    `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica E2E') RETURNING id`,
+    [codigo],
+  )
+  clinica = c.rows[0]!.id
+
+  const p = await migrate.query<{ id: string }>(
+    `INSERT INTO perfis (clinica_id, chave, nome, perms)
+     VALUES ($1, 'pf_rec', 'Recepção', ARRAY['jornada','receber']) RETURNING id`,
+    [clinica],
+  )
+  await migrate.query(
+    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
+     VALUES ($1, 'Juliana', 'juliana@e2e.local', $2, $3)`,
+    [clinica, await hashDeSenha('senha-de-teste'), p.rows[0]!.id],
+  )
+  // Duas contas A/B dedicadas ao teste de isolamento do limite de
+  // tentativas — nunca usadas por outro teste, para que o teste não dependa
+  // da ordem de execução dos demais.
+  await migrate.query(
+    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
+     VALUES ($1, 'Conta A', 'conta.a@e2e.local', $2, $3)`,
+    [clinica, await hashDeSenha('senha-da-conta-a'), p.rows[0]!.id],
+  )
+  await migrate.query(
+    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
+     VALUES ($1, 'Conta B', 'conta.b@e2e.local', $2, $3)`,
+    [clinica, await hashDeSenha('senha-da-conta-b'), p.rows[0]!.id],
+  )
+
+  const mod = await Test.createTestingModule({ imports: [AppModule] }).compile()
+  app = mod.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+  await registrarCookie(app)
+  await app.init()
+  await app.getHttpAdapter().getInstance().ready()
+})
+
+afterAll(async () => {
+  await migrate.query('DELETE FROM sessoes WHERE clinica_id = $1', [clinica])
+  await migrate.query('DELETE FROM tentativas_login WHERE clinica_id = $1', [clinica])
+  await migrate.query('DELETE FROM pessoas WHERE clinica_id = $1', [clinica])
+  await migrate.query('DELETE FROM perfis WHERE clinica_id = $1', [clinica])
+  await migrate.query('DELETE FROM clinicas WHERE id = $1', [clinica])
+  await migrate.end()
+  await app.close()
+})
+
+const entrar = (senha: string) =>
+  request(app.getHttpServer())
+    .post('/v1/entrar')
+    .send({ clinica: codigo, email: 'juliana@e2e.local', senha })
+
+/**
+ * O tipo de `Response.headers` do supertest/superagent não reflete o
+ * caso especial de `set-cookie` do Node (sempre um array, mesmo com um só
+ * cookie) — a biblioteca o tipa como `string`. Esta função corrige o tipo
+ * sem mudar o valor em tempo de execução.
+ */
+const cookieDaResposta = (r: { headers: Record<string, string> }): string[] => {
+  const v = r.headers['set-cookie'] as unknown
+  return Array.isArray(v) ? (v as string[]) : typeof v === 'string' ? [v] : []
+}
+
+describe('POST /v1/entrar', () => {
+  it('sem sessão, /v1/eu responde 401', async () => {
+    await request(app.getHttpServer()).get('/v1/eu').expect(401)
+  })
+
+  it('entra e devolve usuário, clínica e perfis', async () => {
+    const r = await entrar('senha-de-teste').expect(200)
+    expect(r.body.usuario.email).toBe('juliana@e2e.local')
+    expect(r.body.clinica.codigo).toBe(codigo)
+    expect(r.body.perfis[0].perms).toContain('jornada')
+    expect(cookieDaResposta(r).join()).toMatch(/__Host-fir-sessao=/)
+  })
+
+  it('o cookie é HttpOnly, Secure, SameSite e de caminho raiz', async () => {
+    const r = await entrar('senha-de-teste').expect(200)
+    const cookie = cookieDaResposta(r).join()
+    expect(cookie).toMatch(/HttpOnly/i)
+    expect(cookie).toMatch(/Secure/i)
+    expect(cookie).toMatch(/SameSite=Lax/i)
+    expect(cookie).toMatch(/Path=\//)
+  })
+
+  it('a resposta NUNCA contém o hash da senha nem o token cru', async () => {
+    const r = await entrar('senha-de-teste').expect(200)
+    const texto = JSON.stringify(r.body)
+    expect(texto).not.toMatch(/\$argon2id\$/)
+    expect(texto).not.toMatch(/token/i)
+  })
+
+  it('senha errada responde 401 com a MESMA frase de e-mail inexistente', async () => {
+    const a = await entrar('senha-errada').expect(401)
+    const b = await request(app.getHttpServer())
+      .post('/v1/entrar')
+      .send({ clinica: codigo, email: 'ninguem@e2e.local', senha: 'senha-de-teste' })
+      .expect(401)
+    // Mensagens diferentes dizem ao atacante quais e-mails existem na clínica.
+    expect(a.body.message).toBe(b.body.message)
+  })
+
+  it('com sessão, /v1/eu devolve usuário, clínica COMPLETA e perfis', async () => {
+    const r = await entrar('senha-de-teste').expect(200)
+    const cookie = cookieDaResposta(r)
+    const eu = await request(app.getHttpServer()).get('/v1/eu').set('Cookie', cookie).expect(200)
+    expect(eu.body.usuario.nome).toBe('Juliana')
+    // Código e nome vêm preenchidos: a tela monta o cabeçalho com eles, e um
+    // campo vazio aqui vira "Firmare" genérico em produção.
+    expect(eu.body.clinica.codigo).toBe(codigo)
+    expect(eu.body.clinica.nome).toBe('Clínica E2E')
+    expect(eu.body.clinica.fuso).toBe('America/Bahia')
+    expect(eu.body.perfis[0].chave).toBe('pf_rec')
+  })
+
+  it('sair revoga a sessão: o mesmo cookie passa a dar 401', async () => {
+    const r = await entrar('senha-de-teste').expect(200)
+    const cookie = cookieDaResposta(r)
+    await request(app.getHttpServer()).post('/v1/sair').set('Cookie', cookie).expect(204)
+    await request(app.getHttpServer()).get('/v1/eu').set('Cookie', cookie).expect(401)
+  })
+
+  it('cinco senhas erradas bloqueiam a sexta tentativa, mesmo com a senha certa', async () => {
+    for (let i = 0; i < 5; i++) await entrar('senha-errada').expect(401)
+    await entrar('senha-de-teste').expect(429)
+  })
+
+  it('o limite é por identificador: falhas na conta A não bloqueiam a conta B', async () => {
+    const porConta = (email: string, senha: string) =>
+      request(app.getHttpServer()).post('/v1/entrar').send({ clinica: codigo, email, senha })
+
+    // Esgota o limite da conta A, isolada e nunca usada por outro teste.
+    for (let i = 0; i < 5; i++) {
+      await porConta('conta.a@e2e.local', 'senha-errada').expect(401)
+    }
+    await porConta('conta.a@e2e.local', 'senha-da-conta-a').expect(429)
+
+    // A conta B, na MESMA clínica, nunca tentou entrar: a consulta de
+    // `limiteExcedido` filtra por `identificador = $1`, então as falhas da
+    // conta A não aparecem na janela de tentativas da conta B.
+    await porConta('conta.b@e2e.local', 'senha-da-conta-b').expect(200)
+  })
+})
