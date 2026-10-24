@@ -1,5 +1,6 @@
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { apagarClinicaDeTeste, declararAtorSistema } from './limpeza-de-teste'
 
 /**
  * Testes de RLS vão contra Postgres real, nunca contra mock.
@@ -29,6 +30,9 @@ beforeAll(async () => {
   app.on('error', (erro) => console.error('[banco.test] cliente app:', erro.message))
   await migrate.connect()
   await app.connect()
+  // A trigger `registrar_auditoria` recusa escrita sem ator declarado, e
+  // fixture não tem pessoa autenticada por trás: é o sistema criando dado.
+  await declararAtorSistema(migrate)
 
   const sufixo = Date.now()
   const a = await migrate.query<{ id: string }>(
@@ -59,9 +63,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await migrate.query('DELETE FROM pessoas WHERE clinica_id = ANY($1)', [[clinicaA, clinicaB]])
-  await migrate.query('DELETE FROM perfis  WHERE clinica_id = ANY($1)', [[clinicaA, clinicaB]])
-  await migrate.query('DELETE FROM clinicas WHERE id = ANY($1)', [[clinicaA, clinicaB]])
+  for (const c of [clinicaA, clinicaB]) await apagarClinicaDeTeste(migrate, c)
   await migrate.end()
   await app.end()
 })

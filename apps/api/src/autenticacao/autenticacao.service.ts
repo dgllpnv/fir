@@ -1,6 +1,7 @@
 import type { EuSaida } from '@fir/contracts'
 import { type ChaveDePermissao, type Perfil, temPerm } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
+import { SISTEMA, pessoaIdDeFonteConfiavel } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import { type ClinicaId, clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
 import { inteiroDoAmbiente } from '../comum/ambiente'
@@ -101,8 +102,13 @@ export class AutenticacaoService {
       : { ...linha, id: clinicaIdDeFonteConfiavel(linha.id) }
   }
 
+  /**
+   * `SISTEMA` porque esta consulta serve a TELA DE ENTRADA: ninguém está
+   * autenticado ainda, e não existe pessoa a quem atribuir a leitura. Só
+   * lê — nenhuma linha de trilha nasce daqui.
+   */
   private async perfisDa(clinicaId: ClinicaId): Promise<Perfil[]> {
-    return this.banco.naClinica(clinicaId, async (c) => {
+    return this.banco.naClinica(clinicaId, SISTEMA, async (c) => {
       const r = await c.query<{ id: string; chave: string; nome: string; perms: string[] }>(
         'SELECT id, chave, nome, perms FROM perfis ORDER BY nome',
       )
@@ -212,7 +218,10 @@ export class AutenticacaoService {
     // Continua valendo a correção da Task 15 — nunca lançar de dentro da
     // transação, porque o ROLLBACK apagaria o registro da tentativa. Aqui a
     // função devolve resultado; quem lança é o código depois do COMMIT.
-    const etapa1 = await this.banco.naClinica(clinica.id, async (c) => {
+    //
+    // `SISTEMA`: aqui ninguém provou identidade nenhuma ainda — quem teclou o
+    // e-mail apenas afirmou ser alguém. Nada é escrito nesta transação.
+    const etapa1 = await this.banco.naClinica(clinica.id, SISTEMA, async (c) => {
       const tentativas = await c.query<{ em: Date; sucesso: boolean }>(
         `SELECT em, sucesso FROM tentativas_login
          WHERE identificador = $1 AND em > now() - interval '15 minutes'`,
@@ -248,8 +257,26 @@ export class AutenticacaoService {
       ? await semaforoArgon2.executar(() => conferirSenha(senha, pessoa.senha_hash))
       : await semaforoArgon2.executar(() => conferirSenha(senha, HASH_FALSO)).then(() => false)
 
+    /**
+     * O ATOR DA TRANSAÇÃO 2, e esta é a única escolha de ator não óbvia do
+     * arquivo.
+     *
+     * `ok` é, literalmente, "a senha confere" — identidade PROVADA. Quando
+     * confere, a pessoa é a autora do que esta transação escreve: a própria
+     * tentativa e a sessão. Quando não confere, não há identidade provada, e
+     * atribuir a escrita à dona do e-mail tentado seria escrever na trilha
+     * dela uma ação que ela não praticou — exatamente o que a trilha existe
+     * para não fazer. O que aconteceu de fato fica na PRÓPRIA linha de
+     * `tentativas_login`: o identificador tentado e `sucesso = false`.
+     *
+     * Vale também quando o limite estourou com a senha certa: a pessoa provou
+     * quem é, e foi o sistema que recusou. A trilha registra quem escreveu; o
+     * desfecho é outra coluna.
+     */
+    const atorDaTentativa = ok && pessoa ? pessoaIdDeFonteConfiavel(pessoa.id) : SISTEMA
+
     // --- TRANSAÇÃO 2 (curta): grava a tentativa e, se deu certo, cria a sessão.
-    const resultado = await this.banco.naClinica(clinica.id, async (c) => {
+    const resultado = await this.banco.naClinica(clinica.id, atorDaTentativa, async (c) => {
       /**
        * Releitura do limite, e não uma herança da etapa 1.
        *
@@ -355,7 +382,14 @@ export class AutenticacaoService {
     // a descobre pelo HASH do cookie. Ver `clinica-id.ts`.
     const clinicaId = clinicaIdDeFonteConfiavel(clinica.id)
 
-    return this.banco.naClinica(clinicaId, async (c) => {
+    /**
+     * O ator é a pessoa do cookie, não `SISTEMA`: ela é quem está pedindo, e
+     * é dentro desta transação que todo handler autenticado vai rodar. Quando
+     * o Plano 6 trouxer dose e lote por paciente, a leitura que a regra 18
+     * manda registrar acontece aqui — com `SISTEMA`, o registro de acesso
+     * responderia "o sistema olhou o prontuário", que não responde nada.
+     */
+    return this.banco.naClinica(clinicaId, pessoaIdDeFonteConfiavel(sessao.pessoa_id), async (c) => {
       const p = await c.query<LinhaPessoa>(
         `SELECT id, nome, email, funcao, senha_hash, admin, perfil_id, ativo
          FROM pessoas WHERE id = $1 AND ativo`,
@@ -404,18 +438,26 @@ export class AutenticacaoService {
    */
   async sair(token: string): Promise<void> {
     const hash = hashDoToken(token)
-    const s = await this.banco.semIsolamentoDeClinica<{ clinica_id: string }>(
-      'SELECT clinica_id FROM resolver_sessao($1)',
-      [hash],
-    )
-    const cru = s.rows[0]?.clinica_id
+    // `pessoa_id` junto, e não só a clínica: o `UPDATE` abaixo é uma ESCRITA,
+    // e a trilha precisa dizer quem revogou. `resolver_sessao` já devolvia os
+    // dois — "quem saiu" vem do mesmo hash de cookie que prova a sessão, pela
+    // mesma razão que `contextoDoToken` confia nele.
+    const s = await this.banco.semIsolamentoDeClinica<{
+      clinica_id: string
+      pessoa_id: string
+    }>('SELECT clinica_id, pessoa_id FROM resolver_sessao($1)', [hash])
+    const sessao = s.rows[0]
     // Token desconhecido, expirado ou já revogado: nada a fazer, e o
     // controlador limpa o cookie de qualquer forma.
-    if (!cru) return
+    if (!sessao) return
 
-    await this.banco.naClinica(clinicaIdDeFonteConfiavel(cru), async (c) => {
-      await c.query('UPDATE sessoes SET revogada_em = now() WHERE token_hash = $1', [hash])
-    })
+    await this.banco.naClinica(
+      clinicaIdDeFonteConfiavel(sessao.clinica_id),
+      pessoaIdDeFonteConfiavel(sessao.pessoa_id),
+      async (c) => {
+        await c.query('UPDATE sessoes SET revogada_em = now() WHERE token_hash = $1', [hash])
+      },
+    )
   }
 
   async perfisPublicos(clinicaId: ClinicaId): Promise<Perfil[]> {

@@ -4,6 +4,7 @@ import pg from 'pg'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { AppModule } from '../app.module'
+import { apagarClinicaDeTeste, declararAtorSistema } from '../banco/limpeza-de-teste'
 import { registrarCookie } from '../main'
 import { PISO_DE_RESPOSTA_MS } from './autenticacao.service'
 import { LimitePorOrigem } from './limite-por-origem'
@@ -20,6 +21,9 @@ const codigo = `e2e-${Date.now()}`
 beforeAll(async () => {
   migrate = new pg.Client({ connectionString: URL_MIG })
   await migrate.connect()
+  // A trigger `registrar_auditoria` recusa escrita sem ator declarado, e
+  // fixture não tem pessoa autenticada por trás: é o sistema criando dado.
+  await declararAtorSistema(migrate)
 
   const c = await migrate.query<{ id: string }>(
     `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica E2E') RETURNING id`,
@@ -67,11 +71,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  await migrate.query('DELETE FROM sessoes WHERE clinica_id = $1', [clinica])
-  await migrate.query('DELETE FROM tentativas_login WHERE clinica_id = $1', [clinica])
-  await migrate.query('DELETE FROM pessoas WHERE clinica_id = $1', [clinica])
-  await migrate.query('DELETE FROM perfis WHERE clinica_id = $1', [clinica])
-  await migrate.query('DELETE FROM clinicas WHERE id = $1', [clinica])
+  await apagarClinicaDeTeste(migrate, clinica)
   await migrate.end()
   await app.close()
 })

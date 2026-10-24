@@ -8,6 +8,7 @@
 import pg from 'pg'
 import { perfisPadrao } from '@fir/domain'
 import { hashDeSenha } from './src/autenticacao/senha.js'
+import { declararAtorSistema } from './src/banco/limpeza-de-teste'
 
 const CODIGO = 'demo'
 const EMAIL = 'demo@firmare.local'
@@ -18,6 +19,18 @@ const url =
 
 const c = new pg.Client({ connectionString: url })
 await c.connect()
+
+/**
+ * A trigger `registrar_auditoria` recusa escrita em tabela de negócio sem
+ * ator declarado, e a semente escreve em `perfis` e `pessoas`. O ator aqui é
+ * o SISTEMA de verdade: não há pessoa autenticada por trás de uma semente, e
+ * atribuir a criação dos perfis a alguém seria inventar um autor.
+ *
+ * A trilha resultante é desejada, não um efeito colateral: "estes perfis e
+ * estas pessoas nasceram da semente, nesta data" é precisamente o que uma
+ * implantação precisa poder provar depois.
+ */
+await declararAtorSistema(c)
 
 const existente = await c.query<{ id: string }>('SELECT id FROM clinicas WHERE codigo = $1', [CODIGO])
 if (existente.rows[0]) {

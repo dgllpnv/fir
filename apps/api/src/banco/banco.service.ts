@@ -1,5 +1,6 @@
 import { Injectable, type OnModuleDestroy } from '@nestjs/common'
 import pg from 'pg'
+import { type Ator, atorParaOBanco } from './ator'
 import type { ClinicaId } from './clinica-id'
 
 /**
@@ -65,23 +66,35 @@ export class BancoService implements OnModuleDestroy {
   }
 
   /**
-   * Abre uma transação, fixa `app.clinica_id` nela e executa.
+   * Abre uma transação, fixa `app.clinica_id` e `app.pessoa_id` nela, e executa.
    *
    * `SET LOCAL` e não `SET`: o escopo é a transação, então uma conexão
-   * devolvida ao pool nunca carrega a clínica da requisição anterior. Essa é a
-   * diferença entre isolamento e um vazamento intermitente que só aparece sob
-   * carga.
+   * devolvida ao pool nunca carrega a clínica — nem o ATOR — da requisição
+   * anterior. Essa é a diferença entre isolamento e um vazamento intermitente
+   * que só aparece sob carga.
    *
    * `ClinicaId`, não `string`: ver `clinica-id.ts`. Com `string`, um
    * `naClinica(corpo.clinicaId, ...)` compilava, a RLS obedecia ao valor
    * fixado e a requisição lia a clínica que o navegador escolheu.
+   *
+   * O ATOR É OBRIGATÓRIO, e não opcional com padrão `SISTEMA`. Um parâmetro
+   * opcional é esquecido em silêncio, e o padrão viraria "sistema" para
+   * escrita humana: a trilha ficaria tecnicamente completa e factualmente
+   * mentirosa — o pior dos dois mundos, porque uma trilha vazia a clínica
+   * percebe e uma trilha errada ela acredita. Obrigatório, o compilador cobra
+   * em cada chamada, e quem chama decide pensando.
    */
-  async naClinica<T>(clinicaId: ClinicaId, fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
+  async naClinica<T>(
+    clinicaId: ClinicaId,
+    ator: Ator,
+    fn: (c: pg.PoolClient) => Promise<T>,
+  ): Promise<T> {
     const c = await this.pool.connect()
     let erro: unknown
     try {
       await c.query('BEGIN')
       await c.query('SELECT set_config($1, $2, true)', ['app.clinica_id', clinicaId])
+      await c.query('SELECT set_config($1, $2, true)', ['app.pessoa_id', atorParaOBanco(ator)])
       const r = await fn(c)
       await c.query('COMMIT')
       return r

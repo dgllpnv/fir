@@ -1,3 +1,4 @@
+import { apagarClinicaDeTeste, declararAtorSistema } from '@fir/api/banco/limpeza-de-teste'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
@@ -25,6 +26,7 @@ beforeAll(async () => {
   migrate = new pg.Client({ connectionString: URL_MIG })
   migrate.on('error', (e) => console.error('[auditoria-append-only] migrate:', e.message))
   await migrate.connect()
+  await declararAtorSistema(migrate)
 
   const c = await migrate.query<{ id: string }>(
     `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica da trilha') RETURNING id`,
@@ -34,17 +36,11 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  // Desfazer o que este arquivo criou exige DESLIGAR a trigger — e precisar
-  // disso é a prova de que ela funciona. Produção nunca faz isto: lá a
-  // clínica se desativa (`ativa = false`), nunca se apaga, e a trilha dela
-  // continua sendo a resposta a "o que aconteceu aqui".
-  await migrate.query('ALTER TABLE auditoria DISABLE TRIGGER auditoria_sem_update')
-  try {
-    await migrate.query('DELETE FROM auditoria WHERE clinica_id = $1', [clinica])
-  } finally {
-    await migrate.query('ALTER TABLE auditoria ENABLE TRIGGER auditoria_sem_update')
-  }
-  await migrate.query('DELETE FROM clinicas WHERE id = $1', [clinica])
+  // Desfazer o que este arquivo criou exige DESLIGAR a trigger de
+  // append-only — e precisar disso é a prova de que ela funciona. Ver
+  // `apagarTrilhaDeTeste`: produção nunca faz isto, porque lá a clínica se
+  // desativa e a trilha dela continua sendo a resposta a "o que aconteceu".
+  await apagarClinicaDeTeste(migrate, clinica)
   await migrate.end()
 })
 

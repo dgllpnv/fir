@@ -6,7 +6,9 @@
   "//exports": "Fonte direta, como @fir/domain e @fir/contracts. Existe para que teste/rotas-protegidas.test.ts suba o AppModule de verdade — varrer as rotas registradas no Nest exige o modulo real, nao uma lista decorada.",
   "exports": {
     "./app.module": "./src/app.module.ts",
-    "./main": "./src/main.ts"
+    "./main": "./src/main.ts",
+    "./banco/ator": "./src/banco/ator.ts",
+    "./banco/limpeza-de-teste": "./src/banco/limpeza-de-teste.ts"
   },
   "scripts": {
     "dev": "tsx watch src/main.ts",
