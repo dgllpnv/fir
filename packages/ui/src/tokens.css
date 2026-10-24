@@ -1,0 +1,98 @@
+/*
+ * Identidade "papel e dourado", herdada do protótipo e mantida de propósito:
+ * as quatro clínicas em uso já a reconhecem. Ver docs/design.md.
+ *
+ * O dourado tem DOIS papéis e eles não se trocam: --gold é traço, borda e
+ * realce; --gold-ink é texto. Dourado claro sobre fundo claro não passa em AA,
+ * e é o erro mais comum nesta paleta.
+ */
+:root {
+  --bg: #f9f7f2;
+  --surface: #ffffff;
+  --ink: #2e1f0e;
+  --muted: #6e5e4b;
+  --line: #e6dfd1;
+  --gold: #c5a467;
+  --gold-ink: #86672e;
+  --gold-soft: #f1e8d5;
+  --btn-bg: #2e1f0e;
+  --btn-ink: #f9f7f2;
+  --ok: #3f7d4e;
+  --ok-soft: #e3f0e5;
+  --warn: #a8701a;
+  --warn-soft: #f7ecd8;
+  --bad: #b4442f;
+  --bad-soft: #f6e1dc;
+  --display: 'Lora', Georgia, 'Times New Roman', serif;
+  --body: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --r: 10px;
+}
+
+/* Tema escuro é par de primeira classe. O seletor manual vence nos dois sentidos. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #17110a;
+    --surface: #221a10;
+    --ink: #f3ede2;
+    --muted: #b5a68f;
+    --line: #3a2d1d;
+    --gold: #c5a467;
+    --gold-ink: #ddc28c;
+    --gold-soft: #33271a;
+    --btn-bg: #c5a467;
+    --btn-ink: #1a130a;
+    --ok: #86c696;
+    --ok-soft: #1f3324;
+    --warn: #e3b461;
+    --warn-soft: #3a2c14;
+    --bad: #e88672;
+    --bad-soft: #3d1f18;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #17110a;
+  --surface: #221a10;
+  --ink: #f3ede2;
+  --muted: #b5a68f;
+  --line: #3a2d1d;
+  --gold-ink: #ddc28c;
+  --gold-soft: #33271a;
+  --btn-bg: #c5a467;
+  --btn-ink: #1a130a;
+  --ok: #86c696;
+  --ok-soft: #1f3324;
+  --warn: #e3b461;
+  --warn-soft: #3a2c14;
+  --bad: #e88672;
+  --bad-soft: #3d1f18;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.45 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  margin: 0;
+  text-wrap: balance;
+  letter-spacing: 0.2px;
+}
+button { cursor: pointer; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* Algarismos tabulares em TODA coluna de valor, quantidade ou data.
+   Número que dança entre linhas não se compara, e comparar é o motivo de a
+   coluna existir. */
+.num { font-variant-numeric: tabular-nums; }
+
+.wrap { max-width: 760px; margin: 0 auto; padding-inline: 16px; }
