@@ -1,6 +1,6 @@
 import { perfisPadrao } from '@fir/domain'
 import { describe, expect, it } from 'vitest'
-import { itensDoMenu } from './menu'
+import { itensDoMenu, secoesDoMenu } from './menu'
 
 const perfis = perfisPadrao()
 const href = (u: { admin: boolean; perfilId: string | null }) =>
@@ -30,5 +30,41 @@ describe('menu por permissão', () => {
   it('Hoje, Nova e Minhas metas são de todos, inclusive sem perfil', () => {
     const h = href({ admin: false, perfilId: null })
     expect(h).toEqual(['/hoje', '/tarefas', '/nova', '/minhas-metas'])
+  })
+})
+
+describe('seções do menu', () => {
+  it('a ordem dos grupos é a do dia da recepção, não a alfabética', () => {
+    const s = secoesDoMenu(itensDoMenu({ admin: true, perfilId: null }, perfis))
+    expect(s.map((x) => x.grupo)).toEqual([
+      'Dia a dia',
+      'Comercial',
+      'Financeiro',
+      'Processos',
+      'Pessoas',
+      'Gestão',
+    ])
+  })
+
+  it('grupo sem item não vira título órfão', () => {
+    // A Enfermagem não enxerga nada de Financeiro nem de Gestão. Um título
+    // "FINANCEIRO" sozinho diria a ela que existe algo ali que não abre.
+    const s = secoesDoMenu(itensDoMenu({ admin: false, perfilId: 'pf_enf' }, perfis))
+    expect(s.map((x) => x.grupo)).not.toContain('Financeiro')
+    expect(s.map((x) => x.grupo)).not.toContain('Gestão')
+    for (const sec of s) expect(sec.itens.length, `seção ${sec.grupo} vazia`).toBeGreaterThan(0)
+  })
+
+  it('nenhum item se perde no agrupamento', () => {
+    for (const u of [
+      { admin: true, perfilId: null },
+      { admin: false, perfilId: 'pf_rec' },
+      { admin: false, perfilId: 'pf_enf' },
+      { admin: false, perfilId: null },
+    ]) {
+      const itens = itensDoMenu(u, perfis)
+      const agrupados = secoesDoMenu(itens).flatMap((s) => s.itens)
+      expect(agrupados.map((i) => i.href).sort()).toEqual(itens.map((i) => i.href).sort())
+    }
   })
 })

@@ -1,9 +1,33 @@
 import { type ChaveDePermissao, type Perfil, temPerm } from '@fir/domain'
 
+export type GrupoDeMenu =
+  | 'Dia a dia'
+  | 'Comercial'
+  | 'Financeiro'
+  | 'Processos'
+  | 'Pessoas'
+  | 'Gestão'
+
+/**
+ * A ordem em que os grupos aparecem na barra lateral.
+ *
+ * Não é alfabética e não deve virar: é a ordem do dia da recepção. "Dia a dia"
+ * primeiro porque é onde ela passa o expediente; "Gestão" por último porque é
+ * onde se entra uma vez por semana.
+ */
+export const GRUPOS: readonly GrupoDeMenu[] = [
+  'Dia a dia',
+  'Comercial',
+  'Financeiro',
+  'Processos',
+  'Pessoas',
+  'Gestão',
+]
+
 export type ItemDeMenu = {
   readonly href: string
   readonly rotulo: string
-  readonly grupo: 'Dia a dia' | 'Comercial' | 'Financeiro' | 'Processos' | 'Pessoas' | 'Gestão'
+  readonly grupo: GrupoDeMenu
   /** `null` = sempre liberado. Ver CLAUDE.md §2, regra 16. */
   readonly perm: ChaveDePermissao | null
   /**
@@ -115,4 +139,29 @@ export function itensDoMenu(
 ): ItemDeMenu[] {
   const u = { admin: usuario.admin, perfilId: usuario.perfilId ?? '' }
   return MENU.filter((i) => i.perm === null || temPerm(u, perfis, i.perm))
+}
+
+export type SecaoDeMenu = { readonly grupo: GrupoDeMenu; readonly itens: readonly ItemDeMenu[] }
+
+/**
+ * Os itens já filtrados por permissão, em seções na ordem de `GRUPOS`.
+ *
+ * O grupo vazio **não** vira seção. Isso não é detalhe de estilo: a Enfermagem
+ * enxerga 6 das 17 telas, e um título "FINANCEIRO" sozinho, sem nada embaixo,
+ * diz à pessoa que existe algo ali que ela não consegue abrir — exatamente o
+ * que `docs/design.md` manda a tela sem permissão não fazer (ela some do
+ * menu). Derivar as seções dos itens, em vez de percorrer `GRUPOS` e filtrar
+ * depois, torna o título órfão impossível por construção.
+ */
+export function secoesDoMenu(itens: readonly ItemDeMenu[]): SecaoDeMenu[] {
+  const porGrupo = new Map<GrupoDeMenu, ItemDeMenu[]>()
+  for (const i of itens) {
+    const atual = porGrupo.get(i.grupo)
+    if (atual) atual.push(i)
+    else porGrupo.set(i.grupo, [i])
+  }
+  return GRUPOS.flatMap((grupo) => {
+    const doGrupo = porGrupo.get(grupo)
+    return doGrupo ? [{ grupo, itens: doGrupo }] : []
+  })
 }
