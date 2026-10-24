@@ -14,6 +14,39 @@ const PORTA = Number(process.env['PORTA'] ?? 4811)
 const HOST = process.env['HOST'] ?? '127.0.0.1'
 
 /**
+ * Quantos saltos de proxy confiar ao resolver o IP de origem.
+ *
+ * O limite de login por origem (`limite-por-origem.ts`) depende de `req.ip`,
+ * e `req.ip` depende disto. Atrás do Traefik, `socket.remoteAddress` é o
+ * endereço do proxy — todas as clínicas viram um IP só, e o limite por origem
+ * passa a ser um limite global. O endereço real está no `X-Forwarded-For`,
+ * que é uma LISTA: o Traefik APENDA o que viu, e a entrada mais à esquerda é
+ * escrita pelo CLIENTE. Um cabeçalho que o cliente escreve não serve de
+ * limite — ele inventaria um IP por requisição.
+ *
+ * `trustProxy` recebe a FUNÇÃO de confiança do `proxy-addr`, que o Fastify
+ * chama para cada endereço da cadeia começando no salto 0 (o endereço do
+ * socket) e caminhando para a esquerda do `X-Forwarded-For`. `req.ip` é o
+ * primeiro endereço NÃO confiável encontrado — isto é, com `n` saltos
+ * confiáveis, a entrada que o `n`-ésimo proxy confiável acrescentou. Com
+ * Traefik na frente da API e mais nada, `n = 1`.
+ *
+ * A função, e não o número: a tipagem do Fastify 5 declara
+ * `boolean | string | string[] | TrustProxyFunction` — `number` funciona em
+ * tempo de execução mas não compila, e um `as` para contornar a tipagem
+ * esconderia justamente a semântica que importa aqui.
+ *
+ * O padrão é **0 — não confiar em cabeçalho nenhum**, de propósito: confiar
+ * por padrão faz um `X-Forwarded-For` forjado desligar o limite em silêncio,
+ * e quem sabe quantos saltos existem é o operador que escreveu o compose. Em
+ * produção, `PROXY_SALTOS_CONFIAVEIS=1` em `infra/producao`.
+ */
+const PROXY_SALTOS_CONFIAVEIS = Number(process.env['PROXY_SALTOS_CONFIAVEIS'] ?? 0)
+
+export const confiarNoSalto = (_endereco: string, salto: number): boolean =>
+  salto < PROXY_SALTOS_CONFIAVEIS
+
+/**
  * `import.meta.url` contra `argv[1]`: o módulo é importado pelos testes, e lá
  * não se quer abrir porta nenhuma.
  *
@@ -41,7 +74,10 @@ function ehPontoDeEntrada(argv1: string | undefined): boolean {
 }
 
 if (ehPontoDeEntrada(process.argv[1])) {
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter())
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter({ trustProxy: confiarNoSalto }),
+  )
   await registrarCookie(app)
   await app.listen(PORTA, HOST)
   process.stdout.write(`API em http://${HOST}:${PORTA}\n`)

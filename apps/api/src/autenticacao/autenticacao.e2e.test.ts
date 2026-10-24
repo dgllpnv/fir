@@ -5,6 +5,7 @@ import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { AppModule } from '../app.module'
 import { registrarCookie } from '../main'
+import { LimitePorOrigem } from './limite-por-origem'
 import { hashDeSenha } from './senha'
 
 const URL_MIG =
@@ -203,5 +204,95 @@ describe('POST /v1/entrar', () => {
     const medianaNaoExiste = await medir('conta.tempo.naoexiste@e2e.local', 'senha-de-teste')
 
     expect(medianaNaoExiste).toBeGreaterThanOrEqual(medianaExiste * 0.5)
+  })
+
+  /**
+   * Correção final da branch, achado 3: o ORÁCULO DE CÓDIGO DE CLÍNICA.
+   *
+   * `clinicaPorCodigo` devolvia `null` e a função recusava antes de qualquer
+   * Argon2 e sem gravar tentativa. Medido pelo revisor contra a API viva:
+   *
+   *   clínica existente     29,0 ms
+   *   clínica inexistente    2,9 ms
+   *
+   * Dez vezes — uma requisição por código enumerava todos os tenants da
+   * instalação, sem deixar rastro. O remédio é o mesmo do `HASH_FALSO`:
+   * rodar a verificação de qualquer forma, pelo mesmo semáforo.
+   *
+   * Mesma disciplina de medição do teste de e-mail acima: 5 amostras e a
+   * MEDIANA (a primeira de cada processo carrega o aquecimento do binding
+   * nativo), e a asserção é de RAZÃO, não de igualdade — tempo é ruidoso.
+   */
+  it('o tempo de resposta não distingue clínica inexistente de clínica existente', async () => {
+    const medir = async (clinicaCodigo: string): Promise<number> => {
+      const tempos: number[] = []
+      for (let i = 0; i < 5; i++) {
+        const inicio = performance.now()
+        await request(app.getHttpServer())
+          .post('/v1/entrar')
+          .send({
+            clinica: clinicaCodigo,
+            email: `ninguem-${i}@e2e.local`,
+            senha: 'senha-qualquer-longa',
+          })
+          .expect(401)
+        tempos.push(performance.now() - inicio)
+      }
+      tempos.sort((a, b) => a - b)
+      return tempos[2]!
+    }
+
+    const medianaExiste = await medir(codigo)
+    const medianaNaoExiste = await medir(`nao-existe-${Date.now()}`)
+
+    // Sem a correção esta razão era ~0,1 (2,9 ms contra 29,0 ms).
+    expect(medianaNaoExiste).toBeGreaterThanOrEqual(medianaExiste * 0.5)
+  })
+})
+
+/**
+ * O limite por ORIGEM, com um provedor de teto 3 em vez do teto de produção
+ * (60 em 5 minutos): o que está sob teste é a rota devolver 429 com
+ * `Retry-After`, não o valor do parâmetro — esse é medido em
+ * `limite-por-origem.test.ts`.
+ */
+describe('POST /v1/entrar — limite por origem', () => {
+  let appLimitado: NestFastifyApplication
+
+  beforeAll(async () => {
+    const mod = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(LimitePorOrigem)
+      .useValue(new LimitePorOrigem(3, 60_000))
+      .compile()
+    appLimitado = mod.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+    await registrarCookie(appLimitado)
+    await appLimitado.init()
+    await appLimitado.getHttpAdapter().getInstance().ready()
+  })
+
+  afterAll(async () => {
+    await appLimitado.close()
+  })
+
+  it('mil e-mails distintos NÃO atravessam o limite: a quarta tentativa leva 429', async () => {
+    const tentar = (i: number) =>
+      request(appLimitado.getHttpServer())
+        .post('/v1/entrar')
+        .send({
+          clinica: codigo,
+          // E-mails DISTINTOS de propósito: é assim que o limite por
+          // identificador (cinco falhas na mesma conta) é contornado, e é o
+          // buraco que este limite tapa.
+          email: `origem-${i}-${Date.now()}@e2e.local`,
+          senha: 'senha-qualquer-longa',
+        })
+
+    await tentar(1).expect(401)
+    await tentar(2).expect(401)
+    await tentar(3).expect(401)
+    const r = await tentar(4).expect(429)
+    // `Retry-After` existe para o cliente não insistir às cegas — e para que
+    // o navegador da recepção não entre em laço de nova tentativa.
+    expect(Number(r.headers['retry-after'])).toBeGreaterThan(0)
   })
 })
