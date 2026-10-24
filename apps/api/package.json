@@ -1,0 +1,24 @@
+{
+  "name": "@fir/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "db:migrate": "tsx migrar.ts",
+    "db:seed": "tsx semear.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fir/domain": "workspace:*",
+    "pg": "^8"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/pg": "^8",
+    "tsx": "^4",
+    "typescript": "^5.7",
+    "vitest": "^2"
+  }
+}
