@@ -110,14 +110,41 @@ describe('toda tabela de negócio está protegida', () => {
        * catálogo, então qual delas caía em `rows[0]` era sorte.
        */
       for (const p of r.rows) {
+        /**
+         * Re-revisão, achado 8: `toContain('app_clinica_id')` passa para
+         * `USING (clinica_id = app_clinica_id() OR true)` — a chamada está
+         * lá, só que compondo por OR com algo sempre verdadeiro, o que torna
+         * a cláusula inteira sempre verdadeira e abre a tabela para todas as
+         * clínicas. Confirmado ao vivo: alterei `perfis_por_clinica` em
+         * `public.perfis` para essa forma no Postgres local e o `toContain`
+         * continuou passando.
+         *
+         * A defesa não é tentar reconhecer toda forma seguro de usar OR — é
+         * proibir OR inteiramente nesta cláusula. Qualquer condição
+         * adicional que o Plano 2 em diante precisar compor com o filtro de
+         * clínica tem de ser por AND: só AND preserva "o filtro de clínica
+         * vale sempre", e é essa a propriedade que a policy existe para
+         * garantir.
+         */
         expect(p.qual, `${t}: policy "${p.policyname}" sem USING por clínica`).toContain(
           'app_clinica_id',
         )
+        expect(
+          p.qual?.toUpperCase(),
+          `${t}: policy "${p.policyname}" tem OR no USING — pode compor com algo sempre ` +
+            `verdadeiro e abrir a tabela para todas as clínicas (qual = ${p.qual})`,
+        ).not.toMatch(/\bOR\b/)
+
         // Sem WITH CHECK, a leitura é isolada mas a ESCRITA para outra clínica
         // passa — e é assim que se grava um paciente no tenant errado.
         expect(p.with_check, `${t}: policy "${p.policyname}" sem WITH CHECK por clínica`).toContain(
           'app_clinica_id',
         )
+        expect(
+          p.with_check?.toUpperCase(),
+          `${t}: policy "${p.policyname}" tem OR no WITH CHECK — pode compor com algo sempre ` +
+            `verdadeiro e permitir escrita em qualquer clínica (with_check = ${p.with_check})`,
+        ).not.toMatch(/\bOR\b/)
       }
     }
   })
