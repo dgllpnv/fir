@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Um push novo cancela a execução anterior do mesmo branch: a única que
+# importa é a do último commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    name: Typecheck e testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: fir
+          POSTGRES_PASSWORD: fir_local_dev
+          POSTGRES_DB: fir
+          TZ: UTC
+          PGTZ: UTC
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fir -d fir"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://fir_app:fir_local_dev@127.0.0.1:5432/fir
+      DATABASE_URL_MIGRATE: postgresql://fir_migrate:fir_local_dev@127.0.0.1:5432/fir
+      # `apps/api/src/banco/banco.service.test.ts` precisa de um papel que
+      # possa derrubar o backend de outro (pg_terminate_backend) para provar
+      # que o pool sobrevive e reconecta. `fir_migrate` tem BYPASSRLS mas não
+      # é superusuário nem membro de pg_signal_backend — medido localmente:
+      # o Postgres recusa com "permission denied to terminate process". O
+      # papel `fir` é o POSTGRES_USER do serviço, logo já é superusuário
+      # aqui. Sem esta variável o teste cairia no padrão embutido
+      # (127.0.0.1:4832, a porta do ambiente local, inexistente neste
+      # runner) e falharia por recusa de conexão, não por permissão.
+      DATABASE_URL_ADMIN: postgresql://fir:fir_local_dev@127.0.0.1:5432/fir
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Sem `version`: a action lê `packageManager` do package.json, para a
+      # versão do pnpm existir num lugar só.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # --frozen-lockfile: o CI falha se o lockfile divergir, em vez de
+      # resolver versões diferentes das que rodaram na máquina.
+      - name: Instalar dependências
+        run: pnpm install --frozen-lockfile
+
+      # O serviço do Actions não roda o docker-entrypoint-initdb.d, então os
+      # papéis entram aqui, com o mesmo SQL do ambiente local. O serviço é
+      # novo a cada execução, então CREATE ROLE nunca encontra um papel que
+      # já existe — ON_ERROR_STOP continua valendo para qualquer outro erro
+      # inesperado interromper o passo em vez de seguir silencioso.
+      - name: Provisionar papéis
+        run: psql "postgresql://fir:fir_local_dev@127.0.0.1:5432/fir" -v ON_ERROR_STOP=1 -f infra/bootstrap-papeis.sql
+
+      # Um comando só: migrar.ts aplica 0001, 0002 e 0003 em ordem. A semente
+      # (pnpm db:seed) não entra aqui — nenhum teste depende da clínica
+      # "demo"; ela existe para o uso manual do ambiente local.
+      - name: Migrations
+        run: pnpm db:migrate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Testes
+        run: pnpm test
