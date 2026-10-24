@@ -51,11 +51,45 @@ Containers Docker comuns na VPS que já roda o Mavia e outros negócios, descobe
 
 ---
 
+## D-5 · Auditoria de todas as ações, e o superadmin que troca de clínica · 2026-10-24
+
+**Toda ação registrada numa trilha append-only.** Visível ao administrador da clínica (as próprias) e ao superadmin (as de qualquer clínica, trocando a visualização).
+
+Isso não é feature nova — é o que o `CLAUDE.md` já exigia e a fundação não construiu: a regra 20 pede trilha append-only em toda escrita financeira, de estoque e de RH, e a regra 18 pede **registro de acesso, não só de escrita**, porque dose, produto e lote por paciente são dado sensível do art. 11.
+
+**Consequência de prazo, e ela é a parte que importa:** a trilha precisa existir **antes do Plano 2**. Todo plano seguinte escreve dado; retrofitar auditoria em oito planos de código é fazer oito vezes o mesmo trabalho, e numa tabela append-only não há como recuperar o que não foi gravado. Vira um plano curto entre a fundação e as tarefas.
+
+### Restrições que tornam o superadmin seguro — e sem as quais ele destrói o isolamento
+
+O "trocar de clínica" é o caminho mais tentador para desfazer a RLS que sustenta o produto. Estas condições não são sugestão:
+
+1. **O superadmin não é uma `pessoa`.** Identidade separada, tabela própria, cookie próprio, prefixo de rota próprio. Um booleano `superadmin` em `pessoas` já perderia o modelo: a mesma sessão passaria a poder sair do próprio tenant.
+2. **Trocar de clínica não é um seletor que muda uma variável.** É uma **concessão** registrada: qual operador, qual clínica, quem autorizou, até quando, e por quê. A sessão do painel só resolve para clínica com concessão viva.
+3. **Toda leitura do painel grava na mesma trilha que a clínica enxerga.** "Quem olhou meus pacientes" tem de ser respondível **pela clínica**, não só por nós. É isso que separa acesso de suporte de acesso arbitrário.
+4. **A clínica pode revogar.**
+5. **Duas conexões de banco separadas por autenticação, não por `SET ROLE`** — `RESET ROLE` desfaz na mesma transação, e aí a leitura vira escrita sem nada além da disciplina impedindo.
+6. **Allowlist de rede na frente do controle de aplicação, falhando fechada.** O padrão de `infra/producao` do Mavia: as regras do produto e do painel são disjuntas, de modo que, se o middleware não puder ser construído, o painel vira 404 em vez de ficar aberto.
+7. **O superadmin nunca atravessa a RLS por conveniência.** Ele fixa `app.clinica_id` da clínica concedida, como qualquer um. Nada de `BYPASSRLS` para a aplicação.
+
+### O que isso custa, e por que vale
+
+Um seletor de clínica no painel custa uma tarde. Esta versão custa alguns dias. A diferença aparece no dia em que uma clínica perguntar quem viu o prontuário dos pacientes dela — e a LGPD dá a ela o direito de perguntar. Nós somos **operadores**, a clínica é controladora: acesso nosso a dado de saúde dela precisa de base legal no contrato de tratamento, justificativa por acesso e prazo. Sem isso, é operador excedendo o mandato.
+
+Leve ao `especialista-lgpd-saude` antes de implementar, e à minuta de DPA (pendência P-3).
+
+### O que fica para o épico 12
+
+A gestão de **pessoas dentro de uma clínica** (criar, convidar por e-mail com token de uso único, desativar, trocar perfil) é pequena e independente: o `admin` da clínica e a permissão `config` já existem, `pessoas.ativo` já existe, e falta a tela e as rotas. Pode vir a qualquer momento.
+
+O **painel do superadmin** é o épico 12, e está no fim do roadmap por causa das sete condições acima — não por falta de importância.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |
 |---|---|---|---|
-| P-1 | **UX de sessão no balcão** — tempo de sessão, bloqueio de tela, reautenticação rápida. Consequência direta de D-3 | dono + `product-rotina-clinica` | fechamento do épico 1 |
+| P-1 | **UX de sessão no balcão** — tempo de sessão, bloqueio de tela, reautenticação rápida. Consequência direta de D-3. **Metade resolvida por D-5**: com trilha de auditoria, "quem fez o quê" deixa de depender de quem logou. Resta o outro lado — uma sessão de 30 dias num computador de balcão atribui a ação à pessoa errada, e nenhuma trilha corrige isso se ela registra sempre o mesmo nome | dono + `product-rotina-clinica` | fechamento do épico 1 |
 | P-2 | **Hospedagem para dado de saúde** — host no Brasil ou garantias contratuais equivalentes. D-4 resolveu onde roda hoje, não se isso satisfaz a avaliação de impacto | dono + `especialista-lgpd-saude` | implantação da primeira clínica |
 | P-3 | **DPA com cada clínica** — a clínica é controladora, nós somos operadores. Não existe implantação sem contrato de tratamento | dono (jurídico) | implantação da primeira clínica |
 | P-4 | **Modelo comercial** — por clínica, por usuário ou por unidade. Define quais cotas precisam ser deriváveis desde já | dono | épico 12 (mas as contagens, desde o épico 1) |
