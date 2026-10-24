@@ -1,0 +1,105 @@
+import pg from 'pg'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+
+/**
+ * Testes de RLS vão contra Postgres real, nunca contra mock.
+ *
+ * Um mock que filtra por clínica prova que alguém escreveu um filtro — não que
+ * o banco recusa a consulta que esqueceu de filtrar. É exatamente a consulta
+ * esquecida que vaza o paciente de outra clínica.
+ */
+const URL_APP = process.env['DATABASE_URL'] ?? 'postgresql://fir_app:fir_local_dev@127.0.0.1:4832/fir'
+const URL_MIG =
+  process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'
+
+let migrate: pg.Client
+let app: pg.Client
+let clinicaA: string
+let clinicaB: string
+
+beforeAll(async () => {
+  migrate = new pg.Client({ connectionString: URL_MIG })
+  app = new pg.Client({ connectionString: URL_APP })
+  await migrate.connect()
+  await app.connect()
+
+  const sufixo = Date.now()
+  const a = await migrate.query<{ id: string }>(
+    `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica A') RETURNING id`,
+    [`teste-a-${sufixo}`],
+  )
+  const b = await migrate.query<{ id: string }>(
+    `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica B') RETURNING id`,
+    [`teste-b-${sufixo}`],
+  )
+  clinicaA = a.rows[0]!.id
+  clinicaB = b.rows[0]!.id
+
+  for (const [clinica, chave] of [
+    [clinicaA, 'pf_a'],
+    [clinicaB, 'pf_b'],
+  ] as const) {
+    await migrate.query(
+      `INSERT INTO perfis (clinica_id, chave, nome, perms) VALUES ($1, $2, 'Recepção', '{jornada}')`,
+      [clinica, chave],
+    )
+    await migrate.query(
+      `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
+       SELECT $1, 'Fulana', $2, 'x', id FROM perfis WHERE clinica_id = $1`,
+      [clinica, `fulana@${chave}.local`],
+    )
+  }
+})
+
+afterAll(async () => {
+  await migrate.query('DELETE FROM pessoas WHERE clinica_id = ANY($1)', [[clinicaA, clinicaB]])
+  await migrate.query('DELETE FROM perfis  WHERE clinica_id = ANY($1)', [[clinicaA, clinicaB]])
+  await migrate.query('DELETE FROM clinicas WHERE id = ANY($1)', [[clinicaA, clinicaB]])
+  await migrate.end()
+  await app.end()
+})
+
+async function comClinica<T>(clinica: string, fn: () => Promise<T>): Promise<T> {
+  await app.query('BEGIN')
+  await app.query('SELECT set_config($1, $2, true)', ['app.clinica_id', clinica])
+  try {
+    return await fn()
+  } finally {
+    await app.query('COMMIT')
+  }
+}
+
+describe('RLS — a clínica é a fronteira', () => {
+  it('cada clínica enxerga só as próprias pessoas', async () => {
+    const naA = await comClinica(clinicaA, () => app.query('SELECT email FROM pessoas'))
+    expect(naA.rows.map((r) => r.email)).toEqual(['fulana@pf_a.local'])
+
+    const naB = await comClinica(clinicaB, () => app.query('SELECT email FROM pessoas'))
+    expect(naB.rows.map((r) => r.email)).toEqual(['fulana@pf_b.local'])
+  })
+
+  it('buscar o id da outra clínica devolve vazio — não erro, vazio', async () => {
+    const r = await comClinica(clinicaA, () =>
+      app.query('SELECT email FROM pessoas WHERE clinica_id = $1', [clinicaB]),
+    )
+    expect(r.rows).toHaveLength(0)
+  })
+
+  it('sem fixar a clínica, o banco não entrega nada', async () => {
+    await app.query('BEGIN')
+    const r = await app.query('SELECT count(*)::int AS n FROM pessoas')
+    await app.query('COMMIT')
+    expect(r.rows[0]!.n).toBe(0)
+  })
+
+  it('não é possível gravar para outra clínica', async () => {
+    await expect(
+      comClinica(clinicaA, () =>
+        app.query(
+          `INSERT INTO perfis (clinica_id, chave, nome) VALUES ($1, 'invasor', 'Invasor')`,
+          [clinicaB],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/i)
+  })
+})
