@@ -1,6 +1,6 @@
 import pg from 'pg'
 import { describe, expect, it } from 'vitest'
-import { BancoService } from './banco.service.js'
+import { BancoService } from './banco.service'
 
 /**
  * Prova a Rodada de correção 2: sem o listener de `'error'` no `Pool`, a API

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { conferirSenha, hashDeSenha } from './senha.js'
+import { conferirSenha, hashDeSenha } from './senha'
 
 describe('senha', () => {
   it('o hash não contém a senha e é verificável', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hashDoToken, limiteExcedido, novoToken } from './sessao.js'
+import { hashDoToken, limiteExcedido, novoToken } from './sessao'
 
 describe('token de sessão', () => {
   it('gera token opaco e o hash correspondente', () => {

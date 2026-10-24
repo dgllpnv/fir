@@ -2,7 +2,7 @@ import { CAMPOS_MONETARIOS, type ChaveDePermissao } from '@fir/domain'
 import { type CallHandler, type ExecutionContext, Injectable, type NestInterceptor } from '@nestjs/common'
 import type { Observable } from 'rxjs'
 import { map } from 'rxjs/operators'
-import type { RequisicaoComContexto } from './contexto.js'
+import type { RequisicaoComContexto } from './contexto'
 
 /**
  * O TRADUTOR ÚNICO.

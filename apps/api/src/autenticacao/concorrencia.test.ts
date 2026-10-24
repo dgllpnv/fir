@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Semaforo } from './concorrencia.js'
-import { conferirSenha, hashDeSenha } from './senha.js'
+import { Semaforo } from './concorrencia'
+import { conferirSenha, hashDeSenha } from './senha'
 
 describe('Semaforo', () => {
   it('nunca deixa mais que K tarefas em execução ao mesmo tempo', async () => {

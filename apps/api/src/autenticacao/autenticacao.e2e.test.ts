@@ -3,9 +3,9 @@ import { Test } from '@nestjs/testing'
 import pg from 'pg'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { AppModule } from '../app.module.js'
-import { registrarCookie } from '../main.js'
-import { hashDeSenha } from './senha.js'
+import { AppModule } from '../app.module'
+import { registrarCookie } from '../main'
+import { hashDeSenha } from './senha'
 
 const URL_MIG =
   process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'

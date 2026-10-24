@@ -1,5 +1,5 @@
 import { Controller, Get, HttpException, HttpStatus, Inject } from '@nestjs/common'
-import { BancoService } from '../banco/banco.service.js'
+import { BancoService } from '../banco/banco.service'
 
 /**
  * Healthcheck que verifica o **banco**, não só se o processo está de pé.

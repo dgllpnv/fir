@@ -1,4 +1,4 @@
-import { erro, erroDe, ok, type Result } from './resultado.js'
+import { erro, erroDe, ok, type Result } from './resultado'
 
 const MIL = 1000n
 

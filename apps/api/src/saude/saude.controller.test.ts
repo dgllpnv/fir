@@ -2,8 +2,8 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Test } from '@nestjs/testing'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { AppModule } from '../app.module.js'
-import { BancoService } from '../banco/banco.service.js'
+import { AppModule } from '../app.module'
+import { BancoService } from '../banco/banco.service'
 
 let app: NestFastifyApplication
 

@@ -5,8 +5,8 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common'
-import type { RequisicaoComContexto } from '../comum/contexto.js'
-import { AutenticacaoService } from './autenticacao.service.js'
+import type { RequisicaoComContexto } from '../comum/contexto'
+import { AutenticacaoService } from './autenticacao.service'
 
 export const NOME_DO_COOKIE = '__Host-fir-sessao'
 

@@ -8,7 +8,7 @@ export type ItemDeMenu = {
   readonly perm: ChaveDePermissao | null
 }
 
-/** Hoje, as próprias tarefas, Nova tarefa, Minhas metas, Ajuda e Manual são de todos. */
+/** Hoje, Tarefas, Nova tarefa e Minhas metas são de todos — `perm: null`, sem depender de perfil. */
 export const MENU: readonly ItemDeMenu[] = [
   { href: '/hoje', rotulo: 'Hoje', grupo: 'Dia a dia', perm: null },
   { href: '/tarefas', rotulo: 'Tarefas', grupo: 'Dia a dia', perm: null },

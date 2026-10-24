@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common'
 import { APP_INTERCEPTOR } from '@nestjs/core'
-import { AutenticacaoModule } from './autenticacao/autenticacao.module.js'
-import { BancoModule } from './banco/banco.module.js'
-import { RedacaoInterceptor } from './comum/redacao.interceptor.js'
-import { SaudeController } from './saude/saude.controller.js'
+import { AutenticacaoModule } from './autenticacao/autenticacao.module'
+import { BancoModule } from './banco/banco.module'
+import { RedacaoInterceptor } from './comum/redacao.interceptor'
+import { SaudeController } from './saude/saude.controller'
 
 @Module({
   imports: [BancoModule, AutenticacaoModule],

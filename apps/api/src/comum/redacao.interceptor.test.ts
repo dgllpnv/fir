@@ -1,7 +1,7 @@
 import type { CallHandler, ExecutionContext } from '@nestjs/common'
 import { of } from 'rxjs'
 import { describe, expect, it } from 'vitest'
-import { redigir, RedacaoInterceptor } from './redacao.interceptor.js'
+import { redigir, RedacaoInterceptor } from './redacao.interceptor'
 
 const semValores = (c: string) => c !== 'valores' && c !== 'pessoas.gerir'
 const comTudo = () => true

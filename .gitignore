@@ -3,6 +3,7 @@ dist/
 .next/
 .turbo/
 *.log
+*.tsbuildinfo
 infra/producao/.env
 infra/producao/redis.conf
 .superpowers/

@@ -1,2 +1,2 @@
-export * from './comum.js'
-export * from './autenticacao.js'
+export * from './comum'
+export * from './autenticacao'

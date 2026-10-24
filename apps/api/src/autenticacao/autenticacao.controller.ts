@@ -15,10 +15,10 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
-import type { RequisicaoComContexto } from '../comum/contexto.js'
-import { AutenticacaoService, CredencialInvalida, LimiteDeTentativas } from './autenticacao.service.js'
-import { DURACAO_SESSAO_MS } from './sessao.js'
-import { NOME_DO_COOKIE, SessaoGuard } from './sessao.guard.js'
+import type { RequisicaoComContexto } from '../comum/contexto'
+import { AutenticacaoService, CredencialInvalida, LimiteDeTentativas } from './autenticacao.service'
+import { DURACAO_SESSAO_MS } from './sessao'
+import { NOME_DO_COOKIE, SessaoGuard } from './sessao.guard'
 
 /** Uma frase só para toda falha de credencial. Ver o teste e2e. */
 const FRASE = 'E-mail ou senha incorretos.'

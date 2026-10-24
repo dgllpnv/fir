@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Uuid } from './comum.js'
+import { Uuid } from './comum'
 
 export const EntrarEntrada = z.object({
   // A clínica entra aqui, no contrato, e não lida solta do corpo no

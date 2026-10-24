@@ -4,7 +4,7 @@ import { NestFactory } from '@nestjs/core'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { AppModule } from './app.module.js'
+import { AppModule } from './app.module'
 
 export async function registrarCookie(app: NestFastifyApplication): Promise<void> {
   await app.register(cookie as never)

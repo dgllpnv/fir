@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common'
-import { BancoService } from './banco.service.js'
+import { BancoService } from './banco.service'
 
 @Global()
 @Module({ providers: [BancoService], exports: [BancoService] })

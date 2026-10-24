@@ -1,4 +1,4 @@
-import { erro, erroDe, ok, type Result } from './resultado.js'
+import { erro, erroDe, ok, type Result } from './resultado'
 
 const FORMATADOR = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 

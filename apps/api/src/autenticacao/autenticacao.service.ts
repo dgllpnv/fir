@@ -1,11 +1,11 @@
 import type { EuSaida } from '@fir/contracts'
 import { type ChaveDePermissao, type Perfil, temPerm } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
-import { BancoService } from '../banco/banco.service.js'
-import type { ContextoDaRequisicao, PerfilComChave } from '../comum/contexto.js'
-import { semaforoArgon2 } from './concorrencia.js'
-import { conferirSenha } from './senha.js'
-import { DURACAO_SESSAO_MS, hashDoToken, limiteExcedido, novoToken } from './sessao.js'
+import { BancoService } from '../banco/banco.service'
+import type { ContextoDaRequisicao, PerfilComChave } from '../comum/contexto'
+import { semaforoArgon2 } from './concorrencia'
+import { conferirSenha } from './senha'
+import { DURACAO_SESSAO_MS, hashDoToken, limiteExcedido, novoToken } from './sessao'
 
 export class CredencialInvalida extends Error {}
 export class LimiteDeTentativas extends Error {}
