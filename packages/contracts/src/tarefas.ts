@@ -207,3 +207,197 @@ export type EditarTarefa = z.infer<typeof EditarTarefa>
 
 export const ExcluirTarefa = z.object({ serie: z.coerce.boolean().default(false) }).strict()
 export type ExcluirTarefa = z.infer<typeof ExcluirTarefa>
+
+/* -------------------------------------------------------------------------
+ * A SAÍDA
+ * ---------------------------------------------------------------------- */
+
+/**
+ * Dinheiro na SAÍDA: string de centavos, ou `null` quando a redação apagou.
+ *
+ * Não é `dinheiroEmTexto` — aquele é de ENTRADA e transforma a string em
+ * `bigint`, o que descreveria errado o que sai pelo JSON.
+ */
+const centavosNaSaida = z.string().regex(/^-?\d+$/).nullable()
+
+/**
+ * O pagamento embutido, como ele volta.
+ *
+ * É uma LINHA DE `recebimentos`, não um campo da tarefa — `tarefas` não tem
+ * coluna de dinheiro. `valor` e `valorAberto` saem `null` para quem não tem
+ * `valores`, e isso é trabalho do `RedacaoInterceptor`, nunca de um `if`
+ * aqui. Por isso toda rota que devolve `TarefaNaLista` entra em
+ * `ROTAS_COM_DINHEIRO`.
+ */
+export const PagamentoNaSaida = z.object({
+  id: Uuid,
+  valor: centavosNaSaida,
+  valorAberto: centavosNaSaida,
+  forma: z.string(),
+  tipo: z.string(),
+  recebidoEm: z.string(),
+})
+export type PagamentoNaSaida = z.infer<typeof PagamentoNaSaida>
+
+/** Um passo da Jornada. As TRANSIÇÕES são do épico 3; aqui só se lê o que há. */
+export const PassoDaJornada = z.object({
+  e: z.string(),
+  em: z.string(),
+  por: z.string().nullable(),
+  nota: z.string().optional(),
+})
+export type PassoDaJornada = z.infer<typeof PassoDaJornada>
+
+/**
+ * A tarefa como as duas telas a leem.
+ *
+ * `atrasada` vem CALCULADA DO SERVIDOR, contra o dia civil de hoje no fuso da
+ * clínica — nunca contra o relógio do navegador (regra 24) e nunca contra o
+ * dia que a pessoa está navegando. Navegar para a semana passada não torna
+ * tudo atrasado, e navegar para a próxima não desatrasa nada.
+ */
+export const TarefaNaLista = z.object({
+  id: Uuid,
+  solicitanteId: Uuid,
+  solicitanteNome: z.string(),
+  responsavelId: Uuid,
+  responsavelNome: z.string(),
+  descricao: z.string(),
+  prazo: DiaCivil,
+  hora: z.string().nullable(),
+  prioridade: z.enum(['normal', 'urgente']),
+  status: z.enum(['aberta', 'concluida', 'cancelada']),
+  concluidaEm: z.string().nullable(),
+  criadaEm: z.string(),
+  pacienteId: Uuid.nullable(),
+  pacienteNome: z.string().nullable(),
+  pacienteTelefone: z.string().nullable(),
+  tipo: z.string(),
+  etapa: z.string().nullable(),
+  historico: z.array(PassoDaJornada),
+  resultado: z.string(),
+  obs: z.string(),
+  serieId: Uuid.nullable(),
+  recorrencia: z.string(),
+  unidadeId: Uuid.nullable(),
+  atrasada: z.boolean(),
+  pagamento: PagamentoNaSaida.nullable(),
+})
+export type TarefaNaLista = z.infer<typeof TarefaNaLista>
+
+/**
+ * O que criar, editar, concluir, cancelar e reabrir devolvem.
+ *
+ * `todas` existe porque uma série nasce com N tarefas e uma edição com
+ * `serie: true` muda N — a tela precisa das N, não de uma e um recarregamento.
+ * No caso de uma tarefa só, `todas` tem um elemento: nunca `undefined`, para
+ * que o cliente não precise de um ramo.
+ */
+export const TarefasAfetadas = z.object({
+  tarefa: TarefaNaLista,
+  todas: z.array(TarefaNaLista),
+})
+export type TarefasAfetadas = z.infer<typeof TarefasAfetadas>
+
+export const ExclusaoDeTarefa = z.object({ id: Uuid, ids: z.array(Uuid) })
+export type ExclusaoDeTarefa = z.infer<typeof ExclusaoDeTarefa>
+
+/* -------------------------------------------------------------------------
+ * A CONSULTA
+ * ---------------------------------------------------------------------- */
+
+/** Os três escopos do MANUAL cap. 3. `equipe` exige `tarefas.equipe`. */
+export const ESCOPOS = ['meu', 'solicitei', 'equipe'] as const
+export type Escopo = (typeof ESCOPOS)[number]
+
+export const SITUACOES = ['todas', 'aberta', 'atrasada', 'concluida', 'cancelada'] as const
+
+/**
+ * Os períodos da tela, resolvidos NO SERVIDOR.
+ *
+ * `7dias`, `30dias`, `mes` e `mes-passado` viram datas a partir do dia civil
+ * de hoje no fuso da clínica — o cliente manda o NOME do período, nunca as
+ * bordas, porque bordas calculadas no navegador são o relógio do cliente
+ * decidindo a data de negócio (regra 24).
+ */
+export const PERIODOS = ['qualquer', '7dias', '30dias', 'mes', 'mes-passado', 'per'] as const
+
+export const ConsultaDeTarefas = z.object({
+  escopo: z.enum(ESCOPOS).default('meu'),
+  situacao: z.enum(SITUACOES).default('todas'),
+  periodo: z.enum(PERIODOS).default('qualquer'),
+  /** Só com `periodo=per`. Janela semiaberta `[de, ate+1dia)`, regra 23. */
+  de: DiaCivil.optional(),
+  ate: DiaCivil.optional(),
+  q: z.string().trim().max(120).optional(),
+  /** O nome do tipo, ou `__interna` para as tarefas sem paciente. */
+  tipo: z.string().trim().max(60).optional(),
+  unidadeId: Uuid.optional(),
+  solicitanteId: Uuid.optional(),
+  responsavelId: Uuid.optional(),
+  limite: z.coerce.number().int().min(1).max(200).default(50),
+  deslocamento: z.coerce.number().int().min(0).max(100_000).default(0),
+})
+export type ConsultaDeTarefas = z.infer<typeof ConsultaDeTarefas>
+
+export const ListaDeTarefas = z.object({
+  tarefas: z.array(TarefaNaLista),
+  total: z.number().int(),
+  /** O dia civil de hoje na clínica. A tela nunca o calcula (regra 24). */
+  hoje: DiaCivil,
+})
+export type ListaDeTarefas = z.infer<typeof ListaDeTarefas>
+
+/* -------------------------------------------------------------------------
+ * A TELA HOJE
+ * ---------------------------------------------------------------------- */
+
+export const ConsultaDeHoje = z.object({
+  /** Sem ele, o servidor usa o dia civil DELE no fuso da clínica. */
+  dia: DiaCivil.optional(),
+  escopo: z.enum(ESCOPOS).default('meu'),
+})
+export type ConsultaDeHoje = z.infer<typeof ConsultaDeHoje>
+
+/** Uma bolinha da faixa da semana. Contada no SERVIDOR — o front não calcula. */
+export const DiaDaSemana = z.object({
+  dia: DiaCivil,
+  tarefas: z.number().int(),
+  atrasadas: z.number().int(),
+})
+export type DiaDaSemana = z.infer<typeof DiaDaSemana>
+
+export const AniversarianteDoDia = z.object({
+  id: Uuid,
+  nome: z.string(),
+  telefone: z.string(),
+  aniversario: DiaCivil,
+  /** Já existe tarefa de Aniversário para ele hoje? Então o aviso não insiste. */
+  jaTemTarefa: z.boolean(),
+})
+export type AniversarianteDoDia = z.infer<typeof AniversarianteDoDia>
+
+/**
+ * Tudo o que a tela Hoje mostra, composto no SERVIDOR.
+ *
+ * `hoje` é o dia civil de verdade e `dia` é o que está sendo navegado — os
+ * dois existem porque "atrasada" se mede contra o primeiro e a lista se monta
+ * a partir do segundo.
+ *
+ * `ocultasPeloFiltro` é o aviso *"6 tarefas em aberto para hoje não aparecem
+ * em 'Para mim'"*. Sem ele a recepção acha que o dia está vazio.
+ */
+export const RespostaDeHoje = z.object({
+  dia: DiaCivil,
+  hoje: DiaCivil,
+  escopo: z.enum(ESCOPOS),
+  semana: z.array(DiaDaSemana),
+  aniversariantes: z.array(AniversarianteDoDia),
+  pendentes: z.object({ total: z.number().int(), itens: z.array(TarefaNaLista) }),
+  tarefas: z.array(TarefaNaLista),
+  concluidas: z.array(TarefaNaLista),
+  ocultasPeloFiltro: z.number().int(),
+  /** Para qual escopo o aviso manda olhar. `null` quando não há aviso. */
+  escopoComAsOcultas: z.enum(ESCOPOS).nullable(),
+})
+export type RespostaDeHoje = z.infer<typeof RespostaDeHoje>

@@ -9,9 +9,10 @@ import { BancoModule } from './banco/banco.module'
 import { RedacaoInterceptor } from './comum/redacao.interceptor'
 import { PacientesModule } from './pacientes/pacientes.module'
 import { SaudeController } from './saude/saude.controller'
+import { TarefasModule } from './tarefas/tarefas.module'
 
 @Module({
-  imports: [BancoModule, AutenticacaoModule, AuditoriaModule, PacientesModule],
+  imports: [BancoModule, AutenticacaoModule, AuditoriaModule, PacientesModule, TarefasModule],
   controllers: [SaudeController],
   providers: [
     // A ORDEM IMPORTA. O Nest executa os `APP_GUARD` na ordem de registro, e

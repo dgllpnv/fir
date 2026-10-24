@@ -13,6 +13,7 @@ import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
+import { unidadeValida } from '../comum/unidade'
 
 /**
  * Os tipos que contam como ATENDIMENTO e os que ABATEM saldo.
@@ -138,28 +139,6 @@ const ehNomeRepetido = (e: unknown): boolean =>
   (e as { code?: string }).code === '23505' &&
   String((e as { constraint?: string }).constraint ?? '') === 'pacientes_nome_unico'
 
-
-/**
- * A unidade existe NESTA clínica? Senão, vira `null` — em silêncio.
- *
- * Isto não é zelo: a chave estrangeira `pacientes.unidade_id -> unidades(id)`
- * é verificada pelo sistema e **atravessa a RLS**. Sem esta consulta, um POST
- * com o id de uma unidade da clínica vizinha GRAVA o vínculo e devolve 201 —
- * medido. A RLS esconde a unidade na leitura, então o sintoma seria um
- * paciente preso a uma unidade que ninguém naquela clínica consegue ver.
- *
- * O `SELECT` roda dentro de `naClinica`, então a própria RLS faz o filtro: se
- * a unidade é de outra clínica, a consulta devolve zero linhas.
- *
- * Descarta em silêncio em vez de recusar o cadastro — é o `unidadeValida()` do
- * `Code.gs`, e perder o cadastro inteiro por causa de um campo opcional seria
- * pior para quem está com o telefone na mão.
- */
-async function unidadeValida(c: pg.PoolClient, unidadeId: string | null): Promise<string | null> {
-  if (unidadeId === null) return null
-  const r = await c.query('SELECT 1 FROM unidades WHERE id = $1', [unidadeId])
-  return r.rowCount === 0 ? null : unidadeId
-}
 
 const NOME_REPETIDO = 'Já existe paciente com esse nome. Busque pelo nome para selecionar.'
 

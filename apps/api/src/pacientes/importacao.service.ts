@@ -6,6 +6,7 @@ import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
+import { unidadeValida } from '../comum/unidade'
 
 /**
  * Quantos dígitos fazem de um telefone uma CHAVE.
@@ -95,9 +96,8 @@ export class ImportacaoDePacientesService {
       }
 
       // A FK de `unidade_id` atravessa a RLS: uma unidade da clínica vizinha
-      // seria gravada em 2.000 pacientes de uma vez. Ver `unidadeValida` em
-      // `pacientes.service.ts`.
-      const unidade = await this.unidadeValida(c, entrada.unidadeId ?? null)
+      // seria gravada em 2.000 pacientes de uma vez. Ver `comum/unidade.ts`.
+      const unidade = await unidadeValida(c, entrada.unidadeId ?? null)
       const atualizados = await this.completar(c, paraCompletar, idPorLinha, unidade)
       const novos = await this.inserir(c, clinicaId, ator, paraInserir, unidade)
 
@@ -110,13 +110,6 @@ export class ImportacaoDePacientesService {
         ignorados: ignoradosNoArquivo + (linhas.length - novos - atualizados),
       }
     })
-  }
-
-  /** A unidade do lote existe NESTA clínica? A RLS faz o filtro. */
-  private async unidadeValida(c: pg.PoolClient, unidadeId: string | null): Promise<string | null> {
-    if (unidadeId === null) return null
-    const r = await c.query('SELECT 1 FROM unidades WHERE id = $1', [unidadeId])
-    return r.rowCount === 0 ? null : unidadeId
   }
 
   /**
