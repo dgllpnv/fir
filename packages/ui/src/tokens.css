@@ -26,6 +26,16 @@
   --display: 'Lora', Georgia, 'Times New Roman', serif;
   --body: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --r: 10px;
+
+  /*
+   * A tinta que vai SOBRE `--gold` — item de menu ativo, pílula de realce.
+   *
+   * Fica fora dos dois blocos de tema de propósito: `--gold` é o MESMO valor
+   * no claro e no escuro, então a tinta que o acompanha também precisa ser,
+   * senão o par muda de contraste quando o tema muda e ninguém mede de novo.
+   * Medido: #2E1F0E sobre #C5A467 dá 6,76:1.
+   */
+  --on-gold: #2e1f0e;
 }
 
 /* Tema escuro é par de primeira classe. O seletor manual vence nos dois sentidos. */
@@ -90,6 +100,109 @@ button { cursor: pointer; }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
+/* O rótulo de seção acima do título. Curto, maiúsculo, nunca uma frase. */
+.eyebrow {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  color: var(--gold-ink);
+}
+
+/* Card é AGRUPAMENTO, não papel de parede: nem toda informação vive dentro de
+   um. Ver docs/design.md §3. */
+.cartao {
+  display: grid;
+  gap: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px;
+}
+
+/* O estado vazio é a primeira tela que toda clínica nova vê. Tracejado para
+   dizer "aqui vai aparecer coisa", não "aqui deu errado". */
+.vazio {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  max-width: 560px;
+  background: var(--surface);
+  border: 1px dashed var(--line);
+  border-radius: var(--r);
+  padding: 24px;
+}
+
+/* ---------- campo e botão ----------
+   Primitivos, não enfeite: sem eles cada formulário novo reinventa o campo
+   com `style` inline, e a terceira tela já não combina com a primeira. */
+.campo { display: grid; gap: 5px; font-size: 13px; font-weight: 600; min-width: 0; }
+.campo input,
+.campo select,
+.campo textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+  color: var(--ink);
+  font-weight: 400;
+}
+.campo input:hover, .campo select:hover { border-color: var(--gold); }
+
+/*
+ * O autofill do Chrome pinta o campo de AZUL e ignora a paleta inteira.
+ *
+ * Isto não é detalhe de gosto: na tela de entrar, e-mail e senha vinham do
+ * autofill e ficavam azuis enquanto o campo "Clínica" — que o Chrome não
+ * preenche — ficava marrom. A mesma tela com duas cores de campo, e a
+ * primeira impressão da ferramenta é a de algo meio pronto.
+ *
+ * O remédio é uma SOMBRA INTERNA opaca, não a transição de 600000s que a
+ * internet recomenda. Medido aqui: com a transição, o campo preenchido pelo
+ * autofill congela o fundo que tinha no instante do preenchimento e nunca mais
+ * o atualiza — trocar para o tema claro deixava e-mail e senha com fundo
+ * escuro e tinta escura, ilegíveis. Trocar azul por invisível não é consertar.
+ *
+ * `box-shadow` não é a propriedade que o Chrome anima, então ele obedece e
+ * continua seguindo `--bg` quando o tema muda. `-webkit-text-fill-color` é
+ * preciso à parte porque `color` sozinho também é sobreposto.
+ *
+ * Nada de `box-shadow` para foco nesta base — o foco é `outline`, justamente
+ * para os dois não disputarem a mesma propriedade.
+ */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+select:-webkit-autofill,
+textarea:-webkit-autofill {
+  box-shadow: inset 0 0 0 100px var(--bg);
+  -webkit-text-fill-color: var(--ink);
+  caret-color: var(--ink);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--btn-bg);
+  color: var(--btn-ink);
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-weight: 600;
+  /* Alvo de toque grande: quem usa a ferramenta está com a mão ocupada. */
+  min-height: 44px;
+}
+/* SVG sem largura declarada ocupa 100% do que o pai der. No botão "Sair" do
+   rodapé do menu isso virou um ícone de 180 px — o `viewBox` sozinho não
+   limita nada. Todo ícone dentro de botão tem tamanho aqui, uma vez. */
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+
 /* Algarismos tabulares em TODA coluna de valor, quantidade ou data.
    Número que dança entre linhas não se compara, e comparar é o motivo de a
    coluna existir.
@@ -107,4 +220,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
 td { font-variant-numeric: tabular-nums; }
 .num { font-variant-numeric: tabular-nums; }
 
+/*
+ * A coluna de LEITURA do conteúdo — e só ela.
+ *
+ * O que havia antes: `.wrap` também vestia o conteúdo do cabeçalho. Numa tela
+ * de 1440 px a barra ocupava a largura toda, mas os 17 links ficavam presos a
+ * 760 px centralizados: três fileiras de link, "Clínica Modelo" em duas
+ * linhas, "Dra. Helena Prado" em três, e 340 px de margem vazia de cada lado.
+ * Medido: 346 px de cabeçalho, 42% da janela, só para navegar.
+ *
+ * A régua da casa é que a barra de navegação acompanha a JANELA e o texto
+ * acompanha a LEITURA. São duas larguras diferentes, e misturá-las foi o
+ * defeito. Ver `packages/ui/src/shell.css`.
+ */
 .wrap { max-width: 760px; margin: 0 auto; padding-inline: 16px; }
