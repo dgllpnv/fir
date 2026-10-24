@@ -1,11 +1,17 @@
 import { Controller, Get, HttpException, HttpStatus, Inject } from '@nestjs/common'
+import { Publico } from '../autorizacao/publico.decorator'
 import { BancoService } from '../banco/banco.service'
 
 /**
  * Healthcheck que verifica o **banco**, não só se o processo está de pé.
  * Um container "saudável" cujo Postgres caiu é pior que um container morto:
  * ele continua recebendo tráfego.
+ *
+ * `@Publico()`: o `HEALTHCHECK` do Docker e o probe do Traefik não têm cookie
+ * de sessão. A rota não lê nem devolve dado de clínica nenhuma — só `{ok,
+ * banco}` — então é a exceção mais barata que existe ao guard global.
  */
+@Publico()
 @Controller('v1/saude')
 export class SaudeController {
   // `@Inject` explícito: a injeção por tipo refletido depende de
