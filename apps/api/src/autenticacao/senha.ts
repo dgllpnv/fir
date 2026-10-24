@@ -14,8 +14,21 @@ export const hashDeSenha = (senha: string): Promise<string> => hash(senha, OPCOE
 export async function conferirSenha(senha: string, hashGuardado: string): Promise<boolean> {
   try {
     return await verify(hashGuardado, senha)
-  } catch {
-    // Hash corrompido ou em formato desconhecido é senha errada, não erro 500.
+  } catch (e) {
+    // Hash corrompido ou em formato desconhecido é senha errada, não erro 500 —
+    // e é por isso que devolvemos `false` em vez de lançar.
+    //
+    // Mas este mesmo `catch` pega falha do MECANISMO: memória insuficiente,
+    // binding nativo ausente (o risco glibc/musl da imagem), parâmetro fora de
+    // faixa. Sem este log, Argon2 quebrado se apresenta como "todos os
+    // usuários erraram a senha" — o operador vê a clínica reclamando e não tem
+    // onde olhar.
+    //
+    // Nem a senha nem o hash entram na mensagem.
+    process.stderr.write(
+      `[autenticacao] conferirSenha falhou: ` +
+        `${e instanceof Error ? `${e.name}: ${e.message}` : 'erro desconhecido'}\n`,
+    )
     return false
   }
 }

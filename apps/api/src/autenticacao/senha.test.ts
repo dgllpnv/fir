@@ -21,4 +21,26 @@ describe('senha', () => {
   it('hash corrompido devolve false em vez de lançar', async () => {
     expect(await conferirSenha('qualquer', 'nao-e-um-hash')).toBe(false)
   })
+
+  it('hash corrompido devolve false E registra o motivo', async () => {
+    // Sem este log, uma falha do mecanismo (binding nativo ausente, memória
+    // insuficiente) se apresentaria como "senha errada" para todos os usuários,
+    // sem nada no log do operador.
+    const escrito: string[] = []
+    const original = process.stderr.write
+    process.stderr.write = ((t: string) => {
+      escrito.push(String(t))
+      return true
+    }) as typeof process.stderr.write
+
+    try {
+      expect(await conferirSenha('qualquer', 'nao-e-um-hash')).toBe(false)
+    } finally {
+      process.stderr.write = original
+    }
+
+    expect(escrito.join('')).toContain('[autenticacao] conferirSenha falhou')
+    // E nunca a senha nem o hash na mensagem.
+    expect(escrito.join('')).not.toContain('qualquer')
+  })
 })
