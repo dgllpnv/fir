@@ -2755,10 +2755,49 @@ export class BancoService implements OnModuleDestroy {
     connectionString:
       process.env['DATABASE_URL'] ?? 'postgresql://fir_app:fir_local_dev@127.0.0.1:4832/fir',
     max: 10,
+
+    // Rede de segurança de tempo. Sem ela, `naClinica` prende a conexão por
+    // toda a duração do `fn`: uma consulta cara, um deadlock ou uma chamada
+    // externa dentro da transação ocupa um dos dez slots indefinidamente, e
+    // com os dez ocupados as novas chamadas ficam na fila sem prazo. É
+    // degradação silenciosa que só aparece sob carga.
+    connectionTimeoutMillis: 5_000, // esperar por um slot tem prazo
+    idleTimeoutMillis: 30_000, // conexão ociosa não fica para sempre
+    statement_timeout: 15_000, // consulta cara é cortada
+    idle_in_transaction_session_timeout: 20_000, // transação esquecida aberta é cortada
   })
 
-  /** Consulta sem clínica fixada. Só para `clinicas` e para o healthcheck. */
-  async semClinica<T extends pg.QueryResultRow>(sql: string, params: unknown[] = []) {
+  constructor() {
+    // **Sem este listener o processo morre.**
+    //
+    // O `pg` emite `'error'` no cliente **ocioso** quando o servidor encerra a
+    // conexão por fora, e em Node um `EventEmitter` que emite `'error'` sem
+    // listener lança e derruba o processo. Medido:
+    //
+    //   node:events:497  throw er; // Unhandled 'error' event
+    //   error: terminating connection due to administrator command
+    //       at Client.idleListener (pg-pool/index.js:62:10)
+    //
+    // Acontece em **todo** reinício do Postgres, em `pg_terminate_backend`,
+    // numa queda de rede — e no deploy, que é justamente quando o banco
+    // reinicia. O healthcheck nunca chegava a responder 503: a API morria
+    // antes. O pool já descarta o cliente quebrado; aqui basta registrar.
+    this.pool.on('error', (erro) => {
+      console.error('[banco] conexão ociosa do pool encerrada pelo servidor:', erro.message)
+    })
+  }
+
+  /**
+   * Consulta **sem isolamento de clínica**. O nome é o aviso: quem escrever
+   * isto numa revisão tem de explicar por quê.
+   *
+   * Os únicos usos legítimos são três: verificar o banco no healthcheck, ler
+   * `clinicas` (que não tem RLS por ser a raiz do tenancy) e resolver a sessão
+   * pela função `resolver_sessao`. Qualquer consulta de negócio aqui é defeito:
+   * hoje devolveria zero linhas em silêncio, e numa tabela futura sem RLS
+   * seria vazamento entre clínicas.
+   */
+  async semIsolamentoDeClinica<T extends pg.QueryResultRow>(sql: string, params: unknown[] = []) {
     return this.pool.query<T>(sql, params)
   }
 
@@ -2772,6 +2811,7 @@ export class BancoService implements OnModuleDestroy {
    */
   async naClinica<T>(clinicaId: string, fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
     const c = await this.pool.connect()
+    let erro: unknown
     try {
       await c.query('BEGIN')
       await c.query('SELECT set_config($1, $2, true)', ['app.clinica_id', clinicaId])
@@ -2779,10 +2819,27 @@ export class BancoService implements OnModuleDestroy {
       await c.query('COMMIT')
       return r
     } catch (e) {
-      await c.query('ROLLBACK')
+      erro = e
+      // O `ROLLBACK` é melhor-esforço. Se a conexão já morreu, ele também
+      // lança — e esse segundo erro, sem este `catch`, escaparia por cima do
+      // original. Quem depura veria "conexão fechada no rollback" em vez da
+      // causa, e procuraria no lugar errado.
+      try {
+        await c.query('ROLLBACK')
+      } catch {
+        // engolido de propósito: o erro que importa é o de cima
+      }
       throw e
     } finally {
-      c.release()
+      // `release(erro)` manda o node-postgres **descartar** a conexão em vez
+      // de devolvê-la ao pool. Sem o argumento, uma conexão quebrada no
+      // COMMIT ou no ROLLBACK volta como boa, e a próxima requisição que a
+      // pegar falha sem motivo aparente.
+      //
+      // `release` aceita `Error | boolean`; `erro` é `unknown` porque `catch`
+      // não garante o tipo — daí o `instanceof`.
+      if (erro === undefined) c.release()
+      else c.release(erro instanceof Error ? erro : true)
     }
   }
 
@@ -2806,7 +2863,7 @@ export class BancoModule {}
 
 `apps/api/src/saude/saude.controller.ts`:
 ```ts
-import { Controller, Get } from '@nestjs/common'
+import { Controller, Get, HttpException, HttpStatus, Inject } from '@nestjs/common'
 import { BancoService } from '../banco/banco.service.js'
 
 /**
@@ -2816,19 +2873,35 @@ import { BancoService } from '../banco/banco.service.js'
  */
 @Controller('v1/saude')
 export class SaudeController {
-  constructor(private readonly banco: BancoService) {}
+  // `@Inject` explícito: esbuild (que o `tsx` e o Vitest usam) não emite
+  // `design:paramtypes`, então a injeção por tipo refletido não funciona aqui.
+  // Ver as restrições globais do plano.
+  constructor(@Inject(BancoService) private readonly banco: BancoService) {}
 
   @Get()
   async saude(): Promise<{ ok: boolean; banco: boolean }> {
     try {
-      await this.banco.semClinica('SELECT 1')
+      await this.banco.semIsolamentoDeClinica('SELECT 1')
       return { ok: true, banco: true }
     } catch {
-      return { ok: false, banco: false }
+      // 503, não 200: quem só lê o código HTTP — `HEALTHCHECK CMD curl -f` do
+      // Docker, `livenessProbe` padrão, balanceador simples — leria 200 como
+      // saudável com o banco no chão, que é exatamente o cenário que este
+      // endpoint existe para capturar. O corpo continua trazendo o detalhe.
+      throw new HttpException({ ok: false, banco: false }, HttpStatus.SERVICE_UNAVAILABLE)
     }
   }
 }
 ```
+
+> **O teste do 503 usa dublê, e isso não basta.** Um `BancoService` de mentira
+> que rejeita prova o controlador — e é a escolha certa para ele. Mas o modo de
+> falha real mora no `Pool`, que o dublê nunca toca: na primeira verificação ao
+> vivo, com o Postgres parado de verdade, a API **morreu** em vez de responder
+> 503. O teste de resiliência em `banco.service.test.ts` é a outra metade, e ele
+> encerra o backend por `pg_terminate_backend` **escopado por
+> `application_name`** — nunca por `usename`, que alcançaria a conexão de outro
+> arquivo de teste e derrubaria o worker do Vitest com o mesmo erro.
 
 `apps/api/src/app.module.ts`:
 ```ts
