@@ -69,7 +69,7 @@ Fichas, contrato, férias, documentos com validade, metas mensais (automáticas 
 
 **A entrega que tem data.** Nada aqui é opcional:
 
-1. Critérios de aceite da paridade (§13 do documento de passagem) verdes.
+1. **As 59 linhas de [`docs/paridade.md`](paridade.md) em ✅**, mais os critérios de aceite da §13 do documento de passagem.
 2. Importador ensaiado contra **cópia real** dos dados de cada clínica.
 3. Relatório de conferência fechado, por clínica, batendo **exatamente**.
 4. Perfis revisados com cada clínica, uma a uma.
