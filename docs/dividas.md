@@ -52,12 +52,6 @@ Pessoas só são criadas por SQL ou pela semente. Convite, cadastro e recuperaç
 
 ## Antes do Plano 2
 
-### D4 · A trilha de auditoria não existe
-
-Decidida em D-5, com as sete restrições que tornam o superadmin seguro. **Precisa vir antes do Plano 2:** todo plano seguinte escreve dado, e numa tabela append-only não há como recuperar o que não foi gravado. Retrofitar em oito planos é fazer oito vezes o mesmo trabalho.
-
-**Gatilho:** agora. **Plano escrito** em `docs/superpowers/plans/2026-10-24-plano-auditoria.md` — 7 tarefas. Sai desta lista quando executar.
-
 ### D5 · A redação de valores é por **nome** de campo
 
 Hoje o `RedacaoInterceptor` decide pelo nome. Isso erra nos dois sentidos:
@@ -67,7 +61,23 @@ Hoje o `RedacaoInterceptor` decide pelo nome. Isso erra nos dois sentidos:
 
 O desenho certo é marcar o campo como monetário **no contrato** (`packages/contracts`) e redigir por tipo. Aí a lista deixa de existir, e um campo novo não pode ser esquecido.
 
-**Gatilho:** a primeira rota que devolve dinheiro. Não existe hoje, e é por isso que isto não é crítico — mas é a primeira coisa do Plano 2, antes dessa rota.
+**Atualização (trilha de auditoria):** `GET /v1/auditoria` devolve `de`/`para`, que são `to_jsonb` de uma linha do Postgres — **nome de coluna, em snake_case**. `valor_aberto`, `valor_orcamento`, `valor_pago`, `valor_total` e `valor_entrada` atravessavam a redação inteiros; `salario`, `valor` e `custo` escapavam por sorte, porque se escrevem igual nas duas convenções. O ponto único de redação passou a normalizar a chave antes de comparar. **Isso é remendo, não o conserto** — a decisão continua sendo por nome.
+
+E a varredura de contratos (`teste/redacao-de-valores.test.ts`) é **cega dentro de `de`/`para`**: eles são `unknown` por desenho, e não há `shape` onde descer. Nessa rota, a redação em tempo de execução é a única camada.
+
+**Gatilho:** a primeira rota de negócio que devolve dinheiro. É a primeira coisa do Plano 2, antes dessa rota.
+
+---
+
+## Depois do primeiro ano em produção
+
+### D9 · A purga da trilha de auditoria não existe
+
+`docs/compliance/retencao.md` fixou os prazos — **5 anos** para a trilha de escrita, **1 ano** para a de acesso. Nenhum job apaga nada hoje: a trilha cresce sem fim.
+
+Ela é append-only nas duas camadas, então a purga **não é um `DELETE` comum**: é um job privilegiado que, numa transação, desliga `auditoria_sem_update`, apaga a faixa vencida e o religa — o mesmo caminho que `apagarClinicaDeTeste` usa nos testes. Precisa de registro próprio do que apagou (quantas linhas, de que período), senão a purga vira a única operação do sistema sem rastro.
+
+**Gatilho:** a primeira clínica completar **um ano** em produção — é quando o prazo mais curto começa a vencer e o acúmulo deixa de ser hipótese. **Sintoma se esquecer:** nada visível. É o modo de falha da LGPD: acúmulo indefinido de dado sensível não dá erro, dá multa.
 
 ---
 

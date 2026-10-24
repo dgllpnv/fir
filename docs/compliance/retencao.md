@@ -1,6 +1,6 @@
 # Retenção e eliminação de dado pessoal
 
-> **Estado: a escrever.** Dono: `especialista-lgpd-saude`. Entrega da **Fase 0.5** da pipeline.
+> **Estado: começado.** A trilha de auditoria (escrita e acesso) já tem prazo, base legal e ação — ver a tabela abaixo. O restante continua a escrever. Dono: `especialista-lgpd-saude`. Entrega da **Fase 0.5** da pipeline.
 > **Nenhum campo pessoal entra no modelo sem uma linha nesta tabela.**
 
 Este documento precisa conter, e não está completo sem:

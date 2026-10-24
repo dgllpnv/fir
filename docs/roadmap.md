@@ -8,10 +8,11 @@ A ordem curta está em `docs/pipeline.md`. Aqui está o que cada épico entrega 
 
 ## Épico 1 — Fundação
 
-Monorepo, `packages/domain` com `Dinheiro` e `Quantidade`, autenticação por e-mail e senha, `Clinica` com RLS, `Pessoa`, `Perfil` e a matriz de permissões, CI, ambiente local pelo `fir.bat`, deploy na VPS.
+Monorepo, `packages/domain` com `Dinheiro` e `Quantidade`, autenticação por e-mail e senha, `Clinica` com RLS, `Pessoa`, `Perfil` e a matriz de permissões, **trilha de auditoria** (escrita por trigger, acesso por interceptor, leitura por `GET /v1/auditoria`), CI, ambiente local pelo `fir.bat`, deploy na VPS.
 
-**Fica pronto:** uma pessoa entra, vê uma tela vazia e não enxerga dado de outra clínica.
+**Fica pronto:** uma pessoa entra, vê uma tela vazia, não enxerga dado de outra clínica — e tudo o que ela escreve ou abre fica registrado.
 **Desbloqueia:** tudo. Nenhum outro épico começa antes.
+**Por que a trilha vem aqui e não depois:** em tabela append-only não existe gravar depois o que não foi gravado na hora. Decisão D-5, ADR [`0002`](adr/0002-auditoria-por-trigger.md). A consequência atravessa todos os épicos seguintes: **todo caminho de escrita declara ator**, inclusive semente, job e migration de dados.
 **Pendência que fecha com ele:** P-1 (UX de sessão no balcão) — ver `docs/decisoes.md`.
 
 ## Épico 2 — Núcleo da rotina
