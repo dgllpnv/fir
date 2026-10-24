@@ -1,1 +1,6 @@
-export const VERSAO_DO_DOMINIO = '0.0.0'
+export * from './resultado.js'
+export * from './dinheiro.js'
+export * from './quantidade.js'
+export * from './relogio.js'
+export * from './permissoes.js'
+export * from './tipos-de-tarefa.js'
