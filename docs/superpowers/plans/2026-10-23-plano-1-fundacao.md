@@ -3045,12 +3045,127 @@ git commit -m "feat(api): interceptor unico de redacao de valores"
 ### Task 15: Entrar, sair e `/v1/eu`
 
 **Files:**
+- Create: `apps/api/migrations/0003_resolver_sessao.sql`
 - Create: `apps/api/src/autenticacao/autenticacao.service.ts`
 - Create: `apps/api/src/autenticacao/autenticacao.controller.ts`
 - Create: `apps/api/src/autenticacao/sessao.guard.ts`
 - Create: `apps/api/src/autenticacao/autenticacao.module.ts`
 - Create: `apps/api/src/autenticacao/autenticacao.e2e.test.ts`
 - Modify: `apps/api/src/app.module.ts`
+
+> **⚠️ Leia antes de implementar — o ovo e a galinha do multi-tenant.**
+>
+> Resolver um cookie de sessão exige saber **de qual clínica** ele é. Mas a RLS
+> exige saber a clínica **antes** de qualquer consulta. Medido neste projeto:
+> `fir_app`, sem `app.clinica_id` fixado, encontra **zero** sessões; com a
+> clínica fixada, encontra a sessão. Resolver o token por `semClinica` faria
+> toda requisição autenticada responder 401 — o login simplesmente não
+> existiria.
+>
+> A saída **não** é dar `BYPASSRLS` à API: isso desfaz o isolamento inteiro
+> para resolver um caso. A saída é uma função `SECURITY DEFINER` que faz
+> **uma** tradução e nada mais — hash do token → `(clinica_id, pessoa_id)` —
+> com `search_path` fixo e `EXECUTE` só para `fir_app`. Ela não enumera nada:
+> chamá-la com proveito exige os 256 bits do token.
+
+- [ ] **Step 0: Criar a migration 0003**
+
+`apps/api/migrations/0003_resolver_sessao.sql`:
+```sql
+-- ---------------------------------------------------------------------------
+-- O ovo e a galinha do multi-tenant: resolver a sessão antes de saber a clínica.
+--
+-- Toda consulta da aplicação roda com `app.clinica_id` fixado, e a RLS nega o
+-- que estiver fora dela. Mas o cookie de sessão não diz de qual clínica é —
+-- descobrir isso É a consulta. Sem esta função, `fir_app` encontra zero
+-- sessões e nenhuma requisição autenticada passa.
+--
+-- `SECURITY DEFINER` com escopo mínimo: a função faz UMA tradução e devolve
+-- dois identificadores. Não lista sessões, não aceita filtro, não devolve o
+-- token. Chamá-la com proveito exige adivinhar 256 bits.
+--
+-- `search_path` fixo e vazio (mais `pg_catalog`, implícito) porque uma função
+-- SECURITY DEFINER sem isso é sequestrável: um papel que possa criar um objeto
+-- num esquema à frente no caminho substitui o que a função resolve.
+-- ---------------------------------------------------------------------------
+CREATE FUNCTION resolver_sessao(p_token_hash text)
+  RETURNS TABLE (clinica_id uuid, pessoa_id uuid)
+  LANGUAGE sql
+  STABLE
+  SECURITY DEFINER
+  SET search_path = pg_catalog, public
+  AS $$
+    SELECT s.clinica_id, s.pessoa_id
+      FROM public.sessoes s
+     WHERE s.token_hash = p_token_hash
+       AND s.revogada_em IS NULL
+       AND s.expira_em > now()
+  $$;
+
+COMMENT ON FUNCTION resolver_sessao(text) IS
+  'Traduz o hash de um token de sessão em (clinica_id, pessoa_id). SECURITY '
+  'DEFINER porque a RLS exige a clínica que esta consulta existe para '
+  'descobrir. Não enumera: exige os 256 bits do token.';
+
+-- A API precisa chamá-la; ninguém mais.
+REVOKE ALL ON FUNCTION resolver_sessao(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION resolver_sessao(text) TO fir_app;
+
+-- ---------------------------------------------------------------------------
+-- E a correção de um comentário que prometia mais do que o código entrega.
+--
+-- A 0002 dizia que `identificador` é "hasheado com pepper". Não é: a aplicação
+-- grava o e-mail como foi digitado. Hashear aqui protegeria apenas os e-mails
+-- de quem TENTOU entrar e não existe — os de quem existe já estão em
+-- `pessoas`. Exigir um segredo novo na fundação por esse ganho é custo sem
+-- contrapartida; o que não se pode é um comentário prometer uma proteção
+-- inexistente.
+-- ---------------------------------------------------------------------------
+COMMENT ON COLUMN tentativas_login.identificador IS
+  'O e-mail tentado, como digitado. Não é hasheado: os e-mails reais já estão '
+  'em `pessoas`, e a tabela é escopada por clínica via RLS. Se um dia houver '
+  'razão para esconder tentativas de e-mails inexistentes, isso exige um '
+  'pepper em variável de ambiente e uma migration própria.';
+```
+
+- [ ] **Step 0b: Aplicar e provar que a função resolve o que a RLS nega**
+
+Run: `pnpm db:migrate`
+
+Depois, prove os dois lados — que a consulta direta nega e que a função resolve:
+
+```bash
+# monta um cenário mínimo como superusuário
+docker exec -i fir-postgres psql -U fir -d fir -q -v ON_ERROR_STOP=1 <<'SQL'
+INSERT INTO clinicas (codigo,nome) VALUES ('probe','Probe');
+INSERT INTO perfis (clinica_id,chave,nome,perms)
+  SELECT id,'pf_rec','Recepção','{jornada}' FROM clinicas WHERE codigo='probe';
+INSERT INTO pessoas (clinica_id,nome,email,senha_hash,perfil_id)
+  SELECT c.id,'Probe','probe@x.local','x',p.id
+    FROM clinicas c JOIN perfis p ON p.clinica_id=c.id WHERE c.codigo='probe';
+INSERT INTO sessoes (clinica_id,pessoa_id,token_hash,expira_em)
+  SELECT c.id,pe.id,'hash-de-teste', now()+interval '1 day'
+    FROM clinicas c JOIN pessoas pe ON pe.clinica_id=c.id WHERE c.codigo='probe';
+SQL
+
+# a consulta direta, como a API: a RLS nega (esperado: 0)
+docker exec -e PGPASSWORD=fir_local_dev fir-postgres psql -U fir_app -d fir -tAc \
+  "select count(*) from sessoes where token_hash='hash-de-teste'"
+
+# a função: resolve (esperado: uma linha com dois uuids)
+docker exec -e PGPASSWORD=fir_local_dev fir-postgres psql -U fir_app -d fir -tAc \
+  "select * from resolver_sessao('hash-de-teste')"
+
+# limpar
+docker exec -i fir-postgres psql -U fir -d fir -q <<'SQL'
+DELETE FROM sessoes WHERE token_hash='hash-de-teste';
+DELETE FROM pessoas WHERE email='probe@x.local';
+DELETE FROM perfis WHERE clinica_id IN (SELECT id FROM clinicas WHERE codigo='probe');
+DELETE FROM clinicas WHERE codigo='probe';
+SQL
+```
+
+O primeiro comando **precisa** devolver `0` e o segundo **precisa** devolver a linha. Se o primeiro devolver 1, a RLS não está fazendo seu trabalho; se o segundo devolver vazio, a função não resolveu.
 
 **Interfaces:**
 - Consumes: `BancoService.naClinica`, `hashDeSenha`, `conferirSenha`, `novoToken`, `hashDoToken`, `limiteExcedido`, `DURACAO_SESSAO_MS`, `EntrarEntrada`, `EuSaida`, `temPerm`, `perfisPadrao`
@@ -3306,12 +3421,19 @@ export class AutenticacaoService {
     })
   }
 
-  /** Resolve o cookie em contexto. Devolve `null` quando a sessão não vale. */
+  /**
+   * Resolve o cookie em contexto. Devolve `null` quando a sessão não vale.
+   *
+   * A primeira consulta passa por `resolver_sessao`, a função `SECURITY
+   * DEFINER` da migration 0003 — e **não** por um `SELECT` em `sessoes`.
+   * A razão está no cabeçalho da tarefa: a RLS exige a clínica que esta
+   * consulta existe para descobrir. Medido: o `SELECT` direto devolve zero
+   * linhas, e toda requisição autenticada responderia 401.
+   */
   async contextoDoToken(token: string): Promise<ContextoDaRequisicao | null> {
     const hash = hashDoToken(token)
     const s = await this.banco.semClinica<{ clinica_id: string; pessoa_id: string }>(
-      `SELECT clinica_id, pessoa_id FROM sessoes
-       WHERE token_hash = $1 AND revogada_em IS NULL AND expira_em > now()`,
+      'SELECT clinica_id, pessoa_id FROM resolver_sessao($1)',
       [hash],
     )
     const sessao = s.rows[0]
@@ -3367,10 +3489,26 @@ export class AutenticacaoService {
     })
   }
 
+  /**
+   * Revoga a sessão. Duas etapas, pela mesma razão de `contextoDoToken`: a
+   * RLS nega um `UPDATE` em `sessoes` sem clínica fixada, e o comando afetaria
+   * zero linhas **sem erro** — o usuário veria 204 e continuaria logado.
+   * Então: `resolver_sessao` descobre a clínica, e o `UPDATE` roda dentro dela.
+   */
   async sair(token: string): Promise<void> {
-    await this.banco.semClinica('UPDATE sessoes SET revogada_em = now() WHERE token_hash = $1', [
-      hashDoToken(token),
-    ])
+    const hash = hashDoToken(token)
+    const s = await this.banco.semClinica<{ clinica_id: string }>(
+      'SELECT clinica_id FROM resolver_sessao($1)',
+      [hash],
+    )
+    const clinicaId = s.rows[0]?.clinica_id
+    // Token desconhecido, expirado ou já revogado: nada a fazer, e o
+    // controlador limpa o cookie de qualquer forma.
+    if (!clinicaId) return
+
+    await this.banco.naClinica(clinicaId, async (c) => {
+      await c.query('UPDATE sessoes SET revogada_em = now() WHERE token_hash = $1', [hash])
+    })
   }
 
   async perfisPublicos(clinicaId: string): Promise<Perfil[]> {
