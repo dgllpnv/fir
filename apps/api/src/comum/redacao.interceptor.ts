@@ -18,10 +18,25 @@ import type { RequisicaoComContexto } from './contexto.js'
 const CAMPOS = new Set<string>(CAMPOS_MONETARIOS)
 const CHAVE_DO_CAMPO: Readonly<Record<string, ChaveDePermissao>> = { salario: 'pessoas.gerir' }
 
+/**
+ * Só objeto simples (literal ou sem protótipo) é estrutura de dado a
+ * percorrer. Medido: `Object.entries` de um `Map` ou `Set` devolve `[]`, então
+ * uma recursão ingênua devolvia `{}` e o dado sumia em silêncio; um `Buffer`
+ * tem índices numéricos próprios e virava um objeto indexado
+ * (`{"0":111,"1":105}`). `Date` já caía antes deste ponto, mas a checagem de
+ * protótipo também a cobriria — a entrada explícita de `Date` fica como
+ * documentação do caso mais comum.
+ */
+const ehObjetoSimples = (x: object): boolean => {
+  const proto = Object.getPrototypeOf(x) as object | null
+  return proto === Object.prototype || proto === null
+}
+
 export function redigir(dado: unknown, pode: (chave: ChaveDePermissao) => boolean): unknown {
   if (dado === null || typeof dado !== 'object') return dado
   if (dado instanceof Date) return dado
   if (Array.isArray(dado)) return dado.map((x) => redigir(x, pode))
+  if (!ehObjetoSimples(dado)) return dado
 
   const saida: Record<string, unknown> = {}
   for (const [chave, valor] of Object.entries(dado as Record<string, unknown>)) {
@@ -40,10 +55,14 @@ export function redigir(dado: unknown, pode: (chave: ChaveDePermissao) => boolea
 export class RedacaoInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = ctx.switchToHttp().getRequest<RequisicaoComContexto>()
-    const contexto = req.contexto
-    // Sem contexto é rota pública (entrar, saúde): não há nada a redigir, e
-    // também não há como decidir — então não se inventa permissão.
-    if (!contexto) return next.handle()
-    return next.handle().pipe(map((dado) => redigir(dado, contexto.pode)))
+    // Sem contexto, não há como decidir — e numa ferramenta que guarda o
+    // caixa e o salário de uma clínica, a resposta certa para "não sei" é
+    // esconder, não mostrar. Falha fechada: nenhuma rota pública hoje (ou no
+    // desenho do Plano 1) devolve campo monetário, então isto redige campos
+    // que de qualquer forma seriam `undefined` — e se um dia uma rota
+    // pública precisar de um valor, o `null` aparece em minutos de depuração;
+    // um vazamento silencioso por falta de guard, ninguém acha.
+    const pode = req.contexto?.pode ?? (() => false)
+    return next.handle().pipe(map((dado) => redigir(dado, pode)))
   }
 }

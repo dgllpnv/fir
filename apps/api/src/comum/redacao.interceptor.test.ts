@@ -1,5 +1,7 @@
+import type { CallHandler, ExecutionContext } from '@nestjs/common'
+import { of } from 'rxjs'
 import { describe, expect, it } from 'vitest'
-import { redigir } from './redacao.interceptor.js'
+import { redigir, RedacaoInterceptor } from './redacao.interceptor.js'
 
 const semValores = (c: string) => c !== 'valores' && c !== 'pessoas.gerir'
 const comTudo = () => true
@@ -65,5 +67,33 @@ describe('redacao', () => {
     // depender do valor que havia antes.
     expect(r['valor']).toBe(null)
     expect(r['descricao']).toBe('x')
+  })
+
+  it('não desce em Map, Set ou Buffer — só em objeto simples', () => {
+    // Object.entries de um Map ou Set devolve [], então uma recursão ingênua
+    // devolveria `{}` e o dado sumiria em silêncio; um Buffer tem índices
+    // numéricos próprios e viraria um objeto gigante `{"0":..., "1":...}`.
+    // Identidade de referência (toBe), não só forma: nada foi reconstruído.
+    const mapa = new Map([['a', '1']])
+    const conjunto = new Set(['x', 'y'])
+    const bytes = Buffer.from([111, 105])
+    expect(redigir(mapa, semValores)).toBe(mapa)
+    expect(redigir(conjunto, semValores)).toBe(conjunto)
+    expect(redigir(bytes, semValores)).toBe(bytes)
+  })
+
+  it('sem contexto na requisição, o interceptor redige tudo — falha fechada', () => {
+    const handler: CallHandler = { handle: () => of({ valor: '15000', descricao: 'Consulta' }) }
+    const semContexto = { switchToHttp: () => ({ getRequest: () => ({}) }) } as unknown as ExecutionContext
+    const interceptor = new RedacaoInterceptor()
+
+    return new Promise<void>((resolve) => {
+      interceptor.intercept(semContexto, handler).subscribe((dado) => {
+        const r = dado as Record<string, unknown>
+        expect(r['valor']).toBe(null)
+        expect(r['descricao']).toBe('Consulta')
+        resolve()
+      })
+    })
   })
 })
