@@ -114,6 +114,13 @@ CREATE TABLE convites (
 
 RLS `ENABLE` + `FORCE` + `USING`/`WITH CHECK` nas duas, trigger de auditoria nas duas, e `GRANT` para `fir_app`.
 
+> **Dois acertos que o plano do épico 2 pegou neste SQL, depois de eu escrevê-lo:**
+> `unidades` precisa de `endereco` (160 caracteres — existe no protótipo **e** no
+> `Code.gs`), e o `UNIQUE (clinica_id, nome)` **cru está errado**: os dois comparam
+> o nome **normalizado**, então "Unidade Pituba" e "unidade pituba" passariam como
+> duas. A Task 3 do épico 2 cria `normalizar_nome` e fecha isto por `ALTER TABLE`,
+> sem editar esta migration — se o épico 2 vier antes, use a função daqui.
+
 > **`convites` guarda `token_hash` — logo entra na denylist do trigger de auditoria**, junto de `senha_hash` e `token_hash` de `sessoes`. Sem isso a trilha vira um índice de convites válidos, legível por quem puder ler auditoria. **Verifique que a denylist pega: a coluna se chama `token_hash`, igual à de `sessoes`, então deve pegar — mas teste.**
 
 - [ ] **Passo 1: Teste que falha** — isolamento por clínica e append-only, no padrão de `teste/isolamento-de-clinica.test.ts`
