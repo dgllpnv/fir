@@ -1,0 +1,21 @@
+{
+  "name": "fir",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:domain": "pnpm --filter @fir/domain test",
+    "typecheck": "turbo run typecheck",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "db:migrate": "pnpm --filter @fir/api db:migrate",
+    "db:seed": "pnpm --filter @fir/api db:seed"
+  },
+  "devDependencies": {
+    "turbo": "^2",
+    "typescript": "^5.7",
+    "vitest": "^2"
+  }
+}

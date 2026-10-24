@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.next/
+.turbo/
+*.log
+infra/producao/.env
+infra/producao/redis.conf
+.superpowers/
