@@ -20,6 +20,7 @@ Herdadas de `docs/superpowers/plans/2026-10-23-mapa-de-execucao.md` §1. Resumo 
 - Portas **48xx** em `127.0.0.1`: Postgres 4832 · Redis 4879 · API 4811 · Web 4810 · Mailpit 4825/4826.
 - Domínio em português, infraestrutura em inglês.
 - `any` proibido. `UPDATE`/`DELETE` em tabela append-only proibido. Rota sem authz no servidor proibida.
+- **Injeção de dependência do Nest exige `@Inject(Tipo)` explícito em todo construtor.** `tsx` e o Vitest compilam com esbuild, que **não emite `design:paramtypes`** nem com `emitDecoratorMetadata` ligado — então a injeção por tipo refletido não funciona neste projeto. Medido na Task 13 por mutação: remover o `@Inject` quebra o teste. Vale para controladores, serviços, guards e interceptors.
 
 ---
 
@@ -2684,7 +2685,6 @@ git commit -m "feat(contracts): contrato da fundacao com dinheiro em string de c
 **Files:**
 - Create: `apps/api/src/main.ts`, `apps/api/src/app.module.ts`
 - Create: `apps/api/src/banco/banco.module.ts`, `apps/api/src/banco/banco.service.ts`
-- Create: `apps/api/src/comum/clinica.middleware.ts`
 - Create: `apps/api/src/saude/saude.controller.ts`
 - Modify: `apps/api/package.json`
 
