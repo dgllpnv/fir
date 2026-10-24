@@ -16,8 +16,20 @@ export type RotaRegistrada = {
 /** Plano 1 não expõe dinheiro ainda. Planos 2+ preenchem. */
 export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = []
 
-/** Tabelas de negócio com `clinica_id`. O teste de isolamento varre todas. */
-export const ENTIDADES_COM_CLINICA: readonly string[] = ['perfis', 'pessoas', 'sessoes', 'tentativas_login']
+/**
+ * Tabelas de negócio com `clinica_id`. O teste de isolamento varre todas.
+ *
+ * `auditoria` entra aqui como qualquer outra: a trilha de uma clínica é dado
+ * DELA, e uma trilha legível entre clínicas entregaria num só `SELECT` tudo o
+ * que a RLS protege em todas as demais tabelas.
+ */
+export const ENTIDADES_COM_CLINICA: readonly string[] = [
+  'auditoria',
+  'perfis',
+  'pessoas',
+  'sessoes',
+  'tentativas_login',
+]
 
 /**
  * As ÚNICAS rotas dispensadas de sessão.
