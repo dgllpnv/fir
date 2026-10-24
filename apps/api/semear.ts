@@ -1,0 +1,89 @@
+/**
+ * Semeia a clínica de demonstração local.
+ *
+ * Idempotente de propósito: o `fir.bat` chama isto em toda subida, e uma
+ * semente que duplica dado a cada execução torna o ambiente inútil no
+ * terceiro dia.
+ */
+import pg from 'pg'
+import { perfisPadrao } from '@fir/domain'
+import { hashDeSenha } from './src/autenticacao/senha.js'
+
+const CODIGO = 'demo'
+const EMAIL = 'demo@firmare.local'
+const SENHA = 'firmare-demonstracao'
+
+const url =
+  process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'
+
+const c = new pg.Client({ connectionString: url })
+await c.connect()
+
+const existente = await c.query<{ id: string }>('SELECT id FROM clinicas WHERE codigo = $1', [CODIGO])
+if (existente.rows[0]) {
+  process.stdout.write(`clínica "${CODIGO}" já existe; nada a semear\n`)
+  await c.end()
+  process.exit(0)
+}
+
+await c.query('BEGIN')
+try {
+  const cl = await c.query<{ id: string }>(
+    `INSERT INTO clinicas (codigo, nome, fuso) VALUES ($1, 'Clínica Modelo', 'America/Bahia') RETURNING id`,
+    [CODIGO],
+  )
+  const clinicaId = cl.rows[0]!.id
+
+  for (const p of perfisPadrao()) {
+    await c.query(
+      'INSERT INTO perfis (clinica_id, chave, nome, perms) VALUES ($1, $2, $3, $4)',
+      [clinicaId, p.id, p.nome, [...p.perms]],
+    )
+  }
+
+  // A administradora: `admin = true` e, pela restrição `pessoa_tem_acesso_definido`,
+  // sem perfil.
+  await c.query(
+    `INSERT INTO pessoas (clinica_id, nome, email, funcao, senha_hash, admin)
+     VALUES ($1, 'Dra. Helena Prado', $2, 'Médica responsável', $3, true)`,
+    [clinicaId, EMAIL, await hashDeSenha(SENHA)],
+  )
+
+  // Uma pessoa por perfil, para exercitar a redação de valores sem ficar
+  // trocando o perfil da administradora.
+  //
+  // Desvio do brief: o brief original listava só quatro perfis aqui
+  // (pf_rec, pf_enf, pf_com, pf_fin), deixando `pf_sup` — um dos cinco
+  // perfis que `perfisPadrao()` cria — sem ninguém para exercê-lo. A
+  // tabela `perfis` ficava com 5 linhas, mas `pessoas` só com 5 pessoas no
+  // total (1 admin + 4), e não havia como logar como supervisão. Acrescentei
+  // `pf_sup` para que as cinco perfis tenham, cada um, uma pessoa — seis
+  // pessoas ao todo.
+  const porPerfil: [string, string, string, string][] = [
+    ['pf_sup', 'Beatriz Nunes', 'beatriz@firmare.local', 'Supervisão'],
+    ['pf_rec', 'Juliana Santos', 'juliana@firmare.local', 'Recepção'],
+    ['pf_enf', 'Camila Rocha', 'camila@firmare.local', 'Enfermagem'],
+    ['pf_com', 'Patrícia Lima', 'patricia@firmare.local', 'Comercial interno'],
+    ['pf_fin', 'Rosa Andrade', 'rosa@firmare.local', 'Financeiro'],
+  ]
+  for (const [chave, nome, email, funcao] of porPerfil) {
+    await c.query(
+      `INSERT INTO pessoas (clinica_id, nome, email, funcao, senha_hash, admin, perfil_id)
+       SELECT $1, $2, $3, $4, $5, false, id FROM perfis WHERE clinica_id = $1 AND chave = $6`,
+      [clinicaId, nome, email, funcao, await hashDeSenha(SENHA), chave],
+    )
+  }
+
+  await c.query('COMMIT')
+  process.stdout.write(
+    `clínica "${CODIGO}" criada · entre com ${EMAIL} / ${SENHA}\n` +
+      `credenciais valem SÓ neste ambiente local\n`,
+  )
+} catch (e) {
+  await c.query('ROLLBACK')
+  process.stderr.write(`ERRO ao semear: ${(e as Error).message}\n`)
+  await c.end()
+  process.exit(1)
+}
+
+await c.end()
