@@ -268,8 +268,28 @@ COMMENT ON FUNCTION registrar_auditoria() IS
   'silenciosa que a regra 20 existe para impedir.';
 
 -- ---------------------------------------------------------------------------
--- E a primeira tabela a usá-la. As demais entram logo abaixo.
+-- E TODA TABELA DE NEGÓCIO DE HOJE.
+--
+-- `sessoes` e `tentativas_login` entram junto com `pessoas` e `perfis`: quem
+-- entrou, quando e de onde é exatamente o que uma clínica precisa poder
+-- perguntar depois de um incidente, e é a pergunta que ninguém faz antes de
+-- precisar da resposta.
+--
+-- A lista aqui é explícita, mas quem a mantém honesta não é a revisão de
+-- código: é a varredura de `teste/auditoria-inescapavel.test.ts`, que reprova
+-- qualquer tabela com `clinica_id` sem este trigger. Lista mantida à mão
+-- envelhece em silêncio; varredura de catálogo não.
+--
+-- `auditoria` fica fora, e tem de ficar: um `AFTER INSERT` nela que insere
+-- nela é recursão infinita. A trilha não se audita — ela é append-only, que é
+-- a proteção equivalente.
 -- ---------------------------------------------------------------------------
-CREATE TRIGGER pessoas_auditoria
-  AFTER INSERT OR UPDATE OR DELETE ON pessoas
-  FOR EACH ROW EXECUTE FUNCTION registrar_auditoria();
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['pessoas', 'perfis', 'sessoes', 'tentativas_login'] LOOP
+    EXECUTE format(
+      'CREATE TRIGGER %I_auditoria AFTER INSERT OR UPDATE OR DELETE ON %I '
+      'FOR EACH ROW EXECUTE FUNCTION registrar_auditoria()', t, t);
+  END LOOP;
+END $$;

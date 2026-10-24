@@ -151,6 +151,44 @@ describe('POST /v1/entrar', () => {
     await request(app.getHttpServer()).get('/v1/eu').set('Cookie', cookie).expect(401)
   })
 
+  it('entrar e sair deixam na trilha o nome de quem agiu, não "sistema"', async () => {
+    /**
+     * A prova POSITIVA do ator, pelo caminho HTTP de verdade — e a única que
+     * distingue "nada ficou sem ator" de "o ator está certo". A suíte inteira
+     * ficaria verde com `SISTEMA` em toda chamada de `naClinica`: a trigger
+     * aceita, a trilha enche, e cada sessão criada por uma recepcionista
+     * apareceria como ação do sistema. Tecnicamente completa, factualmente
+     * mentirosa.
+     */
+    const juliana = (
+      await migrate.query<{ id: string }>(
+        'SELECT id FROM pessoas WHERE clinica_id = $1 AND email = $2',
+        [clinica, 'juliana@e2e.local'],
+      )
+    ).rows[0]!.id
+    const desde = (
+      await migrate.query<{ ultimo: string }>(
+        'SELECT coalesce(max(id), 0)::text AS ultimo FROM auditoria WHERE clinica_id = $1',
+        [clinica],
+      )
+    ).rows[0]!.ultimo
+
+    const r = await entrar('senha-de-teste').expect(200)
+    const cookie = cookieDaResposta(r)
+    await request(app.getHttpServer()).post('/v1/sair').set('Cookie', cookie).expect(204)
+
+    const t = await migrate.query<{ acao: string; entidade: string; ator_id: string | null }>(
+      `SELECT acao, entidade, ator_id FROM auditoria
+        WHERE clinica_id = $1 AND id > $2 AND entidade = 'sessoes' ORDER BY id`,
+      [clinica, desde],
+    )
+    // A sessão nasce em nome de quem provou a senha, e é revogada em nome de
+    // quem apresentou o cookie — as duas são a MESMA pessoa, e nenhuma é o
+    // sistema.
+    expect(t.rows.map((x) => x.acao)).toEqual(['criou', 'alterou'])
+    for (const linha of t.rows) expect(linha.ator_id).toBe(juliana)
+  })
+
   it('cinco senhas erradas bloqueiam a sexta tentativa, mesmo com a senha certa', async () => {
     for (let i = 0; i < 5; i++) await entrar('senha-errada').expect(401)
     await entrar('senha-de-teste').expect(429)
