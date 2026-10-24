@@ -84,12 +84,37 @@ const ICONES: Readonly<Record<string, ReactElement>> = {
     <path key="c" d="M12 12 19 5" />,
   ),
   '/painel': svg(<path key="a" d="M4 20V10M10 20V4M16 20v-7M22 20H2" />),
-  '/configuracoes': svg(
-    <circle key="a" cx="12" cy="12" r="3" />,
-    <path
-      key="b"
-      d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"
-    />,
+  /* Cédula com seta entrando: recebeu. A mesma cédula sem seta é "Recebimentos",
+     que é a lista — o ícone precisa separar registrar de consultar. */
+  '/recebimento': svg(
+    <rect key="a" x="2.5" y="7" width="19" height="10" rx="2" />,
+    <circle key="b" cx="12" cy="12" r="2.2" />,
+    <path key="c" d="M12 2.5v3M10.3 4.2L12 5.9l1.7-1.7" />,
+  ),
+  /* Dois prédios: unidade é lugar físico, não setor. */
+  '/unidades': svg(
+    <path key="a" d="M3 21V8l6-3v16" />,
+    <path key="b" d="M9 21V10l6-3v14" />,
+    <path key="c" d="M15 21V12l6-3v12M2 21h20" />,
+  ),
+  /* Pessoa com chave: acesso, não ficha. "Equipe" é a pessoa sem a chave. */
+  '/usuarios': svg(
+    <circle key="a" cx="9" cy="8" r="3.2" />,
+    <path key="b" d="M3 20c0-3.3 2.7-5.5 6-5.5 1 0 2 .2 2.8.6" />,
+    <circle key="c" cx="17.5" cy="15.5" r="2.2" />,
+    <path key="d" d="M19.2 17.2 22 20M20 18.4l1-1" />,
+  ),
+  /* Frasco com gota: procedimento consome insumo — é o que liga ao estoque. */
+  '/procedimentos': svg(
+    <path key="a" d="M10 2.5h4M11 2.5v5.2L6.6 16a3 3 0 0 0 2.6 4.5h5.6a3 3 0 0 0 2.6-4.5L13 7.7V2.5" />,
+    <path key="b" d="M7.5 14.5h9" />,
+  ),
+  /* Livro aberto: manual, não ponto de interrogação — o conteúdo é leitura
+     corrida em 14 capítulos, não uma caixa de dúvidas. */
+  '/ajuda': svg(
+    <path key="a" d="M12 6.5c-1.8-1.4-4-2-6.5-2H3v14h2.5c2.5 0 4.7.6 6.5 2" />,
+    <path key="b" d="M12 6.5c1.8-1.4 4-2 6.5-2H21v14h-2.5c-2.5 0-4.7.6-6.5 2" />,
+    <path key="c" d="M12 6.5v14" />,
   ),
 }
 

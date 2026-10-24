@@ -60,6 +60,15 @@ export const MENU: readonly ItemDeMenu[] = [
     promessa:
       'Criar tarefa em dois toques: paciente, tipo, data, horário e responsável.',
   },
+  {
+    href: '/recebimento',
+    rotulo: 'Recebimento',
+    grupo: 'Dia a dia',
+    perm: 'receber',
+    epico: 4,
+    promessa:
+      'Registrar um recebimento em dois toques, sem passar pela tela do financeiro.',
+  },
   { href: '/jornada', rotulo: 'Jornada do paciente', grupo: 'Comercial', perm: 'jornada',
     epico: 3,
     promessa:
@@ -125,10 +134,38 @@ export const MENU: readonly ItemDeMenu[] = [
     promessa:
       'A leitura gerencial do período, em um lugar só.',
   },
-  { href: '/configuracoes', rotulo: 'Configurações', grupo: 'Gestão', perm: 'config',
-    epico: 7,
+  {
+    href: '/unidades',
+    rotulo: 'Unidades',
+    grupo: 'Gestão',
+    perm: 'config',
+    epico: 2,
+    promessa: 'As unidades da clínica, para separar agenda, caixa e estoque por local.',
+  },
+  {
+    href: '/usuarios',
+    rotulo: 'Usuários e acessos',
+    grupo: 'Gestão',
+    perm: 'config',
+    epico: 1,
     promessa:
-      'Perfis de permissão, unidades e as preferências da clínica.',
+      'Convidar por e-mail, ativar e desativar pessoa, e editar os perfis de permissão.',
+  },
+  {
+    href: '/procedimentos',
+    rotulo: 'Procedimentos',
+    grupo: 'Gestão',
+    perm: 'programas.gerir',
+    epico: 5,
+    promessa: 'O catálogo de procedimentos, com os insumos que cada um consome.',
+  },
+  {
+    href: '/ajuda',
+    rotulo: 'Ajuda e manual',
+    grupo: 'Gestão',
+    perm: null,
+    epico: 9,
+    promessa: 'O manual em 14 capítulos e as perguntas frequentes, na linguagem da equipe.',
   },
 ]
 

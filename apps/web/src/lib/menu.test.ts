@@ -8,7 +8,7 @@ const href = (u: { admin: boolean; perfilId: string | null }) =>
 
 describe('menu por permissão', () => {
   it('administrador vê tudo', () => {
-    expect(href({ admin: true, perfilId: null })).toHaveLength(17)
+    expect(href({ admin: true, perfilId: null })).toHaveLength(21)
   })
 
   it('enfermagem vê programas e estoque, não vê financeiro', () => {
@@ -27,9 +27,12 @@ describe('menu por permissão', () => {
     expect(href({ admin: false, perfilId: 'pf_rec' })).not.toContain('/visao-do-mes')
   })
 
-  it('Hoje, Nova e Minhas metas são de todos, inclusive sem perfil', () => {
+  it('o que é de todos, inclusive de quem não tem perfil', () => {
     const h = href({ admin: false, perfilId: null })
-    expect(h).toEqual(['/hoje', '/tarefas', '/nova', '/minhas-metas'])
+    // `/ajuda` entra aqui de propósito: o manual é como a equipe aprende a
+    // ferramenta, e exigir permissão para ler o manual é exigir permissão
+    // para aprender. É o que o protótipo faz.
+    expect(h).toEqual(['/hoje', '/tarefas', '/nova', '/minhas-metas', '/ajuda'])
   })
 })
 
@@ -47,12 +50,20 @@ describe('seções do menu', () => {
   })
 
   it('grupo sem item não vira título órfão', () => {
-    // A Enfermagem não enxerga nada de Financeiro nem de Gestão. Um título
-    // "FINANCEIRO" sozinho diria a ela que existe algo ali que não abre.
+    // A Enfermagem não enxerga nada de Financeiro. Um título "FINANCEIRO"
+    // sozinho diria a ela que existe algo ali que não abre.
     const s = secoesDoMenu(itensDoMenu({ admin: false, perfilId: 'pf_enf' }, perfis))
     expect(s.map((x) => x.grupo)).not.toContain('Financeiro')
-    expect(s.map((x) => x.grupo)).not.toContain('Gestão')
     for (const sec of s) expect(sec.itens.length, `seção ${sec.grupo} vazia`).toBeGreaterThan(0)
+  })
+
+  it('Gestão aparece para todos, mas só com o manual', () => {
+    // Gestão não serve de exemplo de grupo vazio: `/ajuda` é de todos, então o
+    // título sempre tem ao menos um item embaixo. Para a Enfermagem é só ele —
+    // nada de Unidades, Usuários ou Procedimentos.
+    const s = secoesDoMenu(itensDoMenu({ admin: false, perfilId: 'pf_enf' }, perfis))
+    const gestao = s.find((x) => x.grupo === 'Gestão')
+    expect(gestao?.itens.map((i) => i.href)).toEqual(['/ajuda'])
   })
 
   it('nenhum item se perde no agrupamento', () => {
