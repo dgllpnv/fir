@@ -1715,7 +1715,20 @@ export type InfoDoTipo = {
 export const TIPO_SESSAO = 'Sessão de plano'
 export const TIPO_RETORNO = 'Retorno de procedimento'
 
-export const TIPOS = [
+/**
+ * Duas constantes para o mesmo array, e a razão é de tipo.
+ *
+ * `TIPOS_LITERAL` é estreito (`as const`): cada elemento tem só as chaves que
+ * de fato declarou, e é dele que `NomeDeTipo` deriva a união dos 19 nomes.
+ *
+ * `TIPOS` é o mesmo array **por referência**, com o tipo largo — porque
+ * iterar o estreito e acessar `t.vira` dá `TS2339`: a propriedade não existe
+ * em 17 dos 19 membros da união. Foi medido, não deduzido.
+ *
+ * Por referência, não cópia: é um array só em tempo de execução, e
+ * `TIPOS_LITERAL` não é exportado — logo não há duas listas para divergirem.
+ */
+const TIPOS_LITERAL = [
   { nome: 'Consulta agendada', grupo: 'Agenda', vira: 'Consulta realizada', desc: 'Consulta marcada. Ao concluir, vira Consulta realizada (com o pagamento, se houver). Sinal pago antes: lance como Sinal de consulta.' },
   { nome: 'Procedimento agendado', grupo: 'Agenda', vira: 'Procedimento realizado', desc: 'Procedimento marcado. Ao concluir, vira Procedimento realizado (com o pagamento, se houver).' },
   { nome: 'Reagendamento', grupo: 'Agenda', desc: 'Consulta, procedimento ou sessão remarcados.' },
@@ -1737,7 +1750,9 @@ export const TIPOS = [
   { nome: 'Outros', grupo: 'Relacionamento', desc: 'Outro contato com o paciente.' },
 ] as const satisfies readonly InfoDoTipo[]
 
-export type NomeDeTipo = (typeof TIPOS)[number]['nome']
+export type NomeDeTipo = (typeof TIPOS_LITERAL)[number]['nome']
+
+export const TIPOS: readonly InfoDoTipo[] = TIPOS_LITERAL
 
 const porNome = new Map<string, InfoDoTipo>(TIPOS.map((t) => [t.nome, t]))
 
