@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Cancelar, Concluir, CriarTarefa, EditarTarefa, Quando } from './tarefas'
+import { Cancelar, Concluir, CriarTarefa, EditarTarefa, ExcluirTarefa, Quando } from './tarefas'
 
 const UM = '11111111-1111-4111-8111-111111111111'
 const OUTRO = '22222222-2222-4222-8222-222222222222'
@@ -164,5 +164,22 @@ describe('Concluir, Cancelar e Editar', () => {
   it('cancelar aceita só observação — nada de status solto', () => {
     expect(Cancelar.safeParse({ obs: 'paciente desmarcou' }).success).toBe(true)
     expect(Cancelar.safeParse({ status: 'arquivada' }).success).toBe(false)
+  })
+})
+
+describe('BooleanoDeConsulta', () => {
+  it('a string "false" é FALSA — `z.coerce.boolean()` a tornaria verdadeira', () => {
+    // `Boolean('false') === true`. Numa query string, onde tudo é texto, isso
+    // faz `?serie=false` alcançar a série inteira: a recepção pede para
+    // excluir uma ocorrência e perde as doze.
+    expect(ExcluirTarefa.parse({ serie: 'false' }).serie).toBe(false)
+    expect(ExcluirTarefa.parse({ serie: '0' }).serie).toBe(false)
+    expect(ExcluirTarefa.parse({ serie: 'true' }).serie).toBe(true)
+    expect(ExcluirTarefa.parse({ serie: '1' }).serie).toBe(true)
+    expect(ExcluirTarefa.parse({}).serie).toBe(false)
+  })
+
+  it('texto que não é booleano é RECUSADO, não convertido em silêncio', () => {
+    expect(ExcluirTarefa.safeParse({ serie: 'sim' }).success).toBe(false)
   })
 })

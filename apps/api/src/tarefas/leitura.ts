@@ -1,8 +1,10 @@
 import type { PassoDaJornada, TarefaNaLista } from '@fir/contracts'
 import { type Autor, TIPOS } from '@fir/domain'
+import { ForbiddenException } from '@nestjs/common'
 import type pg from 'pg'
 import type { PessoaId } from '../banco/ator'
 import type { ClinicaId } from '../banco/clinica-id'
+import type { ContextoDaRequisicao } from '../comum/contexto'
 
 /**
  * O autor como as regras de `packages/domain` o querem, com o id ainda
@@ -15,6 +17,48 @@ import type { ClinicaId } from '../banco/clinica-id'
  * `banco/ator.ts` existe para impedir.
  */
 export type AutorDaRequisicao = Autor & { readonly id: PessoaId }
+
+/**
+ * Quem está agindo, do jeito que `packages/domain` entende.
+ *
+ * `podeEquipe` é `temPerm(…, 'tarefas.equipe')` JÁ RESOLVIDO — as quatro
+ * autorizações de tarefa não conhecem permissão, só o booleano. É o que
+ * impede um `if (usuario.admin)` de voltar para dentro delas.
+ *
+ * Mora aqui, e não em cada controlador, porque os dois controladores de
+ * tarefa precisam dele: duas cópias e a segunda esquece o `pode(...)`,
+ * entregando `podeEquipe: false` a quem acompanha a equipe — ou, pior, o
+ * contrário.
+ */
+export const autorDe = (c: ContextoDaRequisicao): AutorDaRequisicao => ({
+  id: c.ator,
+  podeEquipe: c.pode('tarefas.equipe'),
+})
+
+/**
+ * "Equipe toda" é uma PERMISSÃO, e o servidor sempre valida.
+ *
+ * A tela já esconde o chip de quem não pode, mas tela não é controle de
+ * acesso: basta trocar `escopo=meu` por `escopo=equipe` na barra de endereço
+ * para ver a agenda inteira da clínica — inclusive o nome de cada paciente.
+ *
+ * O filtro por OUTRA pessoa cai na mesma regra, e por isso está aqui junto:
+ * sem ele, a lista suspensa de responsável seria a porta dos fundos do
+ * escopo.
+ */
+export function exigirEscopo(
+  c: ContextoDaRequisicao,
+  escopo: string,
+  pessoas: readonly (string | undefined)[] = [],
+): void {
+  if (escopo === 'equipe' && !c.pode('tarefas.equipe')) {
+    throw new ForbiddenException('Seu perfil não acompanha as tarefas da equipe.')
+  }
+  const deOutraPessoa = pessoas.some((p) => p !== undefined && p !== c.ator)
+  if (deOutraPessoa && !c.pode('tarefas.equipe')) {
+    throw new ForbiddenException('Seu perfil não acompanha as tarefas de outras pessoas.')
+  }
+}
 
 /**
  * A ÚNICA leitura de tarefa do sistema.

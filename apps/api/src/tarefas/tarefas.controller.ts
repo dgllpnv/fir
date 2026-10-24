@@ -1,10 +1,12 @@
 import {
   Cancelar,
   Concluir,
+  ConsultaDeTarefas,
   CriarTarefa,
   EditarTarefa,
   type ExclusaoDeTarefa,
   ExcluirTarefa,
+  type ListaDeTarefas,
   type TarefasAfetadas,
 } from '@fir/contracts'
 import {
@@ -12,6 +14,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   Inject,
@@ -22,23 +25,12 @@ import {
   Query,
   Req,
 } from '@nestjs/common'
-import type { ContextoDaRequisicao, RequisicaoComContexto } from '../comum/contexto'
+import type { RequisicaoComContexto } from '../comum/contexto'
 import { ConclusaoService } from './conclusao.service'
+import { ConsultaDeTarefasService } from './consulta.service'
 import { EdicaoDeTarefasService } from './edicao.service'
-import type { AutorDaRequisicao } from './leitura'
+import { autorDe, exigirEscopo } from './leitura'
 import { TarefasService } from './tarefas.service'
-
-/**
- * Quem está agindo, do jeito que `packages/domain` entende.
- *
- * `podeEquipe` é `temPerm(…, 'tarefas.equipe')` JÁ RESOLVIDO — as quatro
- * autorizações de tarefa não conhecem permissão, só o booleano. É o que
- * impede um `if (usuario.admin)` de voltar para dentro delas.
- */
-const autorDe = (c: ContextoDaRequisicao): AutorDaRequisicao => ({
-  id: c.ator,
-  podeEquipe: c.pode('tarefas.equipe'),
-})
 
 /**
  * Tarefas — SEM `@Exige`.
@@ -60,7 +52,20 @@ export class TarefasController {
     @Inject(TarefasService) private readonly tarefas: TarefasService,
     @Inject(ConclusaoService) private readonly conclusao: ConclusaoService,
     @Inject(EdicaoDeTarefasService) private readonly edicao: EdicaoDeTarefasService,
+    @Inject(ConsultaDeTarefasService) private readonly consulta: ConsultaDeTarefasService,
   ) {}
+
+  @Get()
+  async listar(
+    @Req() req: RequisicaoComContexto,
+    @Query() consulta: unknown,
+  ): Promise<ListaDeTarefas> {
+    const dados = ConsultaDeTarefas.safeParse(consulta)
+    if (!dados.success) throw new BadRequestException('Confira os filtros da busca.')
+    const c = req.contexto!
+    exigirEscopo(c, dados.data.escopo, [dados.data.responsavelId, dados.data.solicitanteId])
+    return this.consulta.listar(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), dados.data)
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)

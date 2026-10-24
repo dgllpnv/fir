@@ -376,10 +376,19 @@ export const ConsultaDeHoje = z.object({
 })
 export type ConsultaDeHoje = z.infer<typeof ConsultaDeHoje>
 
-/** Uma bolinha da faixa da semana. Contada no SERVIDOR — o front não calcula. */
+/**
+ * Uma bolinha da faixa da semana. Contada no SERVIDOR — o front não calcula.
+ *
+ * `abertas`, e não "tarefas": a faixa desenha o que ainda há POR FAZER
+ * naquele dia, que é a pergunta que a recepção faz ao olhar para ela. Uma
+ * segunda-feira com dez tarefas todas concluídas não precisa de bolinha.
+ *
+ * `atrasadas` é um subconjunto de `abertas`: as abertas de um dia JÁ PASSADO,
+ * medido contra o hoje do servidor.
+ */
 export const DiaDaSemana = z.object({
   dia: DiaCivil,
-  tarefas: z.number().int(),
+  abertas: z.number().int(),
   atrasadas: z.number().int(),
 })
 export type DiaDaSemana = z.infer<typeof DiaDaSemana>

@@ -55,6 +55,8 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'POST', caminho: '/v1/tarefas/:id/cancelar', camposDeDinheiro: ['valor', 'valorAberto'] },
   { metodo: 'POST', caminho: '/v1/tarefas/:id/reabrir', camposDeDinheiro: ['valor', 'valorAberto'] },
   { metodo: 'PATCH', caminho: '/v1/tarefas/:id', camposDeDinheiro: ['valor', 'valorAberto'] },
+  { metodo: 'GET', caminho: '/v1/tarefas', camposDeDinheiro: ['valor', 'valorAberto'] },
+  { metodo: 'GET', caminho: '/v1/hoje', camposDeDinheiro: ['valor', 'valorAberto'] },
 ]
 
 /**
