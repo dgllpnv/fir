@@ -28,22 +28,54 @@ import { BancoService } from './banco.service.js'
 const URL_ADMIN = process.env['DATABASE_URL_ADMIN'] ?? 'postgresql://fir:fir_local_dev@127.0.0.1:4832/fir'
 
 describe('BancoService — resiliência do pool', () => {
-  it('sobrevive quando o Postgres encerra uma conexão ociosa do pool, e reconecta', async () => {
-    const banco = new BancoService()
+  /**
+   * `usename = 'fir_app'` encerraria TODO backend logado como `fir_app` no
+   * servidor naquele instante — inclusive o `pg.Client` cru que
+   * `banco.test.ts` mantém aberto o arquivo inteiro. O Vitest roda arquivos
+   * em paralelo por padrão (sem `fileParallelism: false`), então um filtro
+   * por papel é uma corrida: na maioria das vezes o outro teste não tem
+   * nenhuma conexão ociosa no momento exato do terminate, mas não é
+   * garantido. Por isso a marca: só a conexão que este teste mesmo abriu.
+   */
+  const MARCA = 'fir-teste-resiliencia'
 
-    // Força o pool a abrir uma conexão com `fir_app` e devolve-a ociosa.
+  it('sobrevive quando o Postgres encerra uma conexão ociosa do pool, e reconecta', async () => {
+    const urlBase =
+      process.env['DATABASE_URL'] ?? 'postgresql://fir_app:fir_local_dev@127.0.0.1:4832/fir'
+    const anterior = process.env['DATABASE_URL']
+
+    let banco: BancoService
+    try {
+      process.env['DATABASE_URL'] = `${urlBase}${urlBase.includes('?') ? '&' : '?'}application_name=${MARCA}`
+      banco = new BancoService()
+    } finally {
+      // Restaurado logo depois de construir o serviço — o `Pool` já leu a
+      // variável no construtor; nenhum outro teste deste processo pode vir
+      // a ler o valor marcado.
+      if (anterior === undefined) delete process.env['DATABASE_URL']
+      else process.env['DATABASE_URL'] = anterior
+    }
+
+    // Força o pool a abrir uma conexão com `fir_app` (marcada) e devolve-a
+    // ociosa.
     await banco.semIsolamentoDeClinica('SELECT 1')
 
     const admin = new pg.Client({ connectionString: URL_ADMIN })
     await admin.connect()
+    let encerrados: number
     try {
-      await admin.query(
+      const r = await admin.query<{ pg_terminate_backend: boolean }>(
         `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-          WHERE usename = 'fir_app' AND pid <> pg_backend_pid()`,
+          WHERE application_name = $1 AND pid <> pg_backend_pid()`,
+        [MARCA],
       )
+      encerrados = r.rowCount ?? r.rows.length
     } finally {
       await admin.end()
     }
+    // Uma linha por backend encerrado — tem que ser exatamente a conexão
+    // que este teste abriu, nunca mais que isso.
+    expect(encerrados).toBe(1)
 
     // Dá tempo para o Postgres fechar a conexão e o `pg` emitir o 'error'
     // ocioso no pool.
@@ -53,8 +85,8 @@ describe('BancoService — resiliência do pool', () => {
     // chegaria até aqui — o worker do vitest teria caído com ele. Chegar
     // aqui já é parte da prova; a consulta seguinte prova que o pool
     // reconecta sozinho, sem reinício.
-    const r = await banco.semIsolamentoDeClinica<{ n: number }>('SELECT 1 AS n')
-    expect(r.rows[0]!.n).toBe(1)
+    const r2 = await banco.semIsolamentoDeClinica<{ n: number }>('SELECT 1 AS n')
+    expect(r2.rows[0]!.n).toBe(1)
 
     await banco.onModuleDestroy()
   })

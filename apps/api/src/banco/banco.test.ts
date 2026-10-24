@@ -20,6 +20,13 @@ let clinicaB: string
 beforeAll(async () => {
   migrate = new pg.Client({ connectionString: URL_MIG })
   app = new pg.Client({ connectionString: URL_APP })
+  // Sem isto, um `pg.Client` cru que recebe `'error'` do servidor (Postgres
+  // reiniciando, outro teste encerrando backends) derruba o worker do
+  // Vitest com um "Unhandled 'error' event" sem apontar a causa — o mesmo
+  // defeito que a Rodada de correção 2 eliminou no `BancoService`, só que
+  // aqui.
+  migrate.on('error', (erro) => console.error('[banco.test] cliente migrate:', erro.message))
+  app.on('error', (erro) => console.error('[banco.test] cliente app:', erro.message))
   await migrate.connect()
   await app.connect()
 
