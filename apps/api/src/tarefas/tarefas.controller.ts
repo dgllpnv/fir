@@ -1,4 +1,4 @@
-import { CriarTarefa, type TarefasAfetadas } from '@fir/contracts'
+import { Cancelar, Concluir, CriarTarefa, type TarefasAfetadas } from '@fir/contracts'
 import {
   BadRequestException,
   Body,
@@ -6,11 +6,27 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
+  Param,
+  ParseUUIDPipe,
   Post,
   Req,
 } from '@nestjs/common'
-import type { RequisicaoComContexto } from '../comum/contexto'
+import type { ContextoDaRequisicao, RequisicaoComContexto } from '../comum/contexto'
+import { ConclusaoService } from './conclusao.service'
+import type { AutorDaRequisicao } from './leitura'
 import { TarefasService } from './tarefas.service'
+
+/**
+ * Quem está agindo, do jeito que `packages/domain` entende.
+ *
+ * `podeEquipe` é `temPerm(…, 'tarefas.equipe')` JÁ RESOLVIDO — as quatro
+ * autorizações de tarefa não conhecem permissão, só o booleano. É o que
+ * impede um `if (usuario.admin)` de voltar para dentro delas.
+ */
+const autorDe = (c: ContextoDaRequisicao): AutorDaRequisicao => ({
+  id: c.ator,
+  podeEquipe: c.pode('tarefas.equipe'),
+})
 
 /**
  * Tarefas — SEM `@Exige`.
@@ -28,7 +44,10 @@ import { TarefasService } from './tarefas.service'
 @Controller('v1/tarefas')
 export class TarefasController {
   // `@Inject` explícito: o esbuild não emite `design:paramtypes`.
-  constructor(@Inject(TarefasService) private readonly tarefas: TarefasService) {}
+  constructor(
+    @Inject(TarefasService) private readonly tarefas: TarefasService,
+    @Inject(ConclusaoService) private readonly conclusao: ConclusaoService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -41,6 +60,42 @@ export class TarefasController {
     // `!` seguro: `SessaoGuard` é global e esta rota não é `@Publico()`.
     const c = req.contexto!
     return this.tarefas.criar(c.clinicaId, c.ator, c.clinicaFuso, c.ator, dados.data)
+  }
+
+  @Post(':id/concluir')
+  @HttpCode(HttpStatus.OK)
+  async concluir(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() corpo: unknown,
+  ): Promise<TarefasAfetadas> {
+    const dados = Concluir.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.conclusao.concluir(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id, dados.data)
+  }
+
+  @Post(':id/cancelar')
+  @HttpCode(HttpStatus.OK)
+  async cancelar(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() corpo: unknown,
+  ): Promise<TarefasAfetadas> {
+    const dados = Cancelar.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.conclusao.cancelar(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id, dados.data)
+  }
+
+  @Post(':id/reabrir')
+  @HttpCode(HttpStatus.OK)
+  async reabrir(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<TarefasAfetadas> {
+    const c = req.contexto!
+    return this.conclusao.reabrir(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id)
   }
 }
 

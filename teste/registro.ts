@@ -38,11 +38,13 @@ export type RotaRegistrada = {
  * devolve sem ninguém mexer nesta rota. Declará-la com um ou dois campos seria
  * mais preciso e menos verdadeiro — por isso a marca `curinga`.
  *
- * As rotas de paciente devolvem `ltv` e `saldo` por linha. As de tarefa
- * recebem e devolvem o pagamento embutido (`valor`, `valorAberto`) — elas
- * nascem no épico 2, Tasks 8 a 11, e estão aqui porque o CONTRATO delas já
- * existe: `PagamentoEmbutido` e `Concluir` são esquemas exportados de
- * `@fir/contracts` hoje, e a varredura os enxerga hoje.
+ * As rotas de paciente devolvem `ltv` e `saldo` por linha. TODA rota de
+ * tarefa devolve `TarefaNaLista`, e `TarefaNaLista.pagamento` carrega `valor`
+ * e `valorAberto` — o pagamento embutido é uma linha de `recebimentos`, e a
+ * tarefa continua sem coluna de dinheiro. Cancelar e reabrir entram porque
+ * devolvem a MESMA forma: reabrir, em particular, devolve a tarefa com
+ * `pagamento: null` logo depois de estornar, e esquecê-la aqui deixaria a
+ * varredura sem a rota que mais mexe em dinheiro.
  */
 export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'GET', caminho: '/v1/auditoria', camposDeDinheiro: [...CAMPOS_MONETARIOS], curinga: true },
@@ -50,6 +52,8 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'GET', caminho: '/v1/pacientes/:id', camposDeDinheiro: ['ltv', 'saldo'] },
   { metodo: 'POST', caminho: '/v1/tarefas', camposDeDinheiro: ['valor', 'valorAberto'] },
   { metodo: 'POST', caminho: '/v1/tarefas/:id/concluir', camposDeDinheiro: ['valor', 'valorAberto'] },
+  { metodo: 'POST', caminho: '/v1/tarefas/:id/cancelar', camposDeDinheiro: ['valor', 'valorAberto'] },
+  { metodo: 'POST', caminho: '/v1/tarefas/:id/reabrir', camposDeDinheiro: ['valor', 'valorAberto'] },
 ]
 
 /**

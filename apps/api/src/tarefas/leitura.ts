@@ -1,7 +1,20 @@
 import type { PassoDaJornada, TarefaNaLista } from '@fir/contracts'
-import { TIPOS } from '@fir/domain'
+import { type Autor, TIPOS } from '@fir/domain'
 import type pg from 'pg'
+import type { PessoaId } from '../banco/ator'
 import type { ClinicaId } from '../banco/clinica-id'
+
+/**
+ * O autor como as regras de `packages/domain` o querem, com o id ainda
+ * MARCADO como `PessoaId`.
+ *
+ * `Autor.id` é `string` porque o domínio não conhece a marca nominal da
+ * infraestrutura. Sem este cruzamento, todo serviço que recebesse um `Autor` e
+ * precisasse gravá-lo (em `recebimentos.registrado_por`, por exemplo) teria de
+ * escrever `autor.id as PessoaId` — e o `as` espalhado é exatamente o que
+ * `banco/ator.ts` existe para impedir.
+ */
+export type AutorDaRequisicao = Autor & { readonly id: PessoaId }
 
 /**
  * A ÚNICA leitura de tarefa do sistema.
