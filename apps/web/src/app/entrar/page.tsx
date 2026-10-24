@@ -27,54 +27,59 @@ export default function Entrar() {
   }
 
   return (
-    <main className="wrap" style={{ maxWidth: 420, paddingTop: 64 }}>
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ color: 'var(--gold-ink)', fontSize: 13, letterSpacing: '.08em', textTransform: 'uppercase' }}>
-          Firmare
+    // `.entrada` centra nos DOIS eixos. Antes o formulário nascia colado no
+    // topo de uma tela de 820 px, com setecentos pixels de vazio embaixo.
+    <main className="entrada">
+      <form className="caixa" onSubmit={enviar}>
+        <div className="marcabloco">
+          <div className="marca">
+            Firmare<span>.</span>
+          </div>
+          <div className="eyebrow">Gestão de Rotina</div>
         </div>
-        <h1 style={{ fontSize: 30 }}>Gestão de Rotina</h1>
-      </div>
 
-      <form onSubmit={enviar} style={{ display: 'grid', gap: 14 }}>
-        <label style={{ display: 'grid', gap: 4 }}>
-          Clínica
-          <input value={clinica} onChange={(e) => setClinica(e.target.value)} autoComplete="organization" required style={campo} />
-        </label>
-        <label style={{ display: 'grid', gap: 4 }}>
-          E-mail
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required style={campo} />
-        </label>
-        <label style={{ display: 'grid', gap: 4 }}>
-          Senha
-          <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="current-password" required style={campo} />
-        </label>
+        <div className="cartao">
+          <label className="campo">
+            Clínica
+            <input
+              value={clinica}
+              onChange={(e) => setClinica(e.target.value)}
+              autoComplete="organization"
+              required
+            />
+          </label>
+          <label className="campo">
+            E-mail
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="username"
+              required
+            />
+          </label>
+          <label className="campo">
+            Senha
+            <input
+              type="password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </label>
 
-        {erro && (
-          <p role="alert" style={{ color: 'var(--bad)', background: 'var(--bad-soft)', padding: '10px 12px', borderRadius: 'var(--r)', margin: 0 }}>
+          {/* Uma mensagem por vez, e o espaço dela não desloca o botão quando
+              aparece: a altura mínima já está reservada. */}
+          <p role="alert" aria-live="polite" className="erro-entrada">
             {erro}
           </p>
-        )}
 
-        <button type="submit" disabled={enviando} style={botao}>
-          {enviando ? 'Entrando…' : 'Entrar'}
-        </button>
+          <button type="submit" disabled={enviando} className="btn">
+            {enviando ? 'Entrando…' : 'Entrar'}
+          </button>
+        </div>
       </form>
     </main>
   )
-}
-
-const campo: React.CSSProperties = {
-  padding: '10px 12px',
-  border: '1px solid var(--line)',
-  borderRadius: 'var(--r)',
-  background: 'var(--surface)',
-}
-
-const botao: React.CSSProperties = {
-  padding: '12px 16px',
-  border: 0,
-  borderRadius: 'var(--r)',
-  background: 'var(--btn-bg)',
-  color: 'var(--btn-ink)',
-  fontWeight: 600,
 }
