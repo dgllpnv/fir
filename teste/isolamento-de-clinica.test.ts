@@ -48,6 +48,17 @@ async function criarCanarioDeParticao(cliente: pg.Client): Promise<void> {
   // exatamente o que o `it` abaixo exige de toda partição registrada.
   await cliente.query(`ALTER TABLE public.${CANARIO_PARTICAO_FILHA} ENABLE ROW LEVEL SECURITY`)
   await cliente.query(`ALTER TABLE public.${CANARIO_PARTICAO_FILHA} FORCE ROW LEVEL SECURITY`)
+  // A MÃE fica sem RLS de propósito (é só o esqueleto do particionamento), e o
+  // `ALTER DEFAULT PRIVILEGES` do bootstrap já concedeu CRUD nela a `fir_app`.
+  // Sem este REVOKE o canário vira uma relação sem RLS e gravável — que é
+  // exatamente o que `escrita-sem-rls.test.ts` reprova, e aquele arquivo roda em
+  // PARALELO com este contra o mesmo banco. O sintoma era vermelho alternado,
+  // uma rodada sim e uma não, acusando um defeito que não existe.
+  // A regra que aquele teste escreve é a que vale aqui: ou a relação ganha RLS,
+  // ou ganha o REVOKE — nunca fica sem os dois.
+  await cliente.query(
+    `REVOKE INSERT, UPDATE, DELETE ON public.${CANARIO_PARTICAO_MAE} FROM fir_app`,
+  )
 }
 
 async function removerCanarioDeParticao(cliente: pg.Client): Promise<void> {
