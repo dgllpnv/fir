@@ -40,7 +40,19 @@ Herdada do protótipo e mantida de propósito: as quatro clínicas em uso já a 
 
 **Tema escuro é par de primeira classe**, não cortesia: `@media (prefers-color-scheme: dark)` **e** `:root[data-theme="dark"]`, com o seletor manual vencendo nos dois sentidos.
 
-**O dourado tem dois papéis e eles não se trocam.** `--gold` é traço, borda e realce; `--gold-ink` é texto. Dourado claro sobre fundo claro não passa em AA, e é o erro mais comum nesta paleta.
+**O dourado tem dois papéis e eles não se trocam.** `--gold` é traço, borda e realce; `--gold-ink` é texto.
+
+Isto não é gosto — é a conta. Razões de contraste WCAG medidas nesta paleta:
+
+| Uso | Razão | Veredito |
+|---|---|---|
+| `--gold-ink` `#86672E` sobre `--bg` claro | **4,91:1** | passa em AA para texto normal, com pouca margem |
+| `--gold-ink` `#DDC28C` sobre `--bg` escuro | **10,86:1** | folgado |
+| `--gold` `#C5A467` sobre `--bg` claro | **2,21:1** | **reprova** — menos da metade do limite de 4,5:1 |
+| `--ink` `#2E1F0E` sobre `--bg` claro | 14,88:1 | |
+| `--muted` `#6E5E4B` sobre `--bg` claro | 5,83:1 | |
+
+Usar `--gold` como texto é o erro mais comum nesta paleta, e a linha acima diz o tamanho dele. Repare também na margem estreita do `--gold-ink` no tema claro: ele passa, mas não sobra — escurecer o fundo ou clarear o dourado quebra.
 
 ---
 
