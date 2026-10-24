@@ -1,18 +1,30 @@
-import { Cancelar, Concluir, CriarTarefa, type TarefasAfetadas } from '@fir/contracts'
+import {
+  Cancelar,
+  Concluir,
+  CriarTarefa,
+  EditarTarefa,
+  type ExclusaoDeTarefa,
+  ExcluirTarefa,
+  type TarefasAfetadas,
+} from '@fir/contracts'
 import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   HttpCode,
   HttpStatus,
   Inject,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
+  Query,
   Req,
 } from '@nestjs/common'
 import type { ContextoDaRequisicao, RequisicaoComContexto } from '../comum/contexto'
 import { ConclusaoService } from './conclusao.service'
+import { EdicaoDeTarefasService } from './edicao.service'
 import type { AutorDaRequisicao } from './leitura'
 import { TarefasService } from './tarefas.service'
 
@@ -47,6 +59,7 @@ export class TarefasController {
   constructor(
     @Inject(TarefasService) private readonly tarefas: TarefasService,
     @Inject(ConclusaoService) private readonly conclusao: ConclusaoService,
+    @Inject(EdicaoDeTarefasService) private readonly edicao: EdicaoDeTarefasService,
   ) {}
 
   @Post()
@@ -96,6 +109,30 @@ export class TarefasController {
   ): Promise<TarefasAfetadas> {
     const c = req.contexto!
     return this.conclusao.reabrir(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id)
+  }
+
+  @Patch(':id')
+  async editar(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() corpo: unknown,
+  ): Promise<TarefasAfetadas> {
+    const dados = EditarTarefa.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.edicao.editar(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id, dados.data)
+  }
+
+  @Delete(':id')
+  async excluir(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query() consulta: unknown,
+  ): Promise<ExclusaoDeTarefa> {
+    const dados = ExcluirTarefa.safeParse(consulta)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.edicao.excluir(c.clinicaId, c.ator, autorDe(c), id, dados.data.serie)
   }
 }
 

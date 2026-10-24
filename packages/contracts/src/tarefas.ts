@@ -205,7 +205,24 @@ export const EditarTarefa = z
   .strict()
 export type EditarTarefa = z.infer<typeof EditarTarefa>
 
-export const ExcluirTarefa = z.object({ serie: z.coerce.boolean().default(false) }).strict()
+/**
+ * Booleano vindo da QUERY STRING, onde tudo é texto.
+ *
+ * `z.coerce.boolean()` seria o óbvio e está ERRADO: `Boolean('false')` é
+ * `true`, então `?serie=false` — exatamente o que uma tela manda quando a
+ * caixa está desmarcada — alcançaria a série inteira. A recepção pediria para
+ * excluir UMA ocorrência e perderia as doze.
+ *
+ * Aqui só `true` e `1` são verdade, e qualquer outra coisa é recusada pelo
+ * parse em vez de virar `true` em silêncio.
+ */
+export const BooleanoDeConsulta = z
+  .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
+  .transform((v) => v === true || v === 'true' || v === '1')
+
+export const ExcluirTarefa = z
+  .object({ serie: BooleanoDeConsulta.default(false) })
+  .strict()
 export type ExcluirTarefa = z.infer<typeof ExcluirTarefa>
 
 /* -------------------------------------------------------------------------
