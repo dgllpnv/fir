@@ -12,6 +12,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Test } from '@nestjs/testing'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
 import type { ContextoDaRequisicao, RequisicaoComContexto } from '../comum/contexto'
 import { AutorizacaoGuard, Exige } from './autorizacao.guard'
 
@@ -62,7 +63,9 @@ class ContextoDeMentiraGuard implements CanActivate {
 
     const perms = cru.split(',').filter((x) => x !== '') as ChaveDePermissao[]
     req.contexto = {
-      clinicaId: '00000000-0000-0000-0000-000000000001',
+      // `ClinicaId` é nominal: a string crua não compila aqui, e é esse o
+      // ponto — ver `banco/clinica-id.ts`.
+      clinicaId: clinicaIdDeFonteConfiavel('00000000-0000-0000-0000-000000000001'),
       clinicaCodigo: 'mentira',
       clinicaNome: 'Clínica de Mentira',
       clinicaFuso: 'America/Bahia',

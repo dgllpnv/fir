@@ -2,6 +2,7 @@ import type { EuSaida } from '@fir/contracts'
 import { type ChaveDePermissao, type Perfil, temPerm } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../banco/banco.service'
+import { type ClinicaId, clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
 import type { ContextoDaRequisicao, PerfilComChave } from '../comum/contexto'
 import { semaforoArgon2 } from './concorrencia'
 import { conferirSenha } from './senha'
@@ -81,6 +82,11 @@ export class AutenticacaoService {
   // Task 13. Sem o token explícito, o Nest injeta `undefined` aqui.
   constructor(@Inject(BancoService) private readonly banco: BancoService) {}
 
+  /**
+   * Uma das duas fontes confiáveis de `ClinicaId` (ver `clinica-id.ts`): o id
+   * vem do BANCO, filtrado por `ativa`, e não do que o cliente mandou — o
+   * cliente manda o CÓDIGO, que é só o critério de busca.
+   */
   private async clinicaPorCodigo(codigo: string) {
     const r = await this.banco.semIsolamentoDeClinica<{
       id: string
@@ -88,10 +94,13 @@ export class AutenticacaoService {
       nome: string
       fuso: string
     }>('SELECT id, codigo, nome, fuso FROM clinicas WHERE codigo = $1 AND ativa', [codigo])
-    return r.rows[0] ?? null
+    const linha = r.rows[0]
+    return linha === undefined
+      ? null
+      : { ...linha, id: clinicaIdDeFonteConfiavel(linha.id) }
   }
 
-  private async perfisDa(clinicaId: string): Promise<Perfil[]> {
+  private async perfisDa(clinicaId: ClinicaId): Promise<Perfil[]> {
     return this.banco.naClinica(clinicaId, async (c) => {
       const r = await c.query<{ id: string; chave: string; nome: string; perms: string[] }>(
         'SELECT id, chave, nome, perms FROM perfis ORDER BY nome',
@@ -341,7 +350,11 @@ export class AutenticacaoService {
     // um rótulo no painel.
     if (!clinica?.ativa) return null
 
-    return this.banco.naClinica(clinica.id, async (c) => {
+    // Segunda fonte confiável de `ClinicaId`: veio de `resolver_sessao`, que
+    // a descobre pelo HASH do cookie. Ver `clinica-id.ts`.
+    const clinicaId = clinicaIdDeFonteConfiavel(clinica.id)
+
+    return this.banco.naClinica(clinicaId, async (c) => {
       const p = await c.query<LinhaPessoa>(
         `SELECT id, nome, email, funcao, senha_hash, admin, perfil_id, ativo
          FROM pessoas WHERE id = $1 AND ativo`,
@@ -363,7 +376,7 @@ export class AutenticacaoService {
       const usuarioParaPermissao = { admin: pessoa.admin, perfilId: pessoa.perfil_id ?? '' }
 
       return {
-        clinicaId: clinica.id,
+        clinicaId,
         clinicaCodigo: clinica.codigo,
         clinicaNome: clinica.nome,
         clinicaFuso: clinica.fuso,
@@ -394,17 +407,17 @@ export class AutenticacaoService {
       'SELECT clinica_id FROM resolver_sessao($1)',
       [hash],
     )
-    const clinicaId = s.rows[0]?.clinica_id
+    const cru = s.rows[0]?.clinica_id
     // Token desconhecido, expirado ou já revogado: nada a fazer, e o
     // controlador limpa o cookie de qualquer forma.
-    if (!clinicaId) return
+    if (!cru) return
 
-    await this.banco.naClinica(clinicaId, async (c) => {
+    await this.banco.naClinica(clinicaIdDeFonteConfiavel(cru), async (c) => {
       await c.query('UPDATE sessoes SET revogada_em = now() WHERE token_hash = $1', [hash])
     })
   }
 
-  async perfisPublicos(clinicaId: string): Promise<Perfil[]> {
+  async perfisPublicos(clinicaId: ClinicaId): Promise<Perfil[]> {
     return this.perfisDa(clinicaId)
   }
 }

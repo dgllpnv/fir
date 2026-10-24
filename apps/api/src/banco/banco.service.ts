@@ -1,5 +1,6 @@
 import { Injectable, type OnModuleDestroy } from '@nestjs/common'
 import pg from 'pg'
+import type { ClinicaId } from './clinica-id'
 
 /**
  * Pool único, com o papel `fir_app` — **sujeito à RLS**.
@@ -70,8 +71,12 @@ export class BancoService implements OnModuleDestroy {
    * devolvida ao pool nunca carrega a clínica da requisição anterior. Essa é a
    * diferença entre isolamento e um vazamento intermitente que só aparece sob
    * carga.
+   *
+   * `ClinicaId`, não `string`: ver `clinica-id.ts`. Com `string`, um
+   * `naClinica(corpo.clinicaId, ...)` compilava, a RLS obedecia ao valor
+   * fixado e a requisição lia a clínica que o navegador escolheu.
    */
-  async naClinica<T>(clinicaId: string, fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
+  async naClinica<T>(clinicaId: ClinicaId, fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
     const c = await this.pool.connect()
     let erro: unknown
     try {

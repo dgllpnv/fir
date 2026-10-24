@@ -1,5 +1,6 @@
 import type { ChaveDePermissao, Perfil } from '@fir/domain'
 import type { PessoaPublica } from '@fir/contracts'
+import type { ClinicaId } from '../banco/clinica-id'
 
 /**
  * O que o guard de autenticação anexa à requisição.
@@ -9,7 +10,9 @@ import type { PessoaPublica } from '@fir/contracts'
  * mais por requisição para um dado que o guard já leu.
  */
 export type ContextoDaRequisicao = {
-  readonly clinicaId: string
+  // `ClinicaId` marcado: este é o valor que vai para `naClinica`, e ele veio
+  // do cookie pelo guard de sessão — nunca do corpo. Ver `clinica-id.ts`.
+  readonly clinicaId: ClinicaId
   readonly clinicaCodigo: string
   readonly clinicaNome: string
   readonly clinicaFuso: string
