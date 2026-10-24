@@ -10,9 +10,15 @@
 -- dois identificadores. Não lista sessões, não aceita filtro, não devolve o
 -- token. Chamá-la com proveito exige adivinhar 256 bits.
 --
--- `search_path` fixo e vazio (mais `pg_catalog`, implícito) porque uma função
--- SECURITY DEFINER sem isso é sequestrável: um papel que possa criar um objeto
--- num esquema à frente no caminho substitui o que a função resolve.
+-- `search_path` fixo em `pg_catalog, public` — não vazio — porque uma função
+-- SECURITY DEFINER sem `search_path` fixo é sequestrável: um papel que possa
+-- criar um objeto num esquema à frente no caminho de busca normal substitui
+-- o que a função resolve. `pg_catalog` cobre os operadores e funções
+-- embutidas da consulta (`=`, `now()`) e é seguro por si só — só superusuário
+-- cria objeto ali. `public` entra na lista, mas a tabela é referenciada como
+-- `public.sessoes`, já totalmente qualificada: nenhum identificador desta
+-- função depende da ORDEM de busca em `public` para resolver, então incluí-lo
+-- não reabre o sequestro que fixar o `search_path` existe para evitar.
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION resolver_sessao(p_token_hash text)
   RETURNS TABLE (clinica_id uuid, pessoa_id uuid)

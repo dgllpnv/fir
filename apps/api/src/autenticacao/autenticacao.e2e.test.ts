@@ -48,6 +48,14 @@ beforeAll(async () => {
      VALUES ($1, 'Conta B', 'conta.b@e2e.local', $2, $3)`,
     [clinica, await hashDeSenha('senha-da-conta-b'), p.rows[0]!.id],
   )
+  // Conta dedicada à medição de tempo (Rodada de correção 1): precisa
+  // existir de verdade, com hash válido, para que o caminho "senha errada"
+  // rode Argon2 de produção — comparado contra um e-mail que nunca existe.
+  await migrate.query(
+    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
+     VALUES ($1, 'Conta Tempo', 'conta.tempo.existe@e2e.local', $2, $3)`,
+    [clinica, await hashDeSenha('senha-da-conta-tempo'), p.rows[0]!.id],
+  )
 
   const mod = await Test.createTestingModule({ imports: [AppModule] }).compile()
   app = mod.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
@@ -160,5 +168,40 @@ describe('POST /v1/entrar', () => {
     // `limiteExcedido` filtra por `identificador = $1`, então as falhas da
     // conta A não aparecem na janela de tentativas da conta B.
     await porConta('conta.b@e2e.local', 'senha-da-conta-b').expect(200)
+  })
+
+  /**
+   * Rodada de correção 1: o relógio da resposta não pode dizer qual e-mail
+   * existe. Medido contra a API viva ANTES da correção (hash falso):
+   *
+   *   existe@t.local      401 em 20 / 68 / 20 ms   (Argon2 roda)
+   *   naoexiste@t.local   401 em  8 /  9 /  8 ms   (Argon2 não roda)
+   *
+   * Três a oito vezes mais rápido. Tempo é ruidoso (a primeira medição de
+   * cada processo carrega o aquecimento do binding nativo do Argon2 — por
+   * isso 5 medições por caminho e a MEDIANA, não a primeira nem a média).
+   * Não afirmamos igualdade: só que o caminho sem pessoa custa pelo menos a
+   * metade do caminho com pessoa real — suficiente para pegar a regressão
+   * óbvia (hash falso removido), que reabriria a razão de 3x–8x medida acima.
+   */
+  it('o tempo de resposta não distingue e-mail inexistente de senha errada', async () => {
+    const medir = async (email: string, senha: string): Promise<number> => {
+      const tempos: number[] = []
+      for (let i = 0; i < 5; i++) {
+        const inicio = performance.now()
+        await request(app.getHttpServer())
+          .post('/v1/entrar')
+          .send({ clinica: codigo, email, senha })
+          .expect(401)
+        tempos.push(performance.now() - inicio)
+      }
+      tempos.sort((a, b) => a - b)
+      return tempos[2]! // mediana de 5
+    }
+
+    const medianaExiste = await medir('conta.tempo.existe@e2e.local', 'senha-errada-tempo')
+    const medianaNaoExiste = await medir('conta.tempo.naoexiste@e2e.local', 'senha-de-teste')
+
+    expect(medianaNaoExiste).toBeGreaterThanOrEqual(medianaExiste * 0.5)
   })
 })

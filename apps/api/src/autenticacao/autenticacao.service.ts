@@ -10,6 +10,26 @@ import { DURACAO_SESSAO_MS, hashDoToken, limiteExcedido, novoToken } from './ses
 export class CredencialInvalida extends Error {}
 export class LimiteDeTentativas extends Error {}
 
+/**
+ * Hash Argon2id de uma senha que não existe, gerado uma vez, OFFLINE, com os
+ * mesmos parâmetros de `OPCOES` em senha.ts. Usado só para que o caminho de
+ * "e-mail inexistente" gaste o mesmo tempo que o caminho de "senha errada".
+ *
+ * Medido contra a API viva, antes desta correção:
+ *   existe@t.local      401 em 20 / 68 / 20 ms   (Argon2 roda)
+ *   naoexiste@t.local   401 em  8 /  9 /  8 ms   (Argon2 não roda)
+ * Três a oito vezes mais rápido — o relógio da resposta diz ao atacante
+ * quais e-mails existem na clínica, mesmo com a mesma frase de erro nos
+ * dois casos. `limiteExcedido` não contém isso: ele é por identificador, e
+ * testar mil e-mails distintos não dispara bloqueio nenhum.
+ *
+ * É uma CONSTANTE, não um `hashDeSenha(...)` calculado aqui: `hashDeSenha`
+ * custa o mesmo que `conferirSenha`, e gerá-la em tempo de execução dobraria
+ * o custo do caminho falso em vez de igualá-lo ao caminho real.
+ */
+const HASH_FALSO =
+  '$argon2id$v=19$m=19456,t=2,p=1$9YZTdlx1c+RaX+8PmwuR2A$ME626mOd3LVS6WpTnqd8GsCKSk4Oy9VLSYkwIyrGRCs'
+
 type LinhaPessoa = {
   id: string
   nome: string
@@ -95,9 +115,17 @@ export class AutenticacaoService {
       // Semáforo, não o `limiteExcedido` acima: aquele bloqueia POR CONTA
       // depois de cinco falhas; este limita QUANTOS Argon2 rodam ao mesmo
       // tempo, qualquer que seja a conta — ver concorrencia.ts.
+      //
+      // Quando `pessoa` não existe, roda a MESMA verificação Argon2 contra
+      // `HASH_FALSO` em vez de pular direto para `false` — e pelo MESMO
+      // semáforo. Sem passar pelo semáforo aqui, um atacante testando e-mails
+      // inexistentes contornaria o teto de concorrência inteiro: cada
+      // requisição somaria 19 MiB sem nunca disputar uma vaga, porque só o
+      // caminho com pessoa real estaria sujeito ao teto. O resultado desta
+      // verificação é descartado — a resposta é sempre credencial inválida.
       const ok = pessoa
         ? await semaforoArgon2.executar(() => conferirSenha(senha, pessoa.senha_hash))
-        : false
+        : await semaforoArgon2.executar(() => conferirSenha(senha, HASH_FALSO)).then(() => false)
       await c.query(
         'INSERT INTO tentativas_login (clinica_id, identificador, sucesso) VALUES ($1, $2, $3)',
         [clinica.id, email, ok],
