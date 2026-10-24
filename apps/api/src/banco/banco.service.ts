@@ -26,6 +26,29 @@ export class BancoService implements OnModuleDestroy {
     idle_in_transaction_session_timeout: 20_000,
   })
 
+  constructor() {
+    // Sem este listener, a API inteira morria quando o Postgres encerrava
+    // uma conexão ociosa do pool — medido ao parar o container de verdade:
+    //
+    //   node:events:497
+    //         throw er; // Unhandled 'error' event
+    //   error: terminating connection due to administrator command
+    //   Emitted 'error' event on BoundPool instance at:
+    //       at Client.idleListener (pg-pool/index.js:62:10)
+    //
+    // O `pg` emite `'error'` no cliente OCIOSO sempre que o servidor encerra
+    // a conexão por fora (reinício do Postgres, `pg_terminate_backend`,
+    // queda de rede) — não é exclusivo de `docker stop`. Um `EventEmitter`
+    // que emite `'error'` sem listener lança e derruba o processo Node
+    // inteiro, inclusive o healthcheck que existe exatamente para avisar
+    // desse cenário. O próprio pool já descarta o cliente quebrado; só falta
+    // registrar o evento para o operador ver. Nunca logar a connection
+    // string nem a senha — só a mensagem do erro.
+    this.pool.on('error', (erro) => {
+      console.error('[banco] conexão ociosa do pool encerrada pelo servidor:', erro.message)
+    })
+  }
+
   /**
    * Consulta sem clínica fixada.
    *
