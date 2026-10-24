@@ -14,6 +14,13 @@ CREATE ROLE fir_app     LOGIN PASSWORD 'fir_local_dev';
 GRANT ALL ON SCHEMA public TO fir_migrate;
 ALTER SCHEMA public OWNER TO fir_migrate;
 
+-- Sem isto, a migration 0001 falha com "permission denied to create
+-- extension pgcrypto" — mesmo sendo `pgcrypto` uma extensão `trusted`
+-- (instalável por não-superusuário), o Postgres ainda exige privilégio
+-- CREATE no *banco* (não só no schema) para rodar CREATE EXTENSION. Dono do
+-- schema `public` não basta.
+GRANT CREATE ON DATABASE fir TO fir_migrate;
+
 -- Tudo que `fir_migrate` criar daqui em diante fica legível e gravável por
 -- `fir_app`. Sem isto, cada migration precisaria repetir os GRANTs.
 ALTER DEFAULT PRIVILEGES FOR ROLE fir_migrate IN SCHEMA public
