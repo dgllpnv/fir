@@ -7,12 +7,61 @@ const URL_MIG =
 
 let migrate: pg.Client
 
+/**
+ * Re-revisão, achado 5: o `it` de partição abaixo executava ZERO `expect` —
+ * não há partição nenhuma em `public` hoje (o Plano 3 é quem cria a
+ * primeira), então o laço sobre `r.rows` nunca rodava. O mesmo risco das
+ * duas checagens de `escrita-sem-rls.test.ts`: a consulta ao catálogo
+ * (`pg_inherits` + `relrowsecurity`/`relforcerowsecurity`) pode quebrar sem
+ * que ninguém note, porque vazio passa de qualquer jeito.
+ *
+ * Zero é o estado correto para as tabelas de NEGÓCIO — não force um piso
+ * positivo sobre `ENTIDADES_COM_CLINICA`, que hoje não tem partição
+ * nenhuma. Em vez disso, este arquivo cria seu PRÓPRIO par mãe/filha
+ * particionado, correto por construção, e o acrescenta ao filtro da
+ * consulta ao lado de `ENTIDADES_COM_CLINICA` — nunca DENTRO do registro
+ * compartilhado, que o outro `it` acima (`relname = ANY(ENTIDADES_COM_CLINICA)`
+ * vs. `noBanco`) exige bater exatamente com as tabelas reais do schema.
+ */
+const CANARIO_PARTICAO_MAE = '_canario_particao_mae'
+const CANARIO_PARTICAO_FILHA = '_canario_particao_filha'
+
+async function criarCanarioDeParticao(cliente: pg.Client): Promise<void> {
+  await cliente.query(`DROP TABLE IF EXISTS public.${CANARIO_PARTICAO_MAE} CASCADE`)
+  // SEM `clinica_id` de propósito: o outro `it` deste describe
+  // ("o registro cobre TODAS as tabelas com clinica_id") varre toda tabela
+  // com essa coluna e exige igualdade EXATA com `ENTIDADES_COM_CLINICA` — um
+  // canário com `clinica_id` apareceria ali e quebraria aquele teste, que
+  // não tem nada a ver com este. O canário não precisa da coluna: só RLS
+  // habilitada/forçada na filha é o que este `it` examina.
+  await cliente.query(`
+    CREATE TABLE public.${CANARIO_PARTICAO_MAE} (
+      id bigint NOT NULL
+    ) PARTITION BY RANGE (id)
+  `)
+  await cliente.query(`
+    CREATE TABLE public.${CANARIO_PARTICAO_FILHA}
+      PARTITION OF public.${CANARIO_PARTICAO_MAE}
+      FOR VALUES FROM (0) TO (1000000)
+  `)
+  // Correto por construção: RLS habilitada E forçada na FILHA, que é
+  // exatamente o que o `it` abaixo exige de toda partição registrada.
+  await cliente.query(`ALTER TABLE public.${CANARIO_PARTICAO_FILHA} ENABLE ROW LEVEL SECURITY`)
+  await cliente.query(`ALTER TABLE public.${CANARIO_PARTICAO_FILHA} FORCE ROW LEVEL SECURITY`)
+}
+
+async function removerCanarioDeParticao(cliente: pg.Client): Promise<void> {
+  await cliente.query(`DROP TABLE IF EXISTS public.${CANARIO_PARTICAO_MAE} CASCADE`)
+}
+
 beforeAll(async () => {
   migrate = new pg.Client({ connectionString: URL_MIG })
   await migrate.connect()
+  await criarCanarioDeParticao(migrate)
 })
 
 afterAll(async () => {
+  await removerCanarioDeParticao(migrate)
   await migrate.end()
 })
 
@@ -67,8 +116,10 @@ describe('toda tabela de negócio está protegida', () => {
     // A RLS da mãe vale para quem consulta PELA MÃE. Consulta direta a uma
     // partição aplica as policies DA PARTIÇÃO — e uma partição criada sem
     // `ENABLE ROW LEVEL SECURITY` é um `SELECT * FROM movimentos_2026_03` que
-    // devolve todas as clínicas. Hoje não há partição nenhuma e este laço não
-    // roda; ele existe para o Plano 3, que é quem vai criar a primeira.
+    // devolve todas as clínicas. Hoje não há partição de NEGÓCIO nenhuma —
+    // o Plano 3 é quem vai criar a primeira — mas o canário deste arquivo
+    // (`CANARIO_PARTICAO_MAE`/`_FILHA`, criado no `beforeAll`) garante que o
+    // laço abaixo sempre roda ao menos uma vez.
     const r = await migrate.query<{ filha: string; mae: string; rls: boolean; forcada: boolean }>(
       `SELECT filha.relname AS filha,
               mae.relname   AS mae,
@@ -79,8 +130,20 @@ describe('toda tabela de negócio está protegida', () => {
          JOIN pg_class mae   ON mae.oid   = i.inhparent
          JOIN pg_namespace n ON n.oid = mae.relnamespace
         WHERE n.nspname = 'public' AND mae.relname = ANY($1)`,
-      [[...ENTIDADES_COM_CLINICA]],
+      [[...ENTIDADES_COM_CLINICA, CANARIO_PARTICAO_MAE]],
     )
+
+    // O piso não pode ser 0 (hoje não há partição de negócio nenhuma) — é 1,
+    // porque o canário garante ao menos uma. Abaixo de 1 aqui significa que
+    // `pg_inherits` parou de devolver a partição que este arquivo acabou de
+    // criar — exatamente o jeito pelo qual o laço voltaria a rodar zero
+    // vezes em silêncio.
+    expect(
+      r.rows.length,
+      'nenhuma partição encontrada — nem o canário deste arquivo apareceu; ' +
+        'a varredura de pg_inherits não está funcionando',
+    ).toBeGreaterThanOrEqual(1)
+
     for (const p of r.rows) {
       expect(p.rls, `partição ${p.filha} (de ${p.mae}) sem RLS habilitada`).toBe(true)
       expect(p.forcada, `partição ${p.filha} (de ${p.mae}) sem RLS forçada`).toBe(true)

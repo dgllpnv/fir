@@ -47,12 +47,57 @@ const NOME_DO_RELKIND: Readonly<Record<string, string>> = {
 
 let migrate: pg.Client
 
+/**
+ * Re-revisão, achado 5: os dois `it` de `describe('toda view de public é
+ * security_invoker')` executavam ZERO `expect` — não há view nem
+ * materialized view em `public` hoje, então os laços abaixo não rodavam
+ * nenhuma vez. Provado por mutação pelo revisor: trocar `relkind = 'v'` por
+ * `'V'` na primeira query, com uma view de verdade vazando no schema (sem
+ * `security_invoker`, mas com as escritas revogadas para não cair no OUTRO
+ * teste), e os três `it` deste arquivo passavam 3/3 — o typo apaga a view do
+ * resultado, o laço continua vazio, e vazio passa com ou sem o erro.
+ *
+ * O conserto não é relaxar para `toBeGreaterThan(0)` sobre um estado que
+ * hoje é zero — zero É o estado correto, e inventar um piso positivo sobre
+ * ele seria o mesmo teste falso que a regra 2 do validador-de-números recusa
+ * em dinheiro. O conserto é fazer o estado deixar de ser zero: um canário
+ * CRIADO por este arquivo, SEMPRE presente, correto por construção (senão
+ * os próprios `it` abaixo reprovariam a si mesmos). A partir daí "a view não
+ * foi vista" só acontece se a varredura quebrou — exatamente o que o piso
+ * de contagem teria sido inútil para provar com zero real.
+ */
+const CANARIO_VIEW = '_canario_rls_view'
+const CANARIO_MATVIEW = '_canario_rls_matview'
+
+async function criarCanarios(cliente: pg.Client): Promise<void> {
+  await cliente.query(`DROP VIEW IF EXISTS public.${CANARIO_VIEW}`)
+  await cliente.query(
+    `CREATE VIEW public.${CANARIO_VIEW} WITH (security_invoker = true) AS SELECT 1 AS x`,
+  )
+  // Mesmo canário, correto por construção: sem este REVOKE, o
+  // `ALTER DEFAULT PRIVILEGES` do bootstrap concederia INSERT/UPDATE/DELETE
+  // a `fir_app` na view nova (achado 4 da revisão final) e o OUTRO describe
+  // deste arquivo reprovaria por causa do canário, não de um defeito real.
+  await cliente.query(`REVOKE ALL ON public.${CANARIO_VIEW} FROM fir_app`)
+
+  await cliente.query(`DROP MATERIALIZED VIEW IF EXISTS public.${CANARIO_MATVIEW}`)
+  await cliente.query(`CREATE MATERIALIZED VIEW public.${CANARIO_MATVIEW} AS SELECT 1 AS x`)
+  await cliente.query(`REVOKE ALL ON public.${CANARIO_MATVIEW} FROM fir_app`)
+}
+
+async function removerCanarios(cliente: pg.Client): Promise<void> {
+  await cliente.query(`DROP VIEW IF EXISTS public.${CANARIO_VIEW}`)
+  await cliente.query(`DROP MATERIALIZED VIEW IF EXISTS public.${CANARIO_MATVIEW}`)
+}
+
 beforeAll(async () => {
   migrate = new pg.Client({ connectionString: URL_MIG })
   await migrate.connect()
+  await criarCanarios(migrate)
 })
 
 afterAll(async () => {
+  await removerCanarios(migrate)
   await migrate.end()
 })
 
@@ -101,6 +146,16 @@ describe('toda view de public é security_invoker', () => {
         ORDER BY c.relname`,
     )
 
+    // O piso não pode ser 0 (hoje não há view de negócio nenhuma) — é 1,
+    // porque `criarCanarios` garante que ao menos `_canario_rls_view` está
+    // sempre presente. Abaixo de 1 aqui significa que a consulta parou de
+    // achar a view que este mesmo arquivo acabou de criar.
+    expect(
+      r.rows.length,
+      'nenhuma view encontrada em public — nem o canário deste arquivo apareceu; ' +
+        'a varredura de relkind não está funcionando',
+    ).toBeGreaterThanOrEqual(1)
+
     for (const { relname, reloptions } of r.rows) {
       // `security_invoker = true` (Postgres 15+) faz a view ser avaliada com
       // os privilégios e o `current_user` de QUEM CONSULTA, não do dono. Sem
@@ -128,6 +183,15 @@ describe('toda view de public é security_invoker', () => {
          JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relkind = 'm'`,
     )
+
+    // Mesmo piso, mesma razão: 1, não 0, porque `_canario_rls_matview`
+    // garante o piso. Hoje não há materialized view de negócio nenhuma.
+    expect(
+      r.rows.length,
+      'nenhuma materialized view encontrada em public — nem o canário deste arquivo ' +
+        'apareceu; a varredura de relkind não está funcionando',
+    ).toBeGreaterThanOrEqual(1)
+
     for (const { relname } of r.rows) {
       const p = await migrate.query<{ sel: boolean }>(
         `SELECT has_table_privilege('fir_app', $1, 'SELECT') AS sel`,
