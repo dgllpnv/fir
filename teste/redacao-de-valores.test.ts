@@ -83,14 +83,38 @@ describe('todo campo monetário exposto pelos contratos está registrado', () =>
     }
     const monetarios = new Set<string>(CAMPOS_MONETARIOS)
 
+    /**
+     * PISO DA VARREDURA — correção final da branch, achado 8.
+     *
+     * Como o laço estava, este `it` executava ZERO `expect`: nenhum esquema
+     * de hoje expõe campo monetário, então o `continue` descartava tudo e o
+     * teste passava sem examinar coisa alguma. Um teste que não roda
+     * asserção nenhuma não distingue "varri e está tudo certo" de "a
+     * varredura quebrou" — e a segunda é o que acontece quando um `export`
+     * muda de forma, quando `instanceof z.ZodObject` para de valer numa
+     * atualização do zod, ou quando alguém troca o import por um barrel
+     * vazio.
+     *
+     * Os dois contadores abaixo medem que a varredura ANDOU: quantos
+     * esquemas foram abertos e quantos campos foram vistos. É o mesmo piso
+     * que `escrita-sem-rls.test.ts` usa com "a varredura não verificou
+     * nada" — e `ROTAS_COM_DINHEIRO` continua vazia de propósito, porque o
+     * Plano 1 não expõe dinheiro e rota inventada num registro é pior que
+     * registro vazio.
+     */
+    let esquemasVarridos = 0
+    let camposVistos = 0
+
     // `Object.entries` sobre o módulo: só os exports em tempo de execução
     // aparecem (tipos somem na compilação), então isto varre exatamente os
     // esquemas Zod, nunca os `type X = z.infer<...>` que os acompanham.
     for (const [nomeDoEsquema, exportado] of Object.entries(contratos as Record<string, unknown>)) {
       if (!(exportado instanceof z.ZodObject)) continue
+      esquemasVarridos++
 
       const achados = new Set<string>()
       camposDoEsquema(exportado, achados, new Set())
+      camposVistos += achados.size
 
       for (const campo of achados) {
         if (!monetarios.has(campo)) continue
@@ -102,5 +126,46 @@ describe('todo campo monetário exposto pelos contratos está registrado', () =>
         ).toBe(true)
       }
     }
+
+    expect(
+      esquemasVarridos,
+      'nenhum esquema de @fir/contracts foi aberto — a varredura não verificou nada',
+    ).toBeGreaterThan(0)
+    expect(
+      camposVistos,
+      `${esquemasVarridos} esquema(s) aberto(s) e nenhum campo encontrado — ` +
+        'a travessia de `camposDoEsquema` não verificou nada',
+    ).toBeGreaterThan(0)
+  })
+
+  it('a travessia alcança campo dentro de array e dentro de nullable', () => {
+    /**
+     * A outra metade do piso: os contadores acima provam que a varredura
+     * andou, não que ela DESCE. Um `camposDoEsquema` que só lesse o primeiro
+     * nível passaria os dois pisos e deixaria passar o campo monetário
+     * dentro de uma lista — que é exatamente a forma de toda resposta de
+     * lista dos Planos 2 a 8 (`{ tarefas: [{ valor }] }`).
+     *
+     * Esquema construído aqui, não importado: o que está sob teste é a
+     * travessia, e amarrá-la à forma de hoje de `@fir/contracts` faria o
+     * teste mudar de significado no dia em que um contrato mudar.
+     */
+    const esquema = z.object({
+      topo: z.string(),
+      lista: z.array(z.object({ dentroDaLista: z.string() })),
+      talvez: z.object({ dentroDoNullable: z.string() }).nullable(),
+      opcional: z.object({ dentroDoOpcional: z.string() }).optional(),
+      transformado: z
+        .union([z.string(), z.null()])
+        .transform((v) => v)
+        .pipe(z.unknown()),
+    })
+
+    const achados = new Set<string>()
+    camposDoEsquema(esquema, achados, new Set())
+
+    expect([...achados].sort()).toEqual(
+      ['dentroDaLista', 'dentroDoNullable', 'dentroDoOpcional', 'lista', 'opcional', 'talvez', 'topo', 'transformado'].sort(),
+    )
   })
 })

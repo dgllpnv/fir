@@ -71,8 +71,65 @@ export const TIPOS: readonly InfoDoTipo[] = TIPOS_LITERAL
 
 const porNome = new Map<string, InfoDoTipo>(TIPOS.map((t) => [t.nome, t]))
 
-export const infoDoTipo = (nome: string): InfoDoTipo =>
-  porNome.get(nome) ?? { nome, grupo: 'Relacionamento', desc: '' }
+/**
+ * Nomes desconhecidos já avistados, para avisar UMA vez por nome.
+ *
+ * `infoDoTipo` é chamada uma vez por tarefa em `ehReceita`, `ehContato` e
+ * companhia — sem a deduplicação, um mês de dado legado com um nome errado
+ * encheria o log com a mesma linha milhares de vezes, e um log que ninguém
+ * consegue ler é o mesmo que silêncio.
+ */
+const desconhecidosAvistados = new Set<string>()
+
+/** Os nomes desconhecidos que apareceram neste processo. Para log e teste. */
+export const tiposDesconhecidosAvistados = (): readonly string[] => [...desconhecidosAvistados]
+
+/** Esquece o que foi avistado. Existe para o teste isolar cada caso. */
+export const esquecerTiposDesconhecidos = (): void => {
+  desconhecidosAvistados.clear()
+}
+
+/**
+ * O tipo da tarefa, ou um FALLBACK RUIDOSO para nome desconhecido.
+ *
+ * O que o fallback silencioso causava: um nome fora da tabela devolvia um
+ * `InfoDoTipo` sem flag nenhuma, então `receita` ficava `undefined`,
+ * `ehReceita` virava `false` e **o pagamento desaparecia da receita sem um
+ * único erro**. Na migração das 4 clínicas é o cenário provável, não o
+ * improvável: "Pagamento de orcamento" sem cedilha, "Orçamento Fechado" com
+ * maiúscula, um espaço a mais no fim. O faturamento do mês fica subnotificado
+ * e os totais da regra 28 não batem — e o único jeito de descobrir por quê é
+ * conferir paciente por paciente.
+ *
+ * AVISA, mas NÃO LANÇA: o legado migrado precisa continuar legível. Uma
+ * exceção aqui transformaria uma tarefa com nome estranho numa tela que não
+ * abre, e a recepcionista perderia o dia inteiro por causa de um acento.
+ *
+ * O `console.warn` é a única saída de I/O de `packages/domain`, e é
+ * deliberada: a regra de pureza existe para que o domínio não dependa de
+ * framework nem de banco, e "classifiquei um pagamento como não-pagamento"
+ * é precisamente o tipo de coisa que não pode acontecer em silêncio. Nada de
+ * PII, valor ou dose entra na mensagem — só o nome do tipo, que é vocabulário
+ * de configuração (regra 21).
+ */
+export const infoDoTipo = (nome: string): InfoDoTipo => {
+  const achado = porNome.get(nome)
+  if (achado !== undefined) return achado
+
+  if (!desconhecidosAvistados.has(nome)) {
+    desconhecidosAvistados.add(nome)
+    const alias = TIPO_ANTIGO[nome]
+    console.warn(
+      `[tipos-de-tarefa] tipo de tarefa desconhecido: ${JSON.stringify(nome)}. ` +
+        'Ele NÃO conta como receita, atendimento nem saldo — o pagamento sai dos ' +
+        'totais do mês. ' +
+        (alias === undefined
+          ? 'Confira acento, caixa e espaço contra TIPOS, ou acrescente o nome a TIPO_ANTIGO.'
+          : `TIPO_ANTIGO mapeia este nome para ${JSON.stringify(alias)}: traduza antes de classificar.`),
+    )
+  }
+  return { nome, grupo: 'Relacionamento', desc: '' }
+}
 
 /** O que a tarefa precisa expor para ser classificada. */
 export type TarefaClassificavel = { readonly tipo: string; readonly valor: bigint }
@@ -106,7 +163,13 @@ export const temValor = (nome: string): boolean => {
 /** Agendado vira realizado — a mesma tarefa, com histórico. */
 export const tipoAoConcluir = (nome: string): string => infoDoTipo(nome).vira ?? nome
 
-/** Nomes de versões anteriores. A migração das 4 clínicas depende deste mapa. */
+/**
+ * Nomes de versões anteriores. A migração das 4 clínicas depende deste mapa.
+ *
+ * Declarado depois de `infoDoTipo`, que o lê: `const` de módulo tem zona
+ * morta temporal, mas `infoDoTipo` só é CHAMADA depois de o módulo terminar
+ * de carregar — nenhum caminho de inicialização a executa.
+ */
 export const TIPO_ANTIGO: Readonly<Record<string, string>> = {
   'Orçamento fechado': 'Pagamento de orçamento',
   'Orçamento pago': 'Pagamento de orçamento',

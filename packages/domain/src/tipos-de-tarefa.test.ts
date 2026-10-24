@@ -1,13 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   aceitaPagamento,
   ehAtendimento,
   ehContato,
   ehPagamento,
   ehReceita,
+  esquecerTiposDesconhecidos,
+  infoDoTipo,
   TIPO_ANTIGO,
   TIPOS,
   tipoAoConcluir,
+  tiposDesconhecidosAvistados,
 } from './tipos-de-tarefa'
 
 describe('classificação dos tipos', () => {
@@ -77,5 +80,62 @@ describe('a tabela', () => {
   it('todo destino de conclusão existe na tabela', () => {
     const nomes = new Set(TIPOS.map((t) => t.nome))
     for (const t of TIPOS) if (t.vira) expect(nomes.has(t.vira)).toBe(true)
+  })
+})
+
+/**
+ * O fallback de `infoDoTipo` era SILENCIOSO: nome desconhecido devolvia um
+ * `InfoDoTipo` sem flag nenhuma, `ehReceita` virava `false` e o pagamento
+ * saía da receita sem um único erro. Na migração das 4 clínicas é o cenário
+ * provável — um acento, uma maiúscula, um espaço no fim — e a regra 28 exige
+ * que os totais batam EXATAMENTE.
+ */
+describe('tipo desconhecido avisa, e não lança', () => {
+  let aviso: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    esquecerTiposDesconhecidos()
+    aviso = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    aviso.mockRestore()
+    esquecerTiposDesconhecidos()
+  })
+
+  it('avisa no console, nomeando o tipo e a consequência', () => {
+    infoDoTipo('Pagamento de orcamento')
+    expect(aviso).toHaveBeenCalledTimes(1)
+    const mensagem = String(aviso.mock.calls[0]?.[0])
+    // O nome exato, entre aspas, para quem for procurar no dado de origem.
+    expect(mensagem).toContain('"Pagamento de orcamento"')
+    // E a consequência, porque "tipo desconhecido" não diz a ninguém que o
+    // faturamento do mês está subnotificado.
+    expect(mensagem).toContain('receita')
+  })
+
+  it('NÃO lança: o legado migrado precisa continuar legível', () => {
+    expect(() => infoDoTipo('Nome que nunca existiu')).not.toThrow()
+    expect(infoDoTipo('Nome que nunca existiu').nome).toBe('Nome que nunca existiu')
+    expect(ehReceita({ tipo: 'Nome que nunca existiu', valor: 15_000n })).toBe(false)
+  })
+
+  it('o aviso do mesmo nome sai UMA vez — log ilegível é igual a silêncio', () => {
+    for (let i = 0; i < 500; i++) ehReceita({ tipo: 'Orçamento Fechado', valor: 1n })
+    expect(aviso).toHaveBeenCalledTimes(1)
+    expect(tiposDesconhecidosAvistados()).toEqual(['Orçamento Fechado'])
+  })
+
+  it('quando o nome está em TIPO_ANTIGO, o aviso diz para qual traduzir', () => {
+    infoDoTipo('Orçamento fechado')
+    const mensagem = String(aviso.mock.calls[0]?.[0])
+    expect(mensagem).toContain('"Pagamento de orçamento"')
+    expect(mensagem).toContain('TIPO_ANTIGO')
+  })
+
+  it('tipo CONHECIDO não avisa nada', () => {
+    for (const t of TIPOS) infoDoTipo(t.nome)
+    expect(aviso).not.toHaveBeenCalled()
+    expect(tiposDesconhecidosAvistados()).toEqual([])
   })
 })

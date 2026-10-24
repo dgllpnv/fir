@@ -67,11 +67,31 @@ try {
     ['pf_fin', 'Rosa Andrade', 'rosa@firmare.local', 'Financeiro'],
   ]
   for (const [chave, nome, email, funcao] of porPerfil) {
-    await c.query(
+    const r = await c.query(
       `INSERT INTO pessoas (clinica_id, nome, email, funcao, senha_hash, admin, perfil_id)
        SELECT $1, $2, $3, $4, $5, false, id FROM perfis WHERE clinica_id = $1 AND chave = $6`,
       [clinicaId, nome, email, funcao, await hashDeSenha(SENHA), chave],
     )
+    /**
+     * A ARMADILHA DO `INSERT ... SELECT`: ele não falha quando o `WHERE` não
+     * acha nada. O SELECT devolve zero linhas, o INSERT insere zero linhas, o
+     * comando volta com sucesso e a pessoa simplesmente não existe. Uma chave
+     * de perfil digitada errado aqui — `pf_sup` virando `pf_sop` — produz uma
+     * semente "bem-sucedida" com uma pessoa a menos, e quem for depurar
+     * "não consigo entrar como supervisão" não tem nada a que olhar.
+     *
+     * `rowCount` é a única evidência de que a linha nasceu. Isto é o molde
+     * que todo script de dados futuro vai copiar — inclusive o migrador das 4
+     * clínicas, onde a regra 28 exige que os totais batam EXATAMENTE — então
+     * a verificação pertence ao molde, não à revisão de quem copia.
+     */
+    if (r.rowCount !== 1) {
+      throw new Error(
+        `perfil "${chave}" não existe nesta clínica: o INSERT ... SELECT inseriu ` +
+          `${r.rowCount ?? 0} linha(s) em vez de 1, e a pessoa "${nome}" não foi criada. ` +
+          'Confira perfisPadrao() em @fir/domain contra a lista deste script.',
+      )
+    }
   }
 
   await c.query('COMMIT')
