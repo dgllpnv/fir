@@ -282,6 +282,28 @@ describe('o que a importação completa, e o que ela não toca', () => {
     expect(linhas[1]!.ativo).toBe(true)
   })
 
+  it('a unidade do lote, se for de OUTRA clínica, é descartada', async () => {
+    // A FK atravessa a RLS: sem a checagem, uma unidade da vizinha entraria em
+    // 2.000 cadastros de uma vez.
+    const vizinha = await umId(
+      `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Vizinha Da Importação') RETURNING id`,
+      [`${codigo}-v`],
+    )
+    const unidadeDaVizinha = await umId(
+      `INSERT INTO unidades (clinica_id, nome) VALUES ($1, 'Unidade Alheia') RETURNING id`,
+      [vizinha],
+    )
+    try {
+      await importar([{ nome: 'Unidade Alheia Nao Cola' }], 'beatriz', {
+        unidadeId: unidadeDaVizinha,
+      }).expect(200)
+      expect((await porNome('Unidade Alheia Nao Cola'))[0]!.unidade_id).toBeNull()
+    } finally {
+      await migrate.query('DELETE FROM unidades WHERE clinica_id = $1', [vizinha])
+      await apagarClinicaDeTeste(migrate, vizinha)
+    }
+  })
+
   it('a unidade do lote só entra em quem ainda não tem', async () => {
     const unidade = await umId(
       `INSERT INTO unidades (clinica_id, nome) VALUES ($1, 'Pituba') RETURNING id`,

@@ -39,6 +39,7 @@ let migrate: pg.Client
 let clinica: string
 let outraClinica: string
 let pacienteDaOutra: string
+let unidadeDaOutra: string
 const codigo = `pac-${Date.now()}`
 
 const cookies: Record<string, string[]> = {}
@@ -143,6 +144,10 @@ beforeAll(async () => {
     `INSERT INTO pacientes (clinica_id, nome) VALUES ($1, 'Vizinha Secreta') RETURNING id`,
     [outraClinica],
   )
+  unidadeDaOutra = await umId(
+    `INSERT INTO unidades (clinica_id, nome) VALUES ($1, 'Unidade Da Vizinha') RETURNING id`,
+    [outraClinica],
+  )
 
   const mod = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(RELOGIO)
@@ -201,6 +206,23 @@ describe('POST /v1/pacientes', () => {
     expect(a.body.indicadoPor).toBe('Maria')
     const b = await criar({ nome: 'Veio Do Instagram', origem: 'Instagram', indicadoPor: 'Maria' })
     expect(b.body.indicadoPor).toBe('')
+  })
+
+  it('`unidadeId` de OUTRA clínica é descartado, não gravado', async () => {
+    // A FK `pacientes.unidade_id -> unidades(id)` é verificada pelo sistema e
+    // ATRAVESSA a RLS: sem esta checagem, um POST com o id de uma unidade da
+    // clínica vizinha grava o vínculo e passa. É o `unidadeValida()` do
+    // `Code.gs`, que descarta em silêncio em vez de recusar o cadastro.
+    const r = await criar({ nome: 'Unidade Invasora', unidadeId: unidadeDaOutra }).expect(201)
+    expect(r.body.unidadeId).toBeNull()
+  })
+
+  it('`unidadeId` inexistente também é descartado, e o cadastro entra', async () => {
+    const r = await criar({
+      nome: 'Unidade Fantasma',
+      unidadeId: '00000000-0000-4000-8000-000000000001',
+    }).expect(201)
+    expect(r.body.unidadeId).toBeNull()
   })
 
   it('nenhum log contém nome nem telefone de paciente', async () => {
