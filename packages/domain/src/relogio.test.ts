@@ -36,12 +36,28 @@ describe('janela semiaberta [de, ate)', () => {
     const ultimoInstante = new Date('2026-11-01T02:59:59Z')
     expect(ultimoInstante >= de && ultimoInstante < ate).toBe(true)
     // o instante `ate` exato NÃO pertence à janela — é a borda superior excluída —
-    // enquanto o instante imediatamente anterior pertence. (A asserção original do
-    // brief, `ate >= de && ate < ate`, é trivialmente falsa — nada é menor que si
-    // mesmo — e não prova exclusão de borda; esta a substitui.)
+    // enquanto o instante imediatamente anterior pertence. Prova a exclusão de
+    // borda de fato (a asserção `ate >= de && ate < ate` do brief original era
+    // trivialmente falsa — nada é menor que si mesmo — e foi removida).
     const imediatamenteAntesDoFim = new Date(ate.getTime() - 1)
-    expect(ate >= de && ate < ate).toBe(false)
     expect(imediatamenteAntesDoFim >= de && imediatamenteAntesDoFim < ate).toBe(true)
+  })
+})
+
+describe('horário de verão', () => {
+  const SP = 'America/Sao_Paulo' // tinha horário de verão em 2018
+
+  it('hora repetida (fim do horário de verão) não desloca o dia', () => {
+    const t = inicioDoDia('2018-02-18', SP)
+    expect(diaCivil(t, SP)).toBe('2018-02-18')
+  })
+
+  it('hora inexistente (início do horário de verão) começa no primeiro instante que existe', () => {
+    // Em 04/11/2018 o relógio saltou de 23:59:59 para 01:00:00: a meia-noite
+    // local não aconteceu. O dia precisa começar dentro do próprio dia.
+    const t = inicioDoDia('2018-11-04', SP)
+    expect(diaCivil(t, SP)).toBe('2018-11-04')
+    expect(t.toISOString()).toBe('2018-11-04T03:00:00.000Z')
   })
 })
 
