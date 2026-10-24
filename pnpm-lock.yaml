@@ -46,6 +46,22 @@ importers:
         specifier: ^2
         version: 2.1.9(@types/node@22.20.5)
 
+  packages/contracts:
+    dependencies:
+      '@fir/domain':
+        specifier: workspace:*
+        version: link:../domain
+      zod:
+        specifier: ^3
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.7
+        version: 5.9.3
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@types/node@22.20.5)
+
   packages/domain:
     devDependencies:
       fast-check:
@@ -922,6 +938,9 @@ packages:
     resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
     engines: {node: '>=0.4'}
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.21.5':
@@ -1574,3 +1593,5 @@ snapshots:
       stackback: 0.0.2
 
   xtend@4.0.2: {}
+
+  zod@3.25.76: {}
