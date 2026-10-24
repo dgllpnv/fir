@@ -3,8 +3,10 @@ import {
   type DesativacaoDePaciente,
   EditarPaciente,
   type FichaDoPaciente,
+  ImportarPacientes,
   type ListaDePacientes,
   type PacienteNaLista,
+  type ResultadoDaImportacao,
   SalvarPaciente,
 } from '@fir/contracts'
 import {
@@ -27,6 +29,7 @@ import {
 import { DadoSensivel } from '../auditoria/acesso.decorator'
 import { Exige } from '../autorizacao/autorizacao.guard'
 import type { RequisicaoComContexto } from '../comum/contexto'
+import { ImportacaoDePacientesService } from './importacao.service'
 import { PacientesService } from './pacientes.service'
 
 /**
@@ -46,7 +49,11 @@ import { PacientesService } from './pacientes.service'
 export class PacientesController {
   // `@Inject` explícito: ver o comentário em autenticacao.service.ts — o
   // esbuild não emite `design:paramtypes`.
-  constructor(@Inject(PacientesService) private readonly pacientes: PacientesService) {}
+  constructor(
+    @Inject(PacientesService) private readonly pacientes: PacientesService,
+    @Inject(ImportacaoDePacientesService)
+    private readonly importacao: ImportacaoDePacientesService,
+  ) {}
 
   @Get()
   async listar(
@@ -77,6 +84,26 @@ export class PacientesController {
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     const c = req.contexto!
     return this.pacientes.criar(c.clinicaId, c.ator, c.clinicaFuso, dados.data)
+  }
+
+  /**
+   * A IMPORTAÇÃO vem ANTES de `:id`.
+   *
+   * O Fastify casa rota estática antes de paramétrica, então a ordem aqui não
+   * muda o roteamento — mas quem lê o arquivo precisa ver que `importar` não
+   * é um id, e quem mover um decorador precisa ver que há o que conferir.
+   */
+  @Post('importar')
+  @Exige('pacientes.gerir')
+  @HttpCode(HttpStatus.OK)
+  async importar(
+    @Req() req: RequisicaoComContexto,
+    @Body() corpo: unknown,
+  ): Promise<ResultadoDaImportacao> {
+    const dados = ImportarPacientes.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.importacao.importar(c.clinicaId, c.ator, c.clinicaFuso, dados.data)
   }
 
   @Get(':id')

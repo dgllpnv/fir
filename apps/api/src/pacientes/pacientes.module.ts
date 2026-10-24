@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { provedorDeRelogio } from '../comum/relogio'
+import { ImportacaoDePacientesService } from './importacao.service'
 import { PacientesController } from './pacientes.controller'
 import { PacientesService } from './pacientes.service'
 
@@ -11,7 +12,7 @@ import { PacientesService } from './pacientes.service'
  */
 @Module({
   controllers: [PacientesController],
-  providers: [PacientesService, provedorDeRelogio],
-  exports: [PacientesService],
+  providers: [PacientesService, ImportacaoDePacientesService, provedorDeRelogio],
+  exports: [PacientesService, ImportacaoDePacientesService],
 })
 export class PacientesModule {}
