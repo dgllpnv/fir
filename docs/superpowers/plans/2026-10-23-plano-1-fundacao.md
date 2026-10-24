@@ -3083,10 +3083,26 @@ import type { RequisicaoComContexto } from './contexto.js'
 const CAMPOS = new Set<string>(CAMPOS_MONETARIOS)
 const CHAVE_DO_CAMPO: Readonly<Record<string, ChaveDePermissao>> = { salario: 'pessoas.gerir' }
 
+/**
+ * Só **objeto simples** desce na recursão; todo o resto passa intacto.
+ *
+ * `Object.entries` de um `Map` devolve `[]`, e sem esta guarda a função
+ * devolvia `{}` — o dado sumia em silêncio. Medido: `Map → {}`, `Set → {}`,
+ * `Buffer → {"0":111,…}`. `bigint` e `undefined` já passavam corretos.
+ *
+ * Consequência a observar: instância de classe também passa **sem redação**.
+ * Os controladores devolvem objeto literal (o contrato é Zod sobre JSON), mas
+ * nada obriga — ver o teste transversal da Task 19.
+ */
+const ehObjetoSimples = (x: object): boolean => {
+  const proto = Object.getPrototypeOf(x) as object | null
+  return proto === Object.prototype || proto === null
+}
+
 export function redigir(dado: unknown, pode: (chave: ChaveDePermissao) => boolean): unknown {
   if (dado === null || typeof dado !== 'object') return dado
-  if (dado instanceof Date) return dado
   if (Array.isArray(dado)) return dado.map((x) => redigir(x, pode))
+  if (!ehObjetoSimples(dado)) return dado
 
   const saida: Record<string, unknown> = {}
   for (const [chave, valor] of Object.entries(dado as Record<string, unknown>)) {
@@ -3105,11 +3121,16 @@ export function redigir(dado: unknown, pode: (chave: ChaveDePermissao) => boolea
 export class RedacaoInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = ctx.switchToHttp().getRequest<RequisicaoComContexto>()
-    const contexto = req.contexto
-    // Sem contexto é rota pública (entrar, saúde): não há nada a redigir, e
-    // também não há como decidir — então não se inventa permissão.
-    if (!contexto) return next.handle()
-    return next.handle().pipe(map((dado) => redigir(dado, contexto.pode)))
+    // **Falha fechada.** Sem contexto não há como decidir — e numa ferramenta
+    // que guarda o caixa e o salário de uma clínica, a resposta certa para
+    // "não sei" é esconder, não mostrar.
+    //
+    // A alternativa (passar sem redigir) falha **aberta**: uma rota autenticada
+    // que esqueça o guard entrega valores a qualquer um, em silêncio. Assim, o
+    // custo se inverte na direção certa — uma rota pública que um dia precise
+    // devolver valor vai exibir `null`, alguém depura e acha em minutos.
+    const pode = req.contexto?.pode ?? (() => false)
+    return next.handle().pipe(map((dado) => redigir(dado, pode)))
   }
 }
 ```
