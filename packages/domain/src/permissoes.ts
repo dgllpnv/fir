@@ -29,10 +29,7 @@ export const PERMS = [
   ['Pessoas', 'pessoas.gerir', 'Equipe: fichas, metas, conversas 1:1 e banco de horas', 'Dados de RH (inclui salário)'],
   ['Gestão', 'painel', 'Painel geral', 'Indicadores de prazos, pacientes e unidades', 'valores'],
   ['Gestão', 'config', 'Configurações', 'Unidades, usuários e acessos, procedimentos'],
-] as const satisfies readonly (
-  | readonly [string, string, string, string]
-  | readonly [string, string, string, string, string]
-)[]
+] as const satisfies readonly (readonly [string, string, string, string, string?])[]
 
 export const PILARES = ['Dia a dia', 'Comercial', 'Financeiro', 'Processos', 'Pessoas', 'Gestão'] as const
 
