@@ -3165,7 +3165,7 @@ git commit -m "feat(api): interceptor unico de redacao de valores"
 > Resolver um cookie de sessão exige saber **de qual clínica** ele é. Mas a RLS
 > exige saber a clínica **antes** de qualquer consulta. Medido neste projeto:
 > `fir_app`, sem `app.clinica_id` fixado, encontra **zero** sessões; com a
-> clínica fixada, encontra a sessão. Resolver o token por `semClinica` faria
+> clínica fixada, encontra a sessão. Resolver o token por `semIsolamentoDeClinica` faria
 > toda requisição autenticada responder 401 — o login simplesmente não
 > existiria.
 >
