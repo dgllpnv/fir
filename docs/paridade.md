@@ -156,3 +156,81 @@ desenhou continua idêntica. É a mesma informação, buscada por partes.
   com a divergência escrita. Não existe divergência silenciosa.
 - O épico 9 só fecha com **as 59 linhas em ✅** e o relatório de conferência por clínica
   batendo exatamente (regra 28: migração sem reconciliação é cópia).
+
+---
+
+# Parte 2 — As telas, e o manual dela
+
+As 59 ações acima são o **contrato do servidor**. Elas não descrevem as telas, e
+foi assim que duas delas quase ficaram sem destino: `salvarUnidade` e
+`salvarPlano` não tinham onde morar na nossa interface, porque tratamos
+"Configurações" como uma tela só quando no desenho dela é um **grupo com três**.
+
+Esta parte veio de ler a navegação do protótipo rodando, e o manual embutido.
+
+## A navegação dela, lida da tela
+
+```
+Hoje  (com contador)
+Tarefas
++ Nova tarefa          ← ação, estilo diferente de item de menu
++ Recebimento          ← ação
+
+GESTÃO
+  Comercial     (grupo recolhível, com contador) → Jornada do paciente · Pacientes · Programas · Campanhas
+  Financeiro    (grupo) → Recebimentos · Caixa do dia · Contas a pagar · Cobranças · Visão do mês
+  Processos     (grupo) → Estoque
+  Pessoas       (grupo) → Equipe · Minhas metas
+  Painel geral
+  Configurações (grupo) → Unidades · Usuários e acessos · Procedimentos
+  Ajuda e manual
+
+rodapé: avatar · nome · Trocar meu PIN · Sair
+```
+
+**Três coisas que isso nos ensinou:**
+
+1. **"Recebimento" é ação fixa na lateral**, não só uma tela de lista. Registrar
+   pagamento é frequente o bastante para ganhar atalho permanente.
+2. **"Equipe" e "Usuários e acessos" são telas diferentes**, e a diferença
+   importa: Equipe é ficha, contrato, férias e metas — RH. Usuários e acessos é
+   login, perfil e ativação. Juntar põe **salário e permissão na mesma tela**,
+   com públicos diferentes.
+3. **Os grupos dela recolhem com submenu suspenso**, por isso a lateral nunca
+   rola. A nossa mostra tudo aberto e rola ~100 px no perfil de administrador.
+   Divergência consciente, anotada — reabre se incomodar.
+
+## O manual dela — 14 capítulos, 77 seções
+
+É a documentação funcional em linguagem de usuário, e é o melhor inventário de
+regra de negócio que existe neste projeto. **Entregar a ferramenta sem ele é
+entregar metade:** é como a clínica aprende.
+
+| Cap. | Seções | Épico |
+|---|---|---|
+| 1 · Visão geral | Para que serve · Perfis de acesso · Como o menu está organizado · Cuidado com dados de pacientes | 9 |
+| 2 · Acesso | Entrar · Primeiro acesso da clínica · **Trocar o PIN** → trocar senha · Usar no celular | 1 |
+| 3 · Tela Hoje | O que aparece · Filtros de pessoa · Cartão da tarefa | 2 |
+| 4 · Tarefas | Criar · **Lançar algo que já aconteceu** · Tarefas que se repetem · Concluir × Editar · Jornada: agendamento até fechamento · Tela Jornada · Cancelar e excluir · Buscar e filtrar | 2, 3 |
+| 5 · Tipos de contato | Agenda · Atendimento · Orçamento · Pagamentos · Relacionamento | 2, 3 |
+| 6 · Atendimentos e pagamentos | Consulta agendada que aconteceu · Registrar recebimento · **Consulta ou recebimento da consulta?** · Programa em andamento × novo · Pagamento parcial e saldo · Orçamento com programa ou catálogo · **O que conta como receita** | 3, 4 |
+| 7 · Pacientes | Cadastrar · Importar lista · Tela de relacionamento · Ficha · Excluir | 2 |
+| 8 · Programas | Como funcionam · Catálogo · Nova adesão · **Baixa automática no estoque** · Concluir sessão · Contatos dentro do programa · Tela Programas · Fim e contato de retorno · Encerrar ou excluir | 5, 6 |
+| 9 · Campanhas | No dia a dia · Criar · Métricas da meta · Importar lista · Acompanhar resultados | 8 |
+| 10 · Painel | Período · Cumprimento de prazos · Pacientes no período | 8 |
+| 11 · Cadastros da gestão | **Equipe · Unidades · Procedimentos** | 1, 2, 5 |
+| 12 · Estoque | Como funciona · Locais · Cadastrar itens · **Unidades de medida** · **QR: etiquetas e leitura pelo celular** · Importar do sistema principal · **Entrada pela nota** · Entradas e saídas · **Gerar lista de contagem** · **Análise do estoque** | 6 |
+| 13 · Gestão de pessoas | Ficha · **Alertas** · Metas do mês · Conversas 1:1 · Banco de horas | 7 |
+| 14 · Financeiro | Para que serve · Caixa do dia · Contas a pagar · **Categorias de despesa** · Cobranças · Visão do mês | 4 |
+
+**Em negrito, o que não aparecia em lugar nenhum do nosso planejamento** antes
+desta leitura. Dois merecem destaque porque são regra, não tela:
+
+- **"Consulta ou recebimento da consulta?"** e **"O que conta como receita"** —
+  é a regra 3 do `CLAUDE.md` escrita por ela, na linguagem da recepção. Ela já
+  sabia que contar o pagamento duas vezes é o erro clássico.
+- **"Lançar algo que já aconteceu"** — registro retroativo. Muda o desenho da
+  criação de tarefa: não é só agendar para a frente.
+
+Mais **35 perguntas frequentes** em 7 capítulos, que são o texto de ajuda da
+interface.

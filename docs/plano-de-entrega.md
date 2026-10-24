@@ -15,7 +15,8 @@
 | Teste | **3.022 linhas** · 191 testes em 8 pacotes |
 | Documentação | 9.158 linhas |
 | Ações da API entregues | **0 de 59** |
-| Telas de negócio | **0** — o shell existe, as telas não |
+| Telas de negócio | **0 de 21** — o shell existe, as telas não |
+| Capítulos do manual dela | **0 de 14** (77 seções) |
 
 A fundação está pronta e revisada: RLS forçada, guards globais, redação de valores, Argon2id com sessão opaca, domínio puro com `Dinheiro` e `Quantidade` em inteiro, ambiente local e CI.
 
@@ -50,6 +51,19 @@ Depende de **P-9 (SMTP)** — sem servidor de e-mail não existe convite, nem re
 | **6 · Estoque** | item com 3 unidades, local, movimento, contagem às cegas, análise, ABC, QR, GS1, NF-e, baixa pela sessão | 8 | 1+ | 5 |
 | **7 · Pessoas** | fichas, contrato, férias, documentos, metas, 1:1, banco de horas | 16 **+ 8 indicadores** | 3 | 2 |
 | **8 · Campanhas e painel** | campanha com meta, importação, funil, painel geral | 3 | 2 | 3, 4 |
+
+**Além das ações, três telas que a comparação com o protótipo revelou** e que
+não estavam em nenhum planejamento nosso (detalhe na Parte 2 de
+[`paridade.md`](paridade.md)):
+
+- **Recebimento como ação fixa na lateral**, não só tela de lista — registrar
+  pagamento é frequente o bastante para ganhar atalho permanente.
+- **"Usuários e acessos" é separada de "Equipe".** Equipe é ficha, contrato,
+  férias e metas; Usuários e acessos é login, perfil e ativação. Juntar põe
+  **salário e permissão na mesma tela**, com públicos diferentes.
+- **"Ajuda e manual"** — 14 capítulos, 77 seções, mais 35 perguntas frequentes,
+  tudo já escrito por ela. É como a clínica aprende a ferramenta. Entregar sem
+  isso é entregar metade, e a migração sente primeiro.
 
 **Total: as 59 ações de [`paridade.md`](paridade.md).**
 
@@ -104,6 +118,7 @@ O shell entregou ~800 linhas por 232 k → **~290 tokens por linha entregue**, j
 | Épico 6 · Estoque | ~4.400 | **1,3 – 1,7 M** | **O mais caro.** FIFO de validade, GS1, XML de NF-e, reversão de baixa |
 | Épico 7 · Pessoas | ~6.400 | **1,7 – 2,2 M** | Maior volume: 16 ações + 8 indicadores |
 | Épico 8 · Campanhas | ~1.500 | **0,4 – 0,6 M** | |
+| **Ajuda e manual** | ~1.200 | **0,2 – 0,3 M** | Conteúdo já escrito; o custo é portar e dar busca |
 | **🚩 Épico 9 · Migração** | ~2.000 | **0,9 – 1,4 M** | Pouco código, **muita** iteração contra dado real |
 | Épico 10 · Integrações | ~2.600 | **0,8 – 1,2 M** | Trava na P-7 |
 | Épico 11 · Produto | ~2.200 | **0,6 – 0,9 M** | |
@@ -113,9 +128,9 @@ O shell entregou ~800 linhas por 232 k → **~290 tokens por linha entregue**, j
 
 | Marco | Consumo |
 |---|---|
-| **Até a paridade** (auditoria + admin + épicos 2–8) | **7,3 – 9,7 M** |
-| **Até as 4 clínicas em produção** (+ épico 9) | **8,2 – 11,1 M** |
-| **Produto completo** (+ épicos 10, 11, 12) | **10,8 – 14,9 M** |
+| **Até a paridade** (auditoria + admin + épicos 2–8 + manual) | **7,5 – 10,0 M** |
+| **Até as 4 clínicas em produção** (+ épico 9) | **8,4 – 11,4 M** |
+| **Produto completo** (+ épicos 10, 11, 12) | **11,0 – 15,2 M** |
 
 ### O que faz o número variar, de verdade
 
