@@ -60,7 +60,18 @@ export async function apagarTrilhaDeTeste(cliente: pg.Client, clinicaId: string)
  * As tabelas de negócio que uma clínica de teste deixa para trás, na ordem em
  * que as chaves estrangeiras permitem apagar.
  */
-const EM_ORDEM_DE_APAGAR = ['sessoes', 'tentativas_login', 'pessoas', 'perfis'] as const
+const EM_ORDEM_DE_APAGAR = [
+  // Filho antes de pai: `recebimentos` aponta para `tarefas` e `pacientes`;
+  // `tarefas` aponta para `pacientes`, `pessoas` e `unidades`.
+  'recebimentos',
+  'tarefas',
+  'pacientes',
+  'unidades',
+  'sessoes',
+  'tentativas_login',
+  'pessoas',
+  'perfis',
+] as const
 
 /**
  * Desfaz uma clínica de teste por inteiro.

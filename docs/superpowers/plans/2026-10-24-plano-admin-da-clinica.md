@@ -87,6 +87,16 @@ it('tirar o admin da última administradora é o mesmo buraco por outra porta', 
 
 ## Task 2: Migration 0005 — convites e unidades
 
+> **ATENÇÃO — o épico 2 veio antes, e `unidades` JÁ EXISTE.** A migration
+> `0006_rotina.sql` criou `unidades` na forma completa (com `endereco`,
+> `nome_chave` normalizado, `unidades_nome_unico`, RLS, trigger de auditoria e
+> `GRANT`), porque `pacientes.unidade_id` e `tarefas.unidade_id` precisavam da
+> FK e uma FK não espera. **Esta Task fica só com `convites`** — o bloco
+> `CREATE TABLE unidades` abaixo é referência histórica e, se executado, falha
+> com "relation already exists". A `0006` é idempotente quanto a `unidades`, de
+> modo que a ordem inversa também funcionaria.
+
+
 **Files:** `apps/api/migrations/0005_convites_e_unidades.sql` · `teste/convite-rls.test.ts`
 
 ```sql
