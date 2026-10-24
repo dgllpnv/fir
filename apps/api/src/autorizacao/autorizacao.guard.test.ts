@@ -12,6 +12,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Test } from '@nestjs/testing'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { pessoaIdDeFonteConfiavel } from '../banco/ator'
 import { clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
 import type { ContextoDaRequisicao, RequisicaoComContexto } from '../comum/contexto'
 import { AutorizacaoGuard, Exige } from './autorizacao.guard'
@@ -69,6 +70,9 @@ class ContextoDeMentiraGuard implements CanActivate {
       clinicaCodigo: 'mentira',
       clinicaNome: 'Clínica de Mentira',
       clinicaFuso: 'America/Bahia',
+      // `PessoaId` é nominal pela mesma razão de `ClinicaId` — ver
+      // `banco/ator.ts`.
+      ator: pessoaIdDeFonteConfiavel('00000000-0000-0000-0000-000000000002'),
       usuario: {
         id: '00000000-0000-0000-0000-000000000002',
         nome: 'Pessoa de Mentira',

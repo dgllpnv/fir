@@ -389,7 +389,9 @@ export class AutenticacaoService {
      * manda registrar acontece aqui — com `SISTEMA`, o registro de acesso
      * responderia "o sistema olhou o prontuário", que não responde nada.
      */
-    return this.banco.naClinica(clinicaId, pessoaIdDeFonteConfiavel(sessao.pessoa_id), async (c) => {
+    const ator = pessoaIdDeFonteConfiavel(sessao.pessoa_id)
+
+    return this.banco.naClinica(clinicaId, ator, async (c) => {
       const p = await c.query<LinhaPessoa>(
         `SELECT id, nome, email, funcao, senha_hash, admin, perfil_id, ativo
          FROM pessoas WHERE id = $1 AND ativo`,
@@ -415,6 +417,7 @@ export class AutenticacaoService {
         clinicaCodigo: clinica.codigo,
         clinicaNome: clinica.nome,
         clinicaFuso: clinica.fuso,
+        ator,
         usuario: {
           id: pessoa.id,
           nome: pessoa.nome,

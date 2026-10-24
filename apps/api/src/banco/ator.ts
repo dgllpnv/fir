@@ -58,3 +58,19 @@ export const SISTEMA_NO_BANCO = 'sistema'
 
 export const atorParaOBanco = (ator: Ator): string =>
   ator === SISTEMA ? SISTEMA_NO_BANCO : ator
+
+/**
+ * O ator nas COLUNAS de `auditoria`, para quem insere a linha à mão.
+ *
+ * A trigger de escrita faz essa tradução em plpgsql; o registro de ACESSO
+ * (regra 18) insere direto, porque trigger não vê `SELECT`. Os dois precisam
+ * concordar, e a `CHECK ator_tem_id` da migration 0004 recusa `'pessoa'` sem
+ * id — então a tradução mora aqui, uma vez, e não dentro de um `INSERT`.
+ *
+ * `'operador'` não aparece: o superadmin do épico 12 não é uma `pessoa`
+ * (decisão D-5, restrição 1) e não atravessa este tipo.
+ */
+export const atorEmColunas = (
+  ator: Ator,
+): { readonly tipo: 'pessoa' | 'sistema'; readonly id: string | null } =>
+  ator === SISTEMA ? { tipo: 'sistema', id: null } : { tipo: 'pessoa', id: ator }

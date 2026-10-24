@@ -1,5 +1,6 @@
 import type { ChaveDePermissao, Perfil } from '@fir/domain'
 import type { PessoaPublica } from '@fir/contracts'
+import type { PessoaId } from '../banco/ator'
 import type { ClinicaId } from '../banco/clinica-id'
 
 /**
@@ -16,6 +17,20 @@ export type ContextoDaRequisicao = {
   readonly clinicaCodigo: string
   readonly clinicaNome: string
   readonly clinicaFuso: string
+  /**
+   * O ATOR, marcado — o mesmo valor de `usuario.id`, com o tipo que
+   * `naClinica` exige.
+   *
+   * Existe separado de `usuario.id` por uma razão só, e ela é a de
+   * `clinica-id.ts`: `usuario` é `PessoaPublica`, um tipo de CONTRATO, cujo
+   * `id` é `string` porque ele também descreve corpo de requisição. Um
+   * controlador que escrevesse `naClinica(c.clinicaId, c.usuario.id as PessoaId, …)`
+   * espalharia o `as` por quarenta arquivos, e no quadragésimo alguém
+   * marcaria `corpo.pessoaId` do mesmo jeito. Aqui o valor já vem marcado de
+   * onde a identidade foi PROVADA (`resolver_sessao`, pelo hash do cookie), e
+   * nenhum controlador precisa de `as`.
+   */
+  readonly ator: PessoaId
   readonly usuario: PessoaPublica
   readonly perfis: readonly PerfilComChave[]
   readonly pode: (chave: ChaveDePermissao) => boolean
