@@ -432,3 +432,80 @@ describe('GET /v1/pacientes/:id — a ficha', () => {
     expect(depois.rows[0]!.n).toBe(antes.rows[0]!.n)
   })
 })
+
+describe('DELETE /v1/pacientes/:id — desativar, nunca apagar (ADR 0003)', () => {
+  const desativar = (id: string, quem = 'beatriz') =>
+    request(app.getHttpServer()).delete(`/v1/pacientes/${id}`).set('Cookie', cookies[quem]!)
+
+  it('desativar tira das listas mas NÃO apaga as tarefas', async () => {
+    const id = (await criar({ nome: 'Sai Da Lista' }).expect(201)).body.id
+    await atendimentoEm(id, '2026-09-11')
+    await atendimentoEm(id, '2026-09-12')
+
+    await desativar(id).expect(200)
+
+    const r = await listar({ q: 'Sai Da Lista' }).expect(200)
+    expect(nomesDe(r.body)).not.toContain('Sai Da Lista')
+    const t = await migrate.query<{ n: string }>(
+      'SELECT count(*)::text AS n FROM tarefas WHERE paciente_id = $1 AND excluida_em IS NULL',
+      [id],
+    )
+    expect(Number(t.rows[0]!.n)).toBe(2)
+  })
+
+  it('desativar devolve quantas tarefas ficaram — é o que a tela avisa antes', async () => {
+    const id = (await criar({ nome: 'Tem Quatro Tarefas' }).expect(201)).body.id
+    for (const dia of ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04']) {
+      await atendimentoEm(id, dia)
+    }
+    const r = await desativar(id).expect(200)
+    expect(r.body.tarefas).toBe(4)
+    expect(r.body.id).toBe(id)
+  })
+
+  it('o histórico continua abrindo — desativar é sair das listas, não sumir', async () => {
+    const id = (await criar({ nome: 'Historico Preservado' }).expect(201)).body.id
+    await atendimentoEm(id, '2026-09-05')
+    await desativar(id).expect(200)
+    const f = await ficha(id).expect(200)
+    expect(f.body.ativo).toBe(false)
+    expect(f.body.tarefas).toHaveLength(1)
+  })
+
+  it('o nome volta a ficar livre depois de desativar', async () => {
+    const id = (await criar({ nome: 'Nome Reciclado' }).expect(201)).body.id
+    await desativar(id).expect(200)
+    await criar({ nome: 'Nome Reciclado' }).expect(201)
+  })
+
+  it('sem `pacientes.gerir`, 403 — e a paciente continua ativa', async () => {
+    const id = (await criar({ nome: 'Nao Pode Desativar' }).expect(201)).body.id
+    await desativar(id, 'juliana').expect(403)
+    expect((await ficha(id).expect(200)).body.ativo).toBe(true)
+  })
+
+  it('desativar duas vezes: a segunda é 404', async () => {
+    const id = (await criar({ nome: 'Desativa Uma Vez So' }).expect(201)).body.id
+    await desativar(id).expect(200)
+    await desativar(id).expect(404)
+  })
+
+  it('a desativação entra na trilha com de/para de `ativo`', async () => {
+    const id = (await criar({ nome: 'Entra Na Trilha' }).expect(201)).body.id
+    await desativar(id).expect(200)
+    const t = await migrate.query<{ acao: string; de: { ativo: boolean }; para: { ativo: boolean }; ator_id: string }>(
+      `SELECT acao, de, para, ator_id FROM auditoria
+        WHERE clinica_id = $1 AND entidade = 'pacientes' AND entidade_id = $2 AND acao = 'alterou'
+        ORDER BY id DESC LIMIT 1`,
+      [clinica, id],
+    )
+    expect(t.rows[0]!.de.ativo).toBe(true)
+    expect(t.rows[0]!.para.ativo).toBe(false)
+    // E a trilha diz QUEM — nunca o sistema por uma ação humana.
+    expect(t.rows[0]!.ator_id).toBe(pessoas['beatriz'])
+  })
+
+  it('desativar paciente de outra clínica é 404', async () => {
+    await desativar(pacienteDaOutra).expect(404)
+  })
+})
