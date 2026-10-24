@@ -626,8 +626,17 @@ export type Result<T, E = ErroDeDominio> =
 export const ok = <T>(valor: T): Result<T, never> => ({ tipo: 'ok', valor })
 export const erro = <E>(e: E): Result<never, E> => ({ tipo: 'erro', erro: e })
 
-export const ehOk = <T, E>(r: Result<T, E>): r is { tipo: 'ok'; valor: T } => r.tipo === 'ok'
-export const ehErro = <T, E>(r: Result<T, E>): r is { tipo: 'erro'; erro: E } => r.tipo === 'erro'
+/**
+ * `Extract` e não um object type literal: os membros de `Result` são
+ * `readonly`, e um predicado que declara o tipo sem eles impede o
+ * **estreitamento negativo** — depois de `if (ehErro(r)) return`, o
+ * TypeScript não elimina o membro de erro da união e `r.valor` dá TS2339.
+ * Foi medido, não deduzido.
+ */
+export const ehOk = <T, E>(r: Result<T, E>): r is Extract<Result<T, E>, { tipo: 'ok' }> =>
+  r.tipo === 'ok'
+export const ehErro = <T, E>(r: Result<T, E>): r is Extract<Result<T, E>, { tipo: 'erro' }> =>
+  r.tipo === 'erro'
 
 /** Desembrulha ou lança. Só em teste e na borda HTTP, nunca dentro do domínio. */
 export function exigir<T, E extends ErroDeDominio>(r: Result<T, E>): T {
