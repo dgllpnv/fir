@@ -37,7 +37,7 @@ export const DADO_SENSIVEL = 'fir:dado-sensivel'
  * Acrescente aqui conforme os épicos trouxerem as tabelas — `pacientes`,
  * `aplicacoes` e `programas` são do épico 2 e do 6.
  */
-export type EntidadeSensivel = 'auditoria' | 'pessoas'
+export type EntidadeSensivel = 'auditoria' | 'pacientes' | 'pessoas'
 
 /**
  * De onde sai o `entidade_id` da linha de trilha.

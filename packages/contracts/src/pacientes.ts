@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { DiaCivil, dinheiroEmTexto, Uuid } from './comum'
+import { DiaCivil, Uuid } from './comum'
 
 /** As sugestões da tela (`CONFIG.ORIGENS`). A coluna é texto livre de 60. */
 export const ORIGENS = [
@@ -81,7 +81,14 @@ export const ATALHOS_DE_PACIENTE = [
   'sem-retorno',
 ] as const
 
-export const ORDENS_DE_PACIENTE = ['recentes', 'nome', 'ultima-consulta'] as const
+/**
+ * `ltv` está aqui, mas o controlador exige `valores` para usá-la.
+ *
+ * A POSIÇÃO na lista é informação sobre o valor: liberar a ordenação por LTV
+ * a quem não vê valores entregaria o ranking de faturamento da clínica numa
+ * requisição, com os campos saindo `null` e ninguém percebendo.
+ */
+export const ORDENS_DE_PACIENTE = ['recentes', 'nome', 'ultima-consulta', 'ltv'] as const
 
 export const ConsultaDePacientes = z.object({
   /** Busca por nome OU telefone, sem acento e sem máscara. */
@@ -98,6 +105,14 @@ export const ConsultaDePacientes = z.object({
   deslocamento: z.coerce.number().int().min(0).max(100_000).default(0),
 })
 export type ConsultaDePacientes = z.infer<typeof ConsultaDePacientes>
+
+/**
+ * Dinheiro na SAÍDA: string de centavos, ou `null` quando a redação apagou.
+ *
+ * Não é `dinheiroEmTexto`: aquele é de ENTRADA e transforma a string em
+ * `bigint`, o que descreveria errado o que sai pelo JSON.
+ */
+const centavosNaSaida = z.string().regex(/^-?\d+$/).nullable()
 
 /**
  * A linha da lista.
@@ -119,11 +134,40 @@ export const PacienteNaLista = z.object({
   criadoEm: z.string(),
   /** O atendimento mais recente registrado em tarefas, se houver. */
   ultimoAtendimento: DiaCivil.nullable(),
+  obs: z.string(),
   tarefasAbertas: z.number().int(),
-  ltv: dinheiroEmTexto,
-  saldo: dinheiroEmTexto,
+  ltv: centavosNaSaida,
+  saldo: centavosNaSaida,
 })
 export type PacienteNaLista = z.infer<typeof PacienteNaLista>
+
+/**
+ * A tarefa como a ficha do paciente a mostra.
+ *
+ * NENHUM campo de dinheiro, e isso não é esquecimento: `tarefas` não tem
+ * coluna monetária. O pagamento do atendimento mora em `recebimentos`, e é o
+ * índice único parcial da migration 0006 que impede a segunda contagem.
+ */
+export const TarefaNaFicha = z.object({
+  id: Uuid,
+  descricao: z.string(),
+  tipo: z.string(),
+  prazo: DiaCivil,
+  hora: z.string().nullable(),
+  prioridade: z.enum(['normal', 'urgente']),
+  status: z.enum(['aberta', 'concluida', 'cancelada']),
+  concluidaEm: z.string().nullable(),
+  responsavelId: Uuid,
+  etapa: z.string().nullable(),
+  resultado: z.string(),
+})
+export type TarefaNaFicha = z.infer<typeof TarefaNaFicha>
+
+/** O cadastro mais a linha do tempo. LTV por programa chega nos épicos 4 e 5. */
+export const FichaDoPaciente = PacienteNaLista.extend({
+  tarefas: z.array(TarefaNaFicha),
+})
+export type FichaDoPaciente = z.infer<typeof FichaDoPaciente>
 
 export const ListaDePacientes = z.object({
   pacientes: z.array(PacienteNaLista),
