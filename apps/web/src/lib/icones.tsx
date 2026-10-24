@@ -1,0 +1,113 @@
+import type { ReactElement } from 'react'
+
+/**
+ * Os ícones do menu, SVG inline.
+ *
+ * Inline e não biblioteca: são dezessete traços de 24×24 que não mudam, e uma
+ * dependência de ícones traria mil e um que ninguém usa, mais o peso no
+ * primeiro carregamento da recepção. `docs/design.md` proíbe emoji na
+ * interface — ícone é SVG, sempre com rótulo ao lado, nunca sozinho.
+ *
+ * O traço veio do protótipo da PO (`stroke-width` 1.8, `currentColor`), para o
+ * menu novo não parecer de outra ferramenta.
+ *
+ * `aria-hidden`: o rótulo em texto já está no link. Um ícone anunciado de novo
+ * faria o leitor de tela dizer "Hoje Hoje".
+ */
+const svg = (...filhos: ReactElement[]): ReactElement => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+    {filhos}
+  </svg>
+)
+
+const ICONES: Readonly<Record<string, ReactElement>> = {
+  '/hoje': svg(
+    <rect key="a" x="3" y="5" width="18" height="16" rx="2" />,
+    <path key="b" d="M3 10h18M8 3v4M16 3v4" />,
+    <circle key="c" cx="12" cy="15" r="1.6" fill="currentColor" />,
+  ),
+  '/tarefas': svg(
+    <path key="a" d="M9 6h11M9 12h11M9 18h11" />,
+    <path key="b" d="m3.5 6 1.2 1.2L7 5M3.5 12l1.2 1.2L7 11M3.5 18l1.2 1.2L7 17" />,
+  ),
+  '/nova': svg(
+    <rect key="a" x="4" y="4" width="16" height="16" rx="3" />,
+    <path key="b" d="M12 8v8M8 12h8" />,
+  ),
+  '/jornada': svg(<path key="a" d="M3 5h18l-7 8v6l-4 2v-8z" />),
+  '/pacientes': svg(
+    <rect key="a" x="3" y="4" width="18" height="16" rx="2" />,
+    <circle key="b" cx="9" cy="10.5" r="2.4" />,
+    <path key="c" d="M5.2 16.5c.6-1.9 2-2.9 3.8-2.9s3.2 1 3.8 2.9M15 9.5h3.5M15 13h3.5" />,
+  ),
+  '/programas': svg(<path key="a" d="M3 12h4l2.5-6 4 12 2.5-6H21" />),
+  '/campanhas': svg(
+    <circle key="a" cx="12" cy="12" r="8.5" />,
+    <circle key="b" cx="12" cy="12" r="4.5" />,
+    <circle key="c" cx="12" cy="12" r="1.2" fill="currentColor" />,
+  ),
+  '/recebimentos': svg(
+    <rect key="a" x="2.5" y="6" width="19" height="12" rx="2" />,
+    <circle key="b" cx="12" cy="12" r="2.6" />,
+    <path key="c" d="M6 9.5v5M18 9.5v5" />,
+  ),
+  '/caixa': svg(
+    <path key="a" d="M3 9.5 5 4h14l2 5.5" />,
+    <rect key="b" x="3" y="9.5" width="18" height="10.5" rx="2" />,
+    <path key="c" d="M9.5 13.5h5" />,
+  ),
+  '/contas': svg(
+    <path key="a" d="M5.5 3h13v18l-2.2-1.6L14 21l-2-1.6L10 21l-2.3-1.6L5.5 21z" />,
+    <path key="b" d="M9 8h6M9 12h6" />,
+  ),
+  '/cobrancas': svg(
+    <path key="a" d="M4 6a2 2 0 0 1 2-2h2l1.6 4-2 1.3a12 12 0 0 0 5.1 5.1l1.3-2 4 1.6v2a2 2 0 0 1-2 2A14 14 0 0 1 4 6z" />,
+  ),
+  '/visao-do-mes': svg(
+    <rect key="a" x="3" y="4.5" width="18" height="16" rx="2" />,
+    <path key="b" d="M3 9h18" />,
+    <path key="c" d="m7 16.5 3-3 2.5 2L17 11" />,
+  ),
+  '/estoque': svg(
+    <path key="a" d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" />,
+    <path key="b" d="M3 7.5 12 12l9-4.5M12 12v9" />,
+  ),
+  '/equipe': svg(
+    <circle key="a" cx="9" cy="8" r="3.2" />,
+    <path key="b" d="M3 20c.6-3.4 3-5 6-5s5.4 1.6 6 5" />,
+    <circle key="c" cx="17" cy="9" r="2.4" />,
+    <path key="d" d="M16.5 14.2c2.3.2 4 1.7 4.5 4.3" />,
+  ),
+  '/minhas-metas': svg(
+    <circle key="a" cx="12" cy="12" r="8.5" />,
+    <circle key="b" cx="12" cy="12" r="4.5" />,
+    <path key="c" d="M12 12 19 5" />,
+  ),
+  '/painel': svg(<path key="a" d="M4 20V10M10 20V4M16 20v-7M22 20H2" />),
+  '/configuracoes': svg(
+    <circle key="a" cx="12" cy="12" r="3" />,
+    <path
+      key="b"
+      d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"
+    />,
+  ),
+}
+
+/** Traço genérico de lista, para a rota que o mapa ainda não conhece. */
+const PADRAO = svg(<path key="a" d="M4 6h16M4 12h16M4 18h10" />)
+
+export const iconeDaRota = (href: string): ReactElement => ICONES[href] ?? PADRAO
+
+/** Só para o teste que confronta o mapa com o menu. */
+export const ROTAS_COM_ICONE: readonly string[] = Object.keys(ICONES)
+
+/** A inicial do avatar do rodapé. Nunca o nome inteiro, nunca uma foto. */
+export const inicial = (nome: string): string => (nome.trim()[0] ?? '?').toUpperCase()
+
+export const ICONE_MENU = svg(<path key="a" d="M4 7h16M4 12h16M4 17h16" />)
+/* Porta à esquerda, seta saindo para a direita: a leitura de "sair" que não
+   se confunde com "voltar". A seta apontando para dentro diz o contrário. */
+export const ICONE_SAIR = svg(
+  <path key="a" d="M9.5 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20h4" />,
+  <path key="b" d="m15 8.5 3.5 3.5-3.5 3.5M18.5 12H9" />,
+)
