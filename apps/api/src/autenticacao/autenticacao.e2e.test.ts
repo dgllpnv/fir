@@ -5,6 +5,7 @@ import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { AppModule } from '../app.module'
 import { registrarCookie } from '../main'
+import { PISO_DE_RESPOSTA_MS } from './autenticacao.service'
 import { LimitePorOrigem } from './limite-por-origem'
 import { hashDeSenha } from './senha'
 
@@ -221,9 +222,41 @@ describe('POST /v1/entrar', () => {
    *
    * Mesma disciplina de medição do teste de e-mail acima: 5 amostras e a
    * MEDIANA (a primeira de cada processo carrega o aquecimento do binding
-   * nativo), e a asserção é de RAZÃO, não de igualdade — tempo é ruidoso.
+   * nativo).
+   *
+   * Re-revisão (achado 1): a asserção ERA de razão
+   * (`medianaNaoExiste >= medianaExiste * 0.5`), e 0,5 é mais FROUXO que o
+   * resíduo de 0,65 que o próprio `PISO_DE_RESPOSTA_MS` existe para fechar
+   * (15,1 ms contra 23,4 ms, medido em `autenticacao.service.ts:44-46`).
+   * Provado por mutação: com `PISO_RESPOSTA_ENTRAR_MS=0` a razão sobe para
+   * ~1 (as duas latências caem para o mesmo chão sem piso, e ficam tão
+   * próximas quanto o piso as deixava distantes) e passava 3/3 — ou seja, o
+   * piso podia ser apagado por inteiro sem que esta asserção notasse.
+   *
+   * A asserção correta é sobre o MECANISMO, não a diferença entre os dois
+   * caminhos: todo `/v1/entrar` — com clínica ou sem — tem de levar pelo
+   * menos o piso configurado. `* 0.9` é folga de medição (`performance.now`
+   * tem jitter de submilissegundo sob carga do runner), não uma concessão ao
+   * defeito: nenhuma razão entre os dois caminhos entra na conta.
+   *
+   * Duas partes, de propósito — uma só não basta:
+   *
+   * 1. SANIDADE DO VALOR CONFIGURADO, contra uma referência FIXA (nunca
+   *    `PISO_DE_RESPOSTA_MS` multiplicado por si mesmo): se a comparação
+   *    usasse só `medianaX >= PISO_DE_RESPOSTA_MS * 0.9`, mutar
+   *    `PISO_RESPOSTA_ENTRAR_MS=0` arrastaria o LIMIAR para 0 junto com a
+   *    medida, e `0 >= 0` passa sempre — exatamente o defeito que esta
+   *    correção existe para fechar. `50` é fixo porque está ACIMA do jitter
+   *    de medição e ABAIXO do caminho SEM clínica desprotegido (~15 ms,
+   *    medido em `autenticacao.service.ts:44-46`): nenhum valor configurado
+   *    que ainda feche o resíduo pode ficar abaixo dele.
+   * 2. MECANISMO: as duas medianas têm de alcançar o piso que ESTÁ
+   *    configurado — pega a regressão de código (`finally` removido) mesmo
+   *    com a variável de ambiente correta.
    */
   it('o tempo de resposta não distingue clínica inexistente de clínica existente', async () => {
+    const PISO_MINIMO_SAO_MS = 50
+
     const medir = async (clinicaCodigo: string): Promise<number> => {
       const tempos: number[] = []
       for (let i = 0; i < 5; i++) {
@@ -242,11 +275,25 @@ describe('POST /v1/entrar', () => {
       return tempos[2]!
     }
 
+    expect(
+      PISO_DE_RESPOSTA_MS,
+      `PISO_RESPOSTA_ENTRAR_MS=${PISO_DE_RESPOSTA_MS} está abaixo do mínimo que fecha o resíduo medido ` +
+        `(${PISO_MINIMO_SAO_MS} ms) — o oráculo de código de clínica reabre`,
+    ).toBeGreaterThanOrEqual(PISO_MINIMO_SAO_MS)
+
     const medianaExiste = await medir(codigo)
     const medianaNaoExiste = await medir(`nao-existe-${Date.now()}`)
 
-    // Sem a correção esta razão era ~0,1 (2,9 ms contra 29,0 ms).
-    expect(medianaNaoExiste).toBeGreaterThanOrEqual(medianaExiste * 0.5)
+    const pisoMinimo = PISO_DE_RESPOSTA_MS * 0.9
+    expect(
+      medianaExiste,
+      `mediana com clínica (${medianaExiste} ms) abaixo do piso configurado (${PISO_DE_RESPOSTA_MS} ms)`,
+    ).toBeGreaterThanOrEqual(pisoMinimo)
+    expect(
+      medianaNaoExiste,
+      `mediana sem clínica (${medianaNaoExiste} ms) abaixo do piso configurado (${PISO_DE_RESPOSTA_MS} ms) — ` +
+        'o piso pode ter sido removido ou desligado (ver PISO_RESPOSTA_ENTRAR_MS)',
+    ).toBeGreaterThanOrEqual(pisoMinimo)
   })
 })
 

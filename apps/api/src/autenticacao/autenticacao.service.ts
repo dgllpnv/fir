@@ -62,7 +62,7 @@ const HASH_FALSO =
  *
  * Ajustável por ambiente para quem medir uma máquina mais lenta.
  */
-const PISO_DE_RESPOSTA_MS = inteiroDoAmbiente('PISO_RESPOSTA_ENTRAR_MS', 100, { min: 0 })
+export const PISO_DE_RESPOSTA_MS = inteiroDoAmbiente('PISO_RESPOSTA_ENTRAR_MS', 100, { min: 0 })
 
 type LinhaPessoa = {
   id: string
