@@ -1,0 +1,18 @@
+# LF no repositório para tudo. O checkout no Windows não converte — assim o
+# que roda aqui é byte a byte o que roda na VPS.
+* text=auto eol=lf
+
+# Exceção: arquivo de lote precisa de CRLF. `fir.bat` com LF falha em cmd.exe
+# de formas que não dizem o que aconteceu.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binários não passam por conversão nenhuma.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
+*.zip binary
+
+# Ruído de revisão: o lockfile é gerado, não escrito.
+pnpm-lock.yaml linguist-generated=true -diff
