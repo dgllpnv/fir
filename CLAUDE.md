@@ -247,6 +247,9 @@ Pacotes `mattpocock-skills`, `superpowers` e `claude-security` instalados.
 | `docs/pipeline.md` | A pipeline completa, fase a fase |
 | `docs/decisoes.md` | As escolhas do dono do produto, com data, e o que ainda depende dele |
 | `docs/roadmap.md` | O que falta, em ordem, e o que fica pronto em cada etapa |
+| `docs/paridade.md` | **As 59 ações do protótipo, com estado.** É o que "paridade" significa — sem ela, é palavra, não portão |
+| `docs/dividas.md` | Dívida carregada, cada uma com o **gatilho** que a torna urgente. Duas mordem no primeiro deploy |
+| `docs/diferencas-versao-po-vs-nossa.md` | Inventário das diferenças entre o que a PO entregou e o que construímos, eixo por eixo |
 | `docs/adr/` | Decisões arquiteturais. Não re-litigue uma ADR aceita — proponha uma nova que a substitua |
 | `docs/design.md` | Direção de design. **Obrigatório antes de qualquer tela** |
 | `docs/arquitetura/sistema.md` | Módulos, seams, modelo de dados, superfície de API, jobs |
