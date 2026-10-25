@@ -55,9 +55,10 @@ export type Cenario = {
   readonly clinica: string
   readonly outraClinica: string
   /**
-   * `juliana` recepção (`jornada`, SEM `valores`) · `beatriz` supervisão
-   * (`tarefas.equipe`, `jornada`, `valores`, `receber`) · `camila` comercial
-   * (`valores`, SEM `jornada`) · `marta` inativa.
+   * `juliana` recepção (`jornada`, SEM `valores` e SEM `receber`) ·
+   * `beatriz` supervisão (`tarefas.equipe`, `jornada`, `valores`,
+   * `receber`) · `camila` comercial (`valores`, SEM `jornada`) · `rita`
+   * balcão (`receber` SEM `valores`) · `marta` inativa.
    */
   readonly pessoas: Record<string, string>
   readonly cookies: Record<string, string[]>
@@ -112,6 +113,21 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
     [clinica],
   )
 
+  /**
+   * `pf_bal` REGISTRA dinheiro e NÃO O VÊ: `receber` sem `valores`.
+   *
+   * É a persona que o épico 4 precisa e que nenhuma das três anteriores
+   * cobre — `juliana` não tem `receber` (403 em tudo) e `beatriz` tem
+   * `valores` (a redação nunca aparece). Sem ela, "a lista traz paciente,
+   * forma e data, e o valor vem `null`" não teria com quem ser testado, e o
+   * perfil que a clínica de verdade dá ao balcão ficaria sem cobertura.
+   */
+  const bal = await umId(
+    `INSERT INTO perfis (clinica_id, chave, nome, perms)
+     VALUES ($1, 'pf_bal', 'Balcão', ARRAY['pacientes','receber']) RETURNING id`,
+    [clinica],
+  )
+
   const hash = await hashDeSenha(SENHA)
   const pessoa = async (nome: string, perfil: string, ativo = true): Promise<string> =>
     umId(
@@ -124,6 +140,8 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
     juliana: await pessoa('Juliana', rec),
     beatriz: await pessoa('Beatriz', sup),
     camila: await pessoa('Camila', ter),
+    // Balcão: registra recebimento e não vê valor nenhum.
+    rita: await pessoa('Rita', bal),
     // Saiu da clínica: tarefa atribuída a ela não aparece no "Para mim" de
     // ninguém (`Code.gs:355`).
     marta: await pessoa('Marta', rec, false),
@@ -183,7 +201,7 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
   await app.getHttpAdapter().getInstance().ready()
 
   const cookies: Record<string, string[]> = {}
-  for (const quem of ['juliana', 'beatriz', 'camila']) {
+  for (const quem of ['juliana', 'beatriz', 'camila', 'rita']) {
     const r = await request(app.getHttpServer())
       .post('/v1/entrar')
       .send({ clinica: codigo, email: `${quem}@${codigo}.local`, senha: SENHA })

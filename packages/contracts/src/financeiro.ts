@@ -105,6 +105,43 @@ export const RecebimentoNaLista = z.object({
 })
 export type RecebimentoNaLista = z.infer<typeof RecebimentoNaLista>
 
+/**
+ * O filtro da lista de recebimentos.
+ *
+ * `ultimosDias` existe por causa da regra 24: a lista "deste paciente nos
+ * últimos 7 dias" é a defesa de produto contra a receita lançada duas vezes,
+ * e ela aparece ANTES do campo de valor no formulário. Se o front calculasse
+ * a janela, ela sairia do relógio do navegador — e um computador de balcão
+ * com a data errada esconderia justamente o lançamento que a recepcionista
+ * precisa ver. O servidor resolve a janela contra o próprio hoje, no fuso da
+ * clínica.
+ *
+ * Sem filtro nenhum, a lista é a de HOJE — a seção "Recebimentos de hoje" da
+ * tela.
+ */
+export const ConsultaDeRecebimentos = z
+  .object({
+    dia: DiaCivil.optional(),
+    de: DiaCivil.optional(),
+    ate: DiaCivil.optional(),
+    pacienteId: Uuid.optional(),
+    ultimosDias: z.coerce.number().int().min(1).max(31).optional(),
+    incluirEstornados: z.coerce.boolean().optional(),
+  })
+  .strict()
+  .refine((q) => (q.de === undefined) === (q.ate === undefined), {
+    message: 'informe `de` e `ate` juntos',
+  })
+  .refine((q) => [q.dia, q.de, q.ultimosDias].filter((x) => x !== undefined).length <= 1, {
+    message: 'escolha uma janela só: `dia`, `de`/`ate` ou `ultimosDias`',
+  })
+export type ConsultaDeRecebimentos = z.infer<typeof ConsultaDeRecebimentos>
+
+export const ListaDeRecebimentos = z
+  .object({ itens: z.array(RecebimentoNaLista) })
+  .strict()
+export type ListaDeRecebimentos = z.infer<typeof ListaDeRecebimentos>
+
 // ---------------------------------------------------------------------------
 // CONTAS A PAGAR
 // ---------------------------------------------------------------------------
