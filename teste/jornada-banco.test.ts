@@ -1,7 +1,7 @@
 import { apagarClinicaDeTeste, declararAtorSistema } from '@fir/api/banco/limpeza-de-teste'
 import { ACOES, ETAPAS } from '@fir/domain'
 import pg from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 /**
  * A JORNADA, COBRADA NO BANCO.
@@ -394,6 +394,176 @@ describe('os índices que a tela Hoje usa a cada abertura', () => {
 })
 
 /* ------------------------------------------- o histórico, chave por chave */
+
+/* ------------------------------------------- a corrida de duas escritas */
+
+describe('a corrida de duas escritas no mesmo cartão', () => {
+  /**
+   * Duas conexões, interleave ESCOLHIDO — não esperado.
+   *
+   * O teste equivalente por HTTP é não-determinístico nesta árvore: medido, com
+   * o `FOR UPDATE` removido do serviço, cinco requisições em `Promise.all`
+   * passam em 4 de 5 rodadas, porque `resolver_sessao` toma lock na linha da
+   * sessão e serializa requisições do mesmo cookie. Aqui as duas transações são
+   * conduzidas à mão, e cada asserção vale sempre.
+   */
+  let a: pg.Client
+  let b: pg.Client
+
+  beforeAll(async () => {
+    a = new pg.Client({ connectionString: URL_MIG })
+    b = new pg.Client({ connectionString: URL_MIG })
+    a.on('error', (e) => console.error('[corrida] a:', e.message))
+    b.on('error', (e) => console.error('[corrida] b:', e.message))
+    await a.connect()
+    await b.connect()
+    for (const cli of [a, b]) await declararAtorSistema(cli)
+  })
+
+  /**
+   * Toda transação que sobrar é desfeita entre um `it` e outro.
+   *
+   * Sem isto, um erro no meio de um dos testes deixa uma transação aberta
+   * segurando o lock da linha — e o arquivo INTEIRO trava, com 60 s de timeout
+   * por hook, acusando um defeito que não existe. Medido ao escrever a prova
+   * por mutação deste bloco.
+   */
+  afterEach(async () => {
+    for (const cli of [a, b]) await cli.query('ROLLBACK').catch(() => undefined)
+  })
+
+  afterAll(async () => {
+    await a.end()
+    await b.end()
+  })
+
+  const etapaDe = async (cli: pg.Client, id: string, comLock: boolean): Promise<string> => {
+    const r = await cli.query<{ etapa: string }>(
+      `SELECT etapa::text AS etapa FROM tarefas WHERE id = $1${comLock ? ' FOR UPDATE' : ''}`,
+      [id],
+    )
+    return r.rows[0]!.etapa
+  }
+
+  const EVENTO = (etapa: string) => ({
+    acao: etapa === 'confirmado' ? 'confirmar' : 'enviarConfirmacao',
+    etapa,
+    em: '2026-10-24T12:00:00.000Z',
+    porId: pessoa,
+  })
+
+  /** A forma do serviço: concatena NO BANCO, no mesmo comando. */
+  const anexarConcatenando = (cli: pg.Client, id: string, etapa: string): Promise<unknown> =>
+    cli.query(
+      `UPDATE tarefas
+          SET etapa = $2::etapa_de_jornada, historico = historico || $3::jsonb
+        WHERE id = $1`,
+      [id, etapa, JSON.stringify([EVENTO(etapa)])],
+    )
+
+  /** A forma ERRADA: lê o array, dá push em JavaScript, grava de volta. */
+  const anexarLendoAntes = async (
+    cli: pg.Client,
+    id: string,
+    etapa: string,
+    lidoAntes: readonly unknown[],
+  ): Promise<void> => {
+    await cli.query(
+      `UPDATE tarefas SET etapa = $2::etapa_de_jornada, historico = $3::jsonb WHERE id = $1`,
+      [id, etapa, JSON.stringify([...lidoAntes, EVENTO(etapa)])],
+    )
+  }
+
+  const anexar = anexarConcatenando
+
+  const lerHistorico = async (cli: pg.Client, id: string): Promise<unknown[]> =>
+    (await cli.query<{ h: unknown[] }>('SELECT historico AS h FROM tarefas WHERE id = $1', [id]))
+      .rows[0]!.h
+
+  const eventos = async (id: string): Promise<number> =>
+    Number(
+      (
+        await migrate.query<{ n: string }>(
+          'SELECT jsonb_array_length(historico)::text AS n FROM tarefas WHERE id = $1',
+          [id],
+        )
+      ).rows[0]!.n,
+    )
+
+  it('COM `FOR UPDATE`, a segunda leitura vê o estado JÁ COMMITADO', async () => {
+    // É o que faz `transicao()` julgar o estado real. Sem isso, as duas
+    // transações leem `agendado`, as duas passam pela tabela, e o cartão
+    // recebe dois eventos `confirmar` para uma paciente que confirmou uma vez.
+    const id = await inserirTarefa({ etapa: 'agendado' })
+    await a.query('BEGIN')
+    await b.query('BEGIN')
+    expect(await etapaDe(a, id, true)).toBe('agendado')
+
+    // B PEDE o lock e fica preso: o `await` só volta depois do COMMIT de A.
+    // Nada de espera por tempo — a ordem é garantida pelo próprio lock.
+    const lidoPorB = etapaDe(b, id, true)
+    await anexar(a, id, 'confirmado')
+    await a.query('COMMIT')
+    expect(await lidoPorB).toBe('confirmado')
+    await b.query('ROLLBACK')
+  })
+
+  it('SEM `FOR UPDATE`, as duas leem `agendado` — a corrida que o lock evita', async () => {
+    const id = await inserirTarefa({ etapa: 'agendado' })
+    await a.query('BEGIN')
+    await b.query('BEGIN')
+    expect(await etapaDe(a, id, false)).toBe('agendado')
+    expect(await etapaDe(b, id, false)).toBe('agendado')
+    await a.query('ROLLBACK')
+    await b.query('ROLLBACK')
+  })
+
+  /**
+   * O mesmo roteiro, duas formas de `UPDATE` — e o resultado diferente.
+   *
+   * As duas transações leem o MESMO histórico de um evento (o cenário em que
+   * alguém tirou o `FOR UPDATE` do serviço) e cada uma acrescenta o seu.
+   */
+  async function corrida(forma: 'concatena' | 'le-antes'): Promise<number> {
+    const id = await inserirTarefa({ etapa: 'agendado' })
+    await cru(
+      `UPDATE tarefas SET historico = jsonb_build_array(jsonb_build_object(
+         'acao','agendar','etapa','agendado','em','2026-10-24T10:00:00.000Z','porId',$2::text))
+        WHERE id = $1`,
+      [id, pessoa],
+    )
+    expect(await eventos(id)).toBe(1)
+
+    await a.query('BEGIN')
+    await b.query('BEGIN')
+    // Os DOIS leem antes de qualquer COMMIT: é o que faz a corrida existir.
+    const hA = await lerHistorico(a, id)
+    const hB = await lerHistorico(b, id)
+
+    if (forma === 'concatena') await anexarConcatenando(a, id, 'agendado')
+    else await anexarLendoAntes(a, id, 'agendado', hA)
+    await a.query('COMMIT')
+
+    if (forma === 'concatena') await anexarConcatenando(b, id, 'agendado')
+    else await anexarLendoAntes(b, id, 'agendado', hB)
+    await b.query('COMMIT')
+
+    return eventos(id)
+  }
+
+  it('`historico || evento` não perde evento; `historico = <lido antes>` PERDE', async () => {
+    // A segunda defesa do serviço, com o contrafactual dentro do próprio teste
+    // — e não fora dele, como uma prova por mutação.
+    //
+    // Por que o contrafactual mora aqui: com o `FOR UPDATE` no lugar, NENHUM
+    // teste de comportamento distingue as duas formas, porque a leitura do
+    // serviço já acontece depois do lock e enxerga o estado atual. A diferença
+    // só aparece quando as duas leituras são simultâneas — e é exatamente esse
+    // interleave que este teste constrói à mão.
+    expect(await corrida('concatena')).toBe(3) // os dois eventos sobrevivem
+    expect(await corrida('le-antes')).toBe(2) // o evento de A foi sobrescrito
+  })
+})
 
 describe('o vocabulário do banco é o do domínio', () => {
   it('os nove valores do ENUM `etapa_de_jornada` são exatamente `ETAPAS`', async () => {

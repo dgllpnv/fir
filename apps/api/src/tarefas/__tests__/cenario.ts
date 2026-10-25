@@ -54,7 +54,11 @@ export type Cenario = {
   readonly migrate: pg.Client
   readonly clinica: string
   readonly outraClinica: string
-  /** `juliana` (recepção), `beatriz` (supervisão), `camila`, `marta` (inativa). */
+  /**
+   * `juliana` recepção (`jornada`, SEM `valores`) · `beatriz` supervisão
+   * (`tarefas.equipe`, `jornada`, `valores`, `receber`) · `camila` comercial
+   * (`valores`, SEM `jornada`) · `marta` inativa.
+   */
   readonly pessoas: Record<string, string>
   readonly cookies: Record<string, string[]>
   readonly pacientes: Record<string, string>
@@ -84,22 +88,24 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
     [`${codigo}-v`, FUSO],
   )
 
-  // `pf_rec` NÃO tem `tarefas.equipe` nem `valores`: é a persona que prova os
-  // 403 de escopo/cancelamento e a redação de dinheiro.
+  // `pf_rec` tem `jornada` e NÃO tem `tarefas.equipe`, `valores` nem
+  // `receber`: é a persona que prova os 403 de escopo/cancelamento, a redação
+  // de dinheiro e — no épico 3 — que mover o cartão não exige ver valores.
   const rec = await umId(
     `INSERT INTO perfis (clinica_id, chave, nome, perms)
-     VALUES ($1, 'pf_rec', 'Recepção', ARRAY['pacientes']) RETURNING id`,
+     VALUES ($1, 'pf_rec', 'Recepção', ARRAY['jornada','pacientes']) RETURNING id`,
     [clinica],
   )
   const sup = await umId(
     `INSERT INTO perfis (clinica_id, chave, nome, perms)
-     VALUES ($1, 'pf_sup', 'Supervisão', ARRAY['tarefas.equipe','pacientes','pacientes.gerir','valores'])
+     VALUES ($1, 'pf_sup', 'Supervisão',
+             ARRAY['tarefas.equipe','jornada','pacientes','pacientes.gerir','valores','receber'])
      RETURNING id`,
     [clinica],
   )
-  // `pf_ter` vê valores mas não acompanha a equipe: é quem "não tem nada a ver
-  // com a tarefa" nos testes de autorização, sem que o 403 possa ser confundido
-  // com falta de permissão de dinheiro.
+  // `pf_ter` vê valores mas não acompanha a equipe NEM a jornada: é quem "não
+  // tem nada a ver com a tarefa" nos testes de autorização, sem que o 403
+  // possa ser confundido com falta de permissão de dinheiro.
   const ter = await umId(
     `INSERT INTO perfis (clinica_id, chave, nome, perms)
      VALUES ($1, 'pf_ter', 'Comercial', ARRAY['pacientes','valores']) RETURNING id`,

@@ -19,7 +19,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { unidadeValida } from '../comum/unidade'
-import { lerTarefas, TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from './leitura'
+import { brAno, lerTarefas, TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from './leitura'
 
 /**
  * Um erro de domínio vira 400 com a MENSAGEM DELE.
@@ -81,8 +81,6 @@ async function inserirTarefas(c: pg.PoolClient, linhas: readonly LinhaNova[]): P
   )
   return r.rows.map((x) => x.id)
 }
-
-const brAno = (dia: string): string => `${dia.slice(8, 10)}/${dia.slice(5, 7)}/${dia.slice(0, 4)}`
 
 @Injectable()
 export class TarefasService {

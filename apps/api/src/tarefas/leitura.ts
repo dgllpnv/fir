@@ -225,3 +225,15 @@ export async function lerTarefas(
  * já as importavam continuem a importá-las de um lugar só.
  */
 export { TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from '@fir/domain'
+
+/**
+ * `aaaa-mm-dd` → `dd/mm/aaaa`, para a nota do histórico.
+ *
+ * SEM fuso, e de propósito: `prazo` é uma coluna `date` — um dia no
+ * CALENDÁRIO da clínica, não um instante. Converter fuso aqui seria aplicar
+ * deslocamento a um valor que não tem hora, e o resultado seria a data de
+ * ontem num registro de hoje. O que PRECISA de fuso é formatar `timestamptz`,
+ * e aí o caminho é `diaCivil(instante, fuso)`.
+ */
+export const brAno = (dia: string): string =>
+  `${dia.slice(8, 10)}/${dia.slice(5, 7)}/${dia.slice(0, 4)}`

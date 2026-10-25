@@ -7,6 +7,7 @@ import { SessaoGuard } from './autenticacao/sessao.guard'
 import { AutorizacaoGuard } from './autorizacao/autorizacao.guard'
 import { BancoModule } from './banco/banco.module'
 import { ClinicaModule } from './clinica/clinica.module'
+import { JornadaModule } from './jornada/jornada.module'
 import { RedacaoInterceptor } from './comum/redacao.interceptor'
 import { PacientesModule } from './pacientes/pacientes.module'
 import { SaudeController } from './saude/saude.controller'
@@ -19,6 +20,7 @@ import { TarefasModule } from './tarefas/tarefas.module'
     AuditoriaModule,
     PacientesModule,
     TarefasModule,
+    JornadaModule,
     ClinicaModule,
   ],
   controllers: [SaudeController],
