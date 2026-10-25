@@ -56,9 +56,11 @@ export type Cenario = {
   readonly outraClinica: string
   /**
    * `juliana` recepção (`jornada`, SEM `valores` e SEM `receber`) ·
-   * `beatriz` supervisão (`tarefas.equipe`, `jornada`, `valores`,
-   * `receber`) · `camila` comercial (`valores`, SEM `jornada`) · `rita`
-   * balcão (`receber` SEM `valores`) · `marta` inativa.
+   * `beatriz` supervisão (`tarefas.equipe`, `jornada`, `valores`, `receber` e
+   * TODO o financeiro) · `camila` comercial (`valores`, SEM `jornada`, SEM
+   * `caixa`, SEM `cobrancas`) · `rita` balcão (`receber` SEM `valores`) ·
+   * `sonia` caixa (`caixa`, `contas`, `cobrancas`, SEM `valores` e SEM
+   * `contas.gerir`) · `marta` inativa.
    */
   readonly pessoas: Record<string, string>
   readonly cookies: Record<string, string[]>
@@ -97,10 +99,15 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
      VALUES ($1, 'pf_rec', 'Recepção', ARRAY['jornada','pacientes']) RETURNING id`,
     [clinica],
   )
+  // A Supervisão pode TUDO no financeiro, e isso é deliberado: ela é o
+  // principal mais forte que importa em `transporte-as-cegas.test.ts`. Um
+  // teste de regra 6 feito com usuário fraco provaria a regra 17 — a redação —
+  // e não a cegueira da conferência, que vale inclusive para quem vê valores.
   const sup = await umId(
     `INSERT INTO perfis (clinica_id, chave, nome, perms)
      VALUES ($1, 'pf_sup', 'Supervisão',
-             ARRAY['tarefas.equipe','jornada','pacientes','pacientes.gerir','valores','receber'])
+             ARRAY['tarefas.equipe','jornada','pacientes','pacientes.gerir','valores','receber',
+                   'caixa','contas','contas.gerir','cobrancas','finmes'])
      RETURNING id`,
     [clinica],
   )
@@ -128,6 +135,23 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
     [clinica],
   )
 
+  /**
+   * `pf_cxa` FECHA O CAIXA e NÃO VÊ VALOR: `caixa`, `contas` e `cobrancas`
+   * sem `valores`, e sem `contas.gerir`.
+   *
+   * É a pessoa que o desenho do épico 4 pressupõe como responsável pelo caixa
+   * (ver "O que a regra 6 alcança, e o que não"): para ela a conferência é
+   * cega de ponta a ponta porque ela não vê valor em tela nenhuma. Ela também
+   * é o único principal que prova os DOIS alcances de contas — vê e paga as
+   * dela, não cadastra e não alcança a conta de outra pessoa.
+   */
+  const cxa = await umId(
+    `INSERT INTO perfis (clinica_id, chave, nome, perms)
+     VALUES ($1, 'pf_cxa', 'Caixa', ARRAY['pacientes','receber','caixa','contas','cobrancas'])
+     RETURNING id`,
+    [clinica],
+  )
+
   const hash = await hashDeSenha(SENHA)
   const pessoa = async (nome: string, perfil: string, ativo = true): Promise<string> =>
     umId(
@@ -142,6 +166,8 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
     camila: await pessoa('Camila', ter),
     // Balcão: registra recebimento e não vê valor nenhum.
     rita: await pessoa('Rita', bal),
+    // Caixa: fecha o caixa, paga as contas dela e cobra — sem ver um valor.
+    sonia: await pessoa('Sonia', cxa),
     // Saiu da clínica: tarefa atribuída a ela não aparece no "Para mim" de
     // ninguém (`Code.gs:355`).
     marta: await pessoa('Marta', rec, false),
@@ -201,7 +227,7 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
   await app.getHttpAdapter().getInstance().ready()
 
   const cookies: Record<string, string[]> = {}
-  for (const quem of ['juliana', 'beatriz', 'camila', 'rita']) {
+  for (const quem of ['juliana', 'beatriz', 'camila', 'rita', 'sonia']) {
     const r = await request(app.getHttpServer())
       .post('/v1/entrar')
       .send({ clinica: codigo, email: `${quem}@${codigo}.local`, senha: SENHA })
@@ -239,6 +265,27 @@ export async function desmontarCenario(c: Cenario): Promise<void> {
 export async function limparTarefas(c: Cenario): Promise<void> {
   await c.migrate.query('DELETE FROM recebimentos WHERE clinica_id = $1', [c.clinica])
   await c.migrate.query('DELETE FROM tarefas WHERE clinica_id = $1', [c.clinica])
+}
+
+/**
+ * Apaga o que o épico 4 escreve fora de `recebimentos`.
+ *
+ * Separado de `limparTarefas` porque as suítes do épico 2 não conhecem estas
+ * tabelas, e acrescentar cinco `DELETE` à função que elas chamam entre cada
+ * `it` cobraria o custo delas sem motivo. A ordem é a de
+ * `limpeza-de-teste.ts`: filho antes de pai.
+ */
+export async function limparFinanceiro(c: Cenario): Promise<void> {
+  for (const tabela of [
+    'caixa_por_forma',
+    'caixas_do_dia',
+    'cobrancas',
+    'contas_a_pagar',
+    'metas_do_mes',
+    'configuracao_financeira',
+  ]) {
+    await c.migrate.query(`DELETE FROM ${tabela} WHERE clinica_id = $1`, [c.clinica])
+  }
 }
 
 /* ---------------------------------------------------------------- chamadas */

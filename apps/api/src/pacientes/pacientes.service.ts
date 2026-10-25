@@ -6,7 +6,7 @@ import type {
   PacienteNaLista,
   SalvarPaciente,
 } from '@fir/contracts'
-import { diaCivil, type Relogio, somarDias, TIPOS } from '@fir/domain'
+import { diaCivil, type Relogio, type SaldoDoPaciente, somarDias, TIPOS } from '@fir/domain'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import type pg from 'pg'
 import type { Ator } from '../banco/ator'
@@ -14,9 +14,14 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { unidadeValida } from '../comum/unidade'
+import { saldoDe, saldosDe } from '../financeiro/saldo.repositorio'
 
 /**
- * Os tipos que contam como ATENDIMENTO e os que ABATEM saldo.
+ * Os tipos que contam como ATENDIMENTO.
+ *
+ * Os que ABATEM saldo moram em `saldo.repositorio.ts`, com a única leitura de
+ * saldo do sistema — aqui eles não são mais necessários porque o `saldo` saiu
+ * desta consulta.
  *
  * Derivados de `TIPOS`, em `@fir/domain`, e nunca escritos à mão no SQL: a
  * classificação mora numa tabela só, e um `tipo IN ('Consulta realizada', …)`
@@ -24,7 +29,6 @@ import { unidadeValida } from '../comum/unidade'
  * lugares — com duas delas já divergindo.
  */
 const TIPOS_DE_ATENDIMENTO = TIPOS.filter((t) => t.atende === true).map((t) => t.nome)
-const TIPOS_QUE_ABATEM = TIPOS.filter((t) => t.recebimento === true).map((t) => t.nome)
 
 /** "Sem retorno há 6+ meses" é 182 dias no protótipo. O mesmo número aqui. */
 const DIAS_SEM_RETORNO = 182
@@ -65,11 +69,16 @@ type LinhaDePaciente = {
   ultimo_atendimento: string | null
   tarefas_abertas: string
   ltv: string
-  saldo: string
   total?: string
 }
 
-const paraSaida = (l: LinhaDePaciente): PacienteNaLista => ({
+/**
+ * A linha do banco mais o saldo que o DOMÍNIO calculou.
+ *
+ * `saldo` é parâmetro, e não coluna, porque a regra 5 não é um `SELECT`: ela
+ * agrupa, clampa por grupo e preserva o crédito. Ver `saldo.repositorio.ts`.
+ */
+const paraSaida = (l: LinhaDePaciente, s: SaldoDoPaciente): PacienteNaLista => ({
   id: l.id,
   nome: l.nome,
   telefone: l.telefone,
@@ -84,24 +93,31 @@ const paraSaida = (l: LinhaDePaciente): PacienteNaLista => ({
   ultimoAtendimento: l.ultimo_atendimento,
   tarefasAbertas: Number(l.tarefas_abertas),
   ltv: l.ltv,
-  saldo: l.saldo,
+  saldo: s.saldo.centavos.toString(),
+  credito: s.credito.centavos.toString(),
+  temSaldo: s.temSaldo,
 })
 
 /**
  * O SELECT que todas as leituras de paciente compartilham.
  *
- * `ltv` e `saldo` são DERIVADOS aqui, nunca colunas (regra 5). `saldo` é
- * `aberto − abatido` com piso em zero, exatamente como `calcSaldos` do
- * protótipo. O agrupamento POR ADESÃO que a regra 5 exige chega com as
- * adesões, no épico 5 — hoje não há programa, então existe um grupo só e a
- * soma é a mesma. Quem implementar aquele épico precisa partir este cálculo
- * por adesão, não somar os grupos aqui.
+ * `ltv` é DERIVADO aqui, nunca coluna — e é uma soma simples, sem regra
+ * nenhuma em cima.
+ *
+ * **`saldo` NÃO está mais aqui, e isso é o ponto.** Até o épico 4 esta
+ * consulta trazia `greatest(0, Σ aberto − Σ abatido)`: a regra 5 escrita uma
+ * segunda vez, em SQL, colapsada num total só e com o excedente sumindo sem
+ * deixar rastro. Era a mesma dívida que o `CLAUDE.md` descreve no legado — a
+ * mesma regra em dois lugares, já divergente de `saldoEmAberto`. O SQL foi
+ * apagado, não só abandonado: enquanto ele existir, alguém volta a chamá-lo.
+ * O saldo agora vem de `saldo.repositorio.ts` → `@fir/domain`, agrupado, com
+ * o crédito preservado.
  *
  * As colunas `*_data` existem porque `date` do Postgres vira `Date` do
  * JavaScript no `pg`, e a saída precisa de `aaaa-mm-dd` — então a data sai em
  * texto, e a versão `date` fica para comparar e ordenar na consulta externa.
  *
- * `$1` clínica · `$2` fuso · `$3` tipos de atendimento · `$4` tipos que abatem.
+ * `$1` clínica · `$2` fuso · `$3` tipos de atendimento.
  */
 const SELECT_BASE = `
   SELECT p.id, p.nome, p.telefone, p.aniversario::text AS aniversario, p.origem, p.indicado_por,
@@ -121,14 +137,7 @@ const SELECT_BASE = `
          ) AS ultimo_atendimento,
          (SELECT coalesce(sum(r.valor), 0)::bigint FROM recebimentos r
            WHERE r.paciente_id = p.id AND r.estornado_em IS NULL
-         )::text AS ltv,
-         greatest(
-           0,
-           (SELECT coalesce(sum(r.valor_aberto), 0)::bigint FROM recebimentos r
-             WHERE r.paciente_id = p.id AND r.estornado_em IS NULL)
-           - (SELECT coalesce(sum(r.valor), 0)::bigint FROM recebimentos r
-               WHERE r.paciente_id = p.id AND r.estornado_em IS NULL AND r.tipo = ANY($4))
-         )::text AS saldo
+         )::text AS ltv
     FROM pacientes p
    WHERE p.clinica_id = $1`
 
@@ -285,16 +294,18 @@ export class PacientesService {
     fuso: string,
     id: string,
   ): Promise<PacienteNaLista> {
-    const r = await c.query<LinhaDePaciente>(`${SELECT_BASE} AND p.id = $5`, [
+    const r = await c.query<LinhaDePaciente>(`${SELECT_BASE} AND p.id = $4`, [
       clinicaId,
       fuso,
       TIPOS_DE_ATENDIMENTO,
-      TIPOS_QUE_ABATEM,
       id,
     ])
     const linha = r.rows[0]
     if (!linha) throw new NotFoundException('Paciente não encontrado.')
-    return paraSaida(linha)
+    // Na MESMA conexão e dentro da mesma `naClinica`: a RLS vale para as duas
+    // consultas, e o saldo não pode vir de outra transação que leia um
+    // recebimento que esta ainda não enxerga.
+    return paraSaida(linha, await saldoDe(c, clinicaId, id))
   }
 
   async ficha(clinicaId: ClinicaId, ator: Ator, fuso: string, id: string): Promise<FichaDoPaciente> {
@@ -346,7 +357,7 @@ export class PacientesService {
     consulta: ConsultaDePacientes,
   ): Promise<ListaDePacientes> {
     const hoje = this.hojeDaClinica(fuso)
-    const params: unknown[] = [clinicaId, fuso, TIPOS_DE_ATENDIMENTO, TIPOS_QUE_ABATEM]
+    const params: unknown[] = [clinicaId, fuso, TIPOS_DE_ATENDIMENTO]
     const prox = (valor: unknown): string => {
       params.push(valor)
       return `$${params.length}`
@@ -408,7 +419,13 @@ export class PacientesService {
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const r = await c.query<LinhaDePaciente>(sql, params)
-      return { pacientes: r.rows.map(paraSaida), total: Number(r.rows[0]?.total ?? 0) }
+      // UMA consulta de saldo para a página inteira, nunca uma por linha: a
+      // lista de pacientes é a tela mais aberta da clínica depois de Hoje.
+      const saldos = await saldosDe(c, clinicaId, r.rows.map((x) => x.id))
+      return {
+        pacientes: r.rows.map((x) => paraSaida(x, saldos.get(x.id)!)),
+        total: Number(r.rows[0]?.total ?? 0),
+      }
     })
   }
 }

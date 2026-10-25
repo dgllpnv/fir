@@ -68,8 +68,11 @@ const DINHEIRO_DA_TAREFA = ['valor', 'valorAberto', 'valorOrcamento'] as const
 
 export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'GET', caminho: '/v1/auditoria', camposDeDinheiro: [...CAMPOS_MONETARIOS], curinga: true },
-  { metodo: 'GET', caminho: '/v1/pacientes', camposDeDinheiro: ['ltv', 'saldo'] },
-  { metodo: 'GET', caminho: '/v1/pacientes/:id', camposDeDinheiro: ['ltv', 'saldo'] },
+  // `credito` entrou com o épico 4: a lista e a ficha deixaram de calcular o
+  // saldo com `greatest(0, …)` em SQL e passaram a consumir `saldoEmAberto`,
+  // que preserva o excedente em vez de engoli-lo.
+  { metodo: 'GET', caminho: '/v1/pacientes', camposDeDinheiro: ['ltv', 'saldo', 'credito'] },
+  { metodo: 'GET', caminho: '/v1/pacientes/:id', camposDeDinheiro: ['ltv', 'saldo', 'credito'] },
   { metodo: 'POST', caminho: '/v1/tarefas', camposDeDinheiro: DINHEIRO_DA_TAREFA },
   { metodo: 'POST', caminho: '/v1/tarefas/:id/concluir', camposDeDinheiro: DINHEIRO_DA_TAREFA },
   { metodo: 'POST', caminho: '/v1/tarefas/:id/cancelar', camposDeDinheiro: DINHEIRO_DA_TAREFA },

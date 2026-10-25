@@ -328,6 +328,56 @@ export const RegistrarCobranca = z
   .strict()
 export type RegistrarCobranca = z.infer<typeof RegistrarCobranca>
 
+/**
+ * A linha da tela Cobranças.
+ *
+ * `temSaldo` e `diasSemContato` são DERIVADOS e não monetários — e é por eles
+ * que a lista continua utilizável para quem não tem `valores`. Sem eles, a
+ * recepcionista receberia uma lista de nomes com `saldo: null` e nenhum jeito
+ * de saber por quem começar, que é precisamente o trabalho que esta tela é.
+ *
+ * `diasSemContato` vem do SERVIDOR, contra o hoje do servidor no fuso da
+ * clínica (regra 24): calculado no navegador, o computador de balcão com a
+ * data errada reordenaria a fila de ligação.
+ */
+export const CobrancaNaLista = z.object({
+  pacienteId: Uuid,
+  paciente: z.string(),
+  telefone: z.string(),
+  saldo: centavosNaSaida,
+  temSaldo: z.boolean(),
+  ultimoContatoEm: DiaCivil.nullable(),
+  ultimoContatoPor: z.string().nullable(),
+  canal: z.enum(CANAIS_DE_COBRANCA).nullable(),
+  /** `null` = nunca houve contato. Zero = houve hoje. */
+  diasSemContato: z.number().int().nullable(),
+})
+export type CobrancaNaLista = z.infer<typeof CobrancaNaLista>
+
+export const ListaDeCobrancas = z
+  .object({
+    /** Já ORDENADA pelo servidor: quem está há mais tempo sem contato primeiro. */
+    itens: z.array(CobrancaNaLista),
+    aReceber: centavosNaSaida,
+    /** Quantos pacientes — sobrevive à redação, e é o indicador da equipe. */
+    quantidade: z.number().int(),
+    /** Quantos estão sem contato há 15 dias ou mais, contados no servidor. */
+    semContato: z.number().int(),
+  })
+  .strict()
+export type ListaDeCobrancas = z.infer<typeof ListaDeCobrancas>
+
+/**
+ * A mensagem pronta, montada no SERVIDOR — e **sem valor nenhum no texto**.
+ *
+ * Regra 21: valor e nome de paciente não vão para log. O texto sai daqui
+ * direto para o `wa.me`, e nunca passa por lugar nenhum além da resposta. E a
+ * mensagem não leva o número de propósito: cobrança por mensagem com o valor
+ * escrito vira print, e o print circula.
+ */
+export const MensagemDeCobranca = z.object({ texto: z.string() }).strict()
+export type MensagemDeCobranca = z.infer<typeof MensagemDeCobranca>
+
 // ---------------------------------------------------------------------------
 // META, CONFIGURAÇÃO E VISÃO DO MÊS
 // ---------------------------------------------------------------------------

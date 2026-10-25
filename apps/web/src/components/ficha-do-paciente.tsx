@@ -136,9 +136,29 @@ export function FichaDoPaciente({ id, podeGerir }: { id: string; podeGerir: bool
           <span className="rotulo">Saldo em aberto</span>
           <span className="numero">{formatarDinheiro(centavos(p.saldo))}</span>
           <small style={{ color: 'var(--muted)' }}>
-            {p.saldo === null || p.saldo === '0' ? 'nada pendente' : 'a receber'}
+            {/*
+              `temSaldo`, e não `saldo === '0'`. O campo monetário vem `null`
+              para quem não tem `valores`, e a leitura antiga (`null || '0'`)
+              dizia "nada pendente" para TODA paciente — com a dívida
+              existindo. O booleano é derivado no servidor e sobrevive à
+              redação, que é exatamente para isto que ele existe.
+            */}
+            {p.temSaldo ? 'a receber' : 'nada pendente'}
           </small>
         </div>
+        {/*
+          O crédito só aparece quando existe — e quando existe, ele é notícia:
+          paciente que pagou a mais é erro de lançamento ou crédito real, e os
+          dois precisam de alguém olhando. Era o número que o `greatest(0, …)`
+          jogava fora.
+        */}
+        {p.credito !== null && p.credito !== '0' ? (
+          <div className="indicador">
+            <span className="rotulo">Crédito</span>
+            <span className="numero">{formatarDinheiro(centavos(p.credito))}</span>
+            <small style={{ color: 'var(--muted)' }}>pago a mais — confira o lançamento</small>
+          </div>
+        ) : null}
         <div className="indicador">
           <span className="rotulo">Tarefas em aberto</span>
           <span className="numero">{p.tarefasAbertas}</span>

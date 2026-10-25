@@ -136,7 +136,33 @@ export const PacienteNaLista = z.object({
   obs: z.string(),
   tarefasAbertas: z.number().int(),
   ltv: centavosNaSaida,
+  /**
+   * `aberto − abatido`, **somado a partir dos grupos já clampados**, nunca
+   * `greatest(0, Σ)` em SQL.
+   *
+   * O detalhe por grupo está em `GET /v1/pacientes/:id/saldo`; aqui vem só o
+   * total porque a lista mostra um número por linha. O que NÃO vem é um total
+   * clampado depois da soma: um programa pago a mais pagaria a dívida de
+   * outro, e a clínica pararia de cobrar o que lhe é devido.
+   */
   saldo: centavosNaSaida,
+  /**
+   * O excedente que o clamp por grupo preservou. Zero no caso normal.
+   *
+   * Existe porque o clamp não pode PERDER dinheiro — paciente que pagou a
+   * mais é erro de lançamento ou crédito real, e os dois precisam aparecer.
+   * Era o que o `greatest(0, …)` do épico 2 jogava fora sem deixar rastro.
+   */
+  credito: centavosNaSaida,
+  /**
+   * Derivado, e **não monetário**: sobrevive à redação (regra 17).
+   *
+   * É o que a equipe sem `valores` recebe no lugar do número, e é o que a
+   * ficha lê para dizer "a receber" ou "nada pendente". Decidir isso com
+   * `saldo === '0'` no front dava "nada pendente" para toda paciente sempre
+   * que quem olhava não tinha `valores` — com o saldo existindo.
+   */
+  temSaldo: z.boolean(),
 })
 export type PacienteNaLista = z.infer<typeof PacienteNaLista>
 
