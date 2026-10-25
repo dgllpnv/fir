@@ -28,14 +28,14 @@ Legenda de estado: ⬜ não começou · 🟡 em andamento · ✅ pronto e testad
 
 | Ação | v20 | Estado | Nota |
 |---|---|---|---|
-| `criarTarefa` | v20 | ⬜ | |
-| `editarTarefa` | v20 | ⬜ | |
-| `atualizarTarefa` | v20 | ⬜ | Conclusão, cancelamento, mudança de status |
-| `excluirTarefa` | v20 | ⬜ | |
-| `salvarPaciente` | v20 | ⬜ | |
-| `excluirPaciente` | v20 | ⬜ | |
-| `importarPacientes` | v20 | ⬜ | |
-| `salvarUnidade` | v20 | ⬜ | |
+| `criarTarefa` | v20 | ✅ | `POST /v1/tarefas`. **`quando` virou união discriminada:** agendada · retroativo · série. O protótipo descobre "retroativo + recorrente" em tempo de execução; aqui a combinação não tem como ser escrita |
+| `editarTarefa` | v20 | ✅ | `PATCH /v1/tarefas/:id`, com `serie: boolean` para alcançar as próximas em aberto. **`pagamento` não existe neste corpo** — editar não conclui |
+| `atualizarTarefa` | v20 | ✅ | **Virou três rotas:** `POST :id/concluir`, `:id/cancelar`, `:id/reabrir`. O `status` sem lista branca do protótipo é defeito dele; empilhar as três num campo foi como ele ficou sem validação |
+| `excluirTarefa` | v20 | ✅ | `DELETE /v1/tarefas/:id?serie=true\|false`. **Soft delete** (`excluida_em`), não `DELETE` de linha — regra 20 |
+| `salvarPaciente` | v20 | ✅ | `POST /v1/pacientes` e `PATCH /v1/pacientes/:id` |
+| `excluirPaciente` | v20 | ✅ | **Virou desativar** (`DELETE /v1/pacientes/:id` = soft delete), e **as tarefas ficam**. Os dois legados apagam paciente, tarefas e adesões; a regra 20 vence os dois. Ver [ADR 0003](adr/0003-paciente-desativado-nao-apaga-tarefa.md) |
+| `importarPacientes` | v20 | ✅ | `POST /v1/pacientes/importar`, idempotente — a chave de nome sai do Postgres, não de uma cópia em TypeScript (regra 26) |
+| `salvarUnidade` | v20 | ⬜ | **Fica no plano de admin-da-clínica**, não no épico 2. A tabela `unidades` já nasceu completa na migration `0006`, com RLS e trilha; falta a rota. Toda tela do épico 2 já a lê por `GET /v1/unidades` |
 
 ## Épico 3 — Jornada do paciente
 

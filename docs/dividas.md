@@ -103,6 +103,30 @@ Apagar o ramo deixa a suíte verde: o caso `transformado` do teste é um `ZodPip
 
 **Gatilho:** nenhum. Corrija ao passar pelo arquivo.
 
+### D10 · Campanha ficou de fora da tarefa e do cadastro de paciente
+
+O protótipo oferece **Campanha** ao criar tarefa, ao cadastrar paciente e como filtro na tela Tarefas — com a sugestão automática *"Sugerida porque a paciente está nessa campanha"*. Nada disso existe aqui: a coluna `campanha_id` não nasceu na migration `0006` e o filtro não entrou na consulta.
+
+Foi decidido no plano do épico 2, não esquecido. Campanha é o **épico 8**, e a coluna entra por **expand** — `ALTER TABLE … ADD COLUMN campanha_id uuid REFERENCES campanhas(id)`, sem tocar em nada do que o épico 2 escreveu. A sugestão automática é derivação (campanha ativa × paciente na lista), e ela nasce no servidor, nunca no front.
+
+**Gatilho:** o épico 8. **O que herda pronto:** `ConsultaDeTarefas` já é um objeto Zod extensível e a tela Tarefas já desenha os filtros a partir de uma lista — acrescentar um não mexe no layout.
+
+### D11 · A tela Pacientes não tem os indicadores do período nem a tabela por origem
+
+O protótipo abre Pacientes com quatro indicadores filtrados por período (cadastrados, atendidos, receita, LTV médio) e uma tabela **Pacientes por origem** com receita e LTV médio por linha. Nenhum dos dois existe aqui.
+
+**Não é omissão de tela, é falta de rota.** `GET /v1/pacientes` devolve `ltv` e `saldo` **por paciente**; o agregado do período não existe. Montá-lo no navegador somaria dinheiro no front — contra `design.md` §5 ("nenhum cálculo de saldo, total ou percentual acontece no front") — e, pior, somaria só a página carregada: a lista pagina em 50. O "LTV médio" é ainda uma **divisão de dinheiro**, que a regra 2 cobra com property-based test.
+
+**Gatilho:** o épico 8 (Painel geral), que precisa exatamente destes agregados por período e os constrói no servidor, com teste de número. Quem os escrever ganha a tela Pacientes de graça.
+
+### D12 · A tela Tarefas não diz QUANTAS tarefas o filtro de pessoa esconde
+
+`GET /v1/hoje` devolve `ocultasPeloFiltro` — *"6 tarefas em aberto para hoje não aparecem em 'Para mim'"*. `GET /v1/tarefas` não devolve nada equivalente.
+
+A tela contorna com uma segunda consulta (`escopo=equipe&limite=1`) e mostra os **dois totais que o servidor contou**, em vez de subtrair um do outro no navegador. Funciona e é honesto, mas são duas requisições por mudança de filtro, e a frase fica mais fraca que a do protótipo.
+
+**Gatilho:** a primeira clínica com volume em que a segunda consulta aparecer no tempo de resposta, ou a próxima vez que alguém tocar `ConsultaDeTarefasService.listar` — `ocultasPeloFiltro` já existe lá para a tela Hoje e só precisa aceitar os mesmos filtros.
+
 ---
 
 ## Pendências de produto, não de código
