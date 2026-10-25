@@ -38,7 +38,9 @@ Etapas, `historico`, envio de confirmação, **Recontatar**, orçamento com prog
 
 ## Épico 5 — Programas
 
-`Procedimento` com insumos, `Programa` montado por itens, sessões, reprogramação, retorno por item, "Minhas metas" da enfermagem.
+`Procedimento` com insumos, `Programa` montado por itens, sessões, reprogramação, retorno por item.
+
+**Correção, 2026-10-25:** *"Minhas metas"* **saiu daqui e está no épico 7**, onde `paridade.md` sempre a listou. Medido no protótipo rodando: aquela tela lê ficha de RH, metas do mês e os 8 indicadores `IND_PES` — **nada de programa**. Era eu que a tinha posto no lugar errado. O que a enfermagem abre todo dia e **fica** neste épico é o filtro *"Minhas sessões"* da tela Programas.
 
 **Fica pronto:** a agenda de sessões da enfermagem.
 **Depende de:** épico 3 (o orçamento monta o programa).
