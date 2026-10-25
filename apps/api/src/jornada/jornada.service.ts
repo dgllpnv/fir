@@ -5,6 +5,7 @@ import {
   type Etapa,
   type EventoDeJornada,
   type Relogio,
+  somarDias,
   type StatusDeTarefa,
   transicao,
 } from '@fir/domain'
@@ -58,19 +59,83 @@ type CartaoCarregado = {
 }
 
 /**
- * Os efeitos de uma ação: as colunas que ela toca, e a nota do evento.
+ * As colunas que uma ação pode tocar, e o TIPO com que o parâmetro entra.
+ *
+ * Uma tabela, e não vinte parâmetros posicionais com flags booleanas: a
+ * terceira coluna acrescentada ao `UPDATE` à mão é onde o `CASE WHEN $8` passa
+ * a apontar para o `$9` errado. Os nomes de coluna vêm desta constante
+ * LITERAL — nada aqui vem de corpo de requisição, então não existe superfície
+ * de injeção.
+ *
+ * `undefined` (chave ausente) = não mexe na coluna. `null` = grava NULL.
+ */
+const COLUNA_DE_EFEITO = {
+  prazo: ['prazo', 'date'],
+  hora: ['hora', 'time'],
+  proximoPassoEm: ['proximo_passo_em', 'date'],
+  confirmacaoEnviadaEm: ['confirmacao_enviada_em', 'timestamptz'],
+  valorOrcamento: ['valor_orcamento', 'bigint'],
+  programaOrcado: ['programa_orcado', 'jsonb'],
+  motivoPerdaId: ['motivo_perda_id', 'uuid'],
+} as const satisfies Record<string, readonly [string, string]>
+
+type ChaveDeColuna = keyof typeof COLUNA_DE_EFEITO
+
+/**
+ * Um item da proposta, DERIVADO do contrato — nunca redeclarado.
+ *
+ * `packages/contracts` é a fonte única da forma. Uma segunda declaração aqui
+ * seria a terceira cópia da mesma regra que este projeto existe para não ter.
+ */
+type ItemOrcado = NonNullable<
+  Extract<MoverEtapa, { acao: 'registrarOrcamento' }>['programa']
+>[number]
+
+/**
+ * Os efeitos de uma ação: as colunas que ela toca, e o que vai para o evento.
  *
  * Separado da PERMISSÃO de propósito. Quem decide se a ação é possível é
  * `transicao()`; aqui só se descreve o que acontece depois do sim.
  */
 type Efeitos = {
-  /** `undefined` = não mexe na coluna. `null` = grava NULL. */
   readonly prazo?: string
   readonly hora?: string | null
   readonly proximoPassoEm?: string | null
   readonly confirmacaoEnviadaEm?: Date | null
+  /** Centavos. Vira texto no parâmetro: o driver não serializa `bigint`. */
+  readonly valorOrcamento?: bigint
+  readonly programaOrcado?: readonly ItemOrcadoNoBanco[]
+  readonly motivoPerdaId?: string | null
+  /** O que entra no EVENTO, não em coluna. */
   readonly nota?: string
+  readonly valor?: string
+  readonly motivoId?: string
+  readonly motivo?: string
 }
+
+/**
+ * Um item da proposta como ele vai para o `jsonb`.
+ *
+ * `valor` é STRING DE CENTAVOS, não número JSON (decisão D-4). O `jsonb` do
+ * Postgres guarda `numeric` exato, então o banco não perderia precisão — mas
+ * `JSON.parse`, do lado do Node, devolve `number`, e um `number` perto de
+ * dinheiro é a assinatura que a regra 1 proíbe atravessar. A convenção já
+ * existe no transporte (`dinheiroEmTexto`); duas convenções para a mesma coisa
+ * é como uma delas é esquecida. Bônus: a redação vira `valor: null` sem
+ * conversão nenhuma.
+ */
+type ItemOrcadoNoBanco = Omit<ItemOrcado, 'valor'> & { readonly valor?: string }
+
+/** Centavos em texto, para dentro do `jsonb`. Um lugar só. */
+const centavosNoJsonb = (v: bigint): string => v.toString()
+
+const programaParaJsonb = (
+  programa: readonly ItemOrcado[],
+): readonly ItemOrcadoNoBanco[] =>
+  programa.map(({ valor, ...resto }) => ({
+    ...resto,
+    ...(valor === undefined ? {} : { valor: centavosNoJsonb(valor) }),
+  }))
 
 @Injectable()
 export class JornadaService {
@@ -113,6 +178,17 @@ export class JornadaService {
       const destino = transicao({ etapa: t.etapa, status: t.status, historico: t.historico }, dados.acao)
       if (ehErro(destino)) throw new ConflictException(destino.erro.mensagem)
 
+      // A PROPOSTA É CONFERIDA DENTRO DA TRANSAÇÃO, com a RLS ativa.
+      //
+      // `programa_orcado` é `jsonb`: nenhuma chave estrangeira o protege. Sem
+      // esta conferência, o id de uma pessoa da clínica VIZINHA atravessa e o
+      // épico 5 monta doze sessões atribuídas a alguém que não existe aqui —
+      // exatamente o furo que a unidade de outra clínica abriu no épico 2
+      // (commit d0d4bb0), onde a FK existia e ainda assim atravessou a RLS.
+      if (dados.acao === 'registrarOrcamento' && dados.programa !== undefined) {
+        await conferirResponsaveis(c, dados.programa)
+      }
+
       const efeitos = efeitosDa(dados, t, hoje, agora)
       const evento: EventoDeJornada = {
         acao: dados.acao,
@@ -120,36 +196,37 @@ export class JornadaService {
         em: agora.toISOString(),
         porId: autor.id,
         ...(efeitos.nota === undefined || efeitos.nota === '' ? {} : { nota: efeitos.nota }),
+        ...(efeitos.valor === undefined ? {} : { valor: efeitos.valor }),
+        ...(efeitos.motivoId === undefined ? {} : { motivoId: efeitos.motivoId }),
+        ...(efeitos.motivo === undefined ? {} : { motivo: efeitos.motivo }),
+      }
+
+      // O HISTÓRICO CRESCE NO BANCO, não em JavaScript. Ler o array, dar push
+      // e gravar de volta é ler-depois-escrever: perde a corrida que o
+      // `FOR UPDATE` existe para não perder, e torna o próprio `FOR UPDATE`
+      // decorativo. `||` concatena no servidor do banco.
+      const atribuicoes = [
+        'etapa = $2::etapa_de_jornada',
+        'status = $3',
+        'historico = historico || $4::jsonb',
+      ]
+      const params: unknown[] = [
+        id,
+        destino.valor.etapa,
+        destino.valor.status,
+        JSON.stringify([evento]),
+      ]
+      for (const chave of Object.keys(COLUNA_DE_EFEITO) as ChaveDeColuna[]) {
+        if (!(chave in efeitos)) continue
+        const [coluna, tipo] = COLUNA_DE_EFEITO[chave]
+        params.push(paraParametro(efeitos[chave]))
+        atribuicoes.push(`${coluna} = $${params.length}::${tipo}`)
       }
 
       await c.query(
-        `UPDATE tarefas
-            SET etapa  = $2::etapa_de_jornada,
-                status = $3,
-                -- O HISTÓRICO CRESCE NO BANCO, não em JavaScript. Ler o array,
-                -- dar push e gravar de volta é ler-depois-escrever: perde a
-                -- corrida que o FOR UPDATE existe para não perder, e torna o
-                -- próprio FOR UPDATE decorativo.
-                historico = historico || $4::jsonb,
-                prazo = coalesce($5::date, prazo),
-                hora = CASE WHEN $6 THEN $7::time ELSE hora END,
-                proximo_passo_em = CASE WHEN $8 THEN $9::date ELSE proximo_passo_em END,
-                confirmacao_enviada_em =
-                  CASE WHEN $10 THEN $11::timestamptz ELSE confirmacao_enviada_em END
+        `UPDATE tarefas SET ${atribuicoes.join(', ')}
           WHERE id = $1 AND excluida_em IS NULL`,
-        [
-          id,
-          destino.valor.etapa,
-          destino.valor.status,
-          JSON.stringify([evento]),
-          efeitos.prazo ?? null,
-          'hora' in efeitos,
-          efeitos.hora ?? null,
-          'proximoPassoEm' in efeitos,
-          efeitos.proximoPassoEm ?? null,
-          'confirmacaoEnviadaEm' in efeitos,
-          efeitos.confirmacaoEnviadaEm ?? null,
-        ],
+        params,
       )
 
       const todas = await lerTarefas(c, clinicaId, hoje, [id])
@@ -185,6 +262,36 @@ async function carregar(c: pg.PoolClient, id: string): Promise<CartaoCarregado> 
     throw new NotFoundException('Agendamento não encontrado.')
   }
   return { etapa: l.etapa, status: l.status, prazo: l.prazo, hora: l.hora, historico: l.historico }
+}
+
+/**
+ * Os responsáveis da proposta existem NESTA clínica e estão ATIVOS?
+ *
+ * Recusa em vez de descartar em silêncio — ao contrário de `unidadeValida`,
+ * que é um campo opcional de conveniência. Aqui o responsável é quem vai
+ * executar doze aplicações: perder o vínculo em silêncio põe as sessões na
+ * agenda de ninguém, e a descoberta é na recepção, com a paciente na sala.
+ */
+async function conferirResponsaveis(
+  c: pg.PoolClient,
+  programa: readonly ItemOrcado[],
+): Promise<void> {
+  const pedidos = [
+    ...new Set(
+      programa
+        .map((i) => i.responsavelId)
+        .filter((x): x is string => x !== null && x !== undefined),
+    ),
+  ]
+  if (pedidos.length === 0) return
+  // A RLS filtra por clínica: a pessoa da vizinha devolve zero linhas.
+  const r = await c.query<{ id: string }>(
+    'SELECT id FROM pessoas WHERE id = ANY($1) AND ativo',
+    [pedidos],
+  )
+  if (r.rowCount !== pedidos.length) {
+    throw new BadRequestException('Escolha um responsável ativo para cada item do programa.')
+  }
 }
 
 /**
@@ -244,14 +351,60 @@ function efeitosDa(
       return { proximoPassoEm: null, ...(dados.nota === undefined ? {} : { nota: dados.nota }) }
 
     case 'registrarOrcamento':
+      return {
+        valorOrcamento: dados.valor,
+        // A proposta inteira, para o épico 5 consumir no fechamento. Nada se
+        // perde enquanto o módulo Programas não existir.
+        ...(dados.programa === undefined
+          ? {}
+          : { programaOrcado: programaParaJsonb(dados.programa) }),
+        // `hoje + 2` CALCULADO AQUI, no fuso da clínica. O protótipo calcula na
+        // tela e manda a data; com o relógio do cliente adiantado, o orçamento
+        // voltaria a pedir ação no dia errado (regra 24).
+        proximoPassoEm: dados.retomarEm ?? somarDias(hoje, DIAS_PARA_RETOMAR),
+        valor: centavosNoJsonb(dados.valor),
+        ...(dados.nota === undefined ? {} : { nota: dados.nota }),
+      }
+
     case 'followUp':
+      // NÃO toca em `valor_orcamento`: é ele que mede o tamanho do negócio no
+      // funil, e zerá-lo num follow-up apagaria a proposta sem apagar o cartão.
+      return {
+        proximoPassoEm: dados.retomarEm ?? somarDias(hoje, DIAS_PARA_FOLLOW_UP),
+        ...(dados.nota === undefined ? {} : { nota: dados.nota }),
+      }
+
     case 'perder':
     case 'fechar':
-      // Tasks 5, 6 e 7 deste épico. Enquanto não existirem, 501 — e NÃO um
-      // 200 que grava a etapa sem gravar o valor, que é a forma de um
-      // orçamento virar um cartão "orçado" de R$ 0,00.
+      // Tasks 6 e 7 deste épico. Enquanto não existirem, 501 — e NÃO um 200
+      // que grava a etapa sem gravar o motivo (ou o dinheiro), que é a forma
+      // de um orçamento perdido virar um relatório que não explica nada.
       throw new NotImplementedException(MENSAGEM_ACAO_SEM_IMPLEMENTACAO)
   }
+}
+
+/**
+ * Os dois prazos padrão, do protótipo (`addDays(today(),2)` e `…,3`).
+ *
+ * Dois dias para retomar um orçamento e três para o próximo follow-up: a
+ * primeira cobrança é mais rápida que a segunda, porque a paciente acabou de
+ * receber a proposta e ainda lembra dela.
+ */
+const DIAS_PARA_RETOMAR = 2
+const DIAS_PARA_FOLLOW_UP = 3
+
+/**
+ * O valor de um efeito, pronto para o driver.
+ *
+ * `bigint` vira TEXTO: o `pg` não serializa `bigint`, e `Number()` perderia
+ * precisão acima de 2^53 (regra 1). Objeto vira JSON.
+ */
+function paraParametro(valor: unknown): unknown {
+  if (typeof valor === 'bigint') return valor.toString()
+  if (valor !== null && typeof valor === 'object' && !(valor instanceof Date)) {
+    return JSON.stringify(valor)
+  }
+  return valor ?? null
 }
 
 export const MENSAGEM_ACAO_SEM_IMPLEMENTACAO =

@@ -305,7 +305,9 @@ export async function tarefaCrua(
   const r = await c.migrate.query<Record<string, unknown>>(
     `SELECT id, status, prazo::text AS prazo, hora::text AS hora, tipo, descricao, etapa::text AS etapa,
             historico, concluida_em, excluida_em, serie_id, recorrencia, unidade_id, paciente_id,
-            responsavel_id, solicitante_id, resultado, obs, prioridade
+            responsavel_id, solicitante_id, resultado, obs, prioridade,
+            valor_orcamento::text AS valor_orcamento, programa_orcado, motivo_perda_id,
+            proximo_passo_em::text AS proximo_passo_em, confirmacao_enviada_em
        FROM tarefas WHERE id = $1`,
     [id],
   )
