@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common'
 import { provedorDeRelogio } from '../comum/relogio'
 import { TarefasModule } from '../tarefas/tarefas.module'
+import { FechamentoService } from './fechamento.service'
 import { JornadaController } from './jornada.controller'
 import { JornadaService } from './jornada.service'
+import { MontadorDePrograma, MontadorIndisponivel } from './montador-de-programa'
 import { MotivosController, MotivosService } from './motivos.controller'
 
 /**
@@ -14,7 +16,22 @@ import { MotivosController, MotivosService } from './motivos.controller'
 @Module({
   imports: [TarefasModule],
   controllers: [JornadaController, MotivosController],
-  providers: [JornadaService, MotivosService, provedorDeRelogio],
+  providers: [
+    JornadaService,
+    FechamentoService,
+    MotivosService,
+    /**
+     * **A LINHA QUE O ÉPICO 5 TROCA.**
+     *
+     * `MontadorDePrograma` é o seam declarado em `docs/arquitetura/sistema.md`:
+     * o fechamento de um orçamento com programa precisa montar o `Programa` na
+     * mesma transação do recebimento e da etapa. Enquanto a tabela de programas
+     * não existe, o montador recusa — e a recusa desfaz a transação inteira,
+     * em vez de deixar o dinheiro lançado e as sessões sem existir.
+     */
+    { provide: MontadorDePrograma, useClass: MontadorIndisponivel },
+    provedorDeRelogio,
+  ],
   exports: [JornadaService],
 })
 export class JornadaModule {}

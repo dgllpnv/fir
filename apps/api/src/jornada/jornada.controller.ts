@@ -1,8 +1,10 @@
 import { MoverEtapa, type TarefasAfetadas } from '@fir/contracts'
+import type { ChaveDePermissao } from '@fir/domain'
 import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   HttpCode,
   HttpStatus,
   Inject,
@@ -28,9 +30,26 @@ import { JornadaService } from './jornada.service'
  * e Recepção, Comercial e Supervisão já a têm: ninguém perde acesso ao que usa
  * hoje.
  *
- * `fechar` exige TAMBÉM `receber`, declarado no handler (Task 7): a rota que
- * cria dinheiro é gated, sem exceção. Até lá, `@Exige` da classe basta.
+ * `fechar` exige TAMBÉM `receber` — ver `PERMISSAO_EXTRA`.
  */
+
+/**
+ * A permissão que uma ação exige **além** de `jornada`. Uma tabela, não um `if`.
+ *
+ * `@Exige` no handler não serve: é UMA rota para treze ações, e o decorador
+ * vale para todas. Exigir `receber` no handler tiraria `confirmar` e `noshow`
+ * da recepção — que é quem os usa cinquenta vezes por dia.
+ *
+ * Como tabela, a pergunta "quais ações pedem mais que `jornada`?" tem uma
+ * resposta legível num lugar só, e acrescentar a próxima é uma linha. Como
+ * `if`, a segunda estaria noutro arquivo em três meses.
+ *
+ * `fechar` cria `Recebimento`, e a rota que cria dinheiro é gated, sem exceção
+ * (decisão D-7).
+ */
+const PERMISSAO_EXTRA: Partial<Record<MoverEtapa['acao'], ChaveDePermissao>> = {
+  fechar: 'receber',
+}
 @Controller('v1/tarefas')
 @Exige('jornada')
 export class JornadaController {
@@ -49,6 +68,13 @@ export class JornadaController {
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     // `!` seguro: `SessaoGuard` é global e esta rota não é `@Publico()`.
     const c = req.contexto!
+    const extra = PERMISSAO_EXTRA[dados.data.acao]
+    // Antes de qualquer escrita, e com a MESMA frase do guard: a lista de
+    // chaves que faltam a quem não as tem é um mapa do que existe atrás da
+    // porta.
+    if (extra !== undefined && !c.pode(extra)) {
+      throw new ForbiddenException('Sem acesso a esta ação.')
+    }
     return this.jornada.mover(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id, dados.data)
   }
 }

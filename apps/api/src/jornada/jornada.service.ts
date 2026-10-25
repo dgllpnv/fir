@@ -15,7 +15,6 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-  NotImplementedException,
 } from '@nestjs/common'
 import type pg from 'pg'
 import type { Ator } from '../banco/ator'
@@ -24,6 +23,18 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { ConclusaoService } from '../tarefas/conclusao.service'
 import { type AutorDaRequisicao, brAno, lerTarefas } from '../tarefas/leitura'
+import {
+  type CartaoCarregado,
+  carregarCartao,
+  centavosNoJsonb,
+  type ChaveDeColuna,
+  COLUNA_DE_EFEITO,
+  type Efeitos,
+  type ItemOrcado,
+  paraParametro,
+  programaParaJsonb,
+} from './cartao'
+import { FechamentoService } from './fechamento.service'
 
 /**
  * A rota única de transição da jornada.
@@ -49,94 +60,6 @@ import { type AutorDaRequisicao, brAno, lerTarefas } from '../tarefas/leitura'
  * evento. A trilha (regra 20) é prova, e prova com buraco não é prova.
  */
 
-/** O que a transição precisa saber da tarefa. Nada de dinheiro aqui. */
-type CartaoCarregado = {
-  readonly etapa: Etapa
-  readonly status: StatusDeTarefa
-  readonly prazo: string
-  readonly hora: string | null
-  readonly historico: EventoDeJornada[]
-}
-
-/**
- * As colunas que uma ação pode tocar, e o TIPO com que o parâmetro entra.
- *
- * Uma tabela, e não vinte parâmetros posicionais com flags booleanas: a
- * terceira coluna acrescentada ao `UPDATE` à mão é onde o `CASE WHEN $8` passa
- * a apontar para o `$9` errado. Os nomes de coluna vêm desta constante
- * LITERAL — nada aqui vem de corpo de requisição, então não existe superfície
- * de injeção.
- *
- * `undefined` (chave ausente) = não mexe na coluna. `null` = grava NULL.
- */
-const COLUNA_DE_EFEITO = {
-  prazo: ['prazo', 'date'],
-  hora: ['hora', 'time'],
-  proximoPassoEm: ['proximo_passo_em', 'date'],
-  confirmacaoEnviadaEm: ['confirmacao_enviada_em', 'timestamptz'],
-  valorOrcamento: ['valor_orcamento', 'bigint'],
-  programaOrcado: ['programa_orcado', 'jsonb'],
-  motivoPerdaId: ['motivo_perda_id', 'uuid'],
-} as const satisfies Record<string, readonly [string, string]>
-
-type ChaveDeColuna = keyof typeof COLUNA_DE_EFEITO
-
-/**
- * Um item da proposta, DERIVADO do contrato — nunca redeclarado.
- *
- * `packages/contracts` é a fonte única da forma. Uma segunda declaração aqui
- * seria a terceira cópia da mesma regra que este projeto existe para não ter.
- */
-type ItemOrcado = NonNullable<
-  Extract<MoverEtapa, { acao: 'registrarOrcamento' }>['programa']
->[number]
-
-/**
- * Os efeitos de uma ação: as colunas que ela toca, e o que vai para o evento.
- *
- * Separado da PERMISSÃO de propósito. Quem decide se a ação é possível é
- * `transicao()`; aqui só se descreve o que acontece depois do sim.
- */
-type Efeitos = {
-  readonly prazo?: string
-  readonly hora?: string | null
-  readonly proximoPassoEm?: string | null
-  readonly confirmacaoEnviadaEm?: Date | null
-  /** Centavos. Vira texto no parâmetro: o driver não serializa `bigint`. */
-  readonly valorOrcamento?: bigint
-  readonly programaOrcado?: readonly ItemOrcadoNoBanco[]
-  readonly motivoPerdaId?: string | null
-  /** O que entra no EVENTO, não em coluna. */
-  readonly nota?: string
-  readonly valor?: string
-  readonly motivoId?: string
-  readonly motivo?: string
-}
-
-/**
- * Um item da proposta como ele vai para o `jsonb`.
- *
- * `valor` é STRING DE CENTAVOS, não número JSON (decisão D-4). O `jsonb` do
- * Postgres guarda `numeric` exato, então o banco não perderia precisão — mas
- * `JSON.parse`, do lado do Node, devolve `number`, e um `number` perto de
- * dinheiro é a assinatura que a regra 1 proíbe atravessar. A convenção já
- * existe no transporte (`dinheiroEmTexto`); duas convenções para a mesma coisa
- * é como uma delas é esquecida. Bônus: a redação vira `valor: null` sem
- * conversão nenhuma.
- */
-type ItemOrcadoNoBanco = Omit<ItemOrcado, 'valor'> & { readonly valor?: string }
-
-/** Centavos em texto, para dentro do `jsonb`. Um lugar só. */
-const centavosNoJsonb = (v: bigint): string => v.toString()
-
-const programaParaJsonb = (
-  programa: readonly ItemOrcado[],
-): readonly ItemOrcadoNoBanco[] =>
-  programa.map(({ valor, ...resto }) => ({
-    ...resto,
-    ...(valor === undefined ? {} : { valor: centavosNoJsonb(valor) }),
-  }))
-
 @Injectable()
 export class JornadaService {
   // `@Inject` explícito: o esbuild não emite `design:paramtypes`.
@@ -144,6 +67,7 @@ export class JornadaService {
     @Inject(BancoService) private readonly banco: BancoService,
     @Inject(RELOGIO) private readonly relogio: Relogio,
     @Inject(ConclusaoService) private readonly conclusao: ConclusaoService,
+    @Inject(FechamentoService) private readonly fechamento: FechamentoService,
   ) {}
 
   async mover(
@@ -173,7 +97,7 @@ export class JornadaService {
     const hoje = diaCivil(agora, fuso)
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
-      const t = await carregar(c, id)
+      const t = await carregarCartao(c, id)
 
       const destino = transicao({ etapa: t.etapa, status: t.status, historico: t.historico }, dados.acao)
       if (ehErro(destino)) throw new ConflictException(destino.erro.mensagem)
@@ -207,7 +131,27 @@ export class JornadaService {
       const motivo =
         dados.acao === 'perder' ? await resolverMotivo(c, dados.motivoId) : undefined
 
-      const efeitos = efeitosDa(dados, t, hoje, agora, motivo)
+      /**
+       * `fechar` sai pela PORTA PRÓPRIA, e não pelo `switch` de efeitos.
+       *
+       * As outras doze ações são puras — a ação vira colunas, e nada mais
+       * acontece. O fechamento escreve DINHEIRO e monta PROGRAMA, as duas
+       * coisas dentro desta mesma transação. Enfiá-lo no `switch` obrigaria
+       * `efeitosDa` a receber o cliente do banco, e aí toda ação teria acesso
+       * a ele — que é como a décima terceira passa a escrever por conta
+       * própria em vez de declarar o efeito.
+       */
+      const efeitos =
+        dados.acao === 'fechar'
+          ? await this.fechamento.fechar(c, {
+              clinicaId,
+              tarefaId: id,
+              cartao: t,
+              dados,
+              autor,
+              agora,
+            })
+          : efeitosDa(dados, t, hoje, agora, motivo)
       const evento: EventoDeJornada = {
         acao: dados.acao,
         etapa: destino.valor.etapa,
@@ -253,33 +197,6 @@ export class JornadaService {
       return { tarefa, todas }
     })
   }
-}
-
-/**
- * Carrega o cartão com `FOR UPDATE`.
- *
- * `etapa IS NULL` é **404, não 409**. 409 diria "a tarefa existe e a ação está
- * errada"; a verdade é que ela não é um agendamento — é uma tarefa interna, ou
- * um Follow-up. A RLS já filtra por clínica, então o cartão da vizinha devolve
- * zero linhas, e zero é a mesma resposta de "não existe".
- */
-async function carregar(c: pg.PoolClient, id: string): Promise<CartaoCarregado> {
-  const r = await c.query<{
-    etapa: Etapa | null
-    status: StatusDeTarefa
-    prazo: string
-    hora: string | null
-    historico: EventoDeJornada[]
-  }>(
-    `SELECT etapa::text AS etapa, status, prazo::text AS prazo, hora::text AS hora, historico
-       FROM tarefas WHERE id = $1 AND excluida_em IS NULL FOR UPDATE`,
-    [id],
-  )
-  const l = r.rows[0]
-  if (l === undefined || l.etapa === null) {
-    throw new NotFoundException('Agendamento não encontrado.')
-  }
-  return { etapa: l.etapa, status: l.status, prazo: l.prazo, hora: l.hora, historico: l.historico }
 }
 
 /** O motivo de perda, resolvido pela lista DA CLÍNICA — ou 400. */
@@ -331,13 +248,14 @@ async function conferirResponsaveis(
  * declarado não compila, em vez de cair num `default` silencioso que grava a
  * etapa e esquece a coluna.
  *
- * `reabrir` fica FORA do tipo porque ele sai antes, delegado ao épico 2 — e
- * excluí-lo aqui é o que mantém a exaustividade honesta: com ele dentro, a
- * função precisaria de um ramo morto, e um ramo morto é onde a próxima ação
- * esquecida vai se esconder.
+ * `reabrir` e `fechar` ficam FORA do tipo porque saem antes, cada um pela sua
+ * porta — o primeiro delegado ao épico 2, o segundo ao `FechamentoService`,
+ * que escreve dinheiro. Excluí-los aqui é o que mantém a exaustividade
+ * honesta: com eles dentro, a função precisaria de dois ramos mortos, e um
+ * ramo morto é onde a próxima ação esquecida vai se esconder.
  */
 function efeitosDa(
-  dados: Exclude<MoverEtapa, { acao: 'reabrir' }>,
+  dados: Exclude<MoverEtapa, { acao: 'reabrir' | 'fechar' }>,
   t: CartaoCarregado,
   hoje: string,
   agora: Date,
@@ -427,12 +345,6 @@ function efeitosDa(
         motivo: motivo.nome,
         ...(dados.nota === undefined ? {} : { nota: dados.nota }),
       }
-
-    case 'fechar':
-      // Task 7 deste épico. Enquanto não existir, 501 — e NÃO um 200 que grava
-      // a etapa sem lançar o dinheiro, que é a forma de uma paciente pagar e
-      // o cartão continuar em "Orçamentos em aberto".
-      throw new NotImplementedException(MENSAGEM_ACAO_SEM_IMPLEMENTACAO)
   }
 }
 
@@ -445,20 +357,3 @@ function efeitosDa(
  */
 const DIAS_PARA_RETOMAR = 2
 const DIAS_PARA_FOLLOW_UP = 3
-
-/**
- * O valor de um efeito, pronto para o driver.
- *
- * `bigint` vira TEXTO: o `pg` não serializa `bigint`, e `Number()` perderia
- * precisão acima de 2^53 (regra 1). Objeto vira JSON.
- */
-function paraParametro(valor: unknown): unknown {
-  if (typeof valor === 'bigint') return valor.toString()
-  if (valor !== null && typeof valor === 'object' && !(valor instanceof Date)) {
-    return JSON.stringify(valor)
-  }
-  return valor ?? null
-}
-
-export const MENSAGEM_ACAO_SEM_IMPLEMENTACAO =
-  'Esta ação ainda não está disponível. Registre pela tela Recebimentos.'
