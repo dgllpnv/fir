@@ -47,13 +47,13 @@ Legenda de estado: ⬜ não começou · 🟡 em andamento · ✅ pronto e testad
 
 | Ação | v20 | Estado | Nota |
 |---|---|---|---|
-| `fecharCaixa` | — | ⬜ | Conferência às cegas: o esperado não pode vazar antes do fechamento |
-| `salvarConta` | — | ⬜ | Contas a pagar |
-| `excluirConta` | — | ⬜ | |
-| `pagarConta` | — | ⬜ | |
-| `registrarCobranca` | — | ⬜ | |
-| `finConfig` | — | ⬜ | Categorias e configuração financeira |
-| `salvarMetaFin` | — | ⬜ | Meta do mês |
+| `fecharCaixa` | — | ✅ | Conferência às cegas provada **no corpo HTTP**: em dia aberto a chave `esperado` não existe. Sem `valores`, a equipe recebe `conferido`, nunca a diferença (ADR 0005) |
+| `salvarConta` | — | ✅ | Contas a pagar, com âncora de dia 31 na recorrência |
+| `excluirConta` | — | ✅ | Conta já paga não se exclui — apagá-la mudaria o resultado do mês |
+| `pagarConta` | — | ✅ | |
+| `registrarCobranca` | — | ✅ | Saldo derivado e **agrupado por programa** — a segunda implementação, que colapsava num total, foi apagada |
+| `finConfig` | — | ✅ | Categoria desconhecida cai em *Outras despesas* em vez de sumir da soma |
+| `salvarMetaFin` | — | ✅ | Sem `valores`, a meta entrega só o **percentual** |
 
 ## Épico 5 — Programas
 
