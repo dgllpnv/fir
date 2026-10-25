@@ -8,7 +8,9 @@ import {
   ehDaJornada,
   type Etapa,
   ETAPAS,
+  ETAPA_AO_CANCELAR,
   ETAPAS_EM_RECONTATO,
+  ETAPAS_SEM_SAIDA,
   ETAPAS_TERMINAIS,
   etapaDerivada,
   type EventoDeJornada,
@@ -118,19 +120,37 @@ describe('transicao — o que é proibido, cada caso', () => {
     expect(mensagemDe(r)).toContain('ainda não aconteceu')
   })
 
-  it('os três terminais não têm saída nenhuma', () => {
-    for (const t of ETAPAS_TERMINAIS) {
+  it('de fechado e perdido NADA sai — nem reabrir', () => {
+    for (const t of ETAPAS_SEM_SAIDA) {
       for (const a of ACOES) {
         expect(ehErro(transicao(estadoDe(t), a)), `${t} + ${a}`).toBe(true)
       }
     }
   })
 
-  it('A MATRIZ INTEIRA: 9 etapas × 13 ações, e só as 12 da tabela passam', () => {
-    // 117 combinações, uma por uma. É o único jeito de provar que CADA
-    // transição proibida é recusada — "de faltou só saem três" prova três
-    // linhas, não as outras 114. `agendar` é criação e não sai de etapa
-    // nenhuma, então a tabela tem 13 ações e 12 transições alcançáveis.
+  it('de encerrado sai SÓ reabrir — porque cancelar por engano acontece', () => {
+    const permitidas = ACOES.filter((a) => ehOk(transicao(estadoDe('encerrado'), a)))
+    expect(permitidas).toEqual(['reabrir'])
+    // E `encerrado` continua terminal no FUNIL: a jornada não avança dali.
+    expect(ETAPAS_TERMINAIS).toContain('encerrado')
+  })
+
+  it('a etapa de uma tarefa cancelada é a única com status cancelada', () => {
+    // O `CHECK etapa_combina_com_status` não deixa escolha: cancelar pela rota
+    // do épico 2 tem de gravar esta etapa, e existe exatamente uma.
+    expect(statusDaEtapa(ETAPA_AO_CANCELAR)).toBe('cancelada')
+    expect(ETAPAS.filter((e) => statusDaEtapa(e) === 'cancelada')).toEqual([ETAPA_AO_CANCELAR])
+  })
+
+  it('A MATRIZ INTEIRA: 9 etapas × 13 ações, e só as 23 combinações da tabela passam', () => {
+    // 117 combinações, uma por uma, e as 94 restantes são recusadas. É o
+    // único jeito de provar que CADA transição proibida é recusada — "de
+    // faltou só saem três" prova três linhas, não as outras 114.
+    //
+    // A lista abaixo é LITERAL de propósito: a propriedade "ou está na tabela
+    // ou é erro" deriva o esperado da PRÓPRIA tabela, então acrescentar uma
+    // linha a `TRANSICOES` a mantém verde. Este teste é o que prende a tabela
+    // à especificação escrita, e foi ele que pegou as duas mutações.
     const permitidas: string[] = []
     for (const etapa of ETAPAS) {
       for (const acao of ACOES) {
@@ -151,6 +171,7 @@ describe('transicao — o que é proibido, cada caso', () => {
         'confirmado -desmarcar-> desmarcou/aberta',
         'confirmado -noshow-> faltou/aberta',
         'confirmado -reagendar-> agendado/aberta',
+        'encerrado -reabrir-> agendado/aberta',
         'desmarcou -concluir-> realizado/concluida',
         'desmarcou -encerrar-> encerrado/cancelada',
         'desmarcou -reagendar-> agendado/aberta',
@@ -165,7 +186,7 @@ describe('transicao — o que é proibido, cada caso', () => {
         'realizado -registrarOrcamento-> orcamento/concluida',
       ].sort(),
     )
-    expect(permitidas).toHaveLength(22)
+    expect(permitidas).toHaveLength(23)
   })
 
   it('nenhuma ação de agenda alcança um cartão concluído', () => {
@@ -225,6 +246,15 @@ describe('reabrir — a etapa vem do histórico', () => {
   it('restaura confirmado quando foi dali que a tarefa foi concluída', () => {
     const h = [ev('agendar', 'agendado'), ev('confirmar', 'confirmado'), ev('concluir', 'realizado')]
     expect(exigir(transicao(feita('realizado', h), 'reabrir')).etapa).toBe('confirmado')
+  })
+
+  it('reabrir um cartão ENCERRADO o devolve para o Recontatar', () => {
+    // Cancelar por engano acontece. O cartão volta para onde estava —
+    // `desmarcou` —, não para `agendado`, senão a recepção perde o recontato.
+    const h = [ev('agendar', 'agendado'), ev('desmarcar', 'desmarcou'), ev('encerrar', 'encerrado')]
+    const r = exigir(transicao({ etapa: 'encerrado', status: 'cancelada', historico: h }, 'reabrir'))
+    expect(r.etapa).toBe('desmarcou')
+    expect(r.status).toBe('aberta')
   })
 
   it('histórico vazio ou sem etapa em aberto volta para agendado', () => {

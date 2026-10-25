@@ -86,6 +86,34 @@ export const ETAPAS_TERMINAIS: readonly Etapa[] = ['fechado', 'perdido', 'encerr
 export const ETAPAS_EM_RECONTATO: readonly Etapa[] = ['faltou', 'desmarcou']
 
 /**
+ * De `fechado` e `perdido` NADA sai. Nem `reabrir`.
+ *
+ * `encerrado` é terminal no FUNIL — a jornada não avança dali — mas `reabrir`
+ * alcança, porque reabrir não é avanço: é correção, e cancelar por engano
+ * acontece. O que torna `fechado` diferente é o dinheiro: reabrir um fechado
+ * deixaria um `Recebimento` pendurado num atendimento que voltou a "não
+ * aconteceu". `encerrado` não tem dinheiro nenhum.
+ *
+ * Esta é uma divergência consciente do plano do épico 3, que lista `encerrado`
+ * entre os terminais sem saída E, três linhas depois, recusa `reabrir` só em
+ * `orcamento`, `fechado` e `perdido`. O épico 2 já reabre tarefa cancelada, e
+ * tem teste verde para isso — fechar a porta aqui quebraria a correção.
+ */
+export const ETAPAS_SEM_SAIDA: readonly Etapa[] = ['fechado', 'perdido']
+
+/**
+ * A etapa de um cartão da jornada cuja TAREFA foi cancelada pela rota do
+ * épico 2 (`POST /v1/tarefas/:id/cancelar`).
+ *
+ * Cancelar não é a ação `encerrar`: a autorização é outra (`podeCancelar`, de
+ * quem solicitou) e ela alcança `agendado` e `confirmado`, que `encerrar` não
+ * alcança. O que as duas portas têm em comum é o resultado — e ele é forçado
+ * pelo `CHECK etapa_combina_com_status`, porque existe EXATAMENTE UMA etapa
+ * com `status = 'cancelada'`.
+ */
+export const ETAPA_AO_CANCELAR: Etapa = 'encerrado'
+
+/**
  * O `status` que cada etapa OBRIGA — o mesmo par que o `CHECK
  * etapa_combina_com_status` da migration 0007 amarra no banco.
  *
@@ -152,7 +180,7 @@ const TRANSICOES_LITERAL = [
   { acao: 'followUp',           de: ['orcamento'],              para: 'orcamento',  status: 'concluida', contaNoFunil: false, exigeValor: false, exigeMotivo: false },
   { acao: 'fechar',             de: ['realizado', 'orcamento'], para: 'fechado',    status: 'concluida', contaNoFunil: true,  exigeValor: true,  exigeMotivo: false },
   { acao: 'perder',             de: ['orcamento'],              para: 'perdido',    status: 'concluida', contaNoFunil: true,  exigeValor: false, exigeMotivo: true  },
-  { acao: 'reabrir',            de: ['realizado'],              para: 'anterior',   status: 'aberta',    contaNoFunil: false, exigeValor: false, exigeMotivo: false },
+  { acao: 'reabrir',            de: ['realizado', 'encerrado'], para: 'anterior',   status: 'aberta',    contaNoFunil: false, exigeValor: false, exigeMotivo: false },
 ] as const satisfies readonly Transicao[]
 
 /**
