@@ -111,7 +111,7 @@ describe('visaoDoMes', () => {
     expect(v.porCategoria.map((x) => x.categoria)).toEqual(['Pessoal', 'Marketing'])
     const mkt = v.porCategoria.find((x) => x.categoria === 'Marketing')!
     expect(mkt.valor.ehZero()).toBe(true)
-    expect(mkt.valorMesAnterior.centavos).toBe(90000n)
+    expect(mkt.mesAnterior.valor.centavos).toBe(90000n)
     expect(v.porCategoria.map((x) => x.categoria)).not.toContain('Ocupação')
   })
 

@@ -86,6 +86,72 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
    * herança.
    */
   { metodo: 'GET', caminho: '/v1/jornada', camposDeDinheiro: ['valor', 'valorOrcamento'] },
+
+  /**
+   * O FINANCEIRO (épico 4).
+   *
+   * As rotas de recebimento existem. As de caixa, conta, cobrança, meta e
+   * Visão do mês ainda NÃO — elas são das Tasks 8 a 11 —, e entram aqui pela
+   * mesma razão que `POST /v1/tarefas` entrou antes de existir: o CONTRATO
+   * delas já está em `@fir/contracts` e a varredura de `redacao-de-valores`
+   * o enxerga HOJE. Declarar o contrato sem a rota deixaria a varredura
+   * acusando campo descoberto; não declarar o contrato adiaria o acordo que
+   * servidor e tela precisam ter antes de qualquer um dos dois existir.
+   *
+   * O risco, escrito: se as Tasks 8–11 mudarem de caminho, estas linhas
+   * mentem. `rotas-protegidas.test.ts` confronta o registro com o que a API
+   * de fato expõe e vai cobrar.
+   */
+  { metodo: 'POST', caminho: '/v1/recebimentos', camposDeDinheiro: ['valor', 'valorAberto'] },
+  { metodo: 'GET', caminho: '/v1/recebimentos', camposDeDinheiro: ['valor', 'valorAberto'] },
+  { metodo: 'DELETE', caminho: '/v1/recebimentos/:id', camposDeDinheiro: ['valor', 'valorAberto'] },
+  {
+    metodo: 'GET',
+    caminho: '/v1/pacientes/:id/saldo',
+    // `saldo` por grupo E no topo; `aberto`/`abatido` são os brutos do grupo;
+    // `credito` é o excedente que o clamp por grupo preservou.
+    camposDeDinheiro: ['saldo', 'aberto', 'abatido', 'credito'],
+  },
+  { metodo: 'GET', caminho: '/v1/cobrancas', camposDeDinheiro: ['saldo', 'aReceber'] },
+  /**
+   * `GET /v1/caixa` devolve `esperado`, `contado` e `diferenca` — **só depois
+   * do fechamento**. Antes dele as chaves NÃO EXISTEM no corpo (regra 6), e é
+   * `teste/transporte-as-cegas.test.ts` que prova isso. Esta entrada fala da
+   * resposta do dia FECHADO; redação e cegueira são defesas diferentes.
+   */
+  {
+    metodo: 'GET',
+    caminho: '/v1/caixa',
+    camposDeDinheiro: ['esperado', 'contado', 'diferenca', 'valor'],
+  },
+  {
+    metodo: 'POST',
+    caminho: '/v1/caixa',
+    camposDeDinheiro: ['esperado', 'contado', 'diferenca', 'valor'],
+  },
+  { metodo: 'GET', caminho: '/v1/contas', camposDeDinheiro: ['valor', 'valorPago'] },
+  { metodo: 'POST', caminho: '/v1/contas', camposDeDinheiro: ['valor', 'valorPago'] },
+  { metodo: 'PATCH', caminho: '/v1/contas/:id', camposDeDinheiro: ['valor', 'valorPago'] },
+  { metodo: 'DELETE', caminho: '/v1/contas/:id', camposDeDinheiro: ['valor', 'valorPago'] },
+  { metodo: 'POST', caminho: '/v1/contas/:id/pagar', camposDeDinheiro: ['valor', 'valorPago'] },
+  {
+    metodo: 'GET',
+    caminho: '/v1/visao-do-mes',
+    camposDeDinheiro: [
+      'recebido',
+      'despesasPagas',
+      'resultadoDoMes',
+      'aPagar',
+      'aReceber',
+      'meta',
+      'metaRestante',
+      'fixas',
+      'variaveis',
+      'valor',
+      'diferenca',
+    ],
+  },
+  { metodo: 'GET', caminho: '/v1/metas/:mes/percentual', camposDeDinheiro: ['meta', 'recebido'] },
 ]
 
 /**

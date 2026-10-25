@@ -32,8 +32,18 @@ export type GrupoDeSaldo = {
 
 export type SaldoDoPaciente = {
   readonly grupos: readonly GrupoDeSaldo[]
-  /** Soma dos `saldo` dos grupos. */
-  readonly total: Dinheiro
+  /**
+   * Soma dos `saldo` dos grupos.
+   *
+   * **Chama-se `saldo`, e não `total`**, pelo mesmo motivo que o resultado do
+   * mês não se chama `resultado`: `CAMPOS_MONETARIOS` apaga por NOME, em
+   * qualquer profundidade de qualquer resposta, e `total` já é um INTEIRO DE
+   * CONTAGEM em três contratos (`PaginaDePacientes.total`,
+   * `ListaDeTarefas.total`, `hoje.pendentes.total`). Registrar `total` como
+   * monetário apagaria a contagem de páginas da recepção inteira e quebraria
+   * a paginação — sem erro nenhum. Medido.
+   */
+  readonly saldo: Dinheiro
   /** Soma dos `credito` dos grupos. */
   readonly credito: Dinheiro
   /** Derivado; sobrevive à redação (regra 17) — é o que a equipe sem `valores` recebe. */
@@ -100,5 +110,5 @@ export function saldoEmAberto(eventos: readonly EventoDeSaldo[]): SaldoDoPacient
   const total = grupos.reduce((s, g) => s.mais(g.saldo), Dinheiro.zero())
   const credito = grupos.reduce((s, g) => s.mais(g.credito), Dinheiro.zero())
 
-  return { grupos, total, credito, temSaldo: !total.ehZero() && !total.ehNegativo() }
+  return { grupos, saldo: total, credito, temSaldo: !total.ehZero() && !total.ehNegativo() }
 }

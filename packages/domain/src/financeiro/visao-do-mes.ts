@@ -26,11 +26,22 @@ export type EntradaDaVisao = {
   readonly diasUteis: number
 }
 
+/**
+ * A comparação com o mês anterior mora num objeto ANINHADO, e não em campos
+ * `…MesAnterior` ao lado.
+ *
+ * `CAMPOS_MONETARIOS` é uma lista de nomes, e `valorMesAnterior`,
+ * `recebidoMesAnterior` e `despesasPagasMesAnterior` seriam três nomes novos
+ * que dizem a mesma coisa que três já registrados. Lista que cresce por
+ * quase-duplicata é lista que apodrece — e o interceptor desce no objeto
+ * aninhado sozinho, onde as chaves voltam a ser `valor`, `recebido` e
+ * `despesasPagas`.
+ */
 export type LinhaDeCategoria = {
   readonly categoria: string
   readonly tipo: TipoDeDespesa
   readonly valor: Dinheiro
-  readonly valorMesAnterior: Dinheiro
+  readonly mesAnterior: { readonly valor: Dinheiro }
   /** Fatia desta categoria no total de despesas pagas. `null` se nada foi pago. */
   readonly percentual: number | null
 }
@@ -47,12 +58,13 @@ export type ResumoDeCaixa = {
 export type VisaoDoMes = {
   readonly recebido: Dinheiro
   readonly quantidadeDeRecebimentos: number
-  readonly recebidoMesAnterior: Dinheiro
   readonly porForma: readonly LinhaDeForma[]
+
+  /** Ver a nota em `LinhaDeCategoria`: aninhado, e não `…MesAnterior` ao lado. */
+  readonly mesAnterior: { readonly recebido: Dinheiro; readonly despesasPagas: Dinheiro }
 
   readonly despesasPagas: Dinheiro
   readonly quantidadeDePagas: number
-  readonly despesasPagasMesAnterior: Dinheiro
   readonly porCategoria: readonly LinhaDeCategoria[]
   readonly fixas: Dinheiro
   readonly variaveis: Dinheiro
@@ -196,12 +208,12 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
     categoria: cat.nome,
     tipo: cat.tipo,
     valor: doMes.get(cat.nome) ?? Dinheiro.zero(),
-    valorMesAnterior: doAnterior.get(cat.nome) ?? Dinheiro.zero(),
+    mesAnterior: { valor: doAnterior.get(cat.nome) ?? Dinheiro.zero() },
     percentual: percentualInteiro(
       (doMes.get(cat.nome) ?? Dinheiro.zero()).centavos,
       despesasPagas.centavos,
     ),
-  })).filter((x) => !x.valor.ehZero() || !x.valorMesAnterior.ehZero())
+  })).filter((x) => !x.valor.ehZero() || !x.mesAnterior.valor.ehZero())
 
   // Somadas sobre a MESMA lista de categorias que a tela mostra, nunca sobre
   // `entrada.pagas` de novo: duas somas da mesma coisa são duas somas que um
@@ -217,12 +229,15 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
   return {
     recebido,
     quantidadeDeRecebimentos: entrada.recebido.length,
-    recebidoMesAnterior: entrada.recebidoMesAnterior,
     porForma,
+
+    mesAnterior: {
+      recebido: entrada.recebidoMesAnterior,
+      despesasPagas: soma(entrada.pagasMesAnterior),
+    },
 
     despesasPagas,
     quantidadeDePagas: entrada.pagas.length,
-    despesasPagasMesAnterior: soma(entrada.pagasMesAnterior),
     porCategoria,
     fixas,
     variaveis,

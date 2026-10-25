@@ -14,7 +14,7 @@ const ev = (programaId: string | null, aberto: Dinheiro, abatido: Dinheiro): Eve
 describe('saldoEmAberto — derivado, agrupado, e o crédito que não se descarta', () => {
   it('saldo é aberto − abatido, dentro do grupo', () => {
     const r = saldoEmAberto([ev(null, c(300000), ZERO), ev(null, ZERO, c(100000))])
-    expect(r.total.centavos).toBe(200000n)
+    expect(r.saldo.centavos).toBe(200000n)
     expect(r.grupos).toHaveLength(1)
   })
 
@@ -25,7 +25,7 @@ describe('saldoEmAberto — derivado, agrupado, e o crédito que não se descart
       ev('prog-a', c(300000), ZERO), // R$ 3.000 do programa A
       ev('prog-a', ZERO, c(300000)), // pagou o programa A inteiro
     ])
-    expect(r.total.centavos).toBe(100000n)
+    expect(r.saldo.centavos).toBe(100000n)
     expect(r.grupos.find((g) => g.programaId === 'prog-a')!.saldo.ehZero()).toBe(true)
     expect(r.grupos.find((g) => g.programaId === null)!.saldo.centavos).toBe(100000n)
   })
@@ -35,7 +35,7 @@ describe('saldoEmAberto — derivado, agrupado, e o crédito que não se descart
       ev('prog-a', c(100000), c(150000)), // pagou R$ 500 a mais
       ev(null, c(80000), ZERO),
     ])
-    expect(r.total.centavos).toBe(80000n) // o geral intacto
+    expect(r.saldo.centavos).toBe(80000n) // o geral intacto
     expect(r.credito.centavos).toBe(50000n) // e o excedente VISÍVEL
     expect(r.grupos.find((g) => g.programaId === 'prog-a')!.saldo.ehZero()).toBe(true)
   })
@@ -65,14 +65,14 @@ describe('saldoEmAberto — derivado, agrupado, e o crédito que não se descart
       ev('prog-a', c(100000), c(160000)), // R$ 600 a mais
       ev('prog-b', c(250000), ZERO),
     ])
-    expect(r.total.centavos).toBe(250000n)
+    expect(r.saldo.centavos).toBe(250000n)
     expect(r.credito.centavos).toBe(60000n)
   })
 
   it('paciente sem evento nenhum tem zero grupos, zero total e zero crédito', () => {
     const r = saldoEmAberto([])
     expect(r.grupos).toEqual([])
-    expect(r.total.ehZero()).toBe(true)
+    expect(r.saldo.ehZero()).toBe(true)
     expect(r.credito.ehZero()).toBe(true)
   })
 })
@@ -90,7 +90,7 @@ describe('saldoEmAberto — propriedades', () => {
       fc.property(fc.array(evento, { maxLength: 60 }), (es) => {
         const r = saldoEmAberto(es)
         const soma = r.grupos.reduce((s, g) => s.mais(g.saldo), Dinheiro.zero())
-        expect(soma.centavos).toBe(r.total.centavos)
+        expect(soma.centavos).toBe(r.saldo.centavos)
       }),
     )
   })
@@ -125,7 +125,7 @@ describe('saldoEmAberto — propriedades', () => {
       fc.property(fc.array(evento, { maxLength: 60 }), (es) => {
         const a = saldoEmAberto(es)
         const b = saldoEmAberto([...es].reverse())
-        expect(b.total.centavos).toBe(a.total.centavos)
+        expect(b.saldo.centavos).toBe(a.saldo.centavos)
         expect(b.credito.centavos).toBe(a.credito.centavos)
         expect(b.grupos.map((g) => [g.programaId, g.saldo.centavos])).toEqual(
           a.grupos.map((g) => [g.programaId, g.saldo.centavos]),
@@ -138,7 +138,7 @@ describe('saldoEmAberto — propriedades', () => {
     fc.assert(
       fc.property(fc.array(evento, { maxLength: 60 }), (es) => {
         const r = saldoEmAberto(es)
-        expect(r.temSaldo).toBe(r.total.centavos > 0n)
+        expect(r.temSaldo).toBe(r.saldo.centavos > 0n)
       }),
     )
   })
