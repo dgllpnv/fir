@@ -4,6 +4,12 @@
 
 **Objetivo:** os quatro rituais de dinheiro da clínica, inteiros: registrar o recebimento, fechar o caixa às cegas, pagar as contas no prazo e cobrar quem deve — mais a Visão do mês que decide. Cinco telas (**Recebimentos**, **Caixa do dia**, **Contas a pagar**, **Cobranças**, **Visão do mês**) e o atalho fixo **+ Recebimento** na lateral.
 
+> **Decidido pelo dono em 2026-10-24 — ver `docs/decisoes.md`, D-6.** A supressão do
+> agregado enquanto o caixa está aberto **não é mais proposta, é decisão**. A alternativa
+> (manter a tela do protótipo e deixar a cegueira valer só para quem não tem `valores`)
+> foi oferecida e recusada, porque transformaria a proteção em configuração de perfil.
+> **Não reabra.**
+
 **Arquitetura:** a tabela `recebimentos` **já existe** (épico 2, migration `0006`) com o índice que torna impossível contar o mesmo pagamento duas vezes. Este plano **consome** essa tabela: o recebimento avulso cria a **tarefa companheira** concluída e pendura o recebimento nela, na mesma transação. Nenhuma coluna de dinheiro nasce em `tarefas`. Saldo em aberto é **função pura sobre eventos**, agrupada por programa. O esperado do caixa é calculado no servidor e **não existe no corpo da resposta** antes do fechamento.
 
 **Stack:** PostgreSQL + migration `0007`, NestJS + Fastify, Next.js (App Router), Vitest contra Postgres real, fast-check no domínio.
