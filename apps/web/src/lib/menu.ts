@@ -75,7 +75,7 @@ export const MENU: readonly ItemDeMenu[] = [
       'O funil do paciente por etapas — contato, orçamento, fechamento e perda com motivo.',
   },
   { href: '/pacientes', rotulo: 'Pacientes', grupo: 'Comercial', perm: 'pacientes',
-    epico: 2,
+    epico: null,
     promessa:
       'Cadastro, histórico e ficha do paciente, com o saldo em aberto por programa.',
   },

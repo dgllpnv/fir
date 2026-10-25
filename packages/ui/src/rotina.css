@@ -412,6 +412,29 @@ table.lista th {
 table.lista td { padding: 10px; border-bottom: 1px solid var(--line); }
 table.lista th.direita, table.lista td.direita { text-align: right; }
 
+/* ---------- linha de lista (paciente) ----------
+   Uma linha, não um card: card é agrupamento, e uma lista de cinquenta
+   pacientes dentro de cinquenta caixas é papel de parede (design.md §3). O
+   traço inferior já separa, e cabe o dobro de nomes na mesma tela — densidade
+   é feature. */
+.linhas { display: grid; margin-bottom: 14px; }
+.linha {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 6px;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+  /* Alvo de toque: a mão de quem usa está ocupada. */
+  min-height: 56px;
+}
+.linha:hover { background: var(--gold-soft); }
+.linha .info { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.linha .info b { font-weight: 600; overflow-wrap: anywhere; }
+.linha .info small { font-size: 12.5px; color: var(--muted); }
+.linha .valor { font-size: 14px; white-space: nowrap; }
+
 /* ---------- indicadores ---------- */
 
 .indicadores {

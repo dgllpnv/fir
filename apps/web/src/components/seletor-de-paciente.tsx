@@ -1,10 +1,9 @@
 'use client'
 
-import type { ListaDePacientes, ListaDeUnidades, PacienteNaLista } from '@fir/contracts'
-import { ORIGEM_INDICACAO, ORIGENS } from '@fir/contracts'
+import type { ListaDePacientes, PacienteNaLista } from '@fir/contracts'
 import { useState } from 'react'
-import { chamar } from '@/lib/api'
 import { consultaEmTexto, useDados, useEspera } from '@/lib/dados'
+import { FormularioDePaciente } from './formulario-de-paciente'
 
 /**
  * Escolher a paciente — ou **cadastrá-la aqui mesmo**.
@@ -59,10 +58,16 @@ export function SeletorDePaciente({
 
   if (cadastrando) {
     return (
-      <CadastroRapido
+      /* Cadastro MÍNIMO: `completo={false}`. Última consulta e observação são
+         da ficha — aqui a pessoa está agendando, e cada campo a mais é um
+         campo entre ela e a agenda. */
+      <FormularioDePaciente
+        paciente={null}
+        completo={false}
         nomeInicial={busca.trim()}
+        rotuloSalvar="Cadastrar e usar"
         aoCancelar={() => setCadastrando(false)}
-        aoCadastrar={(p) => {
+        aoSalvar={(p) => {
           setCadastrando(false)
           aoEscolher(p)
         }}
@@ -108,149 +113,6 @@ export function SeletorDePaciente({
           </button>
         </div>
       )}
-    </div>
-  )
-}
-
-/**
- * O cadastro mínimo: nome, telefone, aniversário e origem.
- *
- * Mínimo de propósito. Última consulta, observação e unidade principal são da
- * ficha, em `/pacientes` — aqui a pessoa está agendando, e cada campo a mais é
- * um campo entre ela e a agenda.
- */
-function CadastroRapido({
-  nomeInicial,
-  aoCancelar,
-  aoCadastrar,
-}: {
-  nomeInicial: string
-  aoCancelar: () => void
-  aoCadastrar: (p: PacienteNaLista) => void
-}) {
-  const [nome, setNome] = useState(nomeInicial)
-  const [telefone, setTelefone] = useState('')
-  const [aniversario, setAniversario] = useState('')
-  const [origem, setOrigem] = useState('')
-  const [indicadoPor, setIndicadoPor] = useState('')
-  const [unidadeId, setUnidadeId] = useState('')
-  const [erro, setErro] = useState<string | null>(null)
-  const [salvando, setSalvando] = useState(false)
-
-  const unidades = useDados<ListaDeUnidades>('v1/unidades')
-  const ativas = (unidades.dados?.unidades ?? []).filter((u) => u.ativa)
-
-  async function salvar() {
-    if (nome.trim() === '') {
-      setErro('Informe o nome da paciente.')
-      return
-    }
-    setErro(null)
-    setSalvando(true)
-    try {
-      const p = await chamar<PacienteNaLista>('v1/pacientes', {
-        method: 'POST',
-        body: JSON.stringify({
-          nome: nome.trim(),
-          telefone: telefone.trim(),
-          aniversario: aniversario === '' ? null : aniversario,
-          origem,
-          // `indicadoPor` só vale com a origem Indicação, e quem decide isso é
-          // o contrato (`limparIndicacao`), não esta tela.
-          indicadoPor: indicadoPor.trim(),
-          unidadeId: unidadeId === '' ? null : unidadeId,
-          ultimaConsulta: null,
-          obs: '',
-        }),
-      })
-      aoCadastrar(p)
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não consegui cadastrar a paciente.')
-    } finally {
-      setSalvando(false)
-    }
-  }
-
-  return (
-    <div className="painel" role="group" aria-label="Nova paciente">
-      <b>Nova paciente</b>
-      <label className="campo">
-        Nome completo
-        <input value={nome} maxLength={120} onChange={(e) => setNome(e.target.value)} />
-      </label>
-      <div className="par">
-        <label className="campo">
-          Telefone
-          <input
-            type="tel"
-            inputMode="tel"
-            placeholder="(71) 99999-0000"
-            value={telefone}
-            maxLength={30}
-            onChange={(e) => setTelefone(e.target.value)}
-          />
-        </label>
-        <label className="campo">
-          Aniversário <small>(opcional)</small>
-          <input
-            type="date"
-            value={aniversario}
-            onChange={(e) => setAniversario(e.target.value)}
-          />
-        </label>
-      </div>
-      <div className="par">
-        <label className="campo">
-          Origem
-          <select value={origem} onChange={(e) => setOrigem(e.target.value)}>
-            <option value="">Selecione</option>
-            {ORIGENS.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        </label>
-        {origem !== ORIGEM_INDICACAO ? null : (
-          <label className="campo">
-            Indicado por <small>(opcional)</small>
-            <input
-              value={indicadoPor}
-              maxLength={80}
-              placeholder="Nome de quem indicou"
-              onChange={(e) => setIndicadoPor(e.target.value)}
-            />
-          </label>
-        )}
-      </div>
-      {ativas.length === 0 ? null : (
-        <label className="campo">
-          Unidade principal <small>(opcional)</small>
-          <select value={unidadeId} onChange={(e) => setUnidadeId(e.target.value)}>
-            <option value="">Sem unidade</option>
-            {ativas.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.nome}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {erro === null ? null : (
-        <p className="campo" role="alert">
-          <span className="erro">{erro}</span>
-        </p>
-      )}
-
-      <div className="botoes">
-        <button type="button" className="btn" onClick={() => void salvar()} disabled={salvando}>
-          {salvando ? 'Cadastrando…' : 'Cadastrar e usar'}
-        </button>
-        <button type="button" className="btn ghost" onClick={aoCancelar} disabled={salvando}>
-          Buscar paciente já cadastrada
-        </button>
-      </div>
     </div>
   )
 }
