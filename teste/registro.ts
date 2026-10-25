@@ -9,7 +9,7 @@ import { CAMPOS_MONETARIOS } from '@fir/domain'
  * alguém acrescenta uma rota sem registrar.
  */
 export type RotaRegistrada = {
-  readonly metodo: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  readonly metodo: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   readonly caminho: string
   /** Campos monetários que esta rota pode devolver. */
   readonly camposDeDinheiro: readonly string[]
@@ -97,19 +97,18 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'GET', caminho: '/v1/jornada', camposDeDinheiro: ['valor', 'valorOrcamento'] },
 
   /**
-   * O FINANCEIRO (épico 4).
+   * O FINANCEIRO (épico 4) — **todas as rotas abaixo existem**.
    *
-   * As rotas de recebimento existem. As de caixa, conta, cobrança, meta e
-   * Visão do mês ainda NÃO — elas são das Tasks 8 a 11 —, e entram aqui pela
-   * mesma razão que `POST /v1/tarefas` entrou antes de existir: o CONTRATO
-   * delas já está em `@fir/contracts` e a varredura de `redacao-de-valores`
-   * o enxerga HOJE. Declarar o contrato sem a rota deixaria a varredura
-   * acusando campo descoberto; não declarar o contrato adiaria o acordo que
-   * servidor e tela precisam ter antes de qualquer um dos dois existir.
+   * Durante as Tasks 1–7 onze destas linhas descreviam rotas que ainda não
+   * existiam: os contratos já estavam escritos, e sem elas a varredura de
+   * `redacao-de-valores` acusaria campo monetário descoberto. A dívida ficou
+   * registrada — *"se as Tasks 8–11 mudarem de caminho, estas linhas mentem"*
+   * — e as Tasks 8 a 11 a pagaram.
    *
-   * O risco, escrito: se as Tasks 8–11 mudarem de caminho, estas linhas
-   * mentem. `rotas-protegidas.test.ts` confronta o registro com o que a API
-   * de fato expõe e vai cobrar.
+   * O que fecha o ciclo é a varredura nova em `rotas-protegidas.test.ts`:
+   * **toda rota registrada aqui precisa existir no `AppModule`**, com o mesmo
+   * método e caminho. Promessa não cumprida reprova, e caminho escrito errado
+   * também.
    */
   { metodo: 'POST', caminho: '/v1/recebimentos', camposDeDinheiro: ['valor', 'valorAberto'] },
   { metodo: 'GET', caminho: '/v1/recebimentos', camposDeDinheiro: ['valor', 'valorAberto'] },
@@ -167,6 +166,13 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     ],
   },
   { metodo: 'GET', caminho: '/v1/metas/:mes/percentual', camposDeDinheiro: ['meta', 'recebido'] },
+  /**
+   * `PUT`/`DELETE` da meta devolvem a MESMA forma do percentual — gravar e
+   * reler pela mesma porta, para que a tela não precise de uma segunda
+   * chamada só para saber em quanto a barra ficou.
+   */
+  { metodo: 'PUT', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido'] },
+  { metodo: 'DELETE', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido'] },
 ]
 
 /**

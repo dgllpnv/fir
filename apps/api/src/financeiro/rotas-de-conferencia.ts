@@ -20,6 +20,21 @@ export type RotaDeConferencia = {
   readonly caminho: string
   /** Por que esta rota toca o dia. Escrita para quem for acrescentar a próxima. */
   readonly razao: string
+  /**
+   * Chaves que, nesta rota, **podem** existir — com a razão escrita.
+   *
+   * A varredura tem duas asserções: a CHAVE não existe, e o NÚMERO não
+   * aparece. A primeira é certeira em `/v1/caixa` e `/v1/recebimentos`, onde
+   * um `porForma` seria o esperado com outra etiqueta. Na Visão do mês
+   * `porForma` é o nome legítimo do bloco "Recebido por forma", e o que a
+   * regra 6 exige lá não é a ausência da chave — é que ela **não alcance um
+   * dia cujo caixa está aberto**. Quem prova isso é a asserção de NÚMERO, que
+   * continua valendo integralmente.
+   *
+   * Liberar uma chave aqui é barato e visível; o que não se pode é liberar o
+   * número.
+   */
+  readonly chavesPermitidas?: readonly { readonly chave: string; readonly razao: string }[]
 }
 
 export const ROTAS_DE_CONFERENCIA: readonly RotaDeConferencia[] = [
@@ -40,12 +55,37 @@ export const ROTAS_DE_CONFERENCIA: readonly RotaDeConferencia[] = [
   },
   {
     caminho: '/v1/caixa/ultimos',
+    chavesPermitidas: [
+      {
+        chave: 'diferenca',
+        razao:
+          'A lista só contém dias JÁ FECHADOS — ela lê `caixas_do_dia`, e um dia aberto não tem linha lá. A diferença de um dia conferido é o número que a clínica veio ver; o que a asserção de NÚMERO continua impedindo é que algo do dia aberto entre aqui.',
+      },
+      {
+        chave: 'conferido',
+        razao: 'O booleano derivado — é ele que a equipe sem `valores` lê, e ele não é número.',
+      },
+    ],
     razao:
       'Os últimos fechamentos. Só devolve dias FECHADOS por construção (lê `caixas_do_dia`, e um dia aberto não tem linha lá) — mas ela mostra `diferenca`, que é o esperado a um passo, então entra na varredura para que isso continue sendo verdade.',
   },
-  // Task 11 acrescenta `/v1/visao-do-mes?mes=:mes` — o mês CORRENTE contém o
-  // dia de hoje, e o "recebido por forma" dele de um mês em curso é o
-  // esperado somado com outro nome.
+  {
+    caminho: '/v1/visao-do-mes?mes=:mes',
+    chavesPermitidas: [
+      {
+        chave: 'diferenca',
+        razao:
+          'É `caixa.diferenca`: a soma das diferenças dos caixas JÁ FECHADOS do mês. Um dia aberto não tem linha em `caixas_do_dia` e não entra nessa soma.',
+      },
+      {
+        chave: 'porForma',
+        razao:
+          'É o bloco "Recebido por forma" do mês, e ele soma SÓ os dias com caixa já fechado — `porFormaAteODia` e `porFormaDiasSemCaixa` declaram o recorte. A asserção de NÚMERO é que prova isso, e ela continua valendo.',
+      },
+    ],
+    razao:
+      'O mês CORRENTE contém o dia de hoje, e o "recebido por forma" de um mês em curso é o esperado somado com outro nome — a soma do mês inclui a do dia. É a rota mais perigosa da lista, e ela exige `finmes` (logo `valores`): quem a abre já vê valor em toda tela, e mesmo assim não pode receber a gaveta de hoje somada por forma.',
+  },
 ]
 
 /**
@@ -102,6 +142,14 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     caminho: '/v1/contas',
     razao:
       'Contas A PAGAR. É dinheiro que SAI, e o caixa confere o que entrou — nenhuma das duas listas alcança a outra.',
+  },
+  {
+    caminho: '/v1/metas/:mes/percentual',
+    razao: 'Meta e recebido do MÊS, mais o percentual. Nenhum recorte por dia nem por forma.',
+  },
+  {
+    caminho: '/v1/configuracoes/financeiro',
+    razao: 'Responsável pelo caixa e modelo da mensagem de cobrança. Nenhum valor.',
   },
   {
     caminho: '/v1/jornada',

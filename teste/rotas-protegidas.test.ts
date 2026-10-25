@@ -6,7 +6,7 @@ import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants'
 import { MetadataScanner, ModulesContainer, NestFactory } from '@nestjs/core'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { ROTAS_PUBLICAS } from './registro'
+import { ROTAS_COM_DINHEIRO, ROTAS_PUBLICAS } from './registro'
 
 /**
  * O teste que fecha a CLASSE "rota sem autenticação", do mesmo jeito que
@@ -108,6 +108,35 @@ afterAll(async () => {
 })
 
 const chave = (r: { metodo: string; caminho: string }) => `${r.metodo} ${r.caminho}`
+
+describe('ROTAS_COM_DINHEIRO descreve rotas que EXISTEM', () => {
+  /**
+   * O registro era uma lista de promessas.
+   *
+   * Durante as Tasks 1–7 do épico 4 ele ganhou **onze rotas que ainda não
+   * existiam** — os contratos delas já estavam escritos, e sem o registro a
+   * varredura de `redacao-de-valores` acusaria campo monetário descoberto.
+   * Foi a escolha certa naquele momento e uma dívida registrada como tal: se
+   * aquelas tasks mudassem de caminho, o registro mentiria, e nada acusaria.
+   *
+   * Esta é a outra metade. A varredura confronta o registro com o catálogo de
+   * rotas do Nest — o módulo de verdade, subido de verdade — e reprova tanto a
+   * promessa não cumprida quanto o caminho escrito errado. É o mesmo padrão de
+   * `ROTAS_PUBLICAS`: duas direções, e a mensagem nomeia a rota.
+   */
+  it('toda rota registrada existe no AppModule, com o mesmo método e caminho', () => {
+    const existentes = new Set(rotas.map(chave))
+    expect(existentes.size, 'nenhuma rota encontrada — a varredura não verificou nada').toBeGreaterThan(10)
+
+    const fantasmas = ROTAS_COM_DINHEIRO.map(chave).filter((k) => !existentes.has(k))
+    expect(
+      fantasmas,
+      `ROTAS_COM_DINHEIRO (teste/registro.ts) descreve rota(s) que não existem: ${fantasmas.join(', ')}. ` +
+        'Ou a rota mudou de caminho, ou o registro ficou para trás — e um registro que mente é ' +
+        'pior que um registro vazio, porque o próximo leitor confia nele.',
+    ).toEqual([])
+  })
+})
 
 describe('toda rota do Nest está autenticada, ou é pública de propósito', () => {
   it('a varredura encontrou rotas — senão ela não verificou nada', () => {

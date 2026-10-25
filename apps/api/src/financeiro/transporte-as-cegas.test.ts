@@ -4,8 +4,10 @@ import {
   type Cenario,
   desmontarCenario,
   HOJE,
+  limparFinanceiro,
   limparTarefas,
   montarCenario,
+  ONTEM,
   pegar,
   postar,
 } from '../tarefas/__tests__/cenario'
@@ -55,7 +57,7 @@ function chavesProfundas(x: unknown, saida: Set<string> = new Set()): Set<string
   return saida
 }
 
-const registrar = (valor: string, forma: string) =>
+const registrar = (valor: string, forma: string, em = HOJE) =>
   postar(
     c,
     '/v1/recebimentos',
@@ -64,7 +66,7 @@ const registrar = (valor: string, forma: string) =>
       pacienteId: c.pacientes['ana'],
       valor,
       forma,
-      em: HOJE,
+      em,
       ref: 'consulta',
     },
     'beatriz',
@@ -84,6 +86,29 @@ const registrar = (valor: string, forma: string) =>
  *
  * `87000` é o total do dia, e pega o agregado geral com qualquer etiqueta.
  */
+/**
+ * Fecha o caixa de ONTEM, para que a Visão do mês tenha um dia CONFERIDO.
+ *
+ * Sem isto, `porForma` sairia vazio e o teste provaria a regra 6 por ausência
+ * de dado — que é o mesmo buraco que *"A VARREDURA TEM DENTES"* existe para
+ * tapar. Com ontem fechado, `porForma` mostra os R$ 900 de ontem **e** os
+ * números de hoje continuam fora do corpo, que é exatamente o invariante.
+ *
+ * E ontem é **Cartão de crédito**, uma forma que hoje não teve: se ontem
+ * fosse Pix, um `porForma` que somasse o mês inteiro devolveria
+ * `Pix: 147000`, e o 57000 que a varredura persegue sumiria dentro de outro
+ * número. Medido — a mutação "porForma sobre o mês inteiro" passou verde
+ * nesta varredura antes desta linha, e só o teste do domínio a pegou.
+ */
+const fecharOCaixaDeOntem = async (): Promise<void> => {
+  await postar(
+    c,
+    '/v1/caixa',
+    { dia: ONTEM, obs: '', contado: [{ forma: 'Cartão de crédito', valor: '90000' }] },
+    'beatriz',
+  )
+}
+
 const PARCELAS = ['45000', '12000', '30000']
 const A_SOMA = [
   // por forma (Pix): 45.000 + 12.000
@@ -108,6 +133,14 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await limparTarefas(c)
+  await limparFinanceiro(c)
+  // Um recebimento de OUTRO dia do mesmo mês, para que o total do MÊS não
+  // coincida com o total do DIA. Sem ele, `GET /v1/visao-do-mes` devolveria
+  // legitimamente `recebido: '87000'` — o mês — e o teste o acusaria de
+  // vazar o total do dia, que é a mesma string. Um teste que não distingue
+  // mês de dia reprova o certo e aprova o errado na mesma frase.
+  await registrar('90000', 'Cartão de crédito', ONTEM)
+  await fecharOCaixaDeOntem()
   await registrar('45000', 'Pix')
   await registrar('12000', 'Pix')
   await registrar('30000', 'Dinheiro')
@@ -116,7 +149,9 @@ beforeEach(async () => {
 describe('o esperado não atravessa antes do fechamento', () => {
   it('O AGREGADO POR FORMA NÃO EXISTE EM ROTA NENHUMA — nem para quem pode tudo', async () => {
     for (const rota of ROTAS_DE_CONFERENCIA) {
-      const caminho = rota.caminho.replace(':dia', HOJE)
+      // `:dia` e `:mes` — e o `:mes` é o do dia sob teste, que é justamente o
+      // mês EM CURSO: é lá que a Visão do mês esbarraria na regra 6.
+      const caminho = rota.caminho.replace(':dia', HOJE).replace(':mes', HOJE.slice(0, 7))
       const [base, consulta] = caminho.split('?')
       const parametros = Object.fromEntries(new URLSearchParams(consulta ?? '').entries())
       const r = await pegar(c, base!, parametros, 'beatriz')
@@ -125,8 +160,10 @@ describe('o esperado não atravessa antes do fechamento', () => {
       // 1. A CHAVE não existe. `null` não serviria: um campo redigido conta
       //    ao cliente que existe um número ali, e o próximo refactor o
       //    "conserta".
+      const permitidas = new Set((rota.chavesPermitidas ?? []).map((x) => x.chave))
       const chaves = chavesProfundas(r.body)
       for (const proibida of ['esperado', 'porForma', 'diferenca', 'conferido', 'contado']) {
+        if (permitidas.has(proibida)) continue
         expect([...chaves], `${caminho} devolve a chave \`${proibida}\``).not.toContain(proibida)
       }
 
@@ -145,7 +182,7 @@ describe('o esperado não atravessa antes do fechamento', () => {
     // A lista individual é o instrumento de trabalho da recepção e fica; o
     // que o servidor nunca faz é a SOMA por ela.
     const r = await pegar(c, '/v1/recebimentos', { dia: HOJE }, 'beatriz')
-    expect(r.body.itens).toHaveLength(3)
+    expect(r.body.itens).toHaveLength(3)   // o de ONTEM não é do dia
     for (const parcela of PARCELAS) {
       expect(r.text, `a parcela ${parcela} deveria estar na lista`).toContain(parcela)
     }

@@ -11,6 +11,25 @@ export type CaixaDoMes = { readonly diferenca: Dinheiro }
 export type EntradaDaVisao = {
   readonly recebido: readonly RecebimentoDoMes[]
   /**
+   * Os recebimentos do mês que caem em dias **com o caixa já fechado**.
+   *
+   * É este subconjunto, e não `recebido`, que alimenta `porForma` — **regra
+   * 6**. O mês corrente contém o dia de hoje, e um agregado por forma de
+   * pagamento de um dia cujo caixa está aberto **é o esperado com outra
+   * etiqueta**: a pessoa que vai contar a gaveta abriria a Visão do mês e
+   * leria quanto o sistema espera em Pix.
+   *
+   * Num mês fechado os dois são a mesma lista. Num mês em curso eles diferem
+   * exatamente pelos dias que ninguém conferiu — e a tela diz isso, com
+   * `porFormaAteODia` e `porFormaDiasSemCaixa`, em vez de mostrar um número
+   * que não fecha com o total.
+   */
+  readonly conferidos: readonly RecebimentoDoMes[]
+  /** O último dia do mês com caixa fechado. `null` = nenhum. */
+  readonly conferidoAte: string | null
+  /** Quantos dias do mês tiveram recebimento e ainda não têm caixa fechado. */
+  readonly diasSemCaixa: number
+  /**
    * Só o total — é a única coisa que o mês anterior entrega aqui (a seta do
    * "vs. setembro"). `pagasMesAnterior` vem como LISTA porque a tela compara
    * **por categoria**, e um total não se parte de volta em categorias.
@@ -58,7 +77,17 @@ export type ResumoDeCaixa = {
 export type VisaoDoMes = {
   readonly recebido: Dinheiro
   readonly quantidadeDeRecebimentos: number
+  /**
+   * Recebido por forma — **só dos dias já conferidos**. Ver `conferidos`, em
+   * `EntradaDaVisao`: esta é a regra 6 dentro da Visão do mês.
+   *
+   * A soma destas linhas **não** é `recebido` num mês em curso, e isso é
+   * deliberado e dito na tela. Um número que fecha por acidente é pior que um
+   * número que declara o seu recorte.
+   */
   readonly porForma: readonly LinhaDeForma[]
+  readonly porFormaAteODia: string | null
+  readonly porFormaDiasSemCaixa: number
 
   /** Ver a nota em `LinhaDeCategoria`: aninhado, e não `…MesAnterior` ao lado. */
   readonly mesAnterior: { readonly recebido: Dinheiro; readonly despesasPagas: Dinheiro }
@@ -191,7 +220,8 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
   const despesasPagas = soma(entrada.pagas)
 
   const porFormaMapa = new Map<string, Dinheiro>()
-  for (const r of entrada.recebido) {
+  // `conferidos`, nunca `recebido`: regra 6. Ver a nota em `EntradaDaVisao`.
+  for (const r of entrada.conferidos) {
     porFormaMapa.set(r.forma, (porFormaMapa.get(r.forma) ?? Dinheiro.zero()).mais(r.valor))
   }
   const porForma: LinhaDeForma[] = [...porFormaMapa]
@@ -230,6 +260,8 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
     recebido,
     quantidadeDeRecebimentos: entrada.recebido.length,
     porForma,
+    porFormaAteODia: entrada.conferidoAte,
+    porFormaDiasSemCaixa: entrada.diasSemCaixa,
 
     mesAnterior: {
       recebido: entrada.recebidoMesAnterior,

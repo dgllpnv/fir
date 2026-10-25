@@ -314,6 +314,10 @@ export const pegar = (
 export const remendar = (c: Cenario, caminho: string, corpo: Corpo, quem = 'juliana') =>
   request(c.app.getHttpServer()).patch(caminho).set('Cookie', c.cookies[quem]!).send(corpo)
 
+/** `PUT` — a meta do mês é idempotente, e por isso é `PUT` e não `POST`. */
+export const botar = (c: Cenario, caminho: string, corpo: Corpo, quem = 'juliana') =>
+  request(c.app.getHttpServer()).put(caminho).set('Cookie', c.cookies[quem]!).send(corpo)
+
 export const apagar = (
   c: Cenario,
   caminho: string,

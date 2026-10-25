@@ -10,10 +10,12 @@ import { CobrancasService } from './cobrancas.service'
 import { RecebimentosController } from './recebimentos.controller'
 import { RecebimentosService } from './recebimentos.service'
 import { SaldoController } from './saldo.controller'
+import { VisaoDoMesController } from './visao-do-mes.controller'
+import { VisaoDoMesService } from './visao-do-mes.service'
 
 /**
- * O financeiro: recebimentos, saldo em aberto, cobranças, o caixa do dia e as
- * contas a pagar. A Visão do mês entra pela Task 11 do mesmo plano.
+ * O financeiro, inteiro: recebimentos, saldo em aberto, cobranças, o caixa do
+ * dia, as contas a pagar, a meta, a configuração e a Visão do mês.
  *
  * `HojeFinanceiroService` é EXPORTADO porque quem o consome é `HojeController`,
  * que mora em `TarefasModule`. A dependência é de mão única — o financeiro não
@@ -34,6 +36,7 @@ import { SaldoController } from './saldo.controller'
     CobrancasController,
     CaixaController,
     ContasController,
+    VisaoDoMesController,
   ],
   providers: [
     RecebimentosService,
@@ -41,6 +44,7 @@ import { SaldoController } from './saldo.controller'
     CaixaService,
     ContasService,
     HojeFinanceiroService,
+    VisaoDoMesService,
     provedorDeRelogio,
   ],
   exports: [RecebimentosService, HojeFinanceiroService],

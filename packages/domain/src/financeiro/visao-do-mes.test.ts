@@ -15,6 +15,9 @@ const ZERO = Dinheiro.zero()
 
 const VAZIA: EntradaDaVisao = {
   recebido: [],
+  conferidos: [],
+  conferidoAte: null,
+  diasSemCaixa: 0,
   recebidoMesAnterior: ZERO,
   pagas: [],
   pagasMesAnterior: [],
@@ -24,7 +27,16 @@ const VAZIA: EntradaDaVisao = {
   caixas: [],
   diasUteis: 0,
 }
-const entrada = (p: Partial<EntradaDaVisao>): EntradaDaVisao => ({ ...VAZIA, ...p })
+/**
+ * `conferidos` espelha `recebido` por padrão — o caso do MÊS FECHADO, em que
+ * todo dia já teve caixa. Quem quer provar o recorte da regra 6 (mês em
+ * curso, com dia aberto) informa `conferidos` à parte.
+ */
+const entrada = (p: Partial<EntradaDaVisao>): EntradaDaVisao => ({
+  ...VAZIA,
+  ...p,
+  conferidos: p.conferidos ?? p.recebido ?? [],
+})
 const pix = (n: number) => ({ forma: 'Pix', valor: c(n) })
 
 describe('percentualInteiro — a divisão que não passa por float', () => {
@@ -198,6 +210,25 @@ describe('visaoDoMes', () => {
     expect(v.porForma.find((x) => x.forma === 'Nota promissória')!.valor.centavos).toBe(120000n)
   })
 
+  it('num mês EM CURSO, `porForma` para no último dia conferido', () => {
+    const v = visaoDoMes(
+      entrada({
+        recebido: [pix(45000), pix(12000), { forma: 'Dinheiro', valor: c(30000) }],
+        // Só os dois primeiros caem em dias com caixa fechado.
+        conferidos: [pix(45000), pix(12000)],
+        conferidoAte: '2026-10-23',
+        diasSemCaixa: 1,
+      }),
+    )
+    expect(v.recebido.centavos).toBe(87000n)
+    expect(v.porForma.reduce((s, x) => s.mais(x.valor), ZERO).centavos).toBe(57000n)
+    expect(v.porForma.find((x) => x.forma === 'Dinheiro')).toBeUndefined()
+    // E a tela SABE o recorte: um número que não fecha com o total precisa
+    // dizer de onde ele vem.
+    expect(v.porFormaAteODia).toBe('2026-10-23')
+    expect(v.porFormaDiasSemCaixa).toBe(1)
+  })
+
   it('o resumo dos caixas do mês conta os fechados e os que tinham diferença', () => {
     const v = visaoDoMes(
       entrada({
@@ -283,9 +314,46 @@ describe('visaoDoMes — propriedades de fechamento', () => {
           { maxLength: 80 },
         ),
         (recebido) => {
+          // Mês FECHADO: `conferidos === recebido`, e aí a soma por forma é
+          // exatamente o recebido. Num mês em curso ela é MENOR, de
+          // propósito — ver a propriedade seguinte.
           const v = visaoDoMes(entrada({ recebido }))
           const soma = v.porForma.reduce((s, x) => s.mais(x.valor), Dinheiro.zero())
           expect(soma.centavos).toBe(v.recebido.centavos)
+        },
+      ),
+    )
+  })
+
+  it('A REGRA 6 NA VISÃO DO MÊS: `porForma` nunca alcança um dia sem caixa fechado', () => {
+    // A propriedade CONSTRÓI o caso em vez de sorteá-lo: `conferidos` é um
+    // prefixo de `recebido`, e o resto é o que ainda está na gaveta. Com
+    // geradores independentes a chance de o resto ser não-vazio E mudar
+    // alguma forma seria boa, mas o que importa aqui é a FRONTEIRA — que
+    // nenhum centavo de um dia aberto apareça por forma.
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            forma: fc.constantFrom('Pix', 'Dinheiro', 'Cartão de crédito'),
+            valor: dinheiro,
+          }),
+          { minLength: 1, maxLength: 40 },
+        ),
+        fc.nat(),
+        (recebido, corte) => {
+          const quantos = corte % (recebido.length + 1)
+          const conferidos = recebido.slice(0, quantos)
+          const v = visaoDoMes(entrada({ recebido, conferidos }))
+
+          const porForma = v.porForma.reduce((s, x) => s.mais(x.valor), Dinheiro.zero())
+          const esperado = conferidos.reduce((s, x) => s.mais(x.valor), Dinheiro.zero())
+          // A soma por forma é a dos CONFERIDOS, exatamente — nunca mais.
+          expect(porForma.centavos).toBe(esperado.centavos)
+          // E o total do mês continua inteiro: a regra 6 recorta o agregado
+          // por forma, não a receita do mês.
+          const tudo = recebido.reduce((s, x) => s.mais(x.valor), Dinheiro.zero())
+          expect(v.recebido.centavos).toBe(tudo.centavos)
         },
       ),
     )

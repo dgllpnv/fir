@@ -519,7 +519,20 @@ export const VisaoDoMes = z
 
     recebido: centavosNaSaida,
     quantidadeDeRecebimentos: z.number().int(),
+    /**
+     * Recebido por forma — **só dos dias com o caixa já fechado** (regra 6).
+     *
+     * O mês corrente contém o dia de hoje, e um agregado por forma de
+     * pagamento de um dia aberto **é o esperado com outra etiqueta**: quem vai
+     * contar a gaveta abriria a Visão do mês e leria quanto o sistema espera
+     * em Pix. Num mês fechado estas linhas somam `recebido`; num mês em curso
+     * elas somam menos, e `porFormaAteODia` e `porFormaDiasSemCaixa` dizem
+     * exatamente de onde o recorte vem — a tela mostra a frase, em vez de um
+     * número que não fecha e ninguém explica.
+     */
     porForma: z.array(LinhaDeForma),
+    porFormaAteODia: DiaCivil.nullable(),
+    porFormaDiasSemCaixa: z.number().int(),
 
     mesAnterior: z.object({ recebido: centavosNaSaida, despesasPagas: centavosNaSaida }),
 
@@ -554,3 +567,22 @@ export const VisaoDoMes = z
   })
   .strict()
 export type VisaoDoMes = z.infer<typeof VisaoDoMes>
+
+/** Sem `mes`, é o mês CORRENTE — o do servidor, no fuso da clínica. */
+export const ConsultaDaVisao = z.object({ mes: Mes.optional() }).strict()
+export type ConsultaDaVisao = z.infer<typeof ConsultaDaVisao>
+
+/**
+ * A rotina mensal de fechamento: 12 tarefas, uma por mês, a partir do dia 1º
+ * do mês que vem.
+ *
+ * `criadas` é quantas NASCERAM nesta chamada — zero no segundo toque. A
+ * idempotência é do índice `tarefa_de_rotina (clinica_id, marcador, prazo)`,
+ * não de um `if` que lê antes de escrever: com o prazo na chave, criar a
+ * rotina duas vezes gera o MESMO conjunto de (marcador, prazo) e o segundo
+ * `INSERT … ON CONFLICT DO NOTHING` não escreve nada.
+ */
+export const RotinaDeFechamento = z
+  .object({ criadas: z.number().int(), deInicio: DiaCivil })
+  .strict()
+export type RotinaDeFechamento = z.infer<typeof RotinaDeFechamento>
