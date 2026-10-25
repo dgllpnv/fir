@@ -56,7 +56,7 @@ export const MENU: readonly ItemDeMenu[] = [
       'Toda a lista de tarefas, com filtro por pessoa, por semana e por status.',
   },
   { href: '/nova', rotulo: 'Nova tarefa', grupo: 'Dia a dia', perm: null,
-    epico: 2,
+    epico: null,
     promessa:
       'Criar tarefa em dois toques: paciente, tipo, data, horário e responsável.',
   },
