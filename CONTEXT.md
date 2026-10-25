@@ -54,9 +54,40 @@ Qualquer item da rotina: interna, contato, atendimento, pagamento ou sessão. É
 **Invariante central:** um agendamento é **uma única `Tarefa`** que anda pelas etapas da `Jornada`; cada movimento entra em `historico`. Nunca uma tarefa nova por etapa.
 
 ### `Jornada`
-As etapas de um agendamento: `agendado` → `confirmado` → `realizado`, com os desvios `faltou`, `desmarcou`, `orcamento`, `fechado`, `perdido`.
+As **nove** etapas de um agendamento, e cada uma obriga um `status` (`CHECK etapa_combina_com_status`, migration `0007`):
 
-**Invariante:** `faltou` e `desmarcou` mantêm a tarefa **aberta**, com `acaoEm` preenchido, até alguém **reagendar** (volta a `agendado`) ou **encerrar**. É isso que faz o cartão aparecer em "Recontatar" todo dia até alguém resolver — e é o ritual que a ferramenta existe para instalar.
+| Etapa | `status` | O que significa |
+|---|---|---|
+| `agendado` | `aberta` | marcado, sem resposta da paciente |
+| `confirmado` | `aberta` | a paciente respondeu que vem |
+| `faltou` | **`aberta`** | não compareceu |
+| `desmarcou` | **`aberta`** | avisou que não vem |
+| `realizado` | `concluida` | o atendimento aconteceu |
+| `orcamento` | `concluida` | proposta apresentada, aguardando decisão |
+| `fechado` | `concluida` | **terminal** — aceitou e pagou |
+| `perdido` | `concluida` | **terminal** — desistiu, com motivo |
+| `encerrado` | `cancelada` | **terminal** — faltou/desmarcou e não reagendou |
+
+**Invariante:** `faltou` e `desmarcou` mantêm a tarefa **aberta** até alguém **reagendar** (volta a `agendado`) ou **encerrar**. É isso que faz o cartão aparecer em "Recontatar" todo dia até alguém resolver — e é o ritual que a ferramenta existe para instalar.
+
+A jornada é uma **tabela de dados** em `packages/domain/src/jornada.ts`, não um encadeamento de `if`: 13 ações, 23 transições permitidas, e `transicao()` é a única porta. O funil conta por **`acao` declarada** (`contaNoFunil` na tabela), nunca por inferência de rótulo — `reagendar` leva a `agendado` e **não conta**, senão quem remarcou três vezes vira três agendamentos. Ver [ADR 0004](docs/adr/0004-maquina-de-estados-da-jornada.md).
+
+**Termo proibido: `acaoEm`.** No protótipo ele tem dois significados — dia do no-show e dia de retomar o orçamento. Use `proximo_passo_em`.
+
+### `proximo_passo_em`
+**O dia a partir do qual este cartão volta a pedir ação.** Um campo, um significado.
+
+Substitui o `acaoEm` de dois sentidos, e com isso "Recontatar" e "Orçamentos para retomar" passam a ser a **mesma** cláusula (`proximo_passo_em <= hoje`) — no protótipo são duas consultas que já divergiram: Recontatar não filtra por data, retomar filtra.
+
+`noshow` e `desmarcar` o põem em **hoje**; `registrarOrcamento` em **hoje + 2**; `followUp` em **hoje + 3**; `reagendar`, `encerrar`, `perder` e `fechar` o **limpam**. Os padrões são calculados no servidor, no fuso da clínica (regra 24) — a tela os **mostra**, não os decide.
+
+### `Motivo de perda`
+Por que um orçamento se perdeu. **É dado da clínica, não `enum` do código**: toda clínica nova nasce com os cinco do protótipo (Preço · Sem retorno do paciente · Escolheu outro lugar · Não é o momento · Outro) e pode acrescentar os seus.
+
+**Invariantes:**
+- **Obrigatório no servidor** ao perder — o protótipo aceita sem, e aí o KPI *"veja os motivos no histórico"* aponta para um histórico vazio.
+- O evento guarda o **`motivoId` e o nome no instante**. Renomear "Preço" não pode reescrever o relatório do trimestre passado; com só o nome, não dá para agrupar.
+- Desativar é um **estado** (`ativo`), nunca uma exclusão. Motivo desativado não serve para perda nova e continua legível nas antigas.
 
 ### `Recebimento`
 Dinheiro que entra. *"Atendimento é tarefa; dinheiro é recebimento."*

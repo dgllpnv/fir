@@ -41,7 +41,7 @@ Legenda de estado: ⬜ não começou · 🟡 em andamento · ✅ pronto e testad
 
 | Ação | v20 | Estado | Nota |
 |---|---|---|---|
-| `moverEtapa` | — | ⬜ | Invariante do épico: uma só `Tarefa` anda pelas etapas; `faltou` e `desmarcou` mantêm o cartão aberto |
+| `moverEtapa` | `POST /v1/tarefas/:id/jornada` · `GET /v1/jornada` | ✅ | Uma rota, união discriminada por ação; motivo de perda obrigatório no servidor; fechamento numa transação; funil contado por `acao` declarada. `fechar` com programa é 501 até o épico 5. Ver ADR 0004 |
 
 ## Épico 4 — Financeiro
 

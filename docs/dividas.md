@@ -129,6 +129,73 @@ A tela contorna com uma segunda consulta (`escopo=equipe&limite=1`) e mostra os 
 
 ---
 
+## Épico 3 — o que a jornada deixou em aberto
+
+### D-J1 · `fechar` com programa montado devolve 501
+
+Um orçamento **sem** programa fecha por inteiro: o `Recebimento`, a etapa e o valor do
+negócio, numa transação só. Um orçamento **com** programa não — a tabela de programas não
+existe, e o `MontadorDePrograma` recusa.
+
+A proposta inteira fica gravada em `programa_orcado` desde o `registrarOrcamento`, então
+**nada se perde**. A clínica contorna registrando o recebimento pela tela Recebimentos
+(épico 4) — que também não existe ainda, o que torna o contorno teórico até lá.
+
+**Gatilho:** o épico 5. Ele troca `useClass: MontadorIndisponivel` por o montador de
+verdade em `jornada.module.ts`, e o teste *"o montador indisponível DESFAZ a escrita do
+dinheiro"* vira o teste do caminho feliz.
+
+### D-J2 · O `procedimentoId` da proposta não é validado contra nada
+
+`programa_orcado` é `jsonb` e **nenhuma chave estrangeira o protege**. A tabela
+`procedimentos` não existe nesta árvore, então o `registrarOrcamento` aceita qualquer UUID
+no campo. O `responsavelId` **é** conferido (pessoa ativa desta clínica, dentro da
+transação, com a RLS ativa); o procedimento não.
+
+**Gatilho:** o épico 5, na montagem — é lá que o id precisa virar sessões. **Sintoma se
+esquecer:** doze aplicações de um procedimento que nunca existiu, descobertas na agenda da
+enfermagem.
+
+### D-J3 · Não existe tela para a clínica editar os motivos de perda
+
+Só `GET /v1/motivos-de-perda`. Uma clínica que queira acrescentar *"esperando o marido
+decidir"* — o exemplo da própria decisão que torna o motivo **dado** em vez de `enum` — não
+consegue. Os cinco semeados funcionam; o argumento que justifica a modelagem fica sem
+efeito prático.
+
+**Gatilho:** a primeira clínica que pedir um motivo que não está na lista, ou
+`Configurações` entrar em escopo. A tabela já tem `ordem`, `ativo` e `desativado_em`.
+
+### D-J4 · O funil varre a tabela inteira, de todas as clínicas
+
+`GET /v1/jornada` conta os eventos com `jsonb_array_elements` numa `LATERAL`, e o filtro de
+data está **dentro do array**, não na linha. Medido com 100 mil tarefas (duas clínicas × 50
+mil, 8 mil cartões de jornada na consultada): `Parallel Seq Scan`, **20,6 ms**, nenhum
+índice. O custo cresce com o BANCO, não com a clínica nem com o período.
+
+Duas alternativas foram medidas e descartadas: o GIN `jsonb_path_ops` não serve
+(`jsonb_path_ops` atende contenção, e varredura de array nenhum índice acelera — foi
+derrubado na `0008`), e forçar o índice de etapa com `WITH … AS MATERIALIZED` é **três
+vezes mais lento** (60,3 ms: perde o paralelismo e derrama a CTE em disco).
+
+**Gatilho:** o épico 8. O painel vai ler os mesmos eventos por mais quatro recortes, e a
+decisão sobre materializar uma tabela de eventos é melhor tomada lá, com o número na mão,
+do que agora. Em 20 ms há folga larga.
+
+### D-J5 · A tela Jornada nasceu de UMA direção, não de três
+
+`docs/design.md` §6 manda UI nova nascer de três direções radicalmente diferentes via
+`/prototype`, com o humano escolhendo. O kanban de sete colunas em 390 px é o caso que o
+plano do épico nomeia como o mais apertado, e ele foi resolvido por `@media`: kanban
+rolando dentro do contêiner de 768 px para cima, lista recolhível por etapa abaixo disso.
+
+Funciona e foi medido — nenhuma rolagem horizontal de página em 390/768/1440, nos dois
+temas. Mas é **uma** direção, escolhida por quem implementou.
+
+**Gatilho:** a primeira vez que o dono olhar a tela. **Quem decide:** ele.
+
+---
+
 ## Pendências de produto, não de código
 
 Essas dependem do dono e estão em [`decisoes.md`](decisoes.md), não aqui: P-1 (UX de sessão no balcão), P-2 (hospedagem para dado de saúde), P-3 (DPA com cada clínica), P-4 (modelo comercial), P-5 (janela de migração), P-6 (perfil Consultoria), P-7 (integração com agenda), P-8 (domínio e certificado), P-9 (SMTP).
