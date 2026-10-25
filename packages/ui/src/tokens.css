@@ -36,6 +36,18 @@
    * Medido: #2E1F0E sobre #C5A467 dá 6,76:1.
    */
   --on-gold: #2e1f0e;
+
+  /*
+   * O vermelho que ainda se lê SOBRE `--gold`.
+   *
+   * `--bad` (#B4442F) sobre o dourado dá 2,3:1 — abaixo do mínimo de 3:1 que
+   * a WCAG pede para elemento gráfico. A bolinha de "tem tarefa atrasada"
+   * aparece no dia SELECIONADO da faixa, que é dourado preenchido, e lá ela
+   * precisa continuar vermelha e continuar visível. Medido: #7A2416 sobre
+   * #C5A467 dá 8,0:1. Fora dos blocos de tema pela mesma razão de
+   * `--on-gold`: o dourado é o mesmo nos dois.
+   */
+  --bad-on-gold: #7a2416;
 }
 
 /* Tema escuro é par de primeira classe. O seletor manual vence nos dois sentidos. */

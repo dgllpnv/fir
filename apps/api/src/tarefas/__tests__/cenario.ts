@@ -227,8 +227,13 @@ export const pegar = (
   caminho: string,
   consulta: Record<string, string> = {},
   quem = 'juliana',
-) =>
-  request(c.app.getHttpServer()).get(caminho).query(consulta).set('Cookie', c.cookies[quem]!)
+) => {
+  const pedido = request(c.app.getHttpServer()).get(caminho).query(consulta)
+  // `quem` desconhecido = SEM cookie. É assim que se pede sem sessão, e é o
+  // que prova que a rota responde 401 em vez de entregar dado de clínica.
+  const cookie = c.cookies[quem]
+  return cookie === undefined ? pedido : pedido.set('Cookie', cookie)
+}
 
 export const remendar = (c: Cenario, caminho: string, corpo: Corpo, quem = 'juliana') =>
   request(c.app.getHttpServer()).patch(caminho).set('Cookie', c.cookies[quem]!).send(corpo)

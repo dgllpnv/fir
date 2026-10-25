@@ -153,3 +153,25 @@ export const ICONE_SAIR = svg(
   <path key="a" d="M9.5 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20h4" />,
   <path key="b" d="m15 8.5 3.5 3.5-3.5 3.5M18.5 12H9" />,
 )
+
+/* ------------------------------------------------------------------------
+ * Os ícones da ROTINA. Fora de `ICONES` de propósito: aquele mapa é o do
+ * menu, e `icones.test.ts` cobra que ele case exatamente com `MENU`.
+ * ---------------------------------------------------------------------- */
+
+/** O visto dentro do círculo de concluir. */
+export const ICONE_CHECK = svg(<path key="a" d="m5 12.5 4.5 4.5L19 7" strokeWidth={2.4} />)
+
+export const ICONE_ANTERIOR = svg(<path key="a" d="m14.5 5-7 7 7 7" />)
+export const ICONE_PROXIMO = svg(<path key="a" d="m9.5 5 7 7-7 7" />)
+
+/**
+ * WhatsApp: o balão com o fone, em traço.
+ *
+ * Desenhado e não emoji — `docs/design.md` proíbe emoji na interface — e
+ * sempre com o rótulo "WhatsApp" ao lado, nunca sozinho.
+ */
+export const ICONE_WHATSAPP = svg(
+  <path key="a" d="M20 11.5a8 8 0 0 1-11.9 7L4 20l1.6-4A8 8 0 1 1 20 11.5Z" />,
+  <path key="b" d="M9.2 9.1c.2-.5.4-.5.6-.5h.5c.2 0 .4 0 .6.5l.6 1.4c.1.2 0 .4-.1.5l-.4.5c-.1.2-.2.3 0 .6a6 6 0 0 0 2.4 2c.3.1.4 0 .6-.1l.5-.5c.2-.2.3-.2.5-.1l1.4.7c.3.1.4.3.4.5 0 .5-.4 1.4-1.6 1.4-1 0-2.6-.6-4-2a7 7 0 0 1-2-3.5c0-.7.2-1.1.5-1.4Z" />,
+)

@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./tokens.css": "./src/tokens.css",
-    "./shell.css": "./src/shell.css"
+    "./shell.css": "./src/shell.css",
+    "./rotina.css": "./src/rotina.css"
   },
   "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
   "devDependencies": { "typescript": "^5.7", "vitest": "^2" }

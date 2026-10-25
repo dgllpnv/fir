@@ -1,5 +1,6 @@
 export * from './comum'
 export * from './auditoria'
 export * from './autenticacao'
+export * from './clinica'
 export * from './pacientes'
 export * from './tarefas'
