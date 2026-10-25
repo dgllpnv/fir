@@ -1,4 +1,5 @@
 import { EntrarEntrada, type EuSaida } from '@fir/contracts'
+import { diaCivil } from '@fir/domain'
 import {
   BadRequestException,
   Body,
@@ -15,6 +16,7 @@ import {
 } from '@nestjs/common'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Publico } from '../autorizacao/publico.decorator'
+import { RELOGIO, type Relogio } from '../comum/relogio'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { AutenticacaoService, CredencialInvalida, LimiteDeTentativas } from './autenticacao.service'
 import { FilaCheia, RETRY_AFTER_FILA_CHEIA } from './concorrencia'
@@ -34,6 +36,7 @@ export class AutenticacaoController {
   constructor(
     @Inject(AutenticacaoService) private readonly auth: AutenticacaoService,
     @Inject(LimitePorOrigem) private readonly limitePorOrigem: LimitePorOrigem,
+    @Inject(RELOGIO) private readonly relogio: Relogio,
   ) {}
 
   // `@Publico()`: é a rota que CRIA a sessão — exigir sessão aqui seria
@@ -174,6 +177,10 @@ export class AutenticacaoController {
         nome: p.nome,
         perms: [...p.perms],
       })),
+      // O dia de negócio, do SERVIDOR, no fuso da CLÍNICA (regra 24). Toda
+      // tela que precisa saber que dia é hoje lê daqui — o relógio do
+      // navegador não decide, e o do servidor web é um terceiro relógio.
+      hoje: diaCivil(this.relogio.agora(), c.clinicaFuso),
     }
   }
 }

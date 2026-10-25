@@ -41,6 +41,19 @@ export type ItemDeMenu = {
   readonly epico: number | null
   /** Uma frase: o que a tela entrega quando existir. */
   readonly promessa: string
+  /**
+   * Item que a lateral desenha como **ação**, e não como item de menu.
+   *
+   * "Nova tarefa" e "Recebimento" são as duas coisas mais frequentes que a
+   * recepção faz, e as duas CRIAM alguma coisa — não são lugares para onde se
+   * vai, são coisas que se fazem. Desenhá-las como link no meio de dezessete
+   * outros é enterrar o caminho de dois toques dentro de uma lista, que é
+   * exatamente o que `docs/design.md` §1 manda não fazer.
+   *
+   * Continua sendo item de MENU (tem `href`, `perm` e `promessa`): some para
+   * quem não pode, e a varredura `menu-vs-telas` continua cobrando a página.
+   */
+  readonly acao?: true
 }
 
 /** Hoje, Tarefas, Nova tarefa e Minhas metas são de todos — `perm: null`, sem depender de perfil. */
@@ -56,7 +69,7 @@ export const MENU: readonly ItemDeMenu[] = [
       'Toda a lista de tarefas, com filtro por pessoa, por semana e por status.',
   },
   { href: '/nova', rotulo: 'Nova tarefa', grupo: 'Dia a dia', perm: null,
-    epico: null,
+    epico: null, acao: true,
     promessa:
       'Criar tarefa em dois toques: paciente, tipo, data, horário e responsável.',
   },
@@ -65,7 +78,8 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: 'Recebimento',
     grupo: 'Dia a dia',
     perm: 'receber',
-    epico: 4,
+    epico: null,
+    acao: true,
     promessa:
       'Registrar um recebimento em dois toques, sem passar pela tela do financeiro.',
   },
@@ -90,27 +104,27 @@ export const MENU: readonly ItemDeMenu[] = [
       'Campanha com tipo, métrica e meta, importação de lista e funil do período.',
   },
   { href: '/recebimentos', rotulo: 'Recebimentos', grupo: 'Financeiro', perm: 'receber',
-    epico: 4,
+    epico: null,
     promessa:
       'Recebimento avulso e o saldo em aberto, agrupado por adesão.',
   },
   { href: '/caixa', rotulo: 'Caixa do dia', grupo: 'Financeiro', perm: 'caixa',
-    epico: 4,
+    epico: null,
     promessa:
       'O caixa do dia, conferido às cegas: você conta antes de ver o esperado.',
   },
   { href: '/contas', rotulo: 'Contas a pagar', grupo: 'Financeiro', perm: 'contas',
-    epico: 4,
+    epico: null,
     promessa:
       'Contas a pagar, com lembrete três dias antes do vencimento.',
   },
   { href: '/cobrancas', rotulo: 'Cobranças', grupo: 'Financeiro', perm: 'cobrancas',
-    epico: 4,
+    epico: null,
     promessa:
       'Quem está com saldo em aberto, e o registro de cada cobrança feita.',
   },
   { href: '/visao-do-mes', rotulo: 'Visão do mês', grupo: 'Financeiro', perm: 'finmes',
-    epico: 4,
+    epico: null,
     promessa:
       'A receita do mês por categoria, contra a meta.',
   },

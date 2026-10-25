@@ -458,7 +458,18 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
   font-weight: 600;
   color: var(--muted);
 }
-.indicador .numero { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.indicador .numero {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  /* O número não quebra: medido na Visão do mês, "−R$ 3.250,00" partia entre
+     o sinal e o valor, e um resultado negativo lido em duas linhas é um
+     resultado que alguém lê como positivo. Encolhe antes de quebrar. */
+  white-space: nowrap;
+}
+@media (max-width: 420px) {
+  .indicador .numero { font-size: 20px; }
+}
 
 /* ---------- carregando ----------
    A altura fica RESERVADA: o esqueleto ocupa o mesmo espaço do conteúdo, e
@@ -773,4 +784,154 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
   }
   .khead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .khead > b { font-size: 16px; font-variant-numeric: tabular-nums; }
+}
+
+/* ---------- financeiro (épico 4) ---------- */
+
+/*
+ * A BARRA DA META.
+ *
+ * O percentual vem PRONTO do servidor e a barra só o desenha — a largura é um
+ * `width`, nunca uma divisão. Gradiente nenhum: `docs/design.md` §3 só
+ * permite gradiente que codifique dado, e aqui o dado já está no comprimento.
+ */
+.meta-do-mes {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.meta-linha {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+.meta-linha .num { font-size: 18px; font-weight: 600; color: var(--gold-ink); }
+.barra {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--gold-soft);
+  overflow: hidden;
+}
+.barra > i { display: block; height: 100%; background: var(--gold); }
+
+/*
+ * O AVISO FORTE: "recebimentos dos últimos 7 dias" e "paciente com saldo".
+ *
+ * Os dois são defesas de produto que só funcionam no CAMINHO — a recepção
+ * precisa esbarrar neles antes do campo de valor. O traço dourado à esquerda
+ * os separa do formulário sem virar um card dentro de outro.
+ */
+.aviso-forte {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 12px 14px;
+}
+.aviso-forte > b { font-size: 13.5px; }
+
+/*
+ * "O que a paciente está pagando?" — cinco opções, cada uma com explicação.
+ *
+ * Botões e não `<select>`: a escolha muda os campos seguintes (só três
+ * aceitam "ficou valor em aberto"), e um `select` esconderia a explicação
+ * justamente de quem está decidindo. `auto-fit` com piso de 220 px: em 390 px
+ * vira uma coluna, sem rolagem horizontal.
+ */
+.refs { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+.refs > legend {
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.refs .ref {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 11px 13px;
+  min-height: 56px;
+}
+.refs .ref b { font-size: 14px; }
+.refs .ref span { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.refs .ref:hover:not(:disabled) { border-color: var(--gold); }
+.refs .ref[aria-pressed='true'] {
+  border-color: var(--gold);
+  background: var(--gold-soft);
+}
+.refs .ref[aria-pressed='true'] b { color: var(--on-gold-soft); }
+.refs .ref:disabled { opacity: 0.55; cursor: default; }
+@media (min-width: 560px) {
+  .refs { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+}
+
+/* O recebimento estornado continua na lista, riscado — ele aconteceu. */
+.linha[data-estornado='sim'] .info b,
+.linha[data-estornado='sim'] .valor {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+/*
+ * A TABELA DA CONFERÊNCIA, em 390 px.
+ *
+ * Quatro colunas de número não cabem em 390 px, e `overflow-x` numa tabela de
+ * quatro linhas é pior que reorganizá-la: a pessoa rolaria para o lado com o
+ * telefone tocando. Abaixo de 560 px cada forma vira um BLOCO, com os rótulos
+ * repetidos à esquerda — a mesma informação, lida de cima para baixo.
+ */
+@media (max-width: 559px) {
+  table.conferencia thead { display: none; }
+  table.conferencia, table.conferencia tbody, table.conferencia tr, table.conferencia td {
+    display: block;
+    width: 100%;
+  }
+  table.conferencia tr {
+    border-bottom: 1px solid var(--line);
+    padding: 8px 0;
+  }
+  table.conferencia td { border: 0; padding: 3px 0; }
+  table.conferencia td:first-child { font-weight: 600; padding-bottom: 5px; }
+  table.conferencia td:not(:first-child) {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: left;
+    font-size: 13px;
+  }
+  table.conferencia td:not(:first-child)::before {
+    content: attr(data-rotulo);
+    color: var(--muted);
+  }
+}
+
+/* As linhas de TOTAL da Visão do mês: fixas e variáveis fecham a tabela. */
+table.lista tr.total td { border-top: 1px solid var(--line); font-weight: 600; }
+table.lista tr.total td:first-child { color: var(--muted); }
+
+/* "Excluir conta" dentro do formulário — destrutivo, e por isso discreto. */
+.link.perigo { color: var(--bad); }
+
+/*
+ * IMPRESSÃO da Visão do mês: a gestora leva o mês em papel para a reunião.
+ * Some o que é navegação e o que é ação; fica o que é número.
+ */
+@media print {
+  .side, .topbar, .acoes-de-tela, .toast { display: none !important; }
+  .wrap { max-width: none; }
+  .indicador, .cartao, .meta-do-mes { break-inside: avoid; }
 }

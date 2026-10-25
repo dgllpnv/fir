@@ -339,15 +339,14 @@ function Formulario({
               {tipo === '' ? null : <small>{descricaoDoTipo(tipo)}</small>}
             </label>
 
-            {/* A dica dela, palavra por palavra. O link fica desabilitado até
-                a tela de Recebimento existir (épico 4) — apontar para uma rota
-                que ainda não é tela seria pior do que dizer "em breve". */}
+            {/* A dica dela, palavra por palavra — e agora com o link ligado:
+                a tela de Recebimento existe desde o épico 4. */}
             <p className="nota">
               Recebeu dinheiro do paciente? Não é tarefa: use{' '}
-              <button type="button" className="link" disabled>
+              <a className="link" href="/recebimentos">
                 Recebimento
-              </button>{' '}
-              <small>(em breve)</small>.
+              </a>
+              .
             </p>
           </>
         ) : null}

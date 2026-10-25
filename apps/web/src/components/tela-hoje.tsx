@@ -1,10 +1,12 @@
 'use client'
 
-import type { Escopo, RespostaDeHoje, TarefaNaLista } from '@fir/contracts'
+import type { Escopo, HojeComFinanceiro, TarefaNaLista } from '@fir/contracts'
 import { useState } from 'react'
 import { useAcoesDeTarefa } from '@/lib/acoes-de-tarefa'
 import { consultaEmTexto, useDados } from '@/lib/dados'
-import { linkDeWhatsApp, plural, rotuloDoDia } from '@/lib/formato'
+import { formatarDinheiro } from '@fir/ui'
+import { centavos as centavosDoTexto } from '@/lib/financeiro'
+import { diaEmTexto, linkDeWhatsApp, plural, rotuloDoDia } from '@/lib/formato'
 import { CartaoDeTarefa } from './cartao-de-tarefa'
 import { Carregando, Erro, Toast } from './estados'
 import { PainelDeEdicao } from './painel-de-edicao'
@@ -36,7 +38,7 @@ export function TelaHoje({
   const [escopo, setEscopo] = useState<Escopo>('meu')
 
   const caminho = `v1/hoje${consultaEmTexto({ dia: dia ?? undefined, escopo })}`
-  const { dados, carregando, erro, recarregar } = useDados<RespostaDeHoje>(caminho)
+  const { dados, carregando, erro, recarregar } = useDados<HojeComFinanceiro>(caminho)
 
   // Concluir, cancelar, reabrir e editar são as MESMAS quatro ações da tela
   // Tarefas, e moram num lugar só. Ver `lib/acoes-de-tarefa.ts`.
@@ -234,6 +236,57 @@ export function TelaHoje({
                   {dados.retomar.map((t) => cartao(t))}
                 </>
               )}
+            </div>
+          )}
+
+          {/*
+            O BLOCO FINANCEIRO, montado no servidor.
+
+            `caixaPendente` é BOOLEANO e as contas já vêm filtradas — as
+            minhas, até três dias do vencimento, mais as vencidas. Um valor em
+            `caixaPendente` seria o esperado da gaveta chegando pela porta dos
+            fundos, numa tela que fica aberta o dia inteiro ao lado de quem vai
+            contar (regra 6).
+          */}
+          {dados.dia !== dados.hoje ||
+          (!dados.financeiro.caixaPendente && dados.financeiro.contas.length === 0) ? null : (
+            <div className="grupo">
+              <h3>Financeiro</h3>
+              <div className="linhas">
+                {dados.financeiro.caixaPendente ? (
+                  <a className="linha" href="/caixa">
+                    <div className="info">
+                      <b>Fechar o caixa de hoje</b>
+                      <small>
+                        Confira a maquininha, o Pix e a gaveta. O que o sistema registrou só
+                        aparece depois de fechar.
+                      </small>
+                    </div>
+                    <span className="pill alerta">pendente</span>
+                  </a>
+                ) : null}
+                {dados.financeiro.contas.map((c) => (
+                  <a className="linha" href="/contas" key={c.id}>
+                    <div className="info">
+                      <b>{c.descricao}</b>
+                      <small>
+                        {c.categoria} ·{' '}
+                        {c.vencida ? (
+                          <b style={{ color: 'var(--bad)' }}>
+                            venceu em {diaEmTexto(c.vencimento)}
+                          </b>
+                        ) : (
+                          <>
+                            vence <span className="num">{diaEmTexto(c.vencimento)}</span>
+                          </>
+                        )}
+                      </small>
+                    </div>
+                    <span className="valor">{formatarDinheiro(centavosDoTexto(c.valor))}</span>
+                    <span className="link">Paguei</span>
+                  </a>
+                ))}
+              </div>
             </div>
           )}
 

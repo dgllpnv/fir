@@ -1,8 +1,9 @@
 import type { EuSaida } from '@fir/contracts'
-import { type ChaveDePermissao, type Perfil, temPerm } from '@fir/domain'
+import { diaCivil, temPerm, type ChaveDePermissao, type Perfil } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { SISTEMA, pessoaIdDeFonteConfiavel } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
+import { RELOGIO, type Relogio } from '../comum/relogio'
 import { type ClinicaId, clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
 import { inteiroDoAmbiente } from '../comum/ambiente'
 import type { ContextoDaRequisicao, PerfilComChave } from '../comum/contexto'
@@ -82,7 +83,12 @@ export class AutenticacaoService {
   // `design:paramtypes`, metadado que o esbuild (usado por vite/vitest e por
   // tsx) não emite mesmo com `emitDecoratorMetadata` no tsconfig — medido na
   // Task 13. Sem o token explícito, o Nest injeta `undefined` aqui.
-  constructor(@Inject(BancoService) private readonly banco: BancoService) {}
+  constructor(
+    @Inject(BancoService) private readonly banco: BancoService,
+    // O dia de negócio em `EuSaida.hoje` vem DAQUI, e não de `new Date()`:
+    // é a mesma autoridade que recusa um recebimento de amanhã (regra 24).
+    @Inject(RELOGIO) private readonly relogio: Relogio,
+  ) {}
 
   /**
    * Uma das duas fontes confiáveis de `ClinicaId` (ver `clinica-id.ts`): o id
@@ -339,6 +345,7 @@ export class AutenticacaoService {
           },
           clinica: { id: clinica.id, codigo: clinica.codigo, nome: clinica.nome, fuso: clinica.fuso },
           perfis: perfisRaw.rows.map((x) => ({ id: x.id, chave: x.chave, nome: x.nome, perms: x.perms })),
+          hoje: diaCivil(this.relogio.agora(), clinica.fuso),
         } satisfies EuSaida,
       }
     })

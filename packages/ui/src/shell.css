@@ -56,6 +56,24 @@
 
 /* A navegação é a única parte que rola: cabeça e rodapé ficam sempre à vista,
    mesmo no perfil que enxerga as 17 telas numa janela baixa. */
+/* As AÇÕES da lateral: criar tarefa e registrar recebimento.
+   Botões, e não itens de menu — ver o comentário em `shell.tsx`. O contorno
+   dourado as separa da lista sem usar sombra nem preenchimento cheio, que
+   roubariam a atenção do item ativo. */
+.sideacoes { display: grid; gap: 6px; padding: 0 10px 12px; }
+.sideacoes .acao {
+  justify-content: flex-start;
+  gap: 10px;
+  border-color: var(--gold);
+  color: var(--gold-ink);
+  min-height: 42px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  text-decoration: none;
+}
+.sideacoes .acao span { font-size: 17px; line-height: 1; font-weight: 400; }
+.sideacoes .acao:hover { background: var(--gold-soft); }
+
 .sidenav {
   display: grid;
   gap: 12px;

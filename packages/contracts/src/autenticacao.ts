@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Uuid } from './comum'
+import { DiaCivil, Uuid } from './comum'
 
 export const EntrarEntrada = z.object({
   // A clínica entra aqui, no contrato, e não lida solta do corpo no
@@ -44,6 +44,19 @@ export const EuSaida = z.object({
   usuario: PessoaPublica,
   clinica: ClinicaPublica,
   perfis: z.array(PerfilPublico),
+  /**
+   * **O dia de negócio, do SERVIDOR, no fuso da clínica** (regra 24).
+   *
+   * Toda tela que precisa saber "que dia é hoje" — o `max` de um campo de
+   * data, o agrupamento de contas vencidas, o mês corrente da Visão do mês —
+   * lê daqui. O relógio do navegador não decide isso, e o do servidor web
+   * tampouco: é um terceiro relógio, e a clínica que abre às 23h55 veria o
+   * dia virar antes dela.
+   *
+   * Vem em `/v1/eu` porque toda página já resolve a sessão; uma rota só para
+   * perguntar a data seria uma ida a mais em cada navegação.
+   */
+  hoje: DiaCivil,
 })
 export type EuSaida = z.infer<typeof EuSaida>
 

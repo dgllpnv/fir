@@ -35,7 +35,10 @@ export function Shell({
   const [aberta, setAberta] = useState(false)
   const botaoMenu = useRef<HTMLButtonElement>(null)
   const gaveta = useRef<HTMLElement>(null)
-  const secoes = secoesDoMenu(itens)
+  const acoes = itens.filter((i) => i.acao === true)
+  // As ações saem do menu: elas já estão acima, como botão. Repeti-las na
+  // lista seria o mesmo destino duas vezes na mesma barra.
+  const secoes = secoesDoMenu(itens.filter((i) => i.acao !== true))
 
   // Trocar de tela fecha a gaveta. Sem isto, no celular a pessoa toca o item e
   // continua olhando para o menu, sem saber se algo aconteceu.
@@ -91,6 +94,26 @@ export function Shell({
           </div>
           <div className="sideclin">{clinica || 'Gestão de Rotina'}</div>
         </div>
+
+        {/*
+          As AÇÕES vêm antes do menu, e são botões.
+
+          "Nova tarefa" e "Recebimento" são as duas coisas mais frequentes que
+          a recepção faz, e as duas criam alguma coisa — não são lugares para
+          onde se vai. Enterrá-las no meio de dezessete links é enterrar o
+          caminho de dois toques dentro de uma lista (`docs/design.md` §1).
+          Elas continuam sendo itens de menu: somem para quem não pode.
+        */}
+        {acoes.length > 0 ? (
+          <div className="sideacoes">
+            {acoes.map((i) => (
+              <Link key={i.href} href={i.href} className="btn ghost acao">
+                <span aria-hidden="true">+</span>
+                {i.rotulo}
+              </Link>
+            ))}
+          </div>
+        ) : null}
 
         <nav className="sidenav" aria-label="Seções">
           {secoes.map((s) => (
