@@ -1,12 +1,12 @@
 'use client'
 
-import type { Escopo, RespostaDeHoje, TarefaNaLista, TarefasAfetadas } from '@fir/contracts'
+import type { Escopo, RespostaDeHoje, TarefaNaLista } from '@fir/contracts'
 import { useState } from 'react'
-import { chamar } from '@/lib/api'
+import { useAcoesDeTarefa } from '@/lib/acoes-de-tarefa'
 import { consultaEmTexto, useDados } from '@/lib/dados'
 import { linkDeWhatsApp, plural, rotuloDoDia } from '@/lib/formato'
-import { CartaoDeTarefa, type DadosDaConclusao } from './cartao-de-tarefa'
-import { Carregando, Erro } from './estados'
+import { CartaoDeTarefa } from './cartao-de-tarefa'
+import { Carregando, Erro, Toast } from './estados'
 import { PainelDeEdicao } from './painel-de-edicao'
 import { Semana } from './semana'
 
@@ -32,57 +32,14 @@ export function TelaHoje({
 }) {
   const [dia, setDia] = useState<string | null>(null)
   const [escopo, setEscopo] = useState<Escopo>('meu')
-  const [emEdicao, setEmEdicao] = useState<TarefaNaLista | null>(null)
-  const [recado, setRecado] = useState<string | null>(null)
 
   const caminho = `v1/hoje${consultaEmTexto({ dia: dia ?? undefined, escopo })}`
   const { dados, carregando, erro, recarregar } = useDados<RespostaDeHoje>(caminho)
 
-  async function agir(fn: () => Promise<TarefasAfetadas>, aviso: string) {
-    try {
-      await fn()
-      setRecado(aviso)
-      recarregar()
-    } catch (e) {
-      setRecado(e instanceof Error ? e.message : 'Não consegui completar a ação.')
-      throw e
-    }
-  }
-
-  const acoes = {
-    concluir: (id: string, d: DadosDaConclusao) =>
-      agir(
-        () =>
-          chamar<TarefasAfetadas>(`v1/tarefas/${id}/concluir`, {
-            method: 'POST',
-            body: JSON.stringify({
-              em: d.em,
-              resultado: d.resultado,
-              ...(d.pagamento === undefined
-                ? {}
-                : {
-                    pagamento: {
-                      valor: d.pagamento.valor.toString(),
-                      forma: d.pagamento.forma,
-                      valorAberto: (d.pagamento.valorAberto ?? 0n).toString(),
-                    },
-                  }),
-            }),
-          }),
-        'Tarefa concluída.',
-      ),
-    cancelar: (id: string) =>
-      agir(
-        () => chamar<TarefasAfetadas>(`v1/tarefas/${id}/cancelar`, { method: 'POST', body: '{}' }),
-        'Tarefa cancelada.',
-      ),
-    reabrir: (id: string) =>
-      agir(
-        () => chamar<TarefasAfetadas>(`v1/tarefas/${id}/reabrir`, { method: 'POST', body: '{}' }),
-        'Tarefa reaberta. Se havia pagamento, ele foi estornado.',
-      ),
-    editar: (t: TarefaNaLista) => setEmEdicao(t),
-  }
+  // Concluir, cancelar, reabrir e editar são as MESMAS quatro ações da tela
+  // Tarefas, e moram num lugar só. Ver `lib/acoes-de-tarefa.ts`.
+  const { acoes, emEdicao, fecharEdicao, recado, setRecado, aoSalvarEdicao } =
+    useAcoesDeTarefa(recarregar)
 
   const cartao = (t: TarefaNaLista, semPrazo = false) => (
     <CartaoDeTarefa
@@ -245,20 +202,12 @@ export function TelaHoje({
         <PainelDeEdicao
           tarefa={emEdicao}
           hoje={dados?.hoje ?? ''}
-          aoFechar={() => setEmEdicao(null)}
-          aoSalvar={(aviso) => {
-            setEmEdicao(null)
-            setRecado(aviso)
-            recarregar()
-          }}
+          aoFechar={fecharEdicao}
+          aoSalvar={aoSalvarEdicao}
         />
       )}
 
-      {recado === null ? null : (
-        <div className="toast" role="status" aria-live="polite" onClick={() => setRecado(null)}>
-          {recado}
-        </div>
-      )}
+      <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
   )
 }

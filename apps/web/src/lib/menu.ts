@@ -51,7 +51,7 @@ export const MENU: readonly ItemDeMenu[] = [
       'As tarefas do dia, as pendentes de dias anteriores e os aniversariantes.',
   },
   { href: '/tarefas', rotulo: 'Tarefas', grupo: 'Dia a dia', perm: null,
-    epico: 2,
+    epico: null,
     promessa:
       'Toda a lista de tarefas, com filtro por pessoa, por semana e por status.',
   },

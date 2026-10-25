@@ -46,3 +46,22 @@ export function Erro({ mensagem, recarregar }: { mensagem: string; recarregar: (
 export function Vazio({ children }: { children: ReactNode }) {
   return <div className="vazio">{children}</div>
 }
+
+/**
+ * Uma mensagem por vez, e toda ação confirma o que aconteceu (`design.md` §4).
+ *
+ * `aria-live="polite"` para quem usa leitor de tela: sem ele a confirmação de
+ * "Tarefa concluída" é visual e só — e o toque no círculo deixaria de ter
+ * resposta para quem mais precisa dela.
+ */
+export function Toast({ recado, aoFechar }: { recado: string | null; aoFechar: () => void }) {
+  if (recado === null) return null
+  return (
+    <div className="toast" role="status" aria-live="polite">
+      <span>{recado}</span>
+      <button type="button" className="link" onClick={aoFechar}>
+        Fechar
+      </button>
+    </div>
+  )
+}

@@ -65,6 +65,23 @@ export function useDados<T>(caminho: string | null): Estado<T> {
   return { dados, carregando, erro, recarregar, trocar }
 }
 
+/**
+ * O valor depois que a pessoa PAROU de digitar.
+ *
+ * Sem isto, "Fernanda" são oito requisições de busca, e a sétima resposta pode
+ * chegar depois da oitava — a lista ficaria mostrando o resultado de "Fernan".
+ * A guarda de `useDados` já descarta a resposta abandonada; isto evita que ela
+ * precise ser pedida.
+ */
+export function useEspera<T>(valor: T, ms: number): T {
+  const [atrasado, setAtrasado] = useState(valor)
+  useEffect(() => {
+    const t = setTimeout(() => setAtrasado(valor), ms)
+    return () => clearTimeout(t)
+  }, [valor, ms])
+  return atrasado
+}
+
 /** Monta `?a=1&b=2` sem os campos vazios — query limpa é URL compartilhável. */
 export function consultaEmTexto(campos: Record<string, string | number | undefined>): string {
   const p = new URLSearchParams()

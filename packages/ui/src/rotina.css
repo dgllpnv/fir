@@ -466,6 +466,20 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
 }
 .caixa input { margin-top: 2px; flex: none; width: 18px; height: 18px; accent-color: var(--gold); }
 
+/* A paciente já escolhida: uma faixa, não um campo. O nome dela fica em
+   destaque porque é a âncora de tudo o que vem abaixo no formulário. */
+.escolhido {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--gold);
+  border-radius: var(--r);
+  background: var(--gold-soft);
+  padding: 10px 14px;
+}
+.escolhido > div { flex: 1; min-width: 0; }
+.escolhido b { display: block; font-size: 15px; }
+
 .sugestoes {
   display: grid;
   border: 1px solid var(--line);
@@ -488,6 +502,9 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
 .sugestoes button b { color: var(--gold-ink); }
 
 .toast {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   position: fixed;
   left: 50%;
   bottom: calc(16px + env(safe-area-inset-bottom, 0px));
@@ -504,6 +521,8 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
   box-shadow: 0 6px 24px rgba(15, 10, 5, 0.25);
 }
 .toast[data-tipo='erro'] { border-left-color: var(--bad); }
+.toast > span { flex: 1; min-width: 0; }
+.toast .link { flex: none; font-size: 13px; }
 
 /* Texto só para leitor de tela. O esqueleto é decorativo para quem enxerga e
    precisa ser anunciado para quem não enxerga. */
