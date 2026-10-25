@@ -345,6 +345,28 @@ describe('visaoDoMes — propriedades de fechamento', () => {
     )
   })
 
+  it('`percentualInteiro` acerta EM CIMA da fronteira do meio, com `b` acima de 2^53', () => {
+    // A propriedade acima não pega a versão em `float`: divergência só
+    // acontece a um fio da fronteira `p,5`, e sortear `a` ao acaso nunca cai
+    // lá (medido — 100 execuções, nenhuma). Esta CONSTRÓI a fronteira, em vez
+    // de esperar o sorteio, e é ela que torna os três números congelados lá em
+    // cima uma invariante em vez de três exemplos.
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 2n ** 53n + 1n, max: 2n ** 56n }),
+        fc.bigInt({ min: 1n, max: 199n }),
+        fc.constantFrom(-2n, -1n, 0n, 1n, 2n),
+        (b, p, jitter) => {
+          const a = (b * (2n * p + 1n)) / 200n + jitter
+          const r = BigInt(percentualInteiro(a, b)!)
+          const erro2 = 2n * (r * b - 100n * a)
+          expect(erro2 > -b && erro2 <= b).toBe(true)
+        },
+      ),
+      { numRuns: 500 },
+    )
+  })
+
   it('`percentualInteiro` é monótono: receber mais nunca baixa o percentual da meta', () => {
     fc.assert(
       fc.property(
