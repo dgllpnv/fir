@@ -85,6 +85,32 @@ O **painel do superadmin** é o épico 12, e está no fim do roadmap por causa d
 
 ---
 
+## D-6 · O total do caixa não aparece antes do fechamento · 2026-10-24
+
+Na tela **Recebimentos**, o somatório por forma de pagamento **não é devolvido pelo servidor** enquanto o caixa do dia estiver aberto. A lista de recebimentos individuais continua visível; só o agregado espera o fechamento.
+
+**Por quê:** conferir o caixa é contar o dinheiro **sem saber o número**. Quem vê "esperado R$ 1.250" e conta R$ 1.180 procura o erro na contagem até fechar — e a conferência deixa de medir qualquer coisa. É a regra 6, e ela é invariante de **transporte**, não de tela.
+
+**Diverge do protótipo**, que mostra "Total recebido hoje · Pix R$ 450" o tempo todo. Vira ADR.
+
+**A alternativa foi oferecida e recusada:** manter a tela dela e deixar a cegueira valer só para quem não tem a permissão `valores` — hoje a Recepção, que é quem conta. Recusada porque transforma a proteção em **configuração de perfil**: basta alguém dar `valores` à recepcionista um dia, e a conferência morre sem ninguém perceber. O dono escolheu a proteção estrutural.
+
+**Consequência assumida:** quem tem `valores` deixa de ver o total do dia na hora. Depois do fechamento, aparece tudo.
+
+---
+
+## D-7 · Quem cria tarefa pode buscar paciente · 2026-10-24
+
+Criar tarefa é liberado a todos, e **a busca de paciente para vincular também** — por uma rota estreita, que devolve **só nome e telefone**. Nada de valores, LTV, saldo, histórico ou origem.
+
+**Por quê:** a recepcionista que atende o telefone precisa vincular a tarefa à paciente certa. Sem isso ela cria tarefa solta e alguém vincula depois — retrabalho, e tarefa órfã é exatamente o que suja o funil.
+
+**O cuidado que a decisão exige:** **não** abrir a rota `GET /v1/pacientes` existente, que devolve LTV e saldo. Rota nova, estreita, com `@DadoSensivel` nenhum (busca não vira 200 linhas de trilha, pela mesma razão da listagem). A permissão `pacientes` segue valendo para a tela Pacientes, a ficha e tudo o mais.
+
+**É dado pessoal de paciente**, e a decisão foi do dono com isso dito.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |
