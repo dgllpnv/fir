@@ -18,6 +18,18 @@ export const quantidadeEmTexto = z
   .transform((v) => (v === null ? null : BigInt(v)))
 
 export const DiaCivil = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use o formato aaaa-mm-dd')
+
+/**
+ * `HH:MM`, com as faixas conferidas.
+ *
+ * O `Code.gs` valida só `/^\d{2}:\d{2}$/`, e a coluna `time` do Postgres
+ * recusaria `99:99` com um erro de banco em vez de uma mensagem de tela. A
+ * faixa entra aqui para que a recusa seja a do contrato.
+ *
+ * Mora em `comum` porque `tarefas` e `jornada` precisam dela — duas cópias da
+ * mesma expressão é como uma delas deixa de recusar `24:00`.
+ */
+export const Hora = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use HH:MM')
 export const Mes = z.string().regex(/^\d{4}-\d{2}$/, 'use o formato aaaa-mm')
 export const Uuid = z.string().uuid()
 

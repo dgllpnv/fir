@@ -1,15 +1,6 @@
 import { ACOES, ehPagamento, ETAPAS, FREQUENCIAS, TIPOS } from '@fir/domain'
 import { z } from 'zod'
-import { DiaCivil, dinheiroEmTexto, Uuid } from './comum'
-
-/**
- * `HH:MM`, com as faixas conferidas.
- *
- * O `Code.gs` valida só `/^\d{2}:\d{2}$/`, e a coluna `time` do Postgres
- * recusaria `99:99` com um erro de banco em vez de uma mensagem de tela. A
- * faixa entra aqui para que a recusa seja a do contrato.
- */
-const Hora = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use HH:MM')
+import { DiaCivil, dinheiroEmTexto, Hora, Uuid } from './comum'
 
 /**
  * O tipo de contato precisa ser um dos NOMES CONHECIDOS.
