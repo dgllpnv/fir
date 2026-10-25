@@ -189,7 +189,25 @@ export class JornadaService {
         await conferirResponsaveis(c, dados.programa)
       }
 
-      const efeitos = efeitosDa(dados, t, hoje, agora)
+      /**
+       * O MOTIVO DA PERDA É RESOLVIDO AQUI, dentro da mesma transação e com a
+       * RLS ativa.
+       *
+       * `SELECT nome … WHERE id = $1 AND ativo`: a RLS filtra por clínica, e
+       * zero linhas significa as três coisas que a recepção não precisa
+       * distinguir — não existe, é de outra clínica, está desativado. A
+       * mensagem é a mesma nos três, e é a certa: *"Escolha um motivo da
+       * lista."*
+       *
+       * Nada de `IN` montado com o id vindo do corpo. E o NOME gravado é o
+       * que a lista dizia NESTE instante (decisão D-2): renomear "Preço" para
+       * "Preço acima do esperado" não pode reescrever o relatório do trimestre
+       * passado.
+       */
+      const motivo =
+        dados.acao === 'perder' ? await resolverMotivo(c, dados.motivoId) : undefined
+
+      const efeitos = efeitosDa(dados, t, hoje, agora, motivo)
       const evento: EventoDeJornada = {
         acao: dados.acao,
         etapa: destino.valor.etapa,
@@ -264,6 +282,20 @@ async function carregar(c: pg.PoolClient, id: string): Promise<CartaoCarregado> 
   return { etapa: l.etapa, status: l.status, prazo: l.prazo, hora: l.hora, historico: l.historico }
 }
 
+/** O motivo de perda, resolvido pela lista DA CLÍNICA — ou 400. */
+async function resolverMotivo(
+  c: pg.PoolClient,
+  motivoId: string,
+): Promise<{ readonly id: string; readonly nome: string }> {
+  const r = await c.query<{ nome: string }>(
+    'SELECT nome FROM motivos_de_perda WHERE id = $1 AND ativo',
+    [motivoId],
+  )
+  const linha = r.rows[0]
+  if (linha === undefined) throw new BadRequestException('Escolha um motivo da lista.')
+  return { id: motivoId, nome: linha.nome }
+}
+
 /**
  * Os responsáveis da proposta existem NESTA clínica e estão ATIVOS?
  *
@@ -309,6 +341,7 @@ function efeitosDa(
   t: CartaoCarregado,
   hoje: string,
   agora: Date,
+  motivo: { readonly id: string; readonly nome: string } | undefined,
 ): Efeitos {
   switch (dados.acao) {
     case 'enviarConfirmacao':
@@ -375,10 +408,30 @@ function efeitosDa(
       }
 
     case 'perder':
+      // `motivo` vem resolvido pela lista DA CLÍNICA, nunca do corpo. O
+      // `undefined` aqui seria defeito de programação, não entrada do usuário
+      // — e falhar fechado é melhor que gravar uma perda sem motivo, que é
+      // precisamente o que o protótipo faz.
+      if (motivo === undefined) {
+        throw new BadRequestException('Escolha um motivo da lista.')
+      }
+      return {
+        motivoPerdaId: motivo.id,
+        // O cartão para de pedir ação: a paciente decidiu.
+        proximoPassoEm: null,
+        // `valor_orcamento` NÃO é tocado: é ele que mede o perdido no funil.
+        motivoId: motivo.id,
+        // O nome NO INSTANTE do evento (D-2). Com só o id, o relatório do
+        // trimestre passado muda sozinho quando alguém arruma a lista; com só
+        // o nome, não dá para agrupar.
+        motivo: motivo.nome,
+        ...(dados.nota === undefined ? {} : { nota: dados.nota }),
+      }
+
     case 'fechar':
-      // Tasks 6 e 7 deste épico. Enquanto não existirem, 501 — e NÃO um 200
-      // que grava a etapa sem gravar o motivo (ou o dinheiro), que é a forma
-      // de um orçamento perdido virar um relatório que não explica nada.
+      // Task 7 deste épico. Enquanto não existir, 501 — e NÃO um 200 que grava
+      // a etapa sem lançar o dinheiro, que é a forma de uma paciente pagar e
+      // o cartão continuar em "Orçamentos em aberto".
       throw new NotImplementedException(MENSAGEM_ACAO_SEM_IMPLEMENTACAO)
   }
 }

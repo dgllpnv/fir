@@ -3,6 +3,7 @@ import { provedorDeRelogio } from '../comum/relogio'
 import { TarefasModule } from '../tarefas/tarefas.module'
 import { JornadaController } from './jornada.controller'
 import { JornadaService } from './jornada.service'
+import { MotivosController, MotivosService } from './motivos.controller'
 
 /**
  * `TarefasModule` é importado porque `reabrir` DELEGA para
@@ -12,8 +13,8 @@ import { JornadaService } from './jornada.service'
  */
 @Module({
   imports: [TarefasModule],
-  controllers: [JornadaController],
-  providers: [JornadaService, provedorDeRelogio],
+  controllers: [JornadaController, MotivosController],
+  providers: [JornadaService, MotivosService, provedorDeRelogio],
   exports: [JornadaService],
 })
 export class JornadaModule {}
