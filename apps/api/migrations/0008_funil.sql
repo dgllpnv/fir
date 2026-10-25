@@ -1,0 +1,44 @@
+-- ---------------------------------------------------------------------------
+-- 0008 — O ÍNDICE QUE NINGUÉM USA SAI.
+--
+-- A 0007 criou `tarefas_historico` (GIN, `jsonb_path_ops`) com o comentário
+-- dizendo que ele provavelmente não serviria ao funil e apontando para o
+-- `EXPLAIN ANALYZE` desta etapa. Medido, com 100 mil tarefas em duas clínicas
+-- (50 mil cada) e 8 mil cartões de jornada na clínica consultada:
+--
+--   funil · eventos do período (LATERAL sobre jsonb)
+--     Parallel Seq Scan on tarefas  →  20,6 ms
+--     índices usados: NENHUM
+--
+--   funil · colunas de hoje            → Bitmap Index Scan tarefas_por_etapa
+--   tela Hoje · recontatar             → Index Scan tarefas_em_recontato
+--   tela Hoje · retomar                → Index Scan tarefas_para_retomar
+--   tela Hoje · para confirmar         → Index Scan tarefas_por_etapa
+--   tela Hoje · pendentes              → Bitmap Index Scan tarefas_abertas
+--
+-- `tarefas_historico` não apareceu em plano nenhum, e não tinha como aparecer:
+-- `jsonb_path_ops` atende CONTENÇÃO (`@>`, `@?`, `@@`), e o funil percorre o
+-- array com `jsonb_array_elements` numa `LATERAL` — que é varredura do array,
+-- e nenhum GIN a acelera.
+--
+-- Índice que nenhuma consulta usa não é neutro: é imposto cobrado em TODA
+-- escrita da tabela mais quente do sistema. Cada `confirmar`, cada `noshow`,
+-- cada `followUp` reescreve o `historico` e, com ele, as entradas de GIN de um
+-- índice que ninguém lê — e a tabela `tarefas` é escrita a cada toque da
+-- recepção, cinquenta vezes por dia por clínica.
+--
+-- Também foi medida a alternativa de forçar o índice de etapa no funil, com
+-- `WITH cartoes AS MATERIALIZED (…)`: ela DE FATO usa `tarefas_por_etapa` para
+-- selecionar os cartões, e é TRÊS VEZES MAIS LENTA — 60,3 ms, porque perde o
+-- paralelismo e derrama a CTE em disco (`temp written=591`). O planejador
+-- escolhe certo; a forma simples fica.
+--
+-- O que fica registrado como risco, em `docs/dividas.md`: o `Parallel Seq Scan`
+-- lê a tabela INTEIRA, de todas as clínicas, porque o filtro de data está
+-- dentro do array e não na linha. Cresce com o banco, não com a clínica nem com
+-- o período. A 20,6 ms em 100 mil linhas há folga larga; a saída, se um dia
+-- faltar, é uma tabela de eventos materializada — e a decisão fica melhor
+-- tomada com o número do épico 8 na mão, quando o painel passar a ler os mesmos
+-- eventos por mais quatro recortes.
+-- ---------------------------------------------------------------------------
+DROP INDEX tarefas_historico;

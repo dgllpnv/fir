@@ -382,14 +382,35 @@ describe('os índices que a tela Hoje usa a cada abertura', () => {
   it('as três consultas da jornada têm índice parcial próprio', async () => {
     const r = await migrate.query<{ indexname: string }>(
       `SELECT indexname FROM pg_indexes WHERE tablename = 'tarefas' AND indexname = ANY($1)`,
-      [['tarefas_em_recontato', 'tarefas_para_retomar', 'tarefas_por_etapa', 'tarefas_historico']],
+      [['tarefas_em_recontato', 'tarefas_para_retomar', 'tarefas_por_etapa']],
     )
     expect(r.rows.map((x) => x.indexname).sort()).toEqual([
       'tarefas_em_recontato',
-      'tarefas_historico',
       'tarefas_para_retomar',
       'tarefas_por_etapa',
     ])
+  })
+
+  /**
+   * O GIN `tarefas_historico` da 0007 FOI DERRUBADO pela 0008, e este teste
+   * existe para que ninguém o recrie por reflexo.
+   *
+   * Medido com 100 mil tarefas: o funil percorre o `historico` com
+   * `jsonb_array_elements` numa `LATERAL`, e `jsonb_path_ops` só atende
+   * contenção (`@>`, `@?`, `@@`) — o índice não apareceu em nenhum dos seis
+   * planos. Índice que ninguém usa é imposto cobrado em toda escrita da tabela
+   * mais quente do sistema, e `tarefas` é escrita a cada toque da recepção.
+   *
+   * Se um dia o funil VIRAR consulta de contenção (`historico @> '[{…}]'`),
+   * recriar o índice é legítimo — mas então com o `EXPLAIN` na mão, numa
+   * migration que diz isso.
+   */
+  it('o GIN do histórico NÃO existe — ele não servia ao funil (0008)', async () => {
+    const r = await migrate.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes
+        WHERE tablename = 'tarefas' AND indexdef ILIKE '%gin%'`,
+    )
+    expect(r.rows.map((x) => x.indexname)).toEqual([])
   })
 })
 

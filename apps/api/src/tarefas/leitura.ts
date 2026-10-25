@@ -16,7 +16,18 @@ import type { ContextoDaRequisicao } from '../comum/contexto'
  * escrever `autor.id as PessoaId` — e o `as` espalhado é exatamente o que
  * `banco/ator.ts` existe para impedir.
  */
-export type AutorDaRequisicao = Autor & { readonly id: PessoaId }
+export type AutorDaRequisicao = Autor & {
+  readonly id: PessoaId
+  /**
+   * `temPerm(…, 'jornada')` JÁ RESOLVIDO.
+   *
+   * Mora aqui, ao lado de `podeEquipe`, pela mesma razão: a consulta da tela
+   * Hoje precisa saber se os três blocos da jornada entram na resposta, e uma
+   * consulta que resolve permissão por conta própria é uma consulta que
+   * alguém vai chamar de outro lugar sem resolvê-la.
+   */
+  readonly podeJornada: boolean
+}
 
 /**
  * Quem está agindo, do jeito que `packages/domain` entende.
@@ -33,6 +44,7 @@ export type AutorDaRequisicao = Autor & { readonly id: PessoaId }
 export const autorDe = (c: ContextoDaRequisicao): AutorDaRequisicao => ({
   id: c.ator,
   podeEquipe: c.pode('tarefas.equipe'),
+  podeJornada: c.pode('jornada'),
 })
 
 /**

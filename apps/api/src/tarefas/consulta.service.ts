@@ -50,6 +50,40 @@ function filtroDeEscopo(escopo: Escopo, eu: string, p: Parametros): string | nul
 }
 
 /**
+ * O filtro de pessoa dos TRÊS BLOCOS DA JORNADA — mais frouxo que o das
+ * tarefas, e é o `vePasso` do protótipo.
+ *
+ * Em "Para mim" entra quem é **responsável ou solicitante**, e isso é decisão
+ * de produto: o passo seguinte de um agendamento que eu marquei é meu, mesmo
+ * que outra pessoa vá executá-lo. Com o filtro estrito, quem marca a consulta
+ * nunca vê que a paciente faltou — e o recontato cai no vão entre as duas.
+ */
+function filtroDePasso(escopo: Escopo, eu: string, p: Parametros): string | null {
+  if (escopo === 'meu') {
+    const quem = p.prox(eu)
+    return `(t.responsavel_id = ${quem} OR t.solicitante_id = ${quem})`
+  }
+  if (escopo === 'solicitei') return `t.solicitante_id = ${p.prox(eu)}`
+  return null
+}
+
+/**
+ * O cartão em RECONTATO sai das listas de tarefa, e não do banco.
+ *
+ * Esta cláusula aparece nas quatro contagens da tela Hoje — a lista do dia, as
+ * pendentes de dias anteriores, as bolinhas da semana e o aviso do que o
+ * filtro esconde. Escrita uma vez, como constante, porque a quinta contagem
+ * que alguém acrescentar sem ela devolve o cartão para "Pendentes" sem erro
+ * nenhum, e a recepção volta a ver 15 pendentes todo dia.
+ *
+ * **Divergência consciente do protótipo** no caso do aviso: lá a conta de
+ * ocultas NÃO exclui o recontato (`ocultas = …filter(…)` sem `emRecontato`),
+ * então o aviso promete cartões que a tela do dia não mostra.
+ */
+const FORA_DO_RECONTATO = `t.etapa IS DISTINCT FROM 'faltou'
+                       AND t.etapa IS DISTINCT FROM 'desmarcou'`
+
+/**
  * As bordas CIVIS do período, resolvidas no servidor (regra 24).
  *
  * O cliente manda o NOME do período; as datas saem do dia civil de hoje na
@@ -230,12 +264,19 @@ export class ConsultaDeTarefasService {
     const escopo = consulta.escopo
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
-      const ler = async (extra: string, params: unknown[]): Promise<TarefaNaLista[]> => {
+      const ler = async (
+        extra: string,
+        params: unknown[],
+        ordem = 't.prazo, t.hora NULLS LAST, (t.prioridade = \'urgente\') DESC, t.criada_em',
+        escopoFrouxo = false,
+      ): Promise<TarefaNaLista[]> => {
         const p = new Parametros(clinicaId, hoje, ...params)
-        const doEscopo = filtroDeEscopo(escopo, autor.id, p)
+        const doEscopo = escopoFrouxo
+          ? filtroDePasso(escopo, autor.id, p)
+          : filtroDeEscopo(escopo, autor.id, p)
         const r = await c.query<LinhaDeTarefa>(
           `${SELECT_TAREFA} AND ${extra}${doEscopo === null ? '' : ` AND ${doEscopo}`}
-             ORDER BY t.prazo, t.hora NULLS LAST, (t.prioridade = 'urgente') DESC, t.criada_em`,
+             ORDER BY ${ordem}`,
           p.valores,
         )
         return r.rows.map(paraSaida)
@@ -244,14 +285,64 @@ export class ConsultaDeTarefasService {
       // Pendentes: abertas com prazo < HOJE DO SERVIDOR. Não dependem do dia
       // navegado — "ficam aqui todos os dias até serem concluídas ou
       // canceladas" (MANUAL cap. 3).
-      const pendentes = await ler(`t.status = 'aberta' AND t.prazo < $2::date`, [])
-      const tarefas = await ler(`t.status = 'aberta' AND t.prazo = $3::date`, [dia])
+      const pendentes = await ler(
+        `t.status = 'aberta' AND t.prazo < $2::date AND ${FORA_DO_RECONTATO}`,
+        [],
+      )
+      const tarefas = await ler(
+        `t.status = 'aberta' AND t.prazo = $3::date AND ${FORA_DO_RECONTATO}`,
+        [dia],
+      )
+      // As concluídas não precisam da cláusula: `faltou` e `desmarcou` têm
+      // `status = 'aberta'` por `CHECK` (0007), então não há como cair aqui.
       const concluidas = await ler(`t.status = 'concluida' AND t.prazo = $3::date`, [dia])
 
       const semana = await this.faixaDaSemana(c, clinicaId, hoje, inicioDaSemana, escopo, autor)
       const aniversariantes =
         dia === hoje ? await this.aniversariantesDoDia(c, clinicaId, dia) : []
       const { ocultas, alvo } = await this.ocultasPeloFiltro(c, clinicaId, hoje, dia, escopo, autor)
+
+      /**
+       * OS TRÊS BLOCOS DA JORNADA — e os três são do HOJE DO SERVIDOR.
+       *
+       * Nunca do dia navegado: ir para a semana passada não faz o recontato
+       * de ontem desaparecer, exatamente como "atrasada" não desatrasa. É a
+       * mesma razão pela qual `$2` (hoje) e `$3` (dia) são parâmetros
+       * diferentes no `SELECT_TAREFA`.
+       *
+       * Vazios sem a permissão `jornada`: o servidor sempre valida (regra 16),
+       * e aqui "validar" é não compor a seção — não esconder na tela. A tela
+       * Hoje em si é de todos (`perm: null`), então a resposta continua
+       * inteira para o resto.
+       */
+      const daJornada = autor.podeJornada
+      const recontatar = daJornada
+        ? await ler(
+            `t.etapa IN ('faltou','desmarcou')`,
+            [],
+            // Quem espera há mais tempo vem primeiro. `coalesce` porque um
+            // cartão migrado (épico 9) pode não ter `proximo_passo_em`.
+            'coalesce(t.proximo_passo_em, t.prazo), t.hora NULLS LAST, t.criada_em',
+            true,
+          )
+        : []
+      const paraConfirmar = daJornada
+        ? await ler(
+            `t.etapa = 'agendado' AND t.prazo = $2::date + 1`,
+            [],
+            't.hora NULLS LAST, t.criada_em',
+            true,
+          )
+        : []
+      const retomar = daJornada
+        ? await ler(
+            `t.etapa = 'orcamento' AND t.proximo_passo_em IS NOT NULL
+             AND t.proximo_passo_em <= $2::date`,
+            [],
+            't.proximo_passo_em, t.criada_em',
+            true,
+          )
+        : []
 
       return {
         dia,
@@ -264,6 +355,9 @@ export class ConsultaDeTarefasService {
         concluidas,
         ocultasPeloFiltro: ocultas,
         escopoComAsOcultas: ocultas === 0 ? null : alvo,
+        recontatar,
+        paraConfirmar,
+        retomar,
       }
     })
   }
@@ -286,6 +380,7 @@ export class ConsultaDeTarefasService {
          FROM tarefas t
         WHERE t.clinica_id = $1 AND t.excluida_em IS NULL AND t.status = 'aberta'
           AND t.prazo >= $3::date AND t.prazo < $4::date
+          AND ${FORA_DO_RECONTATO}
           ${doEscopo === null ? '' : `AND ${doEscopo}`}
         GROUP BY t.prazo`,
       p.valores,
@@ -365,6 +460,7 @@ export class ConsultaDeTarefasService {
       `SELECT count(*)::text AS n FROM tarefas t
         WHERE t.clinica_id = $1 AND t.excluida_em IS NULL AND t.status = 'aberta'
           AND (t.prazo = $3::date OR ($3::date = $2::date AND t.prazo < $2::date))
+          AND ${FORA_DO_RECONTATO}
           AND NOT (${meu ?? 'true'})
           ${doAlvo === null ? '' : `AND ${doAlvo}`}`,
       p.valores,

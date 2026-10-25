@@ -465,5 +465,25 @@ export const RespostaDeHoje = z.object({
   ocultasPeloFiltro: z.number().int(),
   /** Para qual escopo o aviso manda olhar. `null` quando não há aviso. */
   escopoComAsOcultas: z.enum(ESCOPOS).nullable(),
+
+  /* ----------------------------------------------------- os três da jornada */
+
+  /**
+   * **Pacientes que faltaram ou desmarcaram.** Ficam aqui TODO DIA, até
+   * alguém reagendar ou encerrar.
+   *
+   * Estes cartões **saem** de `tarefas`, de `pendentes` e da contagem de
+   * `semana` — e é de propósito: um cartão que faltou há três semanas não é
+   * uma tarefa atrasada que alguém esqueceu, é um recontato pendente, e ele
+   * já tem seção própria. Misturar os dois faz a recepção ver "15 pendentes"
+   * todo dia e parar de olhar.
+   *
+   * Vazio para quem não tem a permissão `jornada`.
+   */
+  recontatar: z.array(TarefaNaLista),
+  /** *"Confirmar os agendamentos de amanhã."* `prazo = hoje + 1`, do servidor. */
+  paraConfirmar: z.array(TarefaNaLista),
+  /** *"Orçamentos para retomar o contato."* `proximoPassoEm <= hoje`, do mais antigo. */
+  retomar: z.array(TarefaNaLista),
 })
 export type RespostaDeHoje = z.infer<typeof RespostaDeHoje>
