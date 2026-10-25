@@ -164,6 +164,32 @@ export const temValor = (nome: string): boolean => {
 export const tipoAoConcluir = (nome: string): string => infoDoTipo(nome).vira ?? nome
 
 /**
+ * Os tipos de AGENDA — os que viram outro tipo ao concluir.
+ *
+ * Derivados de `TIPOS`, nunca escritos à mão: o `TIPOS_AGENDA` do protótipo é
+ * a lista literal `["Consulta agendada","Procedimento agendado"]`, e uma
+ * segunda cópia dela é como um tipo novo entra na tabela e não vira
+ * "realizado" ao concluir, sem erro nenhum.
+ *
+ * Moram aqui, e não em `apps/api`, porque a JORNADA depende das duas listas
+ * (`ehDaJornada`, `etapaDerivada`) e `packages/domain` não importa de app.
+ */
+export const TIPOS_DE_AGENDA: readonly string[] = TIPOS.filter((t) => t.vira !== undefined).map(
+  (t) => t.nome,
+)
+
+/**
+ * Atendimento já realizado — nasce "realizado" quando lançado retroativo.
+ *
+ * `Sessão de plano` fica FORA: sessão é do programa (épico 5), não da jornada
+ * comercial. Contá-la no funil faria doze aplicações de uma paciente virarem
+ * doze atendimentos no denominador da conversão.
+ */
+export const TIPOS_REALIZADOS: readonly string[] = TIPOS.filter(
+  (t) => t.grupo === 'Atendimento' && t.sessao !== true,
+).map((t) => t.nome)
+
+/**
  * Nomes de versões anteriores. A migração das 4 clínicas depende deste mapa.
  *
  * Declarado depois de `infoDoTipo`, que o lê: `const` de módulo tem zona
