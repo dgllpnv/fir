@@ -218,3 +218,36 @@ export const DesativacaoDePaciente = z.object({
   tarefas: z.number().int(),
 })
 export type DesativacaoDePaciente = z.infer<typeof DesativacaoDePaciente>
+
+/**
+ * A busca estreita do seletor de "Nova tarefa" — **decisão D-7**.
+ *
+ * Criar tarefa é de todos, e vincular a tarefa à paciente certa é o fluxo real
+ * do balcão: sem isso a recepcionista cria tarefa solta e alguém vincula
+ * depois, o que gera retrabalho e tarefa órfã — justamente o que suja o funil.
+ *
+ * **Por que uma rota nova em vez de abrir `GET /v1/pacientes`:** aquela devolve
+ * `ltv`, `saldo`, origem e última consulta. Liberar dado financeiro de paciente
+ * por conveniência de rota é exatamente o que a regra 17 existe para impedir.
+ * Aqui saem **três campos**, e o esquema é `.strict()` para que acrescentar um
+ * quarto seja um ato deliberado, não um descuido de `SELECT *`.
+ */
+export const BuscaDePacientes = z
+  .object({ termo: z.string().trim().min(2).max(80) })
+  .strict()
+
+export const PacienteEncontrado = z
+  .object({
+    id: z.string().uuid(),
+    nome: z.string(),
+    telefone: z.string(),
+  })
+  .strict()
+
+export const RespostaDaBusca = z
+  .object({ itens: z.array(PacienteEncontrado) })
+  .strict()
+
+export type TBuscaDePacientes = z.infer<typeof BuscaDePacientes>
+export type TPacienteEncontrado = z.infer<typeof PacienteEncontrado>
+export type TRespostaDaBusca = z.infer<typeof RespostaDaBusca>

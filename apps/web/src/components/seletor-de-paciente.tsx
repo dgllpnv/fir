@@ -1,6 +1,6 @@
 'use client'
 
-import type { ListaDePacientes, PacienteNaLista } from '@fir/contracts'
+import type { TPacienteEncontrado, TRespostaDaBusca } from '@fir/contracts'
 import { useState } from 'react'
 import { consultaEmTexto, useDados, useEspera } from '@/lib/dados'
 import { FormularioDePaciente } from './formulario-de-paciente'
@@ -14,24 +14,30 @@ import { FormularioDePaciente } from './formulario-de-paciente'
  * "se o fluxo certo exige sete toques e o errado exige dois, a equipe fará o
  * errado, e o defeito é do desenho".
  *
- * A busca acontece no SERVIDOR (`GET /v1/pacientes?q=`), com a mesma
- * `normalizar_nome` que indexa o nome — acento, caixa e espaço resolvidos onde
- * o índice está. Uma busca em memória aqui só encontraria a página carregada.
+ * A busca acontece no SERVIDOR, com a mesma `normalizar_nome` que indexa o
+ * nome — acento, caixa e espaço resolvidos onde o índice está. Uma busca em
+ * memória aqui só encontraria a página carregada.
+ *
+ * **`GET /v1/busca-de-pacientes`, e não `GET /v1/pacientes`** — decisão D-7.
+ * Aquela rota devolve LTV e saldo e exige a permissão `pacientes`; esta
+ * devolve três campos e basta estar autenticada. É o que permite a quem atende
+ * o balcão vincular a tarefa à paciente certa sem ganhar acesso ao financeiro
+ * dela.
  */
 export function SeletorDePaciente({
   escolhido,
   aoEscolher,
 }: {
-  escolhido: PacienteNaLista | null
-  aoEscolher: (p: PacienteNaLista | null) => void
+  escolhido: TPacienteEncontrado | null
+  aoEscolher: (p: TPacienteEncontrado | null) => void
 }) {
   const [busca, setBusca] = useState('')
   const [cadastrando, setCadastrando] = useState(false)
   const q = useEspera(busca.trim(), 250)
 
-  const achados = useDados<ListaDePacientes>(
+  const achados = useDados<TRespostaDaBusca>(
     escolhido === null && !cadastrando && q.length >= 2
-      ? `v1/pacientes${consultaEmTexto({ q, limite: 6 })}`
+      ? `v1/busca-de-pacientes${consultaEmTexto({ termo: q })}`
       : null,
   )
 
@@ -75,11 +81,11 @@ export function SeletorDePaciente({
     )
   }
 
-  const lista = achados.dados?.pacientes ?? []
-  // O servidor recusa a lista a quem não tem a permissão `pacientes`. A tela
-  // diz isso em vez de ficar sem resposta — e `/nova` continua servindo para a
-  // tarefa interna, que é de todos.
-  const semAcesso = achados.erro !== null
+  const lista = achados.dados?.itens ?? []
+  // Depois da D-7 esta busca não depende mais da permissão `pacientes`, então
+  // um erro aqui é erro de rede ou do servidor — não falta de acesso. A tela
+  // continua dizendo que não deu, mas sem sugerir que é permissão.
+  const falhou = achados.erro !== null
 
   return (
     <div style={{ display: 'grid', gap: 8 }}>
@@ -94,7 +100,7 @@ export function SeletorDePaciente({
         />
       </label>
 
-      {semAcesso ? (
+      {falhou ? (
         <p className="nota">{achados.erro}</p>
       ) : q.length < 2 ? (
         busca === '' ? null : (

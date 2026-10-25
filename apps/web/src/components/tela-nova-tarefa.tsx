@@ -5,6 +5,7 @@ import type {
   ListaDaEquipe,
   ListaDeUnidades,
   PacienteNaLista,
+  TPacienteEncontrado,
   PagamentoEmbutido,
   TarefasAfetadas,
 } from '@fir/contracts'
@@ -69,12 +70,11 @@ const GRUPOS = [...new Set(ESCOLHIVEIS.map((t) => t.grupo))]
 
 type Props = {
   readonly eu: string
-  readonly podePacientes: boolean
   /** Pré-preenchimento vindo de Hoje (aniversário) ou da ficha da paciente. */
   readonly inicial: { pacienteId?: string; tipo?: string; descricao?: string }
 }
 
-export function TelaNovaTarefa({ eu, podePacientes, inicial }: Props) {
+export function TelaNovaTarefa({ eu, inicial }: Props) {
   const clinica = useDados<ClinicaAtual>('v1/clinica')
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
   const unidades = useDados<ListaDeUnidades>('v1/unidades')
@@ -92,7 +92,6 @@ export function TelaNovaTarefa({ eu, podePacientes, inicial }: Props) {
     <Formulario
       key={prefixada.dados?.id ?? 'sem-paciente'}
       eu={eu}
-      podePacientes={podePacientes}
       hoje={clinica.dados.hoje}
       equipe={equipe.dados?.equipe ?? []}
       unidades={(unidades.dados?.unidades ?? []).filter((u) => u.ativa)}
@@ -105,7 +104,6 @@ export function TelaNovaTarefa({ eu, podePacientes, inicial }: Props) {
 
 function Formulario({
   eu,
-  podePacientes,
   hoje,
   equipe,
   unidades,
@@ -114,18 +112,17 @@ function Formulario({
   descricaoInicial,
 }: {
   eu: string
-  podePacientes: boolean
   hoje: string
   equipe: ListaDaEquipe['equipe']
   unidades: ListaDeUnidades['unidades']
-  pacienteInicial: PacienteNaLista | null
+  pacienteInicial: TPacienteEncontrado | null
   tipoInicial: string
   descricaoInicial: string
 }) {
   const [modo, setModo] = useState<'interna' | 'paciente'>(
-    pacienteInicial !== null && podePacientes ? 'paciente' : 'interna',
+    pacienteInicial !== null ? 'paciente' : 'interna',
   )
-  const [paciente, setPaciente] = useState<PacienteNaLista | null>(pacienteInicial)
+  const [paciente, setPaciente] = useState<TPacienteEncontrado | null>(pacienteInicial)
   const [tipo, setTipo] = useState(tipoInicial)
   const [responsavelId, setResponsavelId] = useState(eu)
   const [data, setData] = useState(hoje)
@@ -301,29 +298,25 @@ function Formulario({
           void criar()
         }}
       >
-        {podePacientes ? (
-          <div className="chips" role="group" aria-label="Tipo de tarefa">
-            <button
-              type="button"
-              aria-pressed={modo === 'interna'}
-              onClick={() => setModo('interna')}
-            >
-              Tarefa interna
-            </button>
-            <button
-              type="button"
-              aria-pressed={modo === 'paciente'}
-              onClick={() => setModo('paciente')}
-            >
-              Vinculada a paciente
-            </button>
-          </div>
-        ) : (
-          <p className="nota">
-            Seu perfil cria tarefas internas. Para vincular uma tarefa a uma paciente é preciso
-            acesso a Pacientes.
-          </p>
-        )}
+        {/* Os dois modos são de todos — decisão D-7. Antes havia um ramo que
+            dizia "seu perfil só cria tarefas internas"; ele sumiu junto com a
+            trava, porque a busca de paciente passou a ter rota própria. */}
+        <div className="chips" role="group" aria-label="Tipo de tarefa">
+          <button
+            type="button"
+            aria-pressed={modo === 'interna'}
+            onClick={() => setModo('interna')}
+          >
+            Tarefa interna
+          </button>
+          <button
+            type="button"
+            aria-pressed={modo === 'paciente'}
+            onClick={() => setModo('paciente')}
+          >
+            Vinculada a paciente
+          </button>
+        </div>
 
         {modo === 'paciente' ? (
           <>
