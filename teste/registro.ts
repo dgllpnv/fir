@@ -132,6 +132,12 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     caminho: '/v1/caixa',
     camposDeDinheiro: ['esperado', 'contado', 'diferenca', 'valor'],
   },
+  /**
+   * "Últimos fechamentos". Só `diferenca` — e ela só existe para dias já
+   * FECHADOS, que é quando o número passa a ser legítimo. Quem não tem
+   * `valores` recebe `conferido`, que é booleano e atravessa.
+   */
+  { metodo: 'GET', caminho: '/v1/caixa/ultimos', camposDeDinheiro: ['diferenca'] },
   { metodo: 'GET', caminho: '/v1/contas', camposDeDinheiro: ['valor', 'valorPago'] },
   { metodo: 'POST', caminho: '/v1/contas', camposDeDinheiro: ['valor', 'valorPago'] },
   { metodo: 'PATCH', caminho: '/v1/contas/:id', camposDeDinheiro: ['valor', 'valorPago'] },

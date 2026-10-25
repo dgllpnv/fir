@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common'
 import { provedorDeRelogio } from '../comum/relogio'
+import { CaixaController } from './caixa.controller'
+import { CaixaService } from './caixa.service'
 import { CobrancasController } from './cobrancas.controller'
 import { CobrancasService } from './cobrancas.service'
 import { RecebimentosController } from './recebimentos.controller'
@@ -7,8 +9,8 @@ import { RecebimentosService } from './recebimentos.service'
 import { SaldoController } from './saldo.controller'
 
 /**
- * O financeiro: recebimentos, saldo em aberto e cobranças. Caixa, contas e
- * Visão do mês entram pelas Tasks 9 a 11 do mesmo plano.
+ * O financeiro: recebimentos, saldo em aberto, cobranças e o caixa do dia.
+ * Contas e Visão do mês entram pelas Tasks 10 e 11 do mesmo plano.
  *
  * `SaldoController` responde em `v1/pacientes/:id/saldo` e mora aqui, não em
  * `PacientesModule`: a regra é do financeiro, e o caminho é de paciente
@@ -19,8 +21,8 @@ import { SaldoController } from './saldo.controller'
  * instante para provar que "amanhã" é recusado.
  */
 @Module({
-  controllers: [RecebimentosController, SaldoController, CobrancasController],
-  providers: [RecebimentosService, CobrancasService, provedorDeRelogio],
+  controllers: [RecebimentosController, SaldoController, CobrancasController, CaixaController],
+  providers: [RecebimentosService, CobrancasService, CaixaService, provedorDeRelogio],
   exports: [RecebimentosService],
 })
 export class FinanceiroModule {}

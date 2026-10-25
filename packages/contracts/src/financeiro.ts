@@ -293,6 +293,36 @@ export type CaixaFechado = z.infer<typeof CaixaFechado>
 export const ConferenciaDeCaixa = z.discriminatedUnion('fechado', [CaixaAberto, CaixaFechado])
 export type ConferenciaDeCaixa = z.infer<typeof ConferenciaDeCaixa>
 
+/**
+ * A linha de "Últimos fechamentos".
+ *
+ * Rota PRÓPRIA (`GET /v1/caixa/ultimos`), e não um campo dentro de
+ * `GET /v1/caixa`: embutir o histórico poria `diferenca` dentro do corpo do
+ * dia ABERTO, que é exatamente a chave que a regra 6 manda não existir ali. A
+ * separação não é organização — é o que mantém a resposta do dia aberto
+ * impossível de construir com um número dentro.
+ *
+ * Por construção esta lista só contém dias FECHADOS: ela lê `caixas_do_dia`,
+ * e um dia aberto não tem linha lá.
+ */
+export const FechamentoNaLista = z.object({
+  dia: DiaCivil,
+  fechadoPor: z.string(),
+  fechadoEm: z.string(),
+  obs: z.string(),
+  /** Derivado; é o que a equipe sem `valores` lê. Ver `CaixaFechado.conferido`. */
+  conferido: z.boolean(),
+  diferenca: centavosNaSaida,
+})
+export type FechamentoNaLista = z.infer<typeof FechamentoNaLista>
+
+export const ListaDeFechamentos = z.object({ itens: z.array(FechamentoNaLista) }).strict()
+export type ListaDeFechamentos = z.infer<typeof ListaDeFechamentos>
+
+/** O filtro de `GET /v1/caixa`. Sem `dia`, é o de HOJE — o do servidor. */
+export const ConsultaDeCaixa = z.object({ dia: DiaCivil.optional() }).strict()
+export type ConsultaDeCaixa = z.infer<typeof ConsultaDeCaixa>
+
 // ---------------------------------------------------------------------------
 // SALDO E COBRANÇAS
 // ---------------------------------------------------------------------------

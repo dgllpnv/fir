@@ -284,7 +284,12 @@ export async function limparFinanceiro(c: Cenario): Promise<void> {
     'metas_do_mes',
     'configuracao_financeira',
   ]) {
-    await c.migrate.query(`DELETE FROM ${tabela} WHERE clinica_id = $1`, [c.clinica])
+    // As DUAS clínicas: os testes de isolamento escrevem na vizinha, e o
+    // índice `caixa_por_dia` é por clínica — deixar o resíduo lá faz o
+    // segundo `it` do arquivo colidir com o primeiro.
+    await c.migrate.query(`DELETE FROM ${tabela} WHERE clinica_id = ANY($1::uuid[])`, [
+      [c.clinica, c.outraClinica],
+    ])
   }
 }
 

@@ -9,7 +9,10 @@ import {
   pegar,
   postar,
 } from '../tarefas/__tests__/cenario'
-import { ROTAS_DE_CONFERENCIA } from './rotas-de-conferencia'
+import { RequestMethod } from '@nestjs/common'
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants'
+import { MetadataScanner, ModulesContainer } from '@nestjs/core'
+import { ROTAS_DE_CONFERENCIA, ROTAS_FORA_DA_CONFERENCIA } from './rotas-de-conferencia'
 
 /**
  * **A REGRA 6, NO TRANSPORTE.**
@@ -29,12 +32,12 @@ import { ROTAS_DE_CONFERENCIA } from './rotas-de-conferencia'
  * para tudo — ou seja, um admin recebe destas rotas **exatamente o mesmo
  * corpo** que ela. Não há principal que veja mais.
  *
- * **Escopo honesto:** `GET /v1/caixa` ainda não existe (Task 9 do plano). Este
- * arquivo já varre `ROTAS_DE_CONFERENCIA`, e a Task 9 acrescenta a rota do
- * caixa àquela lista — momento em que estas mesmas asserções passam a cobri-la
- * sem uma linha nova aqui. O que ele NÃO cobre hoje é a resposta do caixa
- * antes do fechamento; o que ele cobre é a classe inteira: **nenhuma rota
- * devolve agregado por forma de pagamento de um dia cujo caixa está aberto.**
+ * **A varredura é DERIVADA do catálogo de rotas**, desde a Task 9: toda rota
+ * `GET` registrada no `AppModule` precisa estar em `ROTAS_DE_CONFERENCIA` ou
+ * em `ROTAS_FORA_DA_CONFERENCIA`, com razão escrita. Antes disso a lista era
+ * mantida à mão e esquecer de acrescentar uma rota nova não acusava nada — que
+ * é a fraqueza anotada no relatório das Tasks 1–7, e a mesma que o `curinga`
+ * do épico 2 expôs.
  */
 let c: Cenario
 
@@ -68,13 +71,32 @@ const registrar = (valor: string, forma: string) =>
   )
 
 /**
- * O esperado do dia, e as formas em que ele poderia aparecer escrito.
+ * O dia sob teste, e os números que o teste persegue.
  *
- * 45.000 + 12.000 = **57.000 centavos**. O teste persegue o 57000 — é ele, e
- * não a chave, que pega o campo RENOMEADO.
+ * **DUAS parcelas na MESMA forma**, e isso é o ponto — não um detalhe de
+ * fixture. Com uma parcela por forma, o agregado POR FORMA é igual à parcela
+ * individual, e um campo "por forma" renomeado atravessaria sem produzir
+ * número novo: medido, a mutação `esperado` → `previsto` passou verde com o
+ * cenário antigo (45.000 em Pix, 12.000 em dinheiro). Com 45.000 **e** 12.000
+ * os dois em Pix, o agregado da forma é 57.000 — um número que NÃO existe na
+ * lista individual, e que por isso só pode aparecer se o servidor tiver
+ * somado por alguém.
+ *
+ * `87000` é o total do dia, e pega o agregado geral com qualquer etiqueta.
  */
-const PARCELAS = ['45000', '12000']
-const A_SOMA = ['57000', '570,00', '570.00', 'R$ 570']
+const PARCELAS = ['45000', '12000', '30000']
+const A_SOMA = [
+  // por forma (Pix): 45.000 + 12.000
+  '57000',
+  '570,00',
+  '570.00',
+  'R$ 570',
+  // do dia inteiro: + 30.000 em dinheiro
+  '87000',
+  '870,00',
+  '870.00',
+  'R$ 870',
+]
 
 beforeAll(async () => {
   c = await montarCenario('cegas')
@@ -87,7 +109,8 @@ afterAll(async () => {
 beforeEach(async () => {
   await limparTarefas(c)
   await registrar('45000', 'Pix')
-  await registrar('12000', 'Dinheiro')
+  await registrar('12000', 'Pix')
+  await registrar('30000', 'Dinheiro')
 })
 
 describe('o esperado não atravessa antes do fechamento', () => {
@@ -122,7 +145,7 @@ describe('o esperado não atravessa antes do fechamento', () => {
     // A lista individual é o instrumento de trabalho da recepção e fica; o
     // que o servidor nunca faz é a SOMA por ela.
     const r = await pegar(c, '/v1/recebimentos', { dia: HOJE }, 'beatriz')
-    expect(r.body.itens).toHaveLength(2)
+    expect(r.body.itens).toHaveLength(3)
     for (const parcela of PARCELAS) {
       expect(r.text, `a parcela ${parcela} deveria estar na lista`).toContain(parcela)
     }
@@ -133,5 +156,84 @@ describe('o esperado não atravessa antes do fechamento', () => {
     for (const rota of ROTAS_DE_CONFERENCIA) {
       expect(rota.razao.length, rota.caminho).toBeGreaterThan(40)
     }
+    for (const rota of ROTAS_FORA_DA_CONFERENCIA) {
+      expect(rota.razao.length, rota.caminho).toBeGreaterThan(20)
+    }
+  })
+
+  it('A LISTA É DERIVADA DO CATÁLOGO: toda rota GET está classificada', () => {
+    // Era a fraqueza escrita no relatório anterior: `ROTAS_DE_CONFERENCIA`
+    // era mantida à mão, e quem acrescentasse uma rota nova sem lembrar dela
+    // não era acusado por nada. A fonte da verdade passa a ser o
+    // `ModulesContainer` — o módulo de verdade, subido de verdade —, e a
+    // lista só diz o que fazer com cada rota.
+    //
+    // Só `GET`: a regra 6 é sobre o que ATRAVESSA. `POST /v1/caixa` devolve o
+    // caixa já fechado, que é o momento em que o esperado passa a ser
+    // legítimo; uma escrita não entrega agregado de dia aberto.
+    const classificadas = new Set(
+      [...ROTAS_DE_CONFERENCIA, ...ROTAS_FORA_DA_CONFERENCIA].map(
+        (r) => r.caminho.split('?')[0] as string,
+      ),
+    )
+
+    const gets = rotasGet()
+    expect(gets.length, 'nenhuma rota GET encontrada — a varredura não verificou nada').toBeGreaterThan(10)
+
+    const soltas = gets.filter((r) => !classificadas.has(r))
+    expect(
+      soltas,
+      `rota(s) GET sem classificação em apps/api/src/financeiro/rotas-de-conferencia.ts: ${soltas.join(', ')}. ` +
+        'Pergunte se ela devolve agregado de um dia cujo caixa pode estar aberto e ponha em ' +
+        'ROTAS_DE_CONFERENCIA ou em ROTAS_FORA_DA_CONFERENCIA, com a razão escrita.',
+    ).toEqual([])
+
+    const fantasmas = [...classificadas].filter((r) => !gets.includes(r))
+    expect(
+      fantasmas,
+      `rota(s) classificada(s) que não existem mais: ${fantasmas.join(', ')}. ` +
+        'Registro que descreve rota morta é registro em que o próximo leitor confia.',
+    ).toEqual([])
   })
 })
+
+/**
+ * As rotas `GET` do `AppModule`, lidas do container do Nest.
+ *
+ * Mesmo mecanismo de `teste/rotas-protegidas.test.ts`: `ModulesContainer` dá
+ * os controladores, `MetadataScanner` dá os handlers, `PATH_METADATA` e
+ * `METHOD_METADATA` dão caminho e verbo. O `printRoutes` do Fastify também
+ * lista, mas devolve texto — e texto não volta ao handler.
+ */
+function rotasGet(): string[] {
+  const scanner = new MetadataScanner()
+  const achadas: string[] = []
+  for (const [, modulo] of c.app.get(ModulesContainer)) {
+    for (const [, wrapper] of modulo.controllers) {
+      const classe = wrapper.metatype
+      const instancia = wrapper.instance
+      if (typeof classe !== 'function' || instancia === null || typeof instancia !== 'object') {
+        continue
+      }
+      const prefixo = Reflect.getMetadata(PATH_METADATA, classe) as string | undefined
+      const proto = Object.getPrototypeOf(instancia) as Record<string, unknown>
+      for (const nome of scanner.getAllMethodNames(proto)) {
+        const handler = proto[nome]
+        if (typeof handler !== 'function') continue
+        const verbo = Reflect.getMetadata(METHOD_METADATA, handler) as number | undefined
+        const caminho = Reflect.getMetadata(PATH_METADATA, handler) as string | undefined
+        if (verbo === undefined || caminho === undefined) continue
+        if (RequestMethod[verbo] !== 'GET') continue
+        achadas.push(juntar(prefixo, caminho))
+      }
+    }
+  }
+  return achadas
+}
+
+const juntar = (...partes: (string | undefined)[]): string =>
+  `/${partes
+    .filter((p): p is string => typeof p === 'string')
+    .flatMap((p) => p.split('/'))
+    .filter((p) => p !== '')
+    .join('/')}`
