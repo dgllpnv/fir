@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto, linkDeWhatsApp } from '@/lib/formato'
 import { ICONE_CHECK, ICONE_WHATSAPP } from '@/lib/icones'
+import { FaixaDaJornada, type MoverEtapa } from './jornada/faixa-da-jornada'
 
 /**
  * O cartão de tarefa — usado por Hoje e por Tarefas, UM componente só.
@@ -27,6 +28,8 @@ export type AcoesDoCartao = {
   readonly cancelar: (id: string) => Promise<void>
   readonly reabrir: (id: string) => Promise<void>
   readonly editar: (t: TarefaNaLista) => void
+  /** A ação da jornada. Ausente, a faixa não aparece. */
+  readonly mover?: MoverEtapa
 }
 
 export type DadosDaConclusao = {
@@ -41,12 +44,22 @@ type Props = {
   readonly hoje: string
   readonly eu: string
   readonly podeEquipe: boolean
+  /** `temPerm(…, 'receber')`. Sem ela, "Fechou" some da faixa (D-7). */
+  readonly podeReceber?: boolean
   readonly acoes: AcoesDoCartao
   /** Em Hoje o prazo é redundante — a tela inteira já é daquele dia. */
   readonly semPrazo?: boolean
 }
 
-export function CartaoDeTarefa({ tarefa: t, hoje, eu, podeEquipe, acoes, semPrazo }: Props) {
+export function CartaoDeTarefa({
+  tarefa: t,
+  hoje,
+  eu,
+  podeEquipe,
+  podeReceber = true,
+  acoes,
+  semPrazo,
+}: Props) {
   const [concluindo, setConcluindo] = useState(false)
   const [ocupado, setOcupado] = useState(false)
 
@@ -157,6 +170,18 @@ export function CartaoDeTarefa({ tarefa: t, hoje, eu, podeEquipe, acoes, semPraz
 
         {t.obs === '' ? null : <div className="obs">{t.obs}</div>}
         {t.resultado === '' ? null : <div className="obs">{t.resultado}</div>}
+
+        {/* A JORNADA, DENTRO DO PRÓPRIO CARTÃO. Só para quem é da jornada: um
+            "Follow-up" ou uma tarefa interna não tem etapa, e o servidor
+            devolveria 404 para qualquer ação. */}
+        {t.etapa === null || acoes.mover === undefined || concluindo ? null : (
+          <FaixaDaJornada
+            tarefa={t}
+            hoje={hoje}
+            mover={acoes.mover}
+            podeReceber={podeReceber}
+          />
+        )}
 
         {concluindo ? (
           <PainelDeConclusao

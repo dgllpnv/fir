@@ -14,10 +14,10 @@ import { sessaoAtual } from '@/lib/sessao'
  */
 export default async function Hoje() {
   const { eu, perfis } = await sessaoAtual()
-  const podeEquipe = temPerm(
-    { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' },
-    perfis,
-    'tarefas.equipe',
-  )
-  return <TelaHoje eu={eu.usuario.id} podeEquipe={podeEquipe} />
+  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const podeEquipe = temPerm(quem, perfis, 'tarefas.equipe')
+  // `fechar` cria dinheiro, e o servidor exige `receber` além de `jornada`
+  // (decisão D-7). Aqui só se decide se o BOTÃO aparece.
+  const podeReceber = temPerm(quem, perfis, 'receber')
+  return <TelaHoje eu={eu.usuario.id} podeEquipe={podeEquipe} podeReceber={podeReceber} />
 }

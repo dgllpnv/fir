@@ -88,7 +88,15 @@ const VAZIOS: Filtros = {
   responsavelId: '',
 }
 
-export function TelaTarefas({ eu, podeEquipe }: { eu: string; podeEquipe: boolean }) {
+export function TelaTarefas({
+  eu,
+  podeEquipe,
+  podeReceber,
+}: {
+  eu: string
+  podeEquipe: boolean
+  podeReceber: boolean
+}) {
   const [f, setF] = useState<Filtros>(VAZIOS)
   const [busca, setBusca] = useState('')
   const [limite, setLimite] = useState(PAGINA)
@@ -131,7 +139,7 @@ export function TelaTarefas({ eu, podeEquipe }: { eu: string; podeEquipe: boolea
       : null,
   )
 
-  const { acoes, emEdicao, fecharEdicao, recado, setRecado, aoSalvarEdicao } =
+  const { acoes, mover, emEdicao, fecharEdicao, recado, setRecado, aoSalvarEdicao } =
     useAcoesDeTarefa(recarregar)
 
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
@@ -370,7 +378,8 @@ export function TelaTarefas({ eu, podeEquipe }: { eu: string; podeEquipe: boolea
                 hoje={dados.hoje}
                 eu={eu}
                 podeEquipe={podeEquipe}
-                acoes={acoes}
+                podeReceber={podeReceber}
+                acoes={{ ...acoes, mover }}
               />
             ))
           )}

@@ -26,9 +26,11 @@ import { Semana } from './semana'
 export function TelaHoje({
   eu,
   podeEquipe,
+  podeReceber,
 }: {
   eu: string
   podeEquipe: boolean
+  podeReceber: boolean
 }) {
   const [dia, setDia] = useState<string | null>(null)
   const [escopo, setEscopo] = useState<Escopo>('meu')
@@ -38,7 +40,7 @@ export function TelaHoje({
 
   // Concluir, cancelar, reabrir e editar são as MESMAS quatro ações da tela
   // Tarefas, e moram num lugar só. Ver `lib/acoes-de-tarefa.ts`.
-  const { acoes, emEdicao, fecharEdicao, recado, setRecado, aoSalvarEdicao } =
+  const { acoes, mover, emEdicao, fecharEdicao, recado, setRecado, aoSalvarEdicao } =
     useAcoesDeTarefa(recarregar)
 
   const cartao = (t: TarefaNaLista, semPrazo = false) => (
@@ -48,7 +50,8 @@ export function TelaHoje({
       hoje={dados?.hoje ?? ''}
       eu={eu}
       podeEquipe={podeEquipe}
-      acoes={acoes}
+      podeReceber={podeReceber}
+      acoes={{ ...acoes, mover }}
       semPrazo={semPrazo}
     />
   )
@@ -184,6 +187,55 @@ export function TelaHoje({
               dados.tarefas.map((t) => cartao(t, true))
             )}
           </div>
+
+          {/*
+            RECONTATAR — e é aqui que a ferramenta deixa de ser uma lista de
+            tarefas. Estes cartões saíram do dia, das pendentes e das bolinhas
+            da semana, e ficam AQUI todo dia até alguém reagendar ou encerrar.
+
+            Vem do HOJE do servidor, não do dia navegado: ir para a semana
+            passada não faz o recontato de ontem desaparecer.
+          */}
+          {dados.recontatar.length === 0 ? null : (
+            <div className="grupo atencao">
+              <h3>
+                Recontatar<span className="contador atraso">{dados.recontatar.length}</span>
+              </h3>
+              <p className="nota">
+                Pacientes que faltaram ou desmarcaram. Ficam aqui até reagendar ou encerrar.
+              </p>
+              {dados.recontatar.map((t) => cartao(t))}
+            </div>
+          )}
+
+          {/*
+            PRÓXIMOS PASSOS — só quando o dia navegado é hoje, como no
+            protótipo: no dia 12 de outubro ninguém confirma "os agendamentos
+            de amanhã", porque o amanhã da tela não é o amanhã da clínica.
+          */}
+          {dados.dia !== dados.hoje ||
+          (dados.paraConfirmar.length === 0 && dados.retomar.length === 0) ? null : (
+            <div className="grupo">
+              <h3>
+                Próximos passos da jornada
+                <span className="contador">
+                  {dados.paraConfirmar.length + dados.retomar.length}
+                </span>
+              </h3>
+              {dados.paraConfirmar.length === 0 ? null : (
+                <>
+                  <p className="nota">Confirmar os agendamentos de amanhã.</p>
+                  {dados.paraConfirmar.map((t) => cartao(t))}
+                </>
+              )}
+              {dados.retomar.length === 0 ? null : (
+                <>
+                  <p className="nota">Orçamentos para retomar o contato.</p>
+                  {dados.retomar.map((t) => cartao(t))}
+                </>
+              )}
+            </div>
+          )}
 
           {dados.concluidas.length === 0 ? null : (
             <div className="grupo">

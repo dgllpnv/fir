@@ -70,7 +70,7 @@ export const MENU: readonly ItemDeMenu[] = [
       'Registrar um recebimento em dois toques, sem passar pela tela do financeiro.',
   },
   { href: '/jornada', rotulo: 'Jornada do paciente', grupo: 'Comercial', perm: 'jornada',
-    epico: 3,
+    epico: null,
     promessa:
       'O funil do paciente por etapas — contato, orçamento, fechamento e perda com motivo.',
   },

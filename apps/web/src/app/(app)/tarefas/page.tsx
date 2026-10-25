@@ -15,10 +15,8 @@ import { sessaoAtual } from '@/lib/sessao'
  */
 export default async function Tarefas() {
   const { eu, perfis } = await sessaoAtual()
-  const podeEquipe = temPerm(
-    { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' },
-    perfis,
-    'tarefas.equipe',
-  )
-  return <TelaTarefas eu={eu.usuario.id} podeEquipe={podeEquipe} />
+  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const podeEquipe = temPerm(quem, perfis, 'tarefas.equipe')
+  const podeReceber = temPerm(quem, perfis, 'receber')
+  return <TelaTarefas eu={eu.usuario.id} podeEquipe={podeEquipe} podeReceber={podeReceber} />
 }

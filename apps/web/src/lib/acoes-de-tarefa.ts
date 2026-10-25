@@ -3,6 +3,7 @@
 import type { TarefaNaLista, TarefasAfetadas } from '@fir/contracts'
 import { useCallback, useState } from 'react'
 import type { AcoesDoCartao, DadosDaConclusao } from '@/components/cartao-de-tarefa'
+import type { MoverEtapa } from '@/components/jornada/faixa-da-jornada'
 import { chamar } from './api'
 
 /**
@@ -19,6 +20,14 @@ import { chamar } from './api'
  */
 export type UsoDasAcoes = {
   readonly acoes: AcoesDoCartao
+  /**
+   * A ação da jornada — a MESMA rota para as onze, e o corpo discrimina.
+   *
+   * Mora aqui, junto das outras quatro, porque Hoje e Tarefas mostram o mesmo
+   * cartão: uma cópia por tela é como a primeira divergência passa a ser
+   * silenciosa.
+   */
+  readonly mover: MoverEtapa
   readonly emEdicao: TarefaNaLista | null
   readonly fecharEdicao: () => void
   readonly recado: string | null
@@ -85,8 +94,19 @@ export function useAcoesDeTarefa(recarregar: () => void): UsoDasAcoes {
     editar: (t: TarefaNaLista) => setEmEdicao(t),
   }
 
+  const mover: MoverEtapa = (id, corpo) =>
+    agir(
+      () =>
+        chamar<TarefasAfetadas>(`v1/tarefas/${id}/jornada`, {
+          method: 'POST',
+          body: JSON.stringify(corpo),
+        }),
+      AVISO_DA_ACAO[String(corpo['acao'])] ?? 'Registrado.',
+    )
+
   return {
     acoes,
+    mover,
     emEdicao,
     fecharEdicao: () => setEmEdicao(null),
     recado,
@@ -97,4 +117,25 @@ export function useAcoesDeTarefa(recarregar: () => void): UsoDasAcoes {
       recarregar()
     },
   }
+}
+
+/**
+ * O que a tela confirma depois de cada ação (`design.md` §4: toda ação
+ * confirma o que aconteceu).
+ *
+ * As frases são as da PO — e as de `noshow` e `desmarcar` dizem para ONDE o
+ * cartão foi, porque ele sai da lista do dia na hora e a recepção precisa
+ * saber que ele não sumiu.
+ */
+const AVISO_DA_ACAO: Readonly<Record<string, string>> = {
+  enviarConfirmacao: 'Envio da confirmação registrado.',
+  confirmar: 'Confirmação registrada.',
+  noshow: 'No-show registrado · fica em Recontatar até reagendar.',
+  desmarcar: 'Desmarcação registrada · fica em Recontatar até reagendar.',
+  reagendar: 'Reagendado.',
+  encerrar: 'Agendamento encerrado.',
+  registrarOrcamento: 'Orçamento registrado.',
+  followUp: 'Follow-up registrado.',
+  perder: 'Orçamento marcado como perdido.',
+  fechar: 'Fechamento registrado.',
 }
