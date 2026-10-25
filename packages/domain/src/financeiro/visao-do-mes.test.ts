@@ -74,7 +74,7 @@ describe('visaoDoMes', () => {
     const v = visaoDoMes(
       entrada({ recebido: [pix(500000)], pagas: [{ categoria: 'Pessoal', valor: c(800000) }] }),
     )
-    expect(v.resultado.centavos).toBe(-300000n)
+    expect(v.resultadoDoMes.centavos).toBe(-300000n)
     expect(v.percentualDoResultado).toBe(-60)
   })
 
@@ -232,7 +232,7 @@ describe('visaoDoMes', () => {
     expect(v.variaveis.centavos).toBe(150000n) //  R$  1.500,00
     expect(v.percentualFixas).toBe(81) //  6.500 / 8.000 = 81,25%
     expect(v.percentualVariaveis).toBe(19) //  1.500 / 8.000 = 18,75%
-    expect(v.resultado.centavos).toBe(200000n) //  R$  2.000,00
+    expect(v.resultadoDoMes.centavos).toBe(200000n) //  R$  2.000,00
     expect(v.percentualDoResultado).toBe(20) //  2.000 / 10.000
     expect(v.percentualDaMeta).toBe(83) // 10.000 / 12.000 = 83,33%
     expect(v.metaRestante!.centavos).toBe(200000n) //  R$  2.000,00
@@ -311,7 +311,7 @@ describe('visaoDoMes — propriedades de fechamento', () => {
         fc.array(despesa, { maxLength: 40 }),
         (recebido, pagas) => {
           const v = visaoDoMes(entrada({ recebido, pagas }))
-          expect(v.resultado.centavos).toBe(v.recebido.centavos - v.despesasPagas.centavos)
+          expect(v.resultadoDoMes.centavos).toBe(v.recebido.centavos - v.despesasPagas.centavos)
         },
       ),
     )

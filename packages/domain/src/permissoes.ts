@@ -101,4 +101,30 @@ export const CAMPOS_MONETARIOS = [
   'ticket',
   'recebido',
   'saldo',
+
+  // O épico 4 (financeiro). `valor`, `valorAberto`, `valorPago`, `esperado`,
+  // `diferenca`, `meta`, `recebido`, `saldo` e `ltv` já estavam acima.
+  //
+  // Nenhum deles mora como VALOR de um mapa cuja chave é dado: o interceptor
+  // redige por NOME DE CHAVE, e `{ porForma: { Pix: '45000' } }` vaza inteiro
+  // porque nem `porForma` nem `Pix` estão nesta lista. Mapa de forma de
+  // pagamento, de categoria ou de programa vira ARRAY de objetos, sempre —
+  // e `teste/campos-de-dinheiro-registrados.test.ts` cobra as duas coisas.
+  //
+  // `resultadoDoMes`, e não `resultado`: esta lista apaga por NOME em
+  // qualquer profundidade de qualquer resposta, e `TarefaNaFicha.resultado`
+  // já existe — é o desfecho do atendimento, um texto. Registrar `resultado`
+  // apagaria o desfecho de toda tarefa para quem não tem `valores`, sem erro
+  // nenhum. Nome genérico em dinheiro é nome que colide; medido.
+  'aberto',
+  'abatido',
+  'credito',
+  'contado',
+  'despesasPagas',
+  'resultadoDoMes',
+  'aPagar',
+  'fixas',
+  'variaveis',
+  'aReceber',
+  'metaRestante',
 ] as const

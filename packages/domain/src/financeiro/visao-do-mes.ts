@@ -59,7 +59,18 @@ export type VisaoDoMes = {
   readonly percentualFixas: number | null
   readonly percentualVariaveis: number | null
 
-  readonly resultado: Dinheiro
+  /**
+   * `recebido − despesasPagas`. Pode ser negativo.
+   *
+   * **Não se chama `resultado`**, e isso não é estilo. `CAMPOS_MONETARIOS` é
+   * uma lista de NOMES, e o interceptor apaga toda chave com esses nomes em
+   * qualquer profundidade de qualquer resposta. `TarefaNaFicha.resultado` já
+   * existe e é o desfecho do atendimento — um texto ("Compareceu"). Registrar
+   * `resultado` como monetário apagaria o desfecho de toda tarefa para quem
+   * não tem `valores`, sem erro nenhum. Medido: foi o que a varredura
+   * `teste/redacao-de-valores.test.ts` acusou.
+   */
+  readonly resultadoDoMes: Dinheiro
   readonly percentualDoResultado: number | null
 
   readonly aPagar: Dinheiro
@@ -218,7 +229,7 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
     percentualFixas: percentualInteiro(fixas.centavos, despesasPagas.centavos),
     percentualVariaveis: percentualInteiro(variaveis.centavos, despesasPagas.centavos),
 
-    resultado,
+    resultadoDoMes: resultado,
     percentualDoResultado: percentualInteiro(resultado.centavos, recebido.centavos),
 
     aPagar: soma(entrada.aPagar),

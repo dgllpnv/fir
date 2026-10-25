@@ -99,8 +99,28 @@ Dinheiro que entra. *"Atendimento é tarefa; dinheiro é recebimento."*
 ### `Saldo em aberto`
 Derivado: `aberto − abatido`, **agrupado por `Programa`**, com um grupo geral para o que não é de programa. Nunca campo mutável, nunca colapsado num total só.
 
+O clamp em zero é **por grupo** — um programa pago a mais não reduz a dívida de outro. E o excedente que o clamp engole **não se descarta**: ele sai como `credito` do grupo. Paciente que pagou a mais é erro de lançamento ou crédito real, e os dois precisam aparecer; `Math.max(0, …)` sem o crédito esconde o incidente.
+
 ### `Caixa do dia`
 Conferência **às cegas**: o esperado por forma de pagamento é calculado no **servidor** e **não atravessa para o cliente** antes do fechamento. Nota promissória não entra. Um fechamento por dia.
+
+`conferido` é **toda linha com diferença zero**, nunca "o total zerou": sobra numa forma e falta igual em outra zeram o total, e a clínica teria dois erros achando que não tem nenhum.
+
+### `Conta a pagar`
+Dinheiro que **sai**. Descrição, categoria (uma das dez de `CATEGORIAS_DESP`), valor, vencimento, fornecedor e **responsável** — é o responsável que define quem a vê e quem a paga.
+
+**Invariantes:**
+- **A recorrência é a `Série`, nunca um booleano.** Uma conta mensal pertence a uma série (`serie_id`) e carrega a **âncora** (`dia_vencimento`, 1–31). Duas representações do mesmo fato divergem no dia em que alguém desmarca uma e não a outra.
+- **A âncora é o dia ORIGINAL**, e é ela que faz 31/12 → 31/01 → 28/02 → **31/03**. Sem âncora, a conta cai no dia 28 em fevereiro e nunca mais volta.
+- **A conta do mês seguinte nasce uma vez**, garantida por `UNIQUE (clinica_id, serie_id, vencimento)` — não por um `if` no serviço, que perde a corrida entre duas abas.
+- **Conta paga não se exclui.** Ela faz parte do resultado do mês; apagá-la muda o passado sem deixar rastro. Excluir é soft delete, e só antes do pagamento.
+- O que entra no mês é o **valor pago**, que pode diferir do valor da conta.
+- As formas de **saída** não são as de entrada: `Boleto`, `Transferência` e `Débito automático` existem aqui e não em `Recebimento`; `Nota promissória` existe lá e não aqui.
+
+### `Marcador de rotina`
+O rótulo que liga uma `Tarefa` à rotina que a criou (ex.: `fechamento-do-mes`). É dado da rotina, nunca do usuário — ninguém o digita.
+
+**Invariante:** `UNIQUE (clinica_id, marcador, prazo)` entre as tarefas vivas. Criar a mesma rotina duas vezes produz o mesmo conjunto de `(marcador, prazo)`, e o segundo `INSERT … ON CONFLICT DO NOTHING` não escreve nada. Idempotência sem lock.
 
 ### `Procedimento`
 O catálogo da clínica (aba `Planos` no legado). Tem sessões e intervalo **sugeridos**, rótulo da sessão, valor **por sessão**, regra de retorno, e os insumos: `insumoPadrao` mais `insumos[]` fixos.
@@ -153,5 +173,10 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 | **Perda não explicada** | Diferença negativa recorrente num item |
 | **LTV** | Total já pago pelo paciente à clínica |
 | **Saldo em aberto** | Quanto o paciente ainda deve, por programa e no geral |
+| **Crédito** | O que o grupo recebeu **a mais** do que abriu. Nunca abate outro grupo |
+| **Conta a pagar** | Dinheiro que sai, com categoria, vencimento e responsável |
+| **Série** (de conta) | O vínculo que torna uma conta mensal, com a âncora do dia |
+| **Âncora** | O dia original do vencimento (1–31), que sobrevive ao mês curto |
+| **Marcador de rotina** | O rótulo que liga uma tarefa à rotina que a criou |
 | **Perfil de acesso** | Conjunto de permissões por pilar |
 | **Pilar** | Dia a dia · Comercial · Financeiro · Processos · Pessoas · Gestão |

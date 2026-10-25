@@ -97,6 +97,12 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
  */
 export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'auditoria',
+  'caixa_por_forma',
+  'caixas_do_dia',
+  'cobrancas',
+  'configuracao_financeira',
+  'contas_a_pagar',
+  'metas_do_mes',
   'motivos_de_perda',
   'pacientes',
   'perfis',

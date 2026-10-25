@@ -64,6 +64,16 @@ const EM_ORDEM_DE_APAGAR = [
   // Filho antes de pai: `recebimentos` aponta para `tarefas` e `pacientes`;
   // `tarefas` aponta para `pacientes`, `pessoas` e `unidades`.
   'recebimentos',
+  // O financeiro (0009). `caixa_por_forma` aponta para `caixas_do_dia`;
+  // `contas_a_pagar`, `caixas_do_dia`, `cobrancas`, `metas_do_mes` e
+  // `configuracao_financeira` apontam para `pessoas`, e `cobrancas` também
+  // para `pacientes` — todos antes dos três pais lá embaixo.
+  'caixa_por_forma',
+  'caixas_do_dia',
+  'cobrancas',
+  'configuracao_financeira',
+  'contas_a_pagar',
+  'metas_do_mes',
   'tarefas',
   // Depois de `tarefas`: `tarefas.motivo_perda_id` aponta para cá pela chave
   // estrangeira COMPOSTA `(motivo_perda_id, clinica_id)`, e o filho vai antes
