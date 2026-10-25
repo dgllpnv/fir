@@ -111,6 +111,18 @@ Criar tarefa é liberado a todos, e **a busca de paciente para vincular também*
 
 ---
 
+## D-8 · Programa com sessão paga não se exclui · 2026-10-25
+
+Excluir um programa que tenha **sessão realizada e paga** é **recusado** (409), com a mensagem dizendo as duas saídas: *encerrar* o programa, ou *estornar* o pagamento antes.
+
+**Diverge do MANUAL dela** (cap. 8, *"Encerrar ou excluir um programa"*), que manda apagar programa, sessões e pagamentos juntos. Vira ADR.
+
+**Por quê:** o épico 2 já recusa excluir tarefa com recebimento, pela mesma razão — a receita de um mês fechado não muda sozinha. A alternativa (estorno em cascata) deixaria uma pessoa com permissão de excluir **alterar a receita de um mês já fechado com um toque**. A trilha registraria, mas o dinheiro já teria saído do relatório, e quem confere o mês descobriria depois.
+
+**O que torna a recusa barata:** *encerrar* já faz o que a clínica quer na prática — o programa sai da lista ativa e para de gerar sessão. *Excluir* existe para cadastro errado, que por definição ainda não tem pagamento.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

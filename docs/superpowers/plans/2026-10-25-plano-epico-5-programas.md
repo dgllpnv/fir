@@ -25,6 +25,12 @@ Se as sessões fossem derivadas do `Procedimento`, editar "12 sessões" para "8"
 > escrito. **Migration aplicada nunca se edita** — se o número daqui já existe,
 > o certo é o próximo livre, e corrigir este cabeçalho.
 
+> **Decidido pelo dono em 2026-10-25 — `docs/decisoes.md`, D-8.** Excluir programa
+> com sessão paga é **recusado**, com as duas saídas na mensagem. A alternativa
+> (estorno em cascata, como o MANUAL manda) foi oferecida e recusada: deixaria
+> alguém mudar a receita de um mês fechado com um toque. **Não reabra** — e a
+> Task 10 fica como está, sem o ramo de estorno.
+
 ---
 
 ## Global Constraints
