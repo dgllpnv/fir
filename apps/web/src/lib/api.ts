@@ -15,10 +15,24 @@ export class ErroDaApi extends Error {
 }
 
 export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
+  /**
+   * `content-type: application/json` só quando HÁ corpo.
+   *
+   * Medido no navegador: `DELETE /v1/tarefas/:id?serie=false` com o cabeçalho
+   * e sem corpo é recusado pelo Fastify com *"Body cannot be empty when
+   * content-type is set to 'application/json'"* — 400, antes de o controlador
+   * existir. Declarar o tipo do corpo que não se manda é descrever uma
+   * requisição que não é esta, e o excluir da tela de edição nunca funcionou
+   * por causa disso.
+   */
+  const temCorpo = opcoes.body !== undefined && opcoes.body !== null
   const r = await fetch(`/api/${caminho.replace(/^\//, '')}`, {
     ...opcoes,
     credentials: 'include',
-    headers: { 'content-type': 'application/json', ...(opcoes.headers ?? {}) },
+    headers: {
+      ...(temCorpo ? { 'content-type': 'application/json' } : {}),
+      ...(opcoes.headers ?? {}),
+    },
   })
   if (!r.ok) {
     const corpo = (await r.json().catch(() => ({}))) as { message?: string }

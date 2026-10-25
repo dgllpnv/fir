@@ -7,7 +7,7 @@ import type {
   TarefaNaLista,
   TarefasAfetadas,
 } from '@fir/contracts'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 
@@ -51,6 +51,20 @@ export function PainelDeEdicao({
 
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
   const unidades = useDados<ListaDeUnidades>('v1/unidades')
+
+  /**
+   * O painel abre no FIM da tela, e num dia com doze tarefas ele nasce fora da
+   * vista: a pessoa toca "Editar" e nada parece acontecer. Movimento que
+   * explica de onde veio é o único permitido (`design.md` §3), e este explica.
+   *
+   * O foco vai junto, para quem navega por teclado não ter de percorrer a
+   * lista inteira até alcançar o formulário que acabou de abrir.
+   */
+  const painel = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    painel.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    painel.current?.querySelector('input')?.focus()
+  }, [])
 
   async function salvar() {
     setErro(null)
@@ -103,7 +117,13 @@ export function PainelDeEdicao({
   }
 
   return (
-    <div className="painel" style={{ marginTop: 16 }} role="group" aria-label="Editar tarefa">
+    <div
+      className="painel"
+      style={{ marginTop: 16 }}
+      role="group"
+      aria-label="Editar tarefa"
+      ref={painel}
+    >
       <b>Editar: {t.descricao}</b>
 
       <label className="campo">
