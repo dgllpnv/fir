@@ -12,6 +12,13 @@
 
 > **A P-9 (SMTP) não bloqueia este plano.** Ela bloqueia a *produção*. O Mailpit local entrega o fluxo inteiro, de ponta a ponta, hoje.
 
+> **Numeração de migration — confira antes de criar o arquivo.** Rode
+> `ls apps/api/migrations/` e use o **próximo número livre**, não o que está
+> escrito aqui. Os planos foram escritos em paralelo e a numeração já colidiu
+> uma vez: o épico 4 anunciava `0007`, que a jornada tomou enquanto o plano era
+> escrito. **Migration aplicada nunca se edita** — se o número daqui já existe,
+> o certo é o próximo livre, e corrigir este cabeçalho.
+
 ---
 
 ## Global Constraints
@@ -32,7 +39,7 @@
 
 | Caminho | Responsabilidade |
 |---|---|
-| `apps/api/migrations/0005_convites_e_unidades.sql` | `convites`, `unidades`, RLS, triggers de auditoria |
+| `apps/api/migrations/0011_convites.sql` | `convites`, `unidades`, RLS, triggers de auditoria |
 | `packages/domain/src/pessoa.ts` | Invariantes puros: último admin, auto-desativação |
 | `packages/contracts/src/pessoas.ts` · `unidades.ts` | Zod |
 | `apps/api/src/pessoas/` | rotas, serviço, convite |
@@ -97,7 +104,7 @@ it('tirar o admin da última administradora é o mesmo buraco por outra porta', 
 > modo que a ordem inversa também funcionaria.
 
 
-**Files:** `apps/api/migrations/0005_convites_e_unidades.sql` · `teste/convite-rls.test.ts`
+**Files:** `apps/api/migrations/0011_convites.sql` · `teste/convite-rls.test.ts`
 
 ```sql
 CREATE TABLE unidades (

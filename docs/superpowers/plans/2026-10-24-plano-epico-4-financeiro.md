@@ -20,6 +20,13 @@
 
 **O que este épico NÃO migra:** nada. **O `Code.gs` da v20 não implementa nenhuma das 7 ações** — Financeiro existe só no protótipo. Isso tem duas consequências que valem para o plano inteiro: (1) o protótipo é a **única** autoridade aqui, e (2) não há totais da v20 para conferir na regra 28, então nenhum desenho deste épico precisa ser compatível com dado legado. Onde o protótipo tem defeito, corrigimos sem custo de migração — e é por isso que as correções abaixo são baratas.
 
+> **Numeração de migration — confira antes de criar o arquivo.** Rode
+> `ls apps/api/migrations/` e use o **próximo número livre**, não o que está
+> escrito aqui. Os planos foram escritos em paralelo e a numeração já colidiu
+> uma vez: o épico 4 anunciava `0007`, que a jornada tomou enquanto o plano era
+> escrito. **Migration aplicada nunca se edita** — se o número daqui já existe,
+> o certo é o próximo livre, e corrigir este cabeçalho.
+
 ---
 
 ## Global Constraints
@@ -112,7 +119,7 @@ A linha que o plano traça é esta: **o servidor nunca faz a soma por ela.** Um 
 | `packages/domain/src/financeiro/caixa.ts` | `esperadoDoCaixa`, `conferirCaixa` — por forma e total |
 | `packages/domain/src/financeiro/contas.ts` | `CATEGORIAS_DESP`, `proximoVencimento`, `FORMAS_DE_SAIDA` |
 | `packages/domain/src/financeiro/visao-do-mes.ts` | `visaoDoMes`, `percentualInteiro` |
-| `apps/api/migrations/0007_financeiro.sql` | `contas_a_pagar`, `caixas_do_dia`, `caixa_por_forma`, `cobrancas`, `metas_do_mes`, `configuracao_financeira`, ALTERs |
+| `apps/api/migrations/0009_financeiro.sql` | `contas_a_pagar`, `caixas_do_dia`, `caixa_por_forma`, `cobrancas`, `metas_do_mes`, `configuracao_financeira`, ALTERs |
 | `packages/contracts/src/financeiro.ts` | Zod → tipos + OpenAPI |
 | `apps/api/src/financeiro/` | `recebimentos` · `caixa` · `contas` · `cobrancas` · `visao-do-mes` · `config` |
 | `apps/web/src/app/(app)/recebimentos/page.tsx` · `caixa` · `contas` · `cobrancas` · `visao-do-mes` | As cinco telas |
@@ -176,7 +183,7 @@ export function proximoVencimento(vencimento: string, diaDaSerie: number): strin
 export function percentualInteiro(numerador: bigint, denominador: bigint): number | null
 export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes
 
-// apps/api/migrations/0007_financeiro.sql  (Task 5)
+// apps/api/migrations/0009_financeiro.sql  (Task 5)
 contas_a_pagar          (… valor bigint, vencimento date, serie_id uuid, dia_vencimento smallint …)
 caixas_do_dia           (… dia date, UNIQUE (clinica_id, dia) …)
 caixa_por_forma         (… caixa_id, forma, esperado bigint, contado bigint …)
@@ -529,7 +536,7 @@ it.prop([/* … */])('somar a lista em qualquer ordem dá o mesmo total', (…) 
 
 ## Task 5: Migration 0007 — e os campos monetários que não se escondem sozinhos
 
-**Files:** `apps/api/migrations/0007_financeiro.sql` · `teste/financeiro-rls.test.ts` · `teste/campos-de-dinheiro-registrados.test.ts` · *(modificar)* `teste/registro.ts` · `packages/domain/src/permissoes.ts` · `CONTEXT.md`
+**Files:** `apps/api/migrations/0009_financeiro.sql` · `teste/financeiro-rls.test.ts` · `teste/campos-de-dinheiro-registrados.test.ts` · *(modificar)* `teste/registro.ts` · `packages/domain/src/permissoes.ts` · `CONTEXT.md`
 
 **Antes do SQL, o glossário.** Dois termos nascem aqui e não estão no `CONTEXT.md`: **`Conta a pagar`** (já existe como termo proibido-substituto, mas sem definição e sem invariantes) e **`Marcador de rotina`** (o rótulo que liga uma tarefa à rotina mensal que a criou). Escreva os dois em `CONTEXT.md` **primeiro**, com invariantes, e só então a coluna.
 
@@ -588,7 +595,7 @@ it('nenhum contrato põe dinheiro como VALOR de um mapa', () => {
 - [ ] **Passo 3: Escrever a migration**
 
 ```sql
--- 0007_financeiro.sql
+-- 0009_financeiro.sql
 
 -- ---------------------------------------------------------------------------
 -- CONTAS A PAGAR
