@@ -43,21 +43,27 @@ Herdada do protótipo e mantida de propósito: as quatro clínicas em uso já a 
 
 **O dourado tem dois papéis e eles não se trocam.** `--gold` é traço, borda e realce; `--gold-ink` é texto.
 
-Isto não é gosto — é a conta. Razões de contraste WCAG medidas nesta paleta:
+Isto não é gosto — é a conta. E a conta **não mora mais neste arquivo**: mora em
+`packages/ui/src/contraste.test.ts`, que recalcula 15 pares × 2 temas direto do
+`tokens.css` e reprova a entrega se algum cair abaixo de 4,5:1.
+
+Os três números que ensinam o resto:
 
 | Uso | Razão | Veredito |
 |---|---|---|
-| `--gold-ink` `#86672E` sobre `--bg` claro | **4,91:1** | passa em AA para texto normal, com pouca margem |
-| `--gold-ink` `#DDC28C` sobre `--bg` escuro | **10,86:1** | folgado |
-| `--gold` `#C5A467` sobre `--bg` claro | **2,21:1** | **reprova** — menos da metade do limite de 4,5:1 |
-| `--ink` `#2E1F0E` sobre `--bg` claro | 14,88:1 | |
-| `--muted` `#6E5E4B` sobre `--bg` claro | 5,83:1 | |
-| `--gold-ink` `#86672E` sobre `--gold-soft` `#F1E8D5` | **4,32:1** | **reprova** — `--gold-soft` é mais claro que `--bg`, e a mesma tinta que passa na página cai abaixo de AA na pílula |
-| `--on-gold-soft` `#7D5F2A` sobre `--gold-soft` claro | 4,87:1 | é esta a tinta do contador e da pílula de paciente |
-| `--warn` `#A8701A` sobre `--surface` branco | **4,20:1** | **reprova como TEXTO.** Como traço e borda passa (mínimo de 3:1) |
-| `--warn-ink` `#99670F` sobre `--surface` branco | 4,88:1 | é esta a tinta da pílula "Atrasada"; a borda dela continua `--warn` |
+| `--gold` `#C5A467` como **texto** sobre `--bg` claro | **2,21:1** | **reprova** — menos da metade do limite |
+| `--gold-ink` `#86672E` sobre `--bg` claro | 4,91:1 | passa, com pouca margem |
+| `--gold-ink` `#DDC28C` sobre `--bg` escuro | 10,86:1 | folgado |
 
-Usar `--gold` como texto é o erro mais comum nesta paleta, e a linha acima diz o tamanho dele. O segundo erro mais comum é supor que uma tinta aprovada sobre `--bg` continua aprovada sobre `--gold-soft`: ela é **mais clara** que o fundo da página, e a razão cai. Repare também na margem estreita do `--gold-ink` no tema claro: ele passa, mas não sobra — escurecer o fundo ou clarear o dourado quebra.
+**Por que a tabela saiu daqui, e isto é a lição que custou:** a versão antiga deste
+arquivo media tudo contra `--bg`, e passou. Mas os tokens `-soft` são **mais claros
+que `--bg`** — e sobre eles quatro pares reprovavam em AA no tema claro sem ninguém
+ver: `--gold-ink` sobre `--gold-soft` (4,32:1), `--warn` como texto (4,20:1), `--bad`
+sobre `--bad-soft` (4,39:1). Daí nasceram `--on-gold-soft` e `--warn-ink`.
+
+Tabela escrita à mão num documento envelhece em silêncio; teste que recalcula a
+partir do token, não. **Par novo de cor entra no teste, não aqui.**
+
 
 ---
 
