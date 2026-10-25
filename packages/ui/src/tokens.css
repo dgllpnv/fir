@@ -15,14 +15,35 @@
   --gold: #c5a467;
   --gold-ink: #86672e;
   --gold-soft: #f1e8d5;
+  /*
+   * A tinta que vai SOBRE `--gold-soft` — contador e pílula de paciente.
+   *
+   * Não é `--gold-ink`: ele passa com folga curta sobre `--bg` (4,91:1), e
+   * `--gold-soft` é MAIS CLARO que o fundo da página, então a mesma tinta cai
+   * para 4,32:1 ali — abaixo de AA, num texto de 11,5 px. Medido: #7D5F2A dá
+   * 4,87:1 sobre #F1E8D5 e 5,54:1 sobre `--bg`. Ver `contraste.test.ts`.
+   */
+  --on-gold-soft: #7d5f2a;
   --btn-bg: #2e1f0e;
   --btn-ink: #f9f7f2;
   --ok: #3f7d4e;
   --ok-soft: #e3f0e5;
   --warn: #a8701a;
   --warn-soft: #f7ecd8;
+  /*
+   * `--warn` como TINTA dá 4,20:1 sobre o branco: reprova em AA. Como traço e
+   * borda continua valendo (o mínimo de elemento gráfico é 3:1), e por isso
+   * são dois tokens — a pílula "Atrasada" tem a BORDA em `--warn` e o TEXTO
+   * em `--warn-ink`. Medido: #99670F dá 4,88:1 sobre o branco.
+   */
+  --warn-ink: #99670f;
   --bad: #b4442f;
-  --bad-soft: #f6e1dc;
+  /*
+   * Clareado de #F6E1DC: `--bad` sobre ele dava 4,39:1, abaixo de AA — e é o
+   * fundo do contador de "Pendentes de dias anteriores", um número que a
+   * recepção lê de relance. Medido agora: 4,68:1.
+   */
+  --bad-soft: #f9e9e6;
   --display: 'Lora', Georgia, 'Times New Roman', serif;
   --body: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --r: 10px;
@@ -61,6 +82,10 @@
     --gold: #c5a467;
     --gold-ink: #ddc28c;
     --gold-soft: #33271a;
+    /* No escuro o `--gold-soft` é fundo ESCURO, então a tinta clara serve:
+       #DDC28C sobre #33271A dá 8,41:1. */
+    --on-gold-soft: #ddc28c;
+    --warn-ink: #e3b461;
     --btn-bg: #c5a467;
     --btn-ink: #1a130a;
     --ok: #86c696;
@@ -81,6 +106,10 @@
   --line: #3a2d1d;
   --gold-ink: #ddc28c;
   --gold-soft: #33271a;
+  /* No escuro o `--gold-soft` é fundo ESCURO, então a tinta clara serve:
+     #DDC28C sobre #33271A dá 8,41:1. */
+  --on-gold-soft: #ddc28c;
+  --warn-ink: #e3b461;
   --btn-bg: #c5a467;
   --btn-ink: #1a130a;
   --ok: #86c696;

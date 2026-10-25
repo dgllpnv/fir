@@ -27,6 +27,7 @@ Herdada do protótipo e mantida de propósito: as quatro clínicas em uso já a 
 --bg:#F9F7F2  --surface:#FFFFFF  --ink:#2E1F0E  --muted:#6E5E4B  --line:#E6DFD1
 --gold:#C5A467  --gold-ink:#86672E  --gold-soft:#F1E8D5
 --ok:#3F7D4E  --warn:#A8701A  --bad:#B4442F
+--on-gold-soft:#7D5F2A   --warn-ink:#99670F   /* tinta; ver a tabela abaixo */
 
 /* escuro */
 --bg:#17110A  --surface:#221A10  --ink:#F3EDE2  --muted:#B5A68F  --line:#3A2D1D
@@ -51,8 +52,12 @@ Isto não é gosto — é a conta. Razões de contraste WCAG medidas nesta palet
 | `--gold` `#C5A467` sobre `--bg` claro | **2,21:1** | **reprova** — menos da metade do limite de 4,5:1 |
 | `--ink` `#2E1F0E` sobre `--bg` claro | 14,88:1 | |
 | `--muted` `#6E5E4B` sobre `--bg` claro | 5,83:1 | |
+| `--gold-ink` `#86672E` sobre `--gold-soft` `#F1E8D5` | **4,32:1** | **reprova** — `--gold-soft` é mais claro que `--bg`, e a mesma tinta que passa na página cai abaixo de AA na pílula |
+| `--on-gold-soft` `#7D5F2A` sobre `--gold-soft` claro | 4,87:1 | é esta a tinta do contador e da pílula de paciente |
+| `--warn` `#A8701A` sobre `--surface` branco | **4,20:1** | **reprova como TEXTO.** Como traço e borda passa (mínimo de 3:1) |
+| `--warn-ink` `#99670F` sobre `--surface` branco | 4,88:1 | é esta a tinta da pílula "Atrasada"; a borda dela continua `--warn` |
 
-Usar `--gold` como texto é o erro mais comum nesta paleta, e a linha acima diz o tamanho dele. Repare também na margem estreita do `--gold-ink` no tema claro: ele passa, mas não sobra — escurecer o fundo ou clarear o dourado quebra.
+Usar `--gold` como texto é o erro mais comum nesta paleta, e a linha acima diz o tamanho dele. O segundo erro mais comum é supor que uma tinta aprovada sobre `--bg` continua aprovada sobre `--gold-soft`: ela é **mais clara** que o fundo da página, e a razão cai. Repare também na margem estreita do `--gold-ink` no tema claro: ele passa, mas não sobra — escurecer o fundo ou clarear o dourado quebra.
 
 ---
 
@@ -91,7 +96,7 @@ Usar `--gold` como texto é o erro mais comum nesta paleta, e a linha acima diz 
 Passe a tela por esta lista. Qualquer "não" é retrabalho, não ressalva.
 
 - [ ] Abri em 390 px e **não** rolou na horizontal.
-- [ ] Os dois temas foram vistos, e o contraste passa em AA nos dois — inclusive o dourado.
+- [ ] Os dois temas foram vistos, e o contraste passa em AA nos dois — inclusive o dourado. A conta é feita por `packages/ui/src/contraste.test.ts`, que lê os valores de `tokens.css`; **par de cor novo entra na lista dele**, senão a varredura não o enxerga.
 - [ ] Toda coluna de valor, quantidade ou data usa algarismos tabulares.
 - [ ] Nenhum roxo, gradiente decorativo, glassmorphism ou emoji.
 - [ ] O estado vazio existe, e diz o que fazer em seguida.
