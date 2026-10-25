@@ -78,6 +78,14 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'PATCH', caminho: '/v1/tarefas/:id', camposDeDinheiro: DINHEIRO_DA_TAREFA },
   { metodo: 'GET', caminho: '/v1/tarefas', camposDeDinheiro: DINHEIRO_DA_TAREFA },
   { metodo: 'GET', caminho: '/v1/hoje', camposDeDinheiro: DINHEIRO_DA_TAREFA },
+  /**
+   * O funil devolve dinheiro em TRÊS profundidades diferentes, e as três
+   * saem pelo mesmo nome: `valor` nos passos do funil e nas colunas,
+   * `valorOrcamento` em cada mini-cartão. Nenhuma delas é `TarefaNaLista` —
+   * é forma própria, e por isso a rota entra aqui por direito, não por
+   * herança.
+   */
+  { metodo: 'GET', caminho: '/v1/jornada', camposDeDinheiro: ['valor', 'valorOrcamento'] },
 ]
 
 /**

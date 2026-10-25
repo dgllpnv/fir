@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { DiaCivil, Uuid } from './comum'
+import { centavosNaSaida, DiaCivil, Uuid } from './comum'
 
 /** As sugestões da tela (`CONFIG.ORIGENS`). A coluna é texto livre de 60. */
 export const ORIGENS = [
@@ -112,7 +112,6 @@ export type ConsultaDePacientes = z.infer<typeof ConsultaDePacientes>
  * Não é `dinheiroEmTexto`: aquele é de ENTRADA e transforma a string em
  * `bigint`, o que descreveria errado o que sai pelo JSON.
  */
-const centavosNaSaida = z.string().regex(/^-?\d+$/).nullable()
 
 /**
  * A linha da lista.

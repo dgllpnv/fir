@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common'
 import { provedorDeRelogio } from '../comum/relogio'
 import { TarefasModule } from '../tarefas/tarefas.module'
 import { FechamentoService } from './fechamento.service'
+import { FunilController } from './funil.controller'
+import { FunilService } from './funil.service'
 import { JornadaController } from './jornada.controller'
 import { JornadaService } from './jornada.service'
 import { MontadorDePrograma, MontadorIndisponivel } from './montador-de-programa'
@@ -15,10 +17,11 @@ import { MotivosController, MotivosService } from './motivos.controller'
  */
 @Module({
   imports: [TarefasModule],
-  controllers: [JornadaController, MotivosController],
+  controllers: [JornadaController, FunilController, MotivosController],
   providers: [
     JornadaService,
     FechamentoService,
+    FunilService,
     MotivosService,
     /**
      * **A LINHA QUE O ÉPICO 5 TROCA.**

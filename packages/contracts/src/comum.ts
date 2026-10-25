@@ -12,6 +12,19 @@ export const dinheiroEmTexto = z
   .union([z.string().regex(/^-?\d+$/, 'centavos precisam ser um inteiro'), z.null()])
   .transform((v) => (v === null ? null : BigInt(v)))
 
+/**
+ * Dinheiro **na saída**: string de centavos, ou `null`.
+ *
+ * `null` não é "zero": é *"você não tem a permissão `valores`"*. O
+ * `RedacaoInterceptor` troca o valor por `null` num ponto único, e a FORMA da
+ * resposta não muda com a permissão — o cliente distingue "sem acesso" de
+ * "sem valor" sem um `if` extra.
+ *
+ * Mora aqui porque três arquivos de contrato precisam dela. Três cópias da
+ * mesma expressão regular é como uma delas passa a aceitar `12,50`.
+ */
+export const centavosNaSaida = z.string().regex(/^-?\d+$/).nullable()
+
 /** Quantidade trafega como string de milésimos, pela mesma razão. */
 export const quantidadeEmTexto = z
   .union([z.string().regex(/^-?\d+$/, 'milésimos precisam ser um inteiro'), z.null()])

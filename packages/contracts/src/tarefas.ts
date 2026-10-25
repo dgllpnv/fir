@@ -1,6 +1,6 @@
 import { ACOES, ehPagamento, ETAPAS, FREQUENCIAS, TIPOS } from '@fir/domain'
 import { z } from 'zod'
-import { DiaCivil, dinheiroEmTexto, Hora, Uuid } from './comum'
+import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Hora, Uuid } from './comum'
 
 /**
  * O tipo de contato precisa ser um dos NOMES CONHECIDOS.
@@ -226,7 +226,6 @@ export type ExcluirTarefa = z.infer<typeof ExcluirTarefa>
  * Não é `dinheiroEmTexto` — aquele é de ENTRADA e transforma a string em
  * `bigint`, o que descreveria errado o que sai pelo JSON.
  */
-const centavosNaSaida = z.string().regex(/^-?\d+$/).nullable()
 
 /**
  * O pagamento embutido, como ele volta.
