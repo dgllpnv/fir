@@ -1,7 +1,13 @@
-import type { Cancelar, Concluir, PassoDaJornada, TarefasAfetadas } from '@fir/contracts'
+import type { Cancelar, Concluir, TarefasAfetadas } from '@fir/contracts'
 import {
+  type AcaoDeJornada,
+  anexar,
   diaCivil,
+  ehErro,
   ehOk,
+  type Etapa,
+  ETAPA_AO_CANCELAR,
+  type EventoDeJornada,
   instanteDaConclusao,
   podeCancelar,
   podeConcluir,
@@ -9,7 +15,9 @@ import {
   type Relogio,
   type Result,
   type StatusDeTarefa,
+  statusDaEtapa,
   tipoAoConcluir,
+  transicao,
 } from '@fir/domain'
 import {
   ConflictException,
@@ -44,7 +52,7 @@ type TarefaCarregada = {
   readonly descricao: string
   readonly pacienteId: string | null
   readonly etapa: string | null
-  readonly historico: PassoDaJornada[]
+  readonly historico: EventoDeJornada[]
   readonly unidadeId: string | null
 }
 
@@ -87,7 +95,7 @@ async function carregar(c: pg.PoolClient, id: string): Promise<TarefaCarregada> 
     descricao: string
     paciente_id: string | null
     etapa: string | null
-    historico: PassoDaJornada[]
+    historico: EventoDeJornada[]
     unidade_id: string | null
   }>(
     `SELECT id, solicitante_id, responsavel_id, status, tipo, descricao, paciente_id,
@@ -147,10 +155,10 @@ export class ConclusaoService {
         // escreveu "Consulta de retorno, trazer exames" não perde o texto.
         if (descricao === t.tipo || descricao === '') descricao = tipo
         etapa = 'realizado'
-        historico = [...historico, passo(concluidaEm, autor.id)]
+        historico = [...anexar(historico, evento('concluir', 'realizado', concluidaEm, autor.id))]
       } else if (t.pacienteId !== null && TIPOS_REALIZADOS.includes(t.tipo)) {
         etapa = 'realizado'
-        historico = [...historico, passo(concluidaEm, autor.id)]
+        historico = [...anexar(historico, evento('concluir', 'realizado', concluidaEm, autor.id))]
       }
 
       await c.query(
@@ -203,10 +211,37 @@ export class ConclusaoService {
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const t = await carregar(c, id)
       exigirAutorizacao(podeCancelar(t, autor))
+
+      /**
+       * CANCELAR UM CARTÃO DA JORNADA O ENCERRA — a outra porta do `encerrar`.
+       *
+       * Antes da migration 0007, esta rota gravava `status = 'cancelada'` sem
+       * tocar em `etapa`, e o cartão ficava `agendado`/`cancelada`: para saber
+       * onde ele está, a tela tinha de consultar DUAS colunas. É o que o
+       * protótipo faz, e é por isso que lá o cartão só sai do Recontatar
+       * porque uma segunda coluna é lida.
+       *
+       * Não é a ação `encerrar` da rota da jornada: a autorização é outra
+       * (`podeCancelar`, de quem solicitou) e esta porta alcança `agendado` e
+       * `confirmado`, que `encerrar` não alcança. O resultado, porém, não é
+       * escolha: existe EXATAMENTE UMA etapa com `status = 'cancelada'`, e o
+       * `CHECK etapa_combina_com_status` recusaria qualquer outra.
+       */
+      const daJornada = t.etapa !== null
+      const etapa = daJornada ? ETAPA_AO_CANCELAR : null
+      const historico = daJornada
+        ? anexar(
+            t.historico,
+            evento('encerrar', ETAPA_AO_CANCELAR, this.relogio.agora(), autor.id, dados.obs),
+          )
+        : t.historico
+
       await c.query(
-        `UPDATE tarefas SET status = 'cancelada', concluida_em = NULL, obs = coalesce($2, obs)
+        `UPDATE tarefas
+            SET status = 'cancelada', concluida_em = NULL, obs = coalesce($2, obs),
+                etapa = $3::etapa_de_jornada, historico = $4::jsonb
           WHERE id = $1`,
-        [id, dados.obs ?? null],
+        [id, dados.obs ?? null, etapa, JSON.stringify(historico)],
       )
       return umaSo(await lerTarefas(c, clinicaId, hoje, [id]))
     })
@@ -227,9 +262,17 @@ export class ConclusaoService {
    * única das quatro que NÃO olha o estado, que é o que esta rota precisa: a
    * tarefa aqui está concluída ou cancelada por definição.
    *
-   * `etapa`, `historico` e `tipo` ficam como estão. Desfazer uma transição da
-   * Jornada é `moverEtapa`, do épico 3, e apagar uma entrada do histórico
-   * seria apagar o que de fato aconteceu.
+   * `tipo` fica como está — "Consulta realizada" não volta a ser "Consulta
+   * agendada", porque o atendimento aconteceu e a descrição da recepção ficou
+   * escrita em cima dele.
+   *
+   * A `etapa`, a partir da 0007, TEM de voltar: o `CHECK` não aceita um
+   * cartão `realizado` com `status = 'aberta'`. Para onde ela volta é decisão
+   * da máquina de estados (`transicao(…, 'reabrir')`) e vem do HISTÓRICO —
+   * quem faltou e foi concluído por engano volta para `faltou`, e o cartão
+   * reaparece no Recontatar, que é onde ele estava. O histórico CRESCE com o
+   * evento de reabertura: apagar a entrada da conclusão seria apagar o que de
+   * fato aconteceu.
    */
   async reabrir(
     clinicaId: ClinicaId,
@@ -254,19 +297,66 @@ export class ConclusaoService {
         'UPDATE recebimentos SET estornado_em = now() WHERE tarefa_id = $1 AND estornado_em IS NULL',
         [id],
       )
+
+      const voltaPara = etapaAoReabrir(t)
       await c.query(
-        `UPDATE tarefas SET status = 'aberta', concluida_em = NULL WHERE id = $1`,
-        [id],
+        `UPDATE tarefas
+            SET status = 'aberta', concluida_em = NULL,
+                etapa = $2::etapa_de_jornada, historico = $3::jsonb
+          WHERE id = $1`,
+        [
+          id,
+          voltaPara,
+          JSON.stringify(
+            voltaPara === null
+              ? t.historico
+              : anexar(t.historico, evento('reabrir', voltaPara, this.relogio.agora(), autor.id)),
+          ),
+        ],
       )
       return umaSo(await lerTarefas(c, clinicaId, hoje, [id]))
     })
   }
 }
 
-const passo = (em: Date, por: string): PassoDaJornada => ({
-  e: 'realizado',
+/**
+ * Para onde `reabrir` devolve a etapa — ou `null`, se a tarefa não é da
+ * jornada e nunca teve etapa.
+ *
+ * A decisão é da máquina de estados, nunca daqui: `transicao(…, 'reabrir')`
+ * olha o histórico e devolve a última etapa que estava EM ABERTO. Um
+ * `etapa = 'agendado'` escrito à mão neste serviço mandaria para o Recontatar
+ * quem nunca faltou, e tiraria dele quem faltou.
+ *
+ * Falha FECHADO: se a máquina recusar — um dado migrado com o par
+ * `etapa ↔ status` impossível, que o `CHECK` da 0007 não deixa mais nascer —
+ * a reabertura é 409, não um palpite.
+ */
+function etapaAoReabrir(t: TarefaCarregada): Etapa | null {
+  if (t.etapa === null) return null
+  const etapa = t.etapa as Etapa
+  const r = transicao({ etapa, status: t.status, historico: t.historico }, 'reabrir')
+  if (ehErro(r)) throw new ConflictException(r.erro.mensagem)
+  // Cinto e suspensório: a tabela diz `aberta`, e o `CHECK` do banco cobra o
+  // mesmo. Se as duas declarações divergirem, é melhor estourar aqui.
+  if (statusDaEtapa(r.valor.etapa) !== 'aberta') {
+    throw new ConflictException('Não consegui reabrir este agendamento. Avise o suporte.')
+  }
+  return r.valor.etapa
+}
+
+const evento = (
+  acao: AcaoDeJornada,
+  etapa: Etapa,
+  em: Date,
+  porId: string,
+  nota?: string,
+): EventoDeJornada => ({
+  acao,
+  etapa,
   em: em.toISOString(),
-  por,
+  porId,
+  ...(nota === undefined || nota === '' ? {} : { nota }),
 })
 
 /** A forma de resposta é sempre a mesma; aqui `todas` tem um elemento. */

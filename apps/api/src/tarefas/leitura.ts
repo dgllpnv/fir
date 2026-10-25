@@ -1,5 +1,5 @@
-import type { PassoDaJornada, TarefaNaLista } from '@fir/contracts'
-import { type Autor, TIPOS } from '@fir/domain'
+import type { ItemOrcadoNaSaida, TarefaNaLista } from '@fir/contracts'
+import type { Autor, Etapa, EventoDeJornada } from '@fir/domain'
 import { ForbiddenException } from '@nestjs/common'
 import type pg from 'pg'
 import type { PessoaId } from '../banco/ator'
@@ -80,6 +80,13 @@ export const SELECT_TAREFA = `
          t.paciente_id, pa.nome AS paciente_nome, pa.telefone AS paciente_telefone,
          t.tipo, t.etapa::text AS etapa, t.historico, t.resultado, t.obs,
          t.serie_id, t.recorrencia, t.unidade_id,
+         -- O cast para texto no bigint é deliberado: o driver devolveria
+         -- string de qualquer jeito, mas explicitar impede que uma mudança de
+         -- configuração o traga como number — e number perto de dinheiro é a
+         -- regra 1 quebrada.
+         t.valor_orcamento::text AS valor_orcamento, t.programa_orcado,
+         t.motivo_perda_id, t.proximo_passo_em::text AS proximo_passo_em,
+         t.confirmacao_enviada_em,
          -- ATRASADA é contra o HOJE DO SERVIDOR ($2), nunca contra o dia que
          -- a tela está navegando: ir para a semana passada não atrasa nada,
          -- e ir para a próxima não desatrasa nada.
@@ -115,7 +122,12 @@ export type LinhaDeTarefa = {
   paciente_telefone: string | null
   tipo: string
   etapa: string | null
-  historico: PassoDaJornada[]
+  historico: EventoDeJornada[]
+  valor_orcamento: string | null
+  programa_orcado: ItemOrcadoNaSaida[] | null
+  motivo_perda_id: string | null
+  proximo_passo_em: string | null
+  confirmacao_enviada_em: Date | null
   resultado: string
   obs: string
   serie_id: string | null
@@ -131,6 +143,20 @@ export type LinhaDeTarefa = {
   total?: string
 }
 
+/**
+ * `etapa` e os eventos vêm do banco como texto, e o `as` é justificado por
+ * duas restrições de lá — não por confiança.
+ *
+ * A coluna é o ENUM `etapa_de_jornada` (0006), cujos nove valores são
+ * exatamente `ETAPAS` do domínio, e `teste/jornada-banco.test.ts` compara as
+ * duas listas: o dia em que uma ganhar um valor que a outra não tem, aquele
+ * teste nomeia o valor. O `historico` é `jsonb`, e o mesmo arquivo cobra que
+ * todo evento do banco tenha `acao` e `etapa` dentro do vocabulário.
+ *
+ * Sem o `as`, a alternativa seria validar nove strings por tarefa, em toda
+ * leitura de toda lista — e devolver o quê, quando falhasse? `null` esconde o
+ * cartão da tela sem dizer nada, que é o defeito que este épico combate.
+ */
 export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   id: l.id,
   solicitanteId: l.solicitante_id,
@@ -149,8 +175,14 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   pacienteNome: l.paciente_nome,
   pacienteTelefone: l.paciente_telefone,
   tipo: l.tipo,
-  etapa: l.etapa,
+  etapa: l.etapa as Etapa | null,
   historico: l.historico,
+  valorOrcamento: l.valor_orcamento,
+  programaOrcado: l.programa_orcado,
+  motivoPerdaId: l.motivo_perda_id,
+  proximoPassoEm: l.proximo_passo_em,
+  confirmacaoEnviadaEm:
+    l.confirmacao_enviada_em === null ? null : l.confirmacao_enviada_em.toISOString(),
   resultado: l.resultado,
   obs: l.obs,
   serieId: l.serie_id,
@@ -186,18 +218,10 @@ export async function lerTarefas(
 }
 
 /**
- * Os tipos de AGENDA — os que viram outro tipo ao concluir.
+ * As duas listas de tipo que a jornada usa SUBIRAM PARA `packages/domain`.
  *
- * Derivados de `TIPOS`, nunca escritos à mão: o `TIPOS_AGENDA` do protótipo é
- * a lista literal `["Consulta agendada","Procedimento agendado"]`, e uma
- * segunda cópia dela aqui é como um tipo novo entra na tabela e não vira
- * "realizado" ao concluir, sem erro nenhum.
+ * `ehDaJornada` e `etapaDerivada` (épico 3) dependem delas, e `domain` não
+ * importa de app. Reexportadas daqui para que os cinco arquivos de tarefa que
+ * já as importavam continuem a importá-las de um lugar só.
  */
-export const TIPOS_DE_AGENDA: readonly string[] = TIPOS.filter((t) => t.vira !== undefined).map(
-  (t) => t.nome,
-)
-
-/** Atendimento já realizado — nasce "realizado" quando lançado retroativo. */
-export const TIPOS_REALIZADOS: readonly string[] = TIPOS.filter(
-  (t) => t.grupo === 'Atendimento' && t.sessao !== true,
-).map((t) => t.nome)
+export { TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from '@fir/domain'

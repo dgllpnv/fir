@@ -1,7 +1,8 @@
-import type { CriarTarefa, PagamentoEmbutido, PassoDaJornada, TarefasAfetadas } from '@fir/contracts'
+import type { CriarTarefa, PagamentoEmbutido, TarefasAfetadas } from '@fir/contracts'
 import {
   aceitaPagamento,
   diaCivil,
+  type EventoDeJornada,
   ehErro,
   gerarSerie,
   instanteDaConclusao,
@@ -187,12 +188,13 @@ export class TarefasService {
     agora: Date,
   ): Promise<string[]> {
     const naAgenda = t.pacienteId !== null && TIPOS_DE_AGENDA.includes(t.tipo)
-    const historico: PassoDaJornada[] = naAgenda
+    const historico: EventoDeJornada[] = naAgenda
       ? [
           {
-            e: 'agendado',
+            acao: 'agendar',
+            etapa: 'agendado',
             em: agora.toISOString(),
-            por: t.autor,
+            porId: t.autor,
             nota: `para ${brAno(q.prazo)}${q.hora === undefined ? '' : ` ${q.hora}`}`,
           },
         ]
@@ -230,17 +232,19 @@ export class TarefasService {
 
     let tipo = t.tipo
     let etapa: string | null = null
-    let historico: PassoDaJornada[] = []
+    let historico: EventoDeJornada[] = []
     if (t.pacienteId !== null && TIPOS_DE_AGENDA.includes(t.tipo)) {
       tipo = tipoAoConcluir(t.tipo)
       etapa = 'realizado'
       historico = [
-        { e: 'agendado', em: agora.toISOString(), por: t.autor },
-        { e: 'realizado', em: concluidaEm.toISOString(), por: t.autor },
+        { acao: 'agendar', etapa: 'agendado', em: agora.toISOString(), porId: t.autor },
+        { acao: 'concluir', etapa: 'realizado', em: concluidaEm.toISOString(), porId: t.autor },
       ]
     } else if (t.pacienteId !== null && TIPOS_REALIZADOS.includes(t.tipo)) {
       etapa = 'realizado'
-      historico = [{ e: 'realizado', em: concluidaEm.toISOString(), por: t.autor }]
+      historico = [
+        { acao: 'concluir', etapa: 'realizado', em: concluidaEm.toISOString(), porId: t.autor },
+      ]
     }
 
     const descricao = t.descricao === t.tipo && tipo !== t.tipo ? tipo : t.descricao
@@ -308,9 +312,10 @@ export class TarefasService {
           historico: naAgenda
             ? [
                 {
-                  e: 'agendado',
+                  acao: 'agendar',
+                  etapa: 'agendado',
                   em: agora.toISOString(),
-                  por: t.autor,
+                  porId: t.autor,
                   nota: `para ${brAno(prazo)}${q.hora === undefined ? '' : ` ${q.hora}`}`,
                 },
               ]
@@ -344,7 +349,7 @@ const linha = (
     concluidaEm: Date | null
     tipo: string
     etapa: string | null
-    historico: PassoDaJornada[]
+    historico: EventoDeJornada[]
     serieId: string | null
     recorrencia: string
   },

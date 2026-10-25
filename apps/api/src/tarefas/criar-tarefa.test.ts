@@ -76,7 +76,9 @@ describe('POST /v1/tarefas · o caso normal', () => {
     expect(r.body.tarefa.etapa).toBe('agendado')
     expect(r.body.tarefa.hora).toBe('14:30')
     expect(r.body.tarefa.historico).toHaveLength(1)
-    expect(r.body.tarefa.historico[0].e).toBe('agendado')
+    // Chaves por extenso (decisão D-5 do épico 3): `{acao, etapa, porId}`, não
+    // `{e, por}`. A migration 0007 reescreveu no banco o que o épico 2 gravou.
+    expect(r.body.tarefa.historico[0]).toMatchObject({ acao: 'agendar', etapa: 'agendado' })
   })
 
   it('responsável inativo é recusado — Code.gs:355', async () => {
@@ -141,7 +143,7 @@ describe('POST /v1/tarefas · o lançamento retroativo', () => {
     ).expect(201)
     expect(r.body.tarefa.tipo).toBe('Consulta realizada')
     expect(r.body.tarefa.etapa).toBe('realizado')
-    expect(r.body.tarefa.historico.map((h: { e: string }) => h.e)).toEqual([
+    expect(r.body.tarefa.historico.map((h: { etapa: string }) => h.etapa)).toEqual([
       'agendado',
       'realizado',
     ])

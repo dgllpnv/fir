@@ -1,4 +1,4 @@
-import { ehPagamento, FREQUENCIAS, TIPOS } from '@fir/domain'
+import { ACOES, ehPagamento, ETAPAS, FREQUENCIAS, TIPOS } from '@fir/domain'
 import { z } from 'zod'
 import { DiaCivil, dinheiroEmTexto, Uuid } from './comum'
 
@@ -256,14 +256,51 @@ export const PagamentoNaSaida = z.object({
 })
 export type PagamentoNaSaida = z.infer<typeof PagamentoNaSaida>
 
-/** Um passo da Jornada. As TRANSIÇÕES são do épico 3; aqui só se lê o que há. */
-export const PassoDaJornada = z.object({
-  e: z.string(),
+/**
+ * Um evento da Jornada, como ele SAI.
+ *
+ * Chaves por extenso (decisão D-5), não as abreviações do protótipo
+ * (`{e, em, por, rot, nota, valor}`): nome no código = nome no glossário =
+ * nome na tela. A migration 0007 reescreveu no banco o que o épico 2 gravou
+ * com as chaves curtas — duas formas de evento no mesmo `jsonb` faria o funil
+ * contar metade dos eventos, em silêncio.
+ *
+ * `valor` entra aqui, e não só no topo da tarefa, porque é exatamente onde o
+ * protótipo VAZA: `saida()` apaga `valorOrcamento` do topo, mas o valor do
+ * orçamento e o do fechamento viajam dentro do `historico`, e só a tela os
+ * esconde. O `RedacaoInterceptor` percorre em profundidade — e, declarado
+ * aqui, `historico[].valor` entra na varredura de `redacao-de-valores`.
+ */
+export const EventoDeJornada = z.object({
+  // `z.enum` DERIVADO do domínio, não uma segunda lista: `acao` e `etapa` são
+  // vocabulário de `packages/domain/src/jornada.ts`, e um `z.string()` aqui
+  // deixaria o serviço receber uma etapa que a máquina de estados não conhece
+  // — para então descobri-lo em tempo de execução, uma etapa adiante.
+  acao: z.enum(ACOES),
+  etapa: z.enum(ETAPAS),
   em: z.string(),
-  por: z.string().nullable(),
+  porId: z.string(),
   nota: z.string().optional(),
+  /** Centavos em texto, ou `null` quando a redação apagou. */
+  valor: centavosNaSaida.optional(),
+  motivoId: Uuid.optional(),
+  /** O NOME do motivo no instante do evento (D-2). Nunca redigido: não é valor. */
+  motivo: z.string().optional(),
 })
-export type PassoDaJornada = z.infer<typeof PassoDaJornada>
+export type EventoDeJornada = z.infer<typeof EventoDeJornada>
+
+/** Um item do programa proposto no orçamento, como ele sai. A costura com o épico 5. */
+export const ItemOrcadoNaSaida = z.object({
+  procedimentoId: Uuid,
+  sessoes: z.number().int(),
+  intervaloDias: z.number().int(),
+  dose: z.string().optional(),
+  responsavelId: Uuid.nullish(),
+  valor: centavosNaSaida.optional(),
+  chave: z.string(),
+  depoisDe: z.string().optional(),
+})
+export type ItemOrcadoNaSaida = z.infer<typeof ItemOrcadoNaSaida>
 
 /**
  * A tarefa como as duas telas a leem.
@@ -290,8 +327,20 @@ export const TarefaNaLista = z.object({
   pacienteNome: z.string().nullable(),
   pacienteTelefone: z.string().nullable(),
   tipo: z.string(),
-  etapa: z.string().nullable(),
-  historico: z.array(PassoDaJornada),
+  etapa: z.enum(ETAPAS).nullable(),
+  historico: z.array(EventoDeJornada),
+  /**
+   * Centavos do negócio proposto — **nunca receita** (regra 4).
+   *
+   * Mede conversão do funil, e nada mais. `null` também para quem não tem
+   * `valores`: a forma da resposta não muda com a permissão.
+   */
+  valorOrcamento: centavosNaSaida,
+  programaOrcado: z.array(ItemOrcadoNaSaida).nullable(),
+  motivoPerdaId: Uuid.nullable(),
+  /** O dia a partir do qual este cartão volta a pedir ação (D-3). */
+  proximoPassoEm: DiaCivil.nullable(),
+  confirmacaoEnviadaEm: z.string().nullable(),
   resultado: z.string(),
   obs: z.string(),
   serieId: Uuid.nullable(),

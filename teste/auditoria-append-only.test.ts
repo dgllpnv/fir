@@ -64,8 +64,14 @@ describe('a trilha de auditoria é append-only', () => {
     // A linha SOBREVIVEU, e com o valor original. Sem esta asserção, os dois
     // `rejects` acima passariam igual se a trigger levantasse DEPOIS de a
     // escrita ter efeito.
+    //
+    // Filtrado por `entidade`, não só por clínica: criar a clínica já gera
+    // trilha por si (a 0007 semeia cinco `motivos_de_perda` por trigger), e
+    // contar tudo faria este teste reprovar a cada tabela nova que nasça
+    // junto com a clínica — sem nada ter a ver com append-only.
     const r = await migrate.query<{ acao: string; n: number }>(
-      `SELECT acao, count(*) OVER ()::int AS n FROM auditoria WHERE clinica_id = $1`,
+      `SELECT acao, count(*) OVER ()::int AS n FROM auditoria
+        WHERE clinica_id = $1 AND entidade = '_teste_append_only'`,
       [clinica],
     )
     expect(r.rows).toHaveLength(1)

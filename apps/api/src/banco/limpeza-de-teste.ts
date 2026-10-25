@@ -65,6 +65,10 @@ const EM_ORDEM_DE_APAGAR = [
   // `tarefas` aponta para `pacientes`, `pessoas` e `unidades`.
   'recebimentos',
   'tarefas',
+  // Depois de `tarefas`: `tarefas.motivo_perda_id` aponta para cá pela chave
+  // estrangeira COMPOSTA `(motivo_perda_id, clinica_id)`, e o filho vai antes
+  // do pai.
+  'motivos_de_perda',
   'pacientes',
   'unidades',
   'sessoes',

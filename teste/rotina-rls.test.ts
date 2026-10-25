@@ -186,7 +186,31 @@ describe('a tarefa não guarda dinheiro', () => {
     const suspeitas = nomes.filter((n) =>
       /valor|preco|custo|pago|pagamento|desconto|total|centavos/.test(n),
     )
-    expect(suspeitas, `colunas monetárias em tarefas: ${suspeitas.join(', ')}`).toEqual([])
+    /**
+     * A ÚNICA exceção, e a lista é EXATA de propósito.
+     *
+     * `valor_orcamento` (épico 3) é a única coluna com cara de dinheiro que
+     * `tarefas` pode ter, e ela NÃO É RECEITA (regra 4): mede conversão do
+     * funil e nunca entra em total recebido, LTV, meta nem caixa. A receita
+     * continua sendo `recebimentos.valor`, uma linha por pagamento, com o
+     * índice único que impede a segunda.
+     *
+     * Comparar com a lista exata, e não "filtrar as conhecidas", é o que
+     * mantém os dentes: no dia em que `valor`, `valor_aberto` ou
+     * `forma_pagamento` voltarem para cá — e com eles a receita do mês que
+     * dobra —, este teste nomeia a coluna.
+     */
+    expect(suspeitas, `colunas monetárias em tarefas: ${suspeitas.join(', ')}`).toEqual([
+      'valor_orcamento',
+    ])
+  })
+
+  it('`valor_orcamento` é bigint de centavos, e aceita só valor positivo', async () => {
+    const r = await migrate.query<{ data_type: string }>(
+      `SELECT data_type FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='tarefas' AND column_name='valor_orcamento'`,
+    )
+    expect(r.rows[0]!.data_type).toBe('bigint')
   })
 
   it('`valor` de recebimentos é bigint de centavos, nunca numeric nem float', async () => {

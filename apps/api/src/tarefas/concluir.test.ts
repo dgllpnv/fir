@@ -73,7 +73,7 @@ describe('POST /v1/tarefas/:id/concluir', () => {
     expect(r.body.tarefa.id).toBe(t.id)
     expect(r.body.tarefa.tipo).toBe('Consulta realizada')
     expect(r.body.tarefa.etapa).toBe('realizado')
-    expect(r.body.tarefa.historico.at(-1).e).toBe('realizado')
+    expect(r.body.tarefa.historico.at(-1)).toMatchObject({ acao: 'concluir', etapa: 'realizado' })
     // Nenhuma tarefa nova: a Jornada anda na mesma linha do tempo.
     expect(await contarTarefasDoPaciente()).toBe(antes)
   })
@@ -281,3 +281,90 @@ describe('POST /v1/tarefas/:id/reabrir', () => {
     expect((await reabrir(t.id, 'camila')).statusCode).toBe(403)
   })
 })
+
+/* ------------------------------------------------- a etapa, depois da 0007 */
+
+describe('cancelar e reabrir movem a ETAPA — o CHECK da 0007 não deixa escolha', () => {
+  it('cancelar um cartão da jornada o deixa em `encerrado`, não em `agendado`', async () => {
+    // Antes da 0007 esta rota gravava `cancelada` sem tocar na etapa, e o
+    // cartão ficava `agendado`/`cancelada`: saber onde ele está exigia DUAS
+    // colunas, que é o que o protótipo faz.
+    const t = await nova(agendada())
+    const r = await cancelar(t.id, { obs: 'mudou de cidade' }).expect(200)
+    expect(r.body.tarefa.etapa).toBe('encerrado')
+    expect(r.body.tarefa.status).toBe('cancelada')
+    expect(r.body.tarefa.historico.at(-1)).toMatchObject({
+      acao: 'encerrar',
+      etapa: 'encerrado',
+      nota: 'mudou de cidade',
+    })
+    // NÃO SOME do banco: encerrar é um estado (regra 20).
+    expect(await tarefaCrua(c, t.id)).toBeDefined()
+  })
+
+  it('cancelar uma tarefa INTERNA não inventa etapa nenhuma', async () => {
+    const r0 = await criar({
+      vinculo: 'interna',
+      descricao: 'Pedir toner',
+      responsavelId: c.pessoas['juliana'],
+      quando: { modo: 'agendada', prazo: HOJE },
+    })
+    const id = r0.body.tarefa.id as string
+    const r = await cancelar(id).expect(200)
+    expect(r.body.tarefa.etapa).toBeNull()
+    expect(r.body.tarefa.historico).toEqual([])
+  })
+
+  it('reabrir uma CANCELADA devolve a etapa anterior, não `agendado` por padrão', async () => {
+    // O cartão volta para onde estava. Com um `etapa = agendado` escrito à mão
+    // no serviço, quem nunca faltou iria para o Recontatar e quem faltou sairia.
+    const t = await nova(agendada())
+    await cancelar(t.id).expect(200)
+    const r = await reabrir(t.id).expect(200)
+    expect(r.body.tarefa.etapa).toBe('agendado')
+    expect(r.body.tarefa.status).toBe('aberta')
+    expect(r.body.tarefa.historico.at(-1)).toMatchObject({ acao: 'reabrir', etapa: 'agendado' })
+  })
+
+  it('reabrir uma CONCLUÍDA devolve a etapa para `agendado` e o histórico CRESCE', async () => {
+    const t = await nova(agendada())
+    await concluir(t.id, { em: HOJE }).expect(200)
+    const r = await reabrir(t.id).expect(200)
+    expect(r.body.tarefa.etapa).toBe('agendado')
+    expect(r.body.tarefa.status).toBe('aberta')
+    // Três eventos: agendar, concluir, reabrir. Nenhum foi apagado — desfazer
+    // é um evento novo (regra 20).
+    expect(r.body.tarefa.historico.map((h: { acao: string }) => h.acao)).toEqual([
+      'agendar',
+      'concluir',
+      'reabrir',
+    ])
+  })
+
+  it('o histórico de cancelar/reabrir é APPEND-ONLY: o prefixo nunca muda', async () => {
+    const t = await nova(agendada())
+    const antes = (await buscarHistorico(t.id)).length
+    await cancelar(t.id).expect(200)
+    await reabrir(t.id).expect(200)
+    const depois = await buscarHistorico(t.id)
+    expect(depois).toHaveLength(antes + 2)
+  })
+
+  it('cancelar e reabrir deixam o par etapa↔status SEMPRE válido no banco', async () => {
+    // Se não deixassem, o `CHECK` recusaria e a rota devolveria 500. Este
+    // teste existe para que o 500 não volte em silêncio num caminho novo.
+    const t = await nova(agendada())
+    for (const passo of [cancelar, reabrir, cancelar, reabrir]) {
+      await passo(t.id).expect(200)
+      const crua = (await tarefaCrua(c, t.id))!
+      expect([crua.etapa, crua.status]).toEqual(
+        crua.status === 'cancelada' ? ['encerrado', 'cancelada'] : ['agendado', 'aberta'],
+      )
+    }
+  })
+})
+
+async function buscarHistorico(id: string): Promise<unknown[]> {
+  const crua = (await tarefaCrua(c, id))!
+  return crua['historico'] as unknown[]
+}

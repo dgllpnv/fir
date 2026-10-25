@@ -46,17 +46,37 @@ export type RotaRegistrada = {
  * `pagamento: null` logo depois de estornar, e esquecê-la aqui deixaria a
  * varredura sem a rota que mais mexe em dinheiro.
  */
+/**
+ * Os três campos monetários que TODA rota de tarefa pode devolver.
+ *
+ * `valor` e `valorAberto` são do pagamento embutido — uma linha de
+ * `recebimentos`, nunca uma coluna de `tarefas`. `valorOrcamento` é do épico
+ * 3: ele NÃO é receita (regra 4), mas é dinheiro na tela e por isso é
+ * redigido como qualquer outro.
+ *
+ * O MESMO `valorOrcamento` também viaja dentro de `historico[].valor` e de
+ * `programaOrcado[].valor`, e é aí que o protótipo vaza: `saida()` apaga o
+ * campo do topo, mas o valor do orçamento e o do fechamento atravessam dentro
+ * do histórico, e só a TELA os esconde. Os dois caminhos profundos são
+ * cobertos pelo nome `valor`, que esta lista já declara — e o teste
+ * `orcamento.test.ts` prova que o `RedacaoInterceptor` de fato desce até lá.
+ *
+ * Uma constante, e não a lista repetida sete vezes: a sétima é a que esquece
+ * o campo novo.
+ */
+const DINHEIRO_DA_TAREFA = ['valor', 'valorAberto', 'valorOrcamento'] as const
+
 export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'GET', caminho: '/v1/auditoria', camposDeDinheiro: [...CAMPOS_MONETARIOS], curinga: true },
   { metodo: 'GET', caminho: '/v1/pacientes', camposDeDinheiro: ['ltv', 'saldo'] },
   { metodo: 'GET', caminho: '/v1/pacientes/:id', camposDeDinheiro: ['ltv', 'saldo'] },
-  { metodo: 'POST', caminho: '/v1/tarefas', camposDeDinheiro: ['valor', 'valorAberto'] },
-  { metodo: 'POST', caminho: '/v1/tarefas/:id/concluir', camposDeDinheiro: ['valor', 'valorAberto'] },
-  { metodo: 'POST', caminho: '/v1/tarefas/:id/cancelar', camposDeDinheiro: ['valor', 'valorAberto'] },
-  { metodo: 'POST', caminho: '/v1/tarefas/:id/reabrir', camposDeDinheiro: ['valor', 'valorAberto'] },
-  { metodo: 'PATCH', caminho: '/v1/tarefas/:id', camposDeDinheiro: ['valor', 'valorAberto'] },
-  { metodo: 'GET', caminho: '/v1/tarefas', camposDeDinheiro: ['valor', 'valorAberto'] },
-  { metodo: 'GET', caminho: '/v1/hoje', camposDeDinheiro: ['valor', 'valorAberto'] },
+  { metodo: 'POST', caminho: '/v1/tarefas', camposDeDinheiro: DINHEIRO_DA_TAREFA },
+  { metodo: 'POST', caminho: '/v1/tarefas/:id/concluir', camposDeDinheiro: DINHEIRO_DA_TAREFA },
+  { metodo: 'POST', caminho: '/v1/tarefas/:id/cancelar', camposDeDinheiro: DINHEIRO_DA_TAREFA },
+  { metodo: 'POST', caminho: '/v1/tarefas/:id/reabrir', camposDeDinheiro: DINHEIRO_DA_TAREFA },
+  { metodo: 'PATCH', caminho: '/v1/tarefas/:id', camposDeDinheiro: DINHEIRO_DA_TAREFA },
+  { metodo: 'GET', caminho: '/v1/tarefas', camposDeDinheiro: DINHEIRO_DA_TAREFA },
+  { metodo: 'GET', caminho: '/v1/hoje', camposDeDinheiro: DINHEIRO_DA_TAREFA },
 ]
 
 /**
@@ -68,6 +88,7 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
  */
 export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'auditoria',
+  'motivos_de_perda',
   'pacientes',
   'perfis',
   'pessoas',
