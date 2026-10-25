@@ -80,7 +80,13 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'POST', caminho: '/v1/tarefas/:id/jornada', camposDeDinheiro: DINHEIRO_DA_TAREFA },
   { metodo: 'PATCH', caminho: '/v1/tarefas/:id', camposDeDinheiro: DINHEIRO_DA_TAREFA },
   { metodo: 'GET', caminho: '/v1/tarefas', camposDeDinheiro: DINHEIRO_DA_TAREFA },
-  { metodo: 'GET', caminho: '/v1/hoje', camposDeDinheiro: DINHEIRO_DA_TAREFA },
+  /**
+   * `GET /v1/hoje` devolve `TarefaNaLista` **e**, desde o épico 4, o bloco
+   * financeiro com `ContaNaLista` — daí `valorPago`. `caixaPendente` é
+   * booleano de propósito: um valor ali seria o esperado chegando pela porta
+   * dos fundos, e `/v1/hoje` está em `ROTAS_DE_CONFERENCIA` por causa dele.
+   */
+  { metodo: 'GET', caminho: '/v1/hoje', camposDeDinheiro: [...DINHEIRO_DA_TAREFA, 'valorPago'] },
   /**
    * O funil devolve dinheiro em TRÊS profundidades diferentes, e as três
    * saem pelo mesmo nome: `valor` nos passos do funil e nas colunas,

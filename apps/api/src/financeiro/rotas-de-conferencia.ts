@@ -99,6 +99,11 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'Lista de tarefas. O pagamento embutido aparece POR TAREFA; não há soma por forma nem por dia.',
   },
   {
+    caminho: '/v1/contas',
+    razao:
+      'Contas A PAGAR. É dinheiro que SAI, e o caixa confere o que entrou — nenhuma das duas listas alcança a outra.',
+  },
+  {
     caminho: '/v1/jornada',
     razao:
       'O funil por etapa. Soma valor de ORÇAMENTO, que não é receita e não está na gaveta (regra 4).',

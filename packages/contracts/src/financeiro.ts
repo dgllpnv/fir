@@ -1,7 +1,7 @@
 import { CATEGORIAS_DESP, FORMAS_DE_CONFERENCIA, FORMAS_DE_SAIDA } from '@fir/domain'
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Mes, Uuid } from './comum'
-import { FORMAS } from './tarefas'
+import { FORMAS, RespostaDeHoje } from './tarefas'
 
 /**
  * As formas de ENTRADA são as mesmas de `tarefas.ts` — `FORMAS` —, e esta
@@ -203,6 +203,66 @@ export const ContaNaLista = z.object({
   formaPagamento: z.string(),
 })
 export type ContaNaLista = z.infer<typeof ContaNaLista>
+
+/**
+ * O filtro da tela Contas a pagar.
+ *
+ * `mes` governa só as PAGAS ("Pagas em outubro"); as abertas aparecem
+ * inteiras, inclusive as vencidas de meses anteriores — a conta de agosto que
+ * ninguém pagou não pode sumir em outubro.
+ */
+export const ConsultaDeContas = z
+  .object({
+    situacao: z.enum(['abertas', 'pagas', 'todas']).default('todas'),
+    mes: Mes.optional(),
+  })
+  .strict()
+export type ConsultaDeContas = z.infer<typeof ConsultaDeContas>
+
+export const ListaDeContas = z.object({ itens: z.array(ContaNaLista) }).strict()
+export type ListaDeContas = z.infer<typeof ListaDeContas>
+
+/**
+ * O que `POST /v1/contas/:id/pagar` devolve.
+ *
+ * `proxima` é a conta do mês seguinte quando a conta é mensal — criada na
+ * MESMA transação do pagamento, com `ON CONFLICT DO NOTHING` sobre
+ * `conta_da_serie_por_mes`. `null` quando a conta não é de série, **ou**
+ * quando a próxima já existia: a idempotência é do banco, e a resposta diz a
+ * verdade sobre o que esta requisição criou.
+ */
+export const ResultadoDoPagamento = z
+  .object({ conta: ContaNaLista, proxima: ContaNaLista.nullable() })
+  .strict()
+export type ResultadoDoPagamento = z.infer<typeof ResultadoDoPagamento>
+
+/**
+ * O bloco financeiro da tela **Hoje**.
+ *
+ * `caixaPendente` é BOOLEANO, e isso não é economia de bytes: um valor aqui
+ * seria o esperado chegando pela porta dos fundos, numa rota que a recepção
+ * recarrega o dia inteiro. É a regra 6, e `/v1/hoje` está em
+ * `ROTAS_DE_CONFERENCIA` justamente por causa deste campo.
+ *
+ * `contas` são **as minhas** que vencem em até 3 dias, mais as já vencidas —
+ * o corte é do servidor, no fuso da clínica (MANUAL cap. 14).
+ */
+export const BlocoFinanceiroDeHoje = z
+  .object({ caixaPendente: z.boolean(), contas: z.array(ContaNaLista) })
+  .strict()
+export type BlocoFinanceiroDeHoje = z.infer<typeof BlocoFinanceiroDeHoje>
+
+/**
+ * **A resposta de verdade de `GET /v1/hoje`.**
+ *
+ * Mora neste arquivo, e não ao lado de `RespostaDeHoje`, por uma razão
+ * mecânica: `financeiro.ts` já importa `tarefas.ts` (as formas de pagamento
+ * são UMA lista, não duas), e pôr `ContaNaLista` dentro de `RespostaDeHoje`
+ * faria `tarefas.ts` importar de volta. Ciclo entre arquivos de contrato é a
+ * classe de problema que só aparece no bundler de alguém, meses depois.
+ */
+export const HojeComFinanceiro = RespostaDeHoje.extend({ financeiro: BlocoFinanceiroDeHoje })
+export type HojeComFinanceiro = z.infer<typeof HojeComFinanceiro>
 
 // ---------------------------------------------------------------------------
 // CAIXA DO DIA
