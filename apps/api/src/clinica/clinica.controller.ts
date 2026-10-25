@@ -1,10 +1,13 @@
-import type { ListaDaEquipe, ListaDeUnidades } from '@fir/contracts'
+import type { ClinicaAtual, ListaDaEquipe, ListaDeUnidades } from '@fir/contracts'
+import { diaCivil } from '@fir/domain'
 import { Controller, Get, Inject, Req } from '@nestjs/common'
 import type { RequisicaoComContexto } from '../comum/contexto'
+import { RELOGIO, type Relogio } from '../comum/relogio'
 import { BancoService } from '../banco/banco.service'
 
 /**
- * As duas listas de apoio das telas de rotina: a equipe e as unidades.
+ * A clínica aberta e as duas listas de apoio das telas de rotina: a equipe e
+ * as unidades.
  *
  * Sem `@Exige`, e isso é deliberado: escolher o responsável de uma tarefa é
  * parte de criar uma tarefa, que é de todos (`menu.ts`, `perm: null`). Exigir
@@ -17,7 +20,30 @@ import { BancoService } from '../banco/banco.service'
 @Controller('v1')
 export class ClinicaController {
   // `@Inject` explícito: o esbuild não emite `design:paramtypes`.
-  constructor(@Inject(BancoService) private readonly banco: BancoService) {}
+  constructor(
+    @Inject(BancoService) private readonly banco: BancoService,
+    @Inject(RELOGIO) private readonly relogio: Relogio,
+  ) {}
+
+  /**
+   * A clínica aberta, com o DIA DE NEGÓCIO dela já resolvido.
+   *
+   * Sem ida ao banco: o `SessaoGuard` já leu a clínica inteira para montar o
+   * contexto, e `hoje` é o relógio do SERVIDOR no fuso dela (regra 24). Quem
+   * precisa disto é "Nova tarefa", que nasce com a data preenchida antes de
+   * carregar lista nenhuma.
+   */
+  @Get('clinica')
+  async clinica(@Req() req: RequisicaoComContexto): Promise<ClinicaAtual> {
+    const c = req.contexto!
+    return {
+      id: c.clinicaId,
+      codigo: c.clinicaCodigo,
+      nome: c.clinicaNome,
+      fuso: c.clinicaFuso,
+      hoje: diaCivil(this.relogio.agora(), c.clinicaFuso),
+    }
+  }
 
   @Get('equipe')
   async equipe(@Req() req: RequisicaoComContexto): Promise<ListaDaEquipe> {

@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { type Cenario, desmontarCenario, montarCenario, pegar } from '../tarefas/__tests__/cenario'
+import {
+  type Cenario,
+  desmontarCenario,
+  FUSO,
+  HOJE,
+  montarCenario,
+  pegar,
+} from '../tarefas/__tests__/cenario'
 
 let c: Cenario
 
@@ -8,6 +15,40 @@ beforeAll(async () => {
 })
 afterAll(async () => {
   await desmontarCenario(c)
+})
+
+describe('GET /v1/clinica', () => {
+  it('devolve a clínica aberta e o fuso dela', async () => {
+    const r = await pegar(c, '/v1/clinica').expect(200)
+    expect(r.body.nome).toBe('Clínica Tarefas')
+    expect(r.body.fuso).toBe(FUSO)
+  })
+
+  /**
+   * O relógio do cenário é 25/10 às 02:00 UTC, que em America/Bahia ainda é
+   * 23:00 de 24/10. Com `new Date()` no navegador — ou com UTC no servidor —
+   * esta rota diria 25/10, e "Nova tarefa" abriria no dia seguinte enquanto a
+   * clínica ainda está no expediente de hoje. É a regra 24 inteira num campo.
+   */
+  it('`hoje` é o dia civil NO FUSO DA CLÍNICA, não em UTC', async () => {
+    const r = await pegar(c, '/v1/clinica').expect(200)
+    expect(r.body.hoje).toBe(HOJE)
+  })
+
+  it('não devolve nada além de id, código, nome, fuso e hoje', async () => {
+    const r = await pegar(c, '/v1/clinica').expect(200)
+    expect(Object.keys(r.body as Record<string, unknown>).sort()).toEqual([
+      'codigo',
+      'fuso',
+      'hoje',
+      'id',
+      'nome',
+    ])
+  })
+
+  it('sem cookie é 401 — a clínica aberta não é pública', async () => {
+    await pegar(c, '/v1/clinica', {}, 'ninguem').expect(401)
+  })
 })
 
 describe('GET /v1/equipe', () => {

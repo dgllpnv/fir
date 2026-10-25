@@ -1,5 +1,27 @@
 import { z } from 'zod'
-import { Uuid } from './comum'
+import { DiaCivil, Uuid } from './comum'
+
+/**
+ * A clínica aberta, mais o DIA DE NEGÓCIO dela.
+ *
+ * `hoje` existe aqui por causa da regra 24: a data de negócio vem do servidor,
+ * nunca do relógio do cliente. "Nova tarefa" precisa dela antes de qualquer
+ * lista — é o valor padrão do campo Data e o teto do lançamento retroativo —, e
+ * sem esta rota a tela teria de pedir uma página de tarefas só para ler o
+ * `hoje` que vem junto. A recepção que abre a ferramenta às 23h55 e vê o
+ * formulário virar o dia antes da clínica é a confusão que isto evita.
+ *
+ * `fuso` acompanha porque ele é propriedade da CLÍNICA (regra 22) e a tela
+ * precisa dele para rotular instante em UTC.
+ */
+export const ClinicaAtual = z.object({
+  id: Uuid,
+  codigo: z.string(),
+  nome: z.string(),
+  fuso: z.string(),
+  hoje: DiaCivil,
+})
+export type ClinicaAtual = z.infer<typeof ClinicaAtual>
 
 /**
  * As duas listas que TODA tela de rotina precisa: quem trabalha aqui e onde.
