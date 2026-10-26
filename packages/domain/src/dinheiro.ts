@@ -44,6 +44,16 @@ export class Dinheiro {
     return new Dinheiro(this.centavos - outro.centavos)
   }
 
+  /**
+   * Multiplica por um inteiro. `bigint` na assinatura, e não `number`, de
+   * propósito: `12 × R$ 300` é "doze sessões", uma contagem, e um `number`
+   * aqui abriria a porta para `2.5` — meia sessão, que não existe — e para o
+   * `Number` perder precisão acima de 2^53 no produto.
+   */
+  vezes(n: bigint): Dinheiro {
+    return new Dinheiro(this.centavos * n)
+  }
+
   ehZero(): boolean {
     return this.centavos === 0n
   }
