@@ -61,9 +61,14 @@ export async function apagarTrilhaDeTeste(cliente: pg.Client, clinicaId: string)
  * que as chaves estrangeiras permitem apagar.
  */
 const EM_ORDEM_DE_APAGAR = [
-  // Filho antes de pai: `recebimentos` aponta para `tarefas` e `pacientes`;
-  // `tarefas` aponta para `pacientes`, `pessoas` e `unidades`.
+  // Filho antes de pai: `recebimentos` aponta para `tarefas`, `pacientes` e
+  // (desde a 0010) `programas`.
   'recebimentos',
+  // Os programas (0010). `itens_do_programa` aponta para `programas` e
+  // `procedimentos`; `tarefas` aponta para `programas` e `procedimentos`; e
+  // `programas` aponta de VOLTA para `tarefas` — o ciclo que
+  // `soltarCiclosDoPrograma`, abaixo, desfaz antes deste laço começar.
+  'itens_do_programa',
   // O financeiro (0009). `caixa_por_forma` aponta para `caixas_do_dia`;
   // `contas_a_pagar`, `caixas_do_dia`, `cobrancas`, `metas_do_mes` e
   // `configuracao_financeira` apontam para `pessoas`, e `cobrancas` também
@@ -75,10 +80,12 @@ const EM_ORDEM_DE_APAGAR = [
   'contas_a_pagar',
   'metas_do_mes',
   'tarefas',
-  // Depois de `tarefas`: `tarefas.motivo_perda_id` aponta para cá pela chave
-  // estrangeira COMPOSTA `(motivo_perda_id, clinica_id)`, e o filho vai antes
-  // do pai.
+  // Depois de `tarefas`, que aponta para as três pela chave estrangeira
+  // COMPOSTA `(coluna, clinica_id)`: o filho vai antes do pai.
   'motivos_de_perda',
+  'programas',
+  'insumos_do_procedimento',
+  'procedimentos',
   'pacientes',
   'unidades',
   'sessoes',
@@ -98,9 +105,31 @@ const EM_ORDEM_DE_APAGAR = [
  */
 export async function apagarClinicaDeTeste(cliente: pg.Client, clinicaId: string): Promise<void> {
   await declararAtorSistema(cliente)
+  await soltarCiclosDoPrograma(cliente, clinicaId)
   for (const tabela of EM_ORDEM_DE_APAGAR) {
     await cliente.query(`DELETE FROM ${tabela} WHERE clinica_id = $1`, [clinicaId])
   }
   await apagarTrilhaDeTeste(cliente, clinicaId)
   await cliente.query('DELETE FROM clinicas WHERE id = $1', [clinicaId])
+}
+
+/**
+ * Desfaz o CICLO de chaves estrangeiras que a 0010 introduziu.
+ *
+ * `tarefas.programa_id` aponta para `programas`, e
+ * `programas.tarefa_de_origem_id` aponta de volta para `tarefas`. Nenhuma das
+ * duas pode ser apagada primeiro, e nenhuma ordem de `DELETE` resolve isso.
+ *
+ * O ciclo é deliberado e nenhuma das duas pontas é dispensável: a sessão
+ * precisa saber de que programa é, e o programa precisa saber qual orçamento
+ * o montou (é o índice `programa_por_origem` que impede o mesmo cartão de
+ * montar dois programas). Em PRODUÇÃO nada disto é apagado — a clínica se
+ * desativa, a pessoa se desativa, a tarefa recebe `excluida_em`. Só a fixture
+ * precisa desmontar, e por isso a solução mora aqui e não num
+ * `ON DELETE SET NULL` que mudaria o comportamento de produção.
+ */
+async function soltarCiclosDoPrograma(cliente: pg.Client, clinicaId: string): Promise<void> {
+  await cliente.query('UPDATE programas SET tarefa_de_origem_id = NULL WHERE clinica_id = $1', [
+    clinicaId,
+  ])
 }

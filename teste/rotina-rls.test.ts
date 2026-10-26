@@ -183,9 +183,12 @@ describe('a tarefa não guarda dinheiro', () => {
     )
     const nomes = r.rows.map((x) => x.column_name)
     expect(nomes.length, 'tarefas não existe').toBeGreaterThan(5)
-    const suspeitas = nomes.filter((n) =>
-      /valor|preco|custo|pago|pagamento|desconto|total|centavos/.test(n),
-    )
+    // `.sort()`: a ordem de `information_schema.columns` é a do catálogo, e
+    // `ALTER TABLE ADD COLUMN` a muda. Comparar lista ORDENADA com lista
+    // ordenada mantém a comparação exata sem amarrá-la à ordem de criação.
+    const suspeitas = nomes
+      .filter((n) => /valor|preco|custo|pago|pagamento|desconto|total|centavos/.test(n))
+      .sort()
     /**
      * A ÚNICA exceção, e a lista é EXATA de propósito.
      *
@@ -201,8 +204,26 @@ describe('a tarefa não guarda dinheiro', () => {
      * dobra —, este teste nomeia a coluna.
      */
     expect(suspeitas, `colunas monetárias em tarefas: ${suspeitas.join(', ')}`).toEqual([
+      'sessao_total',
       'valor_orcamento',
     ])
+  })
+
+  it('`sessao_total` é uma CONTAGEM, não dinheiro — e o tipo prova', async () => {
+    // Ela cai no filtro acima pela palavra `total`, e é a mesma colisão de
+    // nome genérico que o épico 4 mediu em `CAMPOS_MONETARIOS` (`total` já
+    // era a contagem de páginas de `PaginaDePacientes`). Aqui `sessao_total`
+    // é o "12" de "Aplicação 5/12" — a string `sessao = "5/12"` que as 4
+    // clínicas têm gravada.
+    //
+    // A exceção na lista acima só é honesta com esta asserção ao lado:
+    // `smallint` não comporta centavos de nada que a clínica cobre, então a
+    // coluna NÃO PODE virar dinheiro sem que o tipo mude e este teste caia.
+    const r = await migrate.query<{ data_type: string }>(
+      `SELECT data_type FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='tarefas' AND column_name='sessao_total'`,
+    )
+    expect(r.rows[0]?.data_type).toBe('smallint')
   })
 
   it('`valor_orcamento` é bigint de centavos, e aceita só valor positivo', async () => {
