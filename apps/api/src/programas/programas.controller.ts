@@ -1,12 +1,20 @@
-import { MontarPrograma, type ProgramaMontadoNaSaida } from '@fir/contracts'
+import {
+  EncerrarPrograma,
+  MontarPrograma,
+  type ProgramaEncerradoNaSaida,
+  type ProgramaMontadoNaSaida,
+} from '@fir/contracts'
 import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   HttpCode,
   HttpStatus,
   Inject,
+  Param,
+  ParseUUIDPipe,
   Post,
   Req,
 } from '@nestjs/common'
@@ -59,6 +67,44 @@ export class ProgramasController {
     return this.programas.montar(
       { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
       dados.data,
+    )
+  }
+
+  /**
+   * ENCERRAR e EXCLUIR exigem `programas.gerir` — e aqui o protótipo e nós
+   * concordamos. Não é divergência: é a matriz de permissões substituindo o
+   * booleano `admin` do `Code.gs`, que o `CONTEXT.md` proíbe.
+   *
+   * `@Exige` acumula com o da classe: quem chega aqui já tem `programas`.
+   */
+  @Post(':id/encerrar')
+  @HttpCode(HttpStatus.OK)
+  @Exige('programas.gerir')
+  async encerrar(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() corpo: unknown,
+  ): Promise<ProgramaEncerradoNaSaida> {
+    const dados = EncerrarPrograma.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.programas.encerrar(
+      { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
+      id,
+      dados.data,
+    )
+  }
+
+  @Delete(':id')
+  @Exige('programas.gerir')
+  async excluir(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ id: string; ids: readonly string[] }> {
+    const c = req.contexto!
+    return this.programas.excluir(
+      { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
+      id,
     )
   }
 }

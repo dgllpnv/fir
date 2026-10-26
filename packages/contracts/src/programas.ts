@@ -375,6 +375,23 @@ export const SessaoDoPrograma = z.object({
 })
 export type SessaoDoPrograma = z.infer<typeof SessaoDoPrograma>
 
+/**
+ * A resposta de `POST /v1/programas/:id/encerrar`.
+ *
+ * `motivoEncerramento` vem com a observação já concatenada (`motivo — obs`),
+ * como o protótipo grava: é um campo de relatório, não dois.
+ *
+ * `sessoesCanceladas` existe para a tela saber o que recarregar. Devolver a
+ * lista inteira de sessões faria o front ter de descobrir o que mudou.
+ */
+export const ProgramaEncerradoNaSaida = z.object({
+  id: Uuid,
+  situacao: z.literal('encerrado'),
+  motivoEncerramento: z.string(),
+  sessoesCanceladas: z.array(Uuid),
+})
+export type ProgramaEncerradoNaSaida = z.infer<typeof ProgramaEncerradoNaSaida>
+
 export const ProgramaMontadoNaSaida = z.object({
   id: Uuid,
   pacienteId: Uuid,

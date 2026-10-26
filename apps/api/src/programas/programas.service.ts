@@ -1,4 +1,10 @@
-import type { ItemNoPrograma, MontarPrograma, ProgramaMontadoNaSaida } from '@fir/contracts'
+import type {
+  EncerrarPrograma,
+  ItemNoPrograma,
+  MontarPrograma,
+  ProgramaEncerradoNaSaida,
+  ProgramaMontadoNaSaida,
+} from '@fir/contracts'
 import {
   diaCivil,
   Dinheiro,
@@ -20,6 +26,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { Transacao } from '../banco/transacao'
 import { RELOGIO, type Relogio } from '../comum/relogio'
+import { BaixaDeInsumos } from './baixa-de-insumos'
 import {
   MontadorDePrograma,
   traduzirErroDeMontagem,
@@ -43,6 +50,9 @@ export class ProgramasService {
     @Inject(BancoService) private readonly banco: BancoService,
     @Inject(MontadorDePrograma) private readonly montador: MontadorDePrograma,
     @Inject(RELOGIO) private readonly relogio: Relogio,
+    // O seam do épico 6: `excluir` desfaz as baixas das sessões que apaga,
+    // por COMPENSAÇÃO (regra 12). Inerte até lá.
+    @Inject(BaixaDeInsumos) private readonly baixa: BaixaDeInsumos,
   ) {}
 
   /**
@@ -98,6 +108,162 @@ export class ProgramasService {
       if (ehErro(montado)) throw traduzirErroDeMontagem(montado.erro)
 
       return this.lerMontado(c, montado.valor, modo, dados)
+    })
+  }
+
+  /**
+   * **ENCERRAR — a paciente parou antes do fim.**
+   *
+   * MANUAL cap. 8, *"Encerrar ou excluir um programa"*: encerrar é sobre a
+   * paciente ter parado; excluir é sobre o registro ter sido feito por engano.
+   * A diferença é de INTENÇÃO, e por isso são duas rotas:
+   *
+   * | | Encerrar | Excluir |
+   * |---|---|---|
+   * | O programa | `situacao = 'encerrado'`, com motivo | `excluido_em` |
+   * | Sessões abertas | `cancelada` | `excluida_em` |
+   * | Sessões realizadas | **ficam no histórico** | `excluida_em` |
+   * | Estoque | **intocado** — o consumo aconteceu | compensado |
+   * | Recebimentos | ficam, com `programa_id` | ficam, **sem** `programa_id` |
+   *
+   * O estoque intocado é o ponto: a paciente aplicou oito das doze doses, e as
+   * oito saíram do frasco. Devolvê-las ao estoque porque ela desistiu faria a
+   * contagem da prateleira acusar falta que ninguém explica.
+   */
+  async encerrar(
+    ctx: Contexto,
+    id: string,
+    dados: EncerrarPrograma,
+  ): Promise<ProgramaEncerradoNaSaida> {
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      const p = await carregarPrograma(c, id)
+      if (p.situacao === 'encerrado') {
+        throw new ConflictException('Este programa já está encerrado.')
+      }
+
+      // O motivo e a observação num campo só, como o protótipo grava:
+      // `motivo + (obs ? " — " + obs : "")`. O motivo É o relatório — é por
+      // ele que a clínica descobre que metade das desistências é preço.
+      const motivo =
+        dados.obs === undefined || dados.obs === ''
+          ? dados.motivo
+          : `${dados.motivo} — ${dados.obs}`
+
+      await c.query(
+        `UPDATE programas
+            SET situacao = 'encerrado', encerrado_em = now(), motivo_encerramento = $2
+          WHERE id = $1`,
+        [id, motivo.slice(0, 260)],
+      )
+
+      /**
+       * AS SESSÕES ABERTAS VIRAM `cancelada`; AS REALIZADAS FICAM.
+       *
+       * `status = 'aberta'` no `WHERE` é a regra inteira. Uma sessão concluída
+       * é um atendimento que aconteceu, e cancelá-la apagaria da ficha da
+       * paciente uma aplicação que ela recebeu — além de tirar da receita um
+       * pagamento que entrou.
+       *
+       * O mesmo `UPDATE` alcança os CONTATOS DE RETORNO abertos do programa:
+       * os dois carregam `programa_id`, e quem encerrou o tratamento não deve
+       * receber a ligação de "você já pode repetir".
+       */
+      const canceladas = await c.query<{ id: string }>(
+        `UPDATE tarefas
+            SET status = 'cancelada', obs = $2
+          WHERE programa_id = $1 AND status = 'aberta' AND excluida_em IS NULL
+          RETURNING id`,
+        [id, 'Programa encerrado'],
+      )
+
+      return {
+        id,
+        situacao: 'encerrado' as const,
+        motivoEncerramento: motivo.slice(0, 260),
+        sessoesCanceladas: canceladas.rows.map((x) => x.id),
+      }
+    })
+  }
+
+  /**
+   * **EXCLUIR — o registro foi feito por engano.**
+   *
+   * Soft delete, e isso é divergência dos DOIS legados: o protótipo dá
+   * `splice`, o `Code.gs` dá `deleteRow`. A regra 20 vence os dois pela mesma
+   * razão da ADR 0003 — a trilha de um atendimento realizado é prova, não
+   * conveniência.
+   *
+   * **D-8, decidida pelo dono: programa com sessão PAGA não se exclui.** O
+   * MANUAL manda apagar tudo "inclusive as realizadas" e desfazer as baixas; o
+   * épico 2 já recusa excluir tarefa com recebimento (*"Reabra a tarefa"*), e
+   * duas respostas para a mesma pergunta é como uma delas vira a errada. A
+   * alternativa — estorno em cascata — deixaria alguém mudar a receita de um
+   * mês fechado com um toque, e foi recusada.
+   */
+  async excluir(ctx: Contexto, id: string): Promise<{ id: string; ids: readonly string[] }> {
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      await carregarPrograma(c, id)
+
+      /**
+       * A RECUSA SAI DE UMA CONSULTA, e ela conta recebimento VIVO.
+       *
+       * Estornado não conta: quem já estornou fez exatamente o que a mensagem
+       * pede, e recusar de novo seria um beco sem saída.
+       */
+      const pagas = await c.query<{ n: string }>(
+        `SELECT count(*)::text AS n
+           FROM recebimentos r
+           JOIN tarefas t ON t.id = r.tarefa_id
+          WHERE t.programa_id = $1 AND r.estornado_em IS NULL AND t.excluida_em IS NULL`,
+        [id],
+      )
+      if (Number(pagas.rows[0]!.n) > 0) {
+        // A mensagem dá AS DUAS SAÍDAS. "Não é possível excluir" sozinho manda
+        // a recepção pedir ajuda para um problema que ela resolve num toque.
+        throw new ConflictException(
+          'Há pagamentos lançados nas sessões deste programa. Estorne-os antes de ' +
+            'excluir, ou use Encerrar programa.',
+        )
+      }
+
+      /**
+       * UM `UPDATE` ALCANÇA SESSÕES **E** CONTATOS DE RETORNO.
+       *
+       * Os dois carregam `programa_id`, então a exclusão não precisa saber a
+       * diferença. Uma segunda consulta por tipo seria o lugar onde o tipo
+       * novo do épico 7 ficaria de fora sem ninguém notar.
+       */
+      const tarefas = await c.query<{ id: string }>(
+        `UPDATE tarefas SET excluida_em = now()
+          WHERE programa_id = $1 AND excluida_em IS NULL
+          RETURNING id`,
+        [id],
+      )
+
+      /**
+       * OS RECEBIMENTOS SOBREVIVEM, PERDENDO O VÍNCULO.
+       *
+       * Legado: `t.adesaoId = ''`. Aqui: `programa_id = NULL`. O dinheiro não
+       * some — ele volta para o grupo geral do saldo. Um recebimento apontando
+       * para um programa excluído apareceria num grupo que a tela não desenha,
+       * e a dívida ficaria invisível.
+       */
+      await c.query('UPDATE recebimentos SET programa_id = NULL WHERE programa_id = $1', [id])
+
+      // Compensação, NUNCA `DELETE` (regra 12). O protótipo apaga os
+      // movimentos (`movs.filter(…)`); essa linha não atravessa.
+      for (const t of tarefas.rows) {
+        const r = await this.baixa.desfazer(c, ctx.clinicaId, t.id, 'programa-excluido')
+        if (ehErro(r)) throw new ConflictException(r.erro.mensagem)
+      }
+
+      // O programa por último: as consultas acima dependem dele estar lá.
+      await c.query('UPDATE programas SET excluido_em = now() WHERE id = $1', [id])
+
+      // A TAREFA DE ORIGEM não é tocada: o orçamento fechou de verdade, e
+      // `fechado` é terminal (épico 3). Reabri-lo seria mudar a receita de um
+      // mês que já fechou.
+      return { id, ids: tarefas.rows.map((x) => x.id) }
     })
   }
 
@@ -269,6 +435,31 @@ const paraItemDeMontagem = (i: MontarPrograma['itens'][number]): ItemParaMontar 
           quantidade: Quantidade.deMilesimos(i.insumo.quantidade, i.insumo.unidade),
         },
 })
+
+/**
+ * `FOR UPDATE` no programa, e **404 para o excluído**.
+ *
+ * A RLS já filtra por clínica: o programa da vizinha devolve zero linhas, e
+ * zero é a mesma resposta de "não existe" — o status que não confirma a
+ * existência de nada.
+ *
+ * O bloqueio não é zelo: encerrar e excluir leem a situação e decidem a partir
+ * dela, e duas abas tocando as duas ações ao mesmo tempo chegariam as duas em
+ * `ativo`.
+ */
+async function carregarPrograma(
+  c: pg.PoolClient,
+  id: string,
+): Promise<{ id: string; situacao: string; pacienteId: string }> {
+  const r = await c.query<{ id: string; situacao: string; paciente_id: string }>(
+    `SELECT id, situacao, paciente_id FROM programas
+      WHERE id = $1 AND excluido_em IS NULL FOR UPDATE`,
+    [id],
+  )
+  const l = r.rows[0]
+  if (l === undefined) throw new NotFoundException('Programa não encontrado.')
+  return { id: l.id, situacao: l.situacao, pacienteId: l.paciente_id }
+}
 
 /** Reexportado para o controlador reconhecer o tipo do `Result`. */
 export type { Result }
