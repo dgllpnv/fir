@@ -225,12 +225,27 @@ describe('MontarPrograma — o montador em três entradas', () => {
     ).toBe(true)
   })
 
-  it('a entrada tem padrão ZERO — o programa cuja adesão não pagou nada hoje', () => {
-    const r = MontarPrograma.parse({
-      ...MONTAR,
-      pagamento: { valorTotal: '360000', forma: 'Pix' },
-    })
-    expect(r.pagamento!.valorEntrada).toBe(0n)
+  it('A ENTRADA PRECISA SER MAIOR QUE ZERO — e não é escolha deste contrato', () => {
+    // `recebimentos.valor` tem `CHECK (valor > 0)` desde a 0006, e todo o
+    // sistema concorda. O protótipo aceita entrada zero com total 3.600 e
+    // guarda o saldo numa tarefa; aqui o saldo é DERIVADO de
+    // `recebimentos.valor_aberto`, e não há linha sem valor recebido.
+    //
+    // Programa sem entrada monta SEM `pagamento` — e o saldo entra quando o
+    // primeiro pagamento for lançado.
+    expect(MontarPrograma.safeParse({ ...MONTAR, pagamento: { valorTotal: '360000', forma: 'Pix' } }).success).toBe(false)
+    expect(
+      MontarPrograma.safeParse({
+        ...MONTAR,
+        pagamento: { valorTotal: '360000', valorEntrada: '0', forma: 'Pix' },
+      }).success,
+    ).toBe(false)
+    expect(
+      MontarPrograma.parse({
+        ...MONTAR,
+        pagamento: { valorTotal: '360000', valorEntrada: '1', forma: 'Pix' },
+      }).pagamento!.valorEntrada,
+    ).toBe(1n)
   })
 
   it('SEM `pagamento`, o programa não tem total — cada sessão registra o do dia', () => {

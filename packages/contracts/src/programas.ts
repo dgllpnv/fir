@@ -25,8 +25,26 @@ const valorTotal = dinheiroEmTexto.refine((v): v is bigint => v !== null && v > 
   message: 'informe o total negociado, em centavos',
 })
 
-const valorEntrada = dinheiroEmTexto.refine((v): v is bigint => v !== null && v >= 0n, {
-  message: 'informe o valor pago agora, em centavos',
+/**
+ * A ENTRADA É MAIOR QUE ZERO, e isso não é escolha deste contrato.
+ *
+ * `recebimentos.valor` tem `CHECK (valor > 0)` desde a 0006, e todo o sistema
+ * concorda: `PagamentoEmbutido.valor` (épico 2), `RegistrarRecebimento`
+ * (épico 4) e o `recebimento` do `fechar` (épico 3) exigem o mesmo. Um
+ * recebimento é dinheiro que ENTROU; zero não é um.
+ *
+ * O que isso custa, e está escrito aqui para quem for ler: o protótipo aceita
+ * `valorEntrada = 0` com `valorTotal = 3600` — "fechou, paga depois" — e
+ * representa o saldo numa tarefa com `valor: ""` e `valorAberto: 3600`. Aqui
+ * o saldo em aberto é DERIVADO de `recebimentos.valor_aberto` (regra 5), e
+ * não existe linha de recebimento sem valor recebido. **Um programa sem
+ * entrada não tem como abrir saldo** — ele se monta sem `pagamento`, e o
+ * saldo entra quando o primeiro pagamento for lançado.
+ *
+ * É pergunta de produto, não de implementação, e está no relatório do épico 5.
+ */
+const valorEntrada = dinheiroEmTexto.refine((v): v is bigint => v !== null && v > 0n, {
+  message: 'O valor pago agora precisa ser maior que zero. Sem pagamento, monte o programa sem valor.',
 })
 
 /** Milésimos inteiros e POSITIVOS. Não existe aplicação de dose nenhuma. */
@@ -105,6 +123,35 @@ export const SalvarProcedimento = z
   })
   .strict()
 export type SalvarProcedimento = z.infer<typeof SalvarProcedimento>
+
+/**
+ * A EDIÇÃO É PARCIAL, e por isso tem schema próprio.
+ *
+ * `SalvarProcedimento.partial()` NÃO serve: os campos com `.default()`
+ * continuam produzindo o padrão quando ausentes, então um `PATCH { ativo:
+ * false }` reescreveria `rotuloSessao` para "Sessão" e apagaria a lista de
+ * descartáveis — sem erro nenhum, e a enfermagem descobriria na próxima
+ * sessão, quando a agulha não baixasse do estoque.
+ *
+ * Aqui ausente significa ausente: o serviço mescla sobre a linha atual.
+ * `null` explícito, onde o tipo o aceita, significa "limpe este campo".
+ */
+export const EditarProcedimento = z
+  .object({
+    nome: z.string().trim().min(1).max(80),
+    sessoesSugeridas: z.number().int().min(1).max(104),
+    intervaloSugeridoDias: z.number().int().min(1).max(180),
+    rotuloSessao: z.string().trim().min(1).max(40),
+    responsavelId: Uuid.nullable(),
+    valorPorSessao: valorPorSessao.nullable(),
+    retorno: RegraDeRetorno.nullable(),
+    insumoPadrao: Insumo.nullable(),
+    descartaveis: z.array(Insumo).max(10),
+    ativo: z.boolean(),
+  })
+  .partial()
+  .strict()
+export type EditarProcedimento = z.infer<typeof EditarProcedimento>
 
 /**
  * Um item do programa, na MONTAGEM.
@@ -199,7 +246,7 @@ export const MontarPrograma = z
     pagamento: z
       .object({
         valorTotal,
-        valorEntrada: valorEntrada.default('0'),
+        valorEntrada,
         forma: z.enum(FORMAS),
       })
       .strict()

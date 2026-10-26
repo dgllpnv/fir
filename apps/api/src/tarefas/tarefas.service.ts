@@ -393,7 +393,7 @@ export async function registrarPagamento(
     unidade: string | null
     autor: PessoaId
   },
-): Promise<void> {
+): Promise<string> {
   if (x.pacienteId === null) {
     throw new BadRequestException(
       'Só uma tarefa de paciente guarda pagamento — o dinheiro precisa de a quem pertencer.',
@@ -404,11 +404,16 @@ export async function registrarPagamento(
       'Este tipo de tarefa não guarda pagamento. Use Recebimento para registrar dinheiro recebido.',
     )
   }
-  await c.query(
+  // `RETURNING id` porque o épico 5 precisa carimbar `programa_id` nesta
+  // linha, na MESMA transação: é só isso que falta para o saldo em aberto
+  // deixar de ser um grupo só (regra 5). Quem não precisa do id ignora o
+  // retorno, e nada mais muda.
+  const r = await c.query<{ id: string }>(
     `INSERT INTO recebimentos
        (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, valor_aberto, recebido_em,
         unidade_id, registrado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     RETURNING id`,
     [
       x.clinicaId,
       x.pacienteId,
@@ -424,4 +429,5 @@ export async function registrarPagamento(
       x.autor,
     ],
   )
+  return r.rows[0]!.id
 }

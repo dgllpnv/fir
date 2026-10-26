@@ -11,6 +11,7 @@ import { FinanceiroModule } from './financeiro/financeiro.module'
 import { JornadaModule } from './jornada/jornada.module'
 import { RedacaoInterceptor } from './comum/redacao.interceptor'
 import { PacientesModule } from './pacientes/pacientes.module'
+import { ProgramasModule } from './programas/programas.module'
 import { SaudeController } from './saude/saude.controller'
 import { TarefasModule } from './tarefas/tarefas.module'
 
@@ -24,6 +25,7 @@ import { TarefasModule } from './tarefas/tarefas.module'
     JornadaModule,
     ClinicaModule,
     FinanceiroModule,
+    ProgramasModule,
   ],
   controllers: [SaudeController],
   providers: [

@@ -60,7 +60,8 @@ export type Cenario = {
    * TODO o financeiro) · `camila` comercial (`valores`, SEM `jornada`, SEM
    * `caixa`, SEM `cobrancas`) · `rita` balcão (`receber` SEM `valores`) ·
    * `sonia` caixa (`caixa`, `contas`, `cobrancas`, SEM `valores` e SEM
-   * `contas.gerir`) · `marta` inativa.
+   * `contas.gerir`) · `nara` enfermagem (`programas`, SEM `valores`, SEM
+   * `receber` e SEM `config`) · `marta` inativa.
    */
   readonly pessoas: Record<string, string>
   readonly cookies: Record<string, string[]>
@@ -107,7 +108,12 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
     `INSERT INTO perfis (clinica_id, chave, nome, perms)
      VALUES ($1, 'pf_sup', 'Supervisão',
              ARRAY['tarefas.equipe','jornada','pacientes','pacientes.gerir','valores','receber',
-                   'caixa','contas','contas.gerir','cobrancas','finmes'])
+                   'caixa','contas','contas.gerir','cobrancas','finmes',
+                   -- O épico 5: ela vê o catálogo, edita o catálogo, monta,
+                   -- encerra e exclui programa. É o principal mais FORTE, e
+                   -- por isso é com ela que se prova o que vale mesmo para
+                   -- quem pode tudo.
+                   'programas','programas.gerir','config'])
      RETURNING id`,
     [clinica],
   )
@@ -152,6 +158,23 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
     [clinica],
   )
 
+  /**
+   * `pf_enf` MONTA PROGRAMA e NÃO VÊ VALOR: `programas` sem `valores`, sem
+   * `receber` e sem `config`.
+   *
+   * É a persona do épico 5, e nenhuma das cinco anteriores a cobre. Ela é a
+   * enfermagem de verdade: monta a adesão, conclui a sessão, e o pagamento
+   * vai pela tela Recebimentos. Sem ela, "SEM `receber`, o corpo COM dinheiro
+   * é 403" e "LISTAR o catálogo com `programas` é 200" não teriam com quem
+   * ser testados — e a decisão de gatear a rota que cria dinheiro ficaria sem
+   * prova.
+   */
+  const enf = await umId(
+    `INSERT INTO perfis (clinica_id, chave, nome, perms)
+     VALUES ($1, 'pf_enf', 'Enfermagem', ARRAY['pacientes','programas']) RETURNING id`,
+    [clinica],
+  )
+
   const hash = await hashDeSenha(SENHA)
   const pessoa = async (nome: string, perfil: string, ativo = true): Promise<string> =>
     umId(
@@ -168,6 +191,8 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
     rita: await pessoa('Rita', bal),
     // Caixa: fecha o caixa, paga as contas dela e cobra — sem ver um valor.
     sonia: await pessoa('Sonia', cxa),
+    // Enfermagem: monta programa e conclui sessão, sem ver nem lançar valor.
+    nara: await pessoa('Nara', enf),
     // Saiu da clínica: tarefa atribuída a ela não aparece no "Para mim" de
     // ninguém (`Code.gs:355`).
     marta: await pessoa('Marta', rec, false),
@@ -227,7 +252,7 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
   await app.getHttpAdapter().getInstance().ready()
 
   const cookies: Record<string, string[]> = {}
-  for (const quem of ['juliana', 'beatriz', 'camila', 'rita', 'sonia']) {
+  for (const quem of ['juliana', 'beatriz', 'camila', 'rita', 'sonia', 'nara']) {
     const r = await request(app.getHttpServer())
       .post('/v1/entrar')
       .send({ clinica: codigo, email: `${quem}@${codigo}.local`, senha: SENHA })
@@ -290,6 +315,27 @@ export async function limparFinanceiro(c: Cenario): Promise<void> {
     await c.migrate.query(`DELETE FROM ${tabela} WHERE clinica_id = ANY($1::uuid[])`, [
       [c.clinica, c.outraClinica],
     ])
+  }
+}
+
+/**
+ * Apaga o que o épico 5 escreve, preservando o CATÁLOGO semeado.
+ *
+ * A ordem desfaz o CICLO `tarefas` ↔ `programas` antes de apagar qualquer um
+ * dos dois — a mesma razão (e a mesma ordem) de `limpeza-de-teste.ts`.
+ *
+ * `procedimentos` NÃO é apagada: os cinco modelos nascem por trigger quando a
+ * clínica é criada, e apagá-los entre dois `it` deixaria o segundo sem
+ * catálogo para montar. Os procedimentos que um teste CRIA são problema dele.
+ */
+export async function limparProgramas(c: Cenario): Promise<void> {
+  const clinicas = [c.clinica, c.outraClinica]
+  await c.migrate.query(
+    'UPDATE programas SET tarefa_de_origem_id = NULL WHERE clinica_id = ANY($1::uuid[])',
+    [clinicas],
+  )
+  for (const tabela of ['itens_do_programa', 'recebimentos', 'tarefas', 'programas']) {
+    await c.migrate.query(`DELETE FROM ${tabela} WHERE clinica_id = ANY($1::uuid[])`, [clinicas])
   }
 }
 

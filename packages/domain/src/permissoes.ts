@@ -127,4 +127,13 @@ export const CAMPOS_MONETARIOS = [
   'variaveis',
   'aReceber',
   'metaRestante',
+
+  // O épico 5 (programas). `valor` (o do item do programa) e `valorTotal` já
+  // estavam acima. `valorPorSessao` é o PREÇO DE REFERÊNCIA do catálogo — não
+  // é receita (regra 4), mas é dinheiro na tela, e a enfermagem que monta o
+  // programa não tem `valores`.
+  //
+  // Nome específico de propósito: `porSessao` sozinho seria ambíguo e
+  // `preco` colidiria com qualquer campo futuro de preço de insumo.
+  'valorPorSessao',
 ] as const

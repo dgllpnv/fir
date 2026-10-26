@@ -51,10 +51,12 @@ type LinhaDeGrupo = {
 /**
  * Um grupo por (paciente, programa), com os dois brutos.
  *
- * **ÉPICO 5:** trocar `NULL::uuid AS programa_id` por `r.programa_id` é a
- * única mudança — nem o contrato, nem `saldoEmAberto`, nem nada abaixo. Foi
- * para isso que o contrato nasceu como lista de grupos com um grupo só, em
- * vez de um total que "se agrupa depois".
+ * **O ÉPICO 5 TROCOU UMA LINHA.** Era `NULL::uuid AS programa_id`, e virou
+ * `r.programa_id` quando a 0010 criou a coluna — nem o contrato, nem
+ * `saldoEmAberto`, nem nada abaixo mudou. Foi para isso que o contrato nasceu
+ * como lista de grupos com um grupo só, em vez de um total que "se agrupa
+ * depois": o dia em que o agrupamento passou a existir, ele não pediu nova
+ * forma de resposta nem nova regra de clamp.
  *
  * `$1` clínica · `$2` tipos que abatem · `$3` ids de paciente.
  */
@@ -63,7 +65,7 @@ const GRUPOS = `
          coalesce(sum(valor_aberto), 0)::text AS aberto,
          coalesce(sum(valor) FILTER (WHERE tipo = ANY($2)), 0)::text AS abatido
     FROM (SELECT r.paciente_id,
-                 NULL::uuid AS programa_id,
+                 r.programa_id,
                  r.valor, r.valor_aberto, r.tipo
             FROM recebimentos r
            WHERE r.clinica_id = $1 AND r.estornado_em IS NULL

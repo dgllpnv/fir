@@ -173,6 +173,32 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
    */
   { metodo: 'PUT', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido'] },
   { metodo: 'DELETE', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido'] },
+
+  /**
+   * OS PROGRAMAS (épico 5).
+   *
+   * O catálogo devolve `valorPorSessao` — PREÇO DE REFERÊNCIA, nunca receita
+   * (regra 4), e mesmo assim redigido: é dinheiro na tela, e a enfermagem que
+   * monta o programa não tem `valores`.
+   *
+   * `POST /v1/programas` devolve `itens[].valor` (o preço negociado de cada
+   * item) sob o nome `valor`, que esta lista já cobre em qualquer profundidade.
+   * `valorTotal` entra porque o corpo o traz e a forma de saída pode voltar a
+   * trazê-lo na Task 11.
+   */
+  { metodo: 'GET', caminho: '/v1/procedimentos', camposDeDinheiro: ['valorPorSessao'] },
+  { metodo: 'POST', caminho: '/v1/procedimentos', camposDeDinheiro: ['valorPorSessao'] },
+  { metodo: 'PATCH', caminho: '/v1/procedimentos/:id', camposDeDinheiro: ['valorPorSessao'] },
+  { metodo: 'DELETE', caminho: '/v1/procedimentos/:id', camposDeDinheiro: ['valorPorSessao'] },
+  {
+    metodo: 'POST',
+    caminho: '/v1/programas',
+    // `valorEntrada` e `valorTotal` são de ENTRADA (o corpo), e a varredura
+    // não distingue entrada de saída — ela varre os esquemas. Declará-los
+    // aqui é mais verdadeiro que afrouxar a varredura: se a Task 11 passar a
+    // devolvê-los, a redação já os cobre.
+    camposDeDinheiro: ['valor', 'valorTotal', 'valorEntrada'],
+  },
 ]
 
 /**

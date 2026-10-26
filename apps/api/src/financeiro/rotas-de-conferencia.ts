@@ -111,6 +111,16 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   { caminho: '/v1/equipe', razao: 'As pessoas ativas, para os seletores. Nenhum valor.' },
   { caminho: '/v1/unidades', razao: 'As unidades da clínica. Nenhum valor.' },
   { caminho: '/v1/motivos-de-perda', razao: 'O catálogo de motivos do funil. Nenhum valor.' },
+  {
+    caminho: '/v1/procedimentos',
+    razao:
+      'O CATÁLOGO da clínica (épico 5). Devolve `valorPorSessao`, que é PREÇO ' +
+      'DE REFERÊNCIA do procedimento — não receita (regra 4), não soma de dia ' +
+      'nenhum e não muda quando alguém recebe. A conferência às cegas é sobre ' +
+      'o AGREGADO DO DIA; um preço de tabela não é um, e esconder a tabela de ' +
+      'preços de quem monta o programa não mediria conferência nenhuma. A ' +
+      'redação (regra 17) continua valendo, e há teste para ela.',
+  },
   { caminho: '/v1/busca-de-pacientes', razao: 'Três campos: id, nome e telefone (decisão D-7).' },
   {
     caminho: '/v1/auditoria',

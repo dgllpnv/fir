@@ -1,5 +1,5 @@
 import type { MoverEtapa } from '@fir/contracts'
-import { ehErro } from '@fir/domain'
+import { Dinheiro, ehErro } from '@fir/domain'
 import {
   BadRequestException,
   Inject,
@@ -11,7 +11,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import type { AutorDaRequisicao } from '../tarefas/leitura'
 import { registrarPagamento } from '../tarefas/tarefas.service'
 import { type CartaoCarregado, centavosNoJsonb, type Efeitos } from './cartao'
-import { MontadorDePrograma } from './montador-de-programa'
+import { MontadorDePrograma } from '../programas/montador-de-programa'
 
 /**
  * FECHAR — uma transação só.
@@ -58,6 +58,8 @@ export class FechamentoService {
       readonly dados: Fechar
       readonly autor: AutorDaRequisicao
       readonly agora: Date
+      /** Dia civil do SERVIDOR, no fuso da clínica (regra 24). */
+      readonly hojeDaClinica: string
     },
   ): Promise<Efeitos> {
     const { cartao, dados } = x
@@ -92,7 +94,7 @@ export class FechamentoService {
     // nenhuma coluna de dinheiro recebido em `tarefas`: quem garante que o
     // pagamento conta uma vez (regra 3) é o índice único parcial
     // `recebimento_por_tarefa`, não este código.
-    await registrarPagamento(c, {
+    const recebimentoId = await registrarPagamento(c, {
       clinicaId: x.clinicaId,
       pacienteId: cartao.pacienteId,
       tarefaId: x.tarefaId,
@@ -118,9 +120,37 @@ export class FechamentoService {
     const proposta = cartao.programaOrcado
     if (proposta !== null && proposta.length > 0) {
       const r = await this.montador.montar(c, {
-        tarefaId: x.tarefaId,
+        clinicaId: x.clinicaId,
         pacienteId: cartao.pacienteId,
-        itens: proposta,
+        // O início do programa vem do corpo, e o padrão é HOJE DA CLÍNICA,
+        // calculado no SERVIDOR (regra 24). `ItemOrcado` não tem data — só
+        // `depoisDe` —, então quem não depende de ninguém começa aqui.
+        inicio: x.dados.inicioDoPrograma ?? x.hojeDaClinica,
+        itens: proposta.map((i) => ({
+          chave: i.chave,
+          procedimentoId: i.procedimentoId,
+          sessoes: i.sessoes,
+          intervaloDias: i.intervaloDias,
+          inicio: null,
+          depoisDe: i.depoisDe ?? null,
+          responsavelId: i.responsavelId ?? null,
+          dose: i.dose ?? null,
+          // `ItemOrcadoNaSaida.valor` é string de centavos ou `null`/ausente
+          // (D-4 do épico 3: dinheiro dentro de `jsonb` é string).
+          valor:
+            i.valor === null || i.valor === undefined ? null : Dinheiro.deCentavos(BigInt(i.valor)),
+          insumo: null,
+        })),
+        hora: null,
+        unidadeId: cartao.unidadeId,
+        tarefaDeOrigemId: x.tarefaId,
+        // O recebimento acabou de ser inserido acima, na MESMA transação, e
+        // recebe `programa_id` para que o saldo do épico 4 agrupe (regra 5).
+        recebimentoDaAdesaoId: recebimentoId,
+        valorTotal: Dinheiro.deCentavos(negocio),
+        modoDeCobranca: (dados.recebimento.valorAberto ?? 0n) > 0n ? 'saldo' : 'avulso',
+        atorId: x.autor.id,
+        hojeDaClinica: x.hojeDaClinica,
       })
       // 501, não 409: o cartão está impecável — o servidor é que está
       // incompleto. Dizer "conflito" mandaria a recepção procurar o erro no

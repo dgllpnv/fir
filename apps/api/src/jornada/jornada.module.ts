@@ -6,7 +6,8 @@ import { FunilController } from './funil.controller'
 import { FunilService } from './funil.service'
 import { JornadaController } from './jornada.controller'
 import { JornadaService } from './jornada.service'
-import { MontadorDePrograma, MontadorIndisponivel } from './montador-de-programa'
+import { MontadorDePrograma } from '../programas/montador-de-programa'
+import { MontadorIndisponivel } from './montador-de-programa'
 import { MotivosController, MotivosService } from './motivos.controller'
 
 /**
@@ -24,13 +25,19 @@ import { MotivosController, MotivosService } from './motivos.controller'
     FunilService,
     MotivosService,
     /**
-     * **A LINHA QUE O ÉPICO 5 TROCA.**
+     * **A LINHA QUE FALTA TROCAR — Task 8 do plano do épico 5.**
      *
-     * `MontadorDePrograma` é o seam declarado em `docs/arquitetura/sistema.md`:
-     * o fechamento de um orçamento com programa precisa montar o `Programa` na
-     * mesma transação do recebimento e da etapa. Enquanto a tabela de programas
-     * não existe, o montador recusa — e a recusa desfaz a transação inteira,
-     * em vez de deixar o dinheiro lançado e as sessões sem existir.
+     * `MontadorDePrograma` é o seam, e ele agora mora em
+     * `apps/api/src/programas/`. `MontadorRelacional` já EXISTE e funciona
+     * (`ProgramasModule` o exporta): o conserto é
+     * `imports: [TarefasModule, ProgramasModule]` e apagar esta linha, mais
+     * `jornada/montador-de-programa.ts`.
+     *
+     * Por que não agora: `fechar` é o caminho do DINHEIRO, e ligá-lo sem os
+     * testes de atomicidade da Task 8 seria entregar as quatro escritas sem a
+     * prova de que elas vivem ou morrem juntas. Enquanto isso o montador
+     * recusa, e a recusa desfaz a transação inteira — em vez de deixar o
+     * dinheiro lançado e as sessões sem existir.
      */
     { provide: MontadorDePrograma, useClass: MontadorIndisponivel },
     provedorDeRelogio,
