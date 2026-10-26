@@ -123,6 +123,24 @@ Excluir um programa que tenha **sessão realizada e paga** é **recusado** (409)
 
 ---
 
+## D-9 · Programa sem entrada abre saldo · 2026-10-26
+
+A clínica fecha um programa de R$ 3.600, a paciente não paga nada hoje e fica devendo tudo. **O protótipo aceita** — *"fechou, paga depois"* — e representa o saldo com valor recebido vazio e `valorAberto: 3600`.
+
+O `CHECK (valor > 0)` de `recebimentos` impedia isso: sem entrada não havia linha, e sem linha não havia dívida registrada.
+
+**Decisão:** `CHECK (valor > 0 OR valor_aberto > 0)` — a linha é aceita quando registra **alguma coisa**, dinheiro recebido **ou** dinheiro devido.
+
+**Por que esta formulação e não `valor >= 0`:** aquela aceitaria uma linha completamente vazia. Esta é **mais restritiva** que o original em um sentido (nenhuma linha pode ser vazia) e mais permissiva só no caso que a clínica precisa.
+
+**Tomada sob a premissa do dono**, afirmada em 2026-10-26: *"o protótipo funcional dela é o parâmetro principal, deve seguir o mesmo comportamento funcional"*. As alternativas eram (a) montar o programa sem valor — que **faz a clínica perder um recebível**, porque vendeu R$ 3.600 e o sistema registra zero — e (c) guardar o valor em aberto fora de `recebimentos`, que faria o saldo vir de duas fontes quando a regra 5 existe para ele vir de uma.
+
+**Condição inegociável, e sem ela a decisão não vale:** a linha de valor zero **não pode aparecer** no caixa do dia, na lista de recebimentos do dia, nem no LTV do paciente. Três filtros, três testes, escritos **antes** do código. Uma venda a prazo não é dinheiro que entrou no caixa.
+
+**Reversível:** se o dono preferir (a) ou (c), a migration de volta é pequena enquanto nenhuma clínica tiver migrado.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |
