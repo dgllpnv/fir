@@ -289,3 +289,39 @@
   text-align: center;
   color: var(--bad);
 }
+
+/* Claro · Escuro · Sistema, no rodapé da lateral.
+   Três alvos numa linha de 240 px: 13px e padding curto, sem apertar o toque
+   abaixo de 32 px de altura. */
+.tema {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px;
+  margin-bottom: 10px;
+}
+.tema button {
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 4px;
+  cursor: pointer;
+  min-height: 32px;
+}
+.tema button:hover {
+  background: var(--gold-soft);
+  color: var(--on-gold-soft);
+}
+/* O escolhido usa o par medido `--on-gold` sobre `--gold` (6,73:1 nos dois
+   temas), o mesmo do item ativo do menu — e não `--gold` como texto, que
+   reprova em AA. */
+.tema button[aria-pressed='true'] {
+  background: var(--gold);
+  color: var(--on-gold);
+  font-weight: 600;
+}

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { chamar } from '@/lib/api'
+import { ControleDeTema } from './controle-de-tema'
 import { ICONE_MENU, ICONE_SAIR, iconeDaRota, inicial } from '@/lib/icones'
 import { type ItemDeMenu, secoesDoMenu } from '@/lib/menu'
 
@@ -135,6 +136,7 @@ export function Shell({
         </nav>
 
         <div className="sidefoot">
+          <ControleDeTema />
           <div className="sideuser">
             <div className="avatar" aria-hidden="true">
               {inicial(usuario)}

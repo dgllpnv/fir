@@ -41,6 +41,12 @@ Herdada do protótipo e mantida de propósito: as quatro clínicas em uso já a 
 
 **Tema escuro é par de primeira classe**, não cortesia: `@media (prefers-color-scheme: dark)` **e** `:root[data-theme="dark"]`, com o seletor manual vencendo nos dois sentidos.
 
+**Mas o padrão é o CLARO, e não o do sistema.** A identidade é "papel e dourado", e papel é claro: foi no claro que a PO desenhou e revisou o protótipo, e é a versão que as quatro clínicas conhecem. Quem abriu a ferramenta num aparelho de sistema escuro **estranhou** — com razão, porque o escuro é acréscimo nosso. O controle fica no **rodapé da lateral** (Claro · Escuro · Sistema), e não numa tela de Configurações: tema é preferência **pessoal e por aparelho**, e as telas de configuração exigem a permissão `config`, que a recepção — a usuária principal — não tem.
+
+Duas armadilhas que isso trouxe, e as duas têm teste:
+- **O bloco manual tinha uma variável a menos que o automático.** Hoje o valor coincide, então nada quebrava — e era isso que tornava a falta perigosa. `tema-manual.test.ts` cobra que os dois declarem o mesmo conjunto, com os mesmos valores.
+- **"Sistema" remove o atributo**, nunca escreve `light`. Escrever congelaria o claro e quebraria o que a opção promete: acompanhar o aparelho quando ele mudar.
+
 **O dourado tem dois papéis e eles não se trocam.** `--gold` é traço, borda e realce; `--gold-ink` é texto.
 
 Isto não é gosto — é a conta. E a conta **não mora mais neste arquivo**: mora em

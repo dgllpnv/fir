@@ -104,6 +104,12 @@
   --ink: #f3ede2;
   --muted: #b5a68f;
   --line: #3a2d1d;
+  /* `--gold` faltava aqui. Hoje tem o mesmo valor nos dois temas, então nada
+     quebrava — e era exatamente isso que tornava a falta perigosa: quem
+     mudasse o dourado no bloco do sistema criaria a divergência sem nenhum
+     sintoma. `tema-manual.test.ts` passa a cobrar que os dois blocos declarem
+     o mesmo conjunto de variáveis. */
+  --gold: #c5a467;
   --gold-ink: #ddc28c;
   --gold-soft: #33271a;
   /* No escuro o `--gold-soft` é fundo ESCURO, então a tinta clara serve:
