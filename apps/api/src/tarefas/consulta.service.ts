@@ -6,7 +6,15 @@ import type {
   RespostaDeHoje,
   TarefaNaLista,
 } from '@fir/contracts'
-import { diaCivil, fimDoMes, janela, type Relogio, somarDias, somarMeses } from '@fir/domain'
+import {
+  diaCivil,
+  fimDoMes,
+  janela,
+  type Relogio,
+  somarDias,
+  somarMeses,
+  TIPO_SESSAO,
+} from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
 import type { Ator } from '../banco/ator'
@@ -81,7 +89,26 @@ function filtroDePasso(escopo: Escopo, eu: string, p: Parametros): string | null
  * então o aviso promete cartões que a tela do dia não mostra.
  */
 const FORA_DO_RECONTATO = `t.etapa IS DISTINCT FROM 'faltou'
-                       AND t.etapa IS DISTINCT FROM 'desmarcou'`
+                       AND t.etapa IS DISTINCT FROM 'desmarcou'
+                       -- E A SESSÃO DE PROGRAMA, pela MESMA razão (épico 5).
+                       --
+                       -- Ela tem bloco próprio na tela Hoje ("Sessões de
+                       -- programas", medido no protótipo) e tela própria em
+                       -- Programas. Uma paciente de doze aplicações semanais
+                       -- põe doze cartões nas listas do dia de alguém, e com
+                       -- dez pacientes em programa a recepção vê cento e vinte
+                       -- "pendentes" e para de olhar — que é exatamente o que
+                       -- esta constante existe para impedir.
+                       --
+                       -- Entra AQUI e não num filtro à parte porque esta
+                       -- cláusula já é usada nas quatro contagens da tela: a
+                       -- lista do dia, as pendentes, as bolinhas da semana e o
+                       -- aviso do que o filtro esconde. Numa delas só, as
+                       -- bolinhas contariam doze tarefas que a lista não mostra.
+                       --
+                       -- O nome do tipo vem de \`@fir/domain\`, nunca escrito à
+                       -- mão: a classificação mora numa tabela só.
+                       AND t.tipo <> '${TIPO_SESSAO}'`
 
 /**
  * As bordas CIVIS do período, resolvidas no servidor (regra 24).

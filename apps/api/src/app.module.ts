@@ -8,6 +8,7 @@ import { AutorizacaoGuard } from './autorizacao/autorizacao.guard'
 import { BancoModule } from './banco/banco.module'
 import { ClinicaModule } from './clinica/clinica.module'
 import { FinanceiroModule } from './financeiro/financeiro.module'
+import { HojeModule } from './hoje/hoje.module'
 import { JornadaModule } from './jornada/jornada.module'
 import { RedacaoInterceptor } from './comum/redacao.interceptor'
 import { PacientesModule } from './pacientes/pacientes.module'
@@ -26,6 +27,9 @@ import { TarefasModule } from './tarefas/tarefas.module'
     ClinicaModule,
     FinanceiroModule,
     ProgramasModule,
+    // Depois de `TarefasModule`, `FinanceiroModule` e `ProgramasModule`: a
+    // tela Hoje compõe as três leituras, e não é dona de nenhuma.
+    HojeModule,
   ],
   controllers: [SaudeController],
   providers: [

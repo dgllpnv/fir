@@ -126,7 +126,7 @@ describe('D-9 — o filtro do dinheiro que entrou', () => {
     expect(faltando).toEqual([])
   })
 
-  it('os CINCO lugares estão cobertos, nominalmente', () => {
+  it('os SEIS lugares estão cobertos, nominalmente', () => {
     // A varredura acima pega o que esquece o filtro. Esta pega o contrário: o
     // arquivo que perde a consulta inteira numa refatoração e sai da varredura
     // por não casar mais com o padrão — e aí "nenhum faltando" passa a ser
@@ -140,6 +140,8 @@ describe('D-9 — o filtro do dinheiro que entrou', () => {
       // Encontrado POR esta varredura, e não previsto na decisão: o funil
       // soma "o que entrou nos atendimentos do período".
       'apps/api/src/jornada/funil.service.ts',
+      // Encontrado POR esta varredura tambem: o `recebido` da ficha do programa.
+      'apps/api/src/programas/leitura.service.ts',
     ]) {
       expect(comFiltro, `${caminho} perdeu o filtro da D-9`).toContain(caminho)
     }

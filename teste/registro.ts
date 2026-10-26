@@ -200,6 +200,38 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     camposDeDinheiro: ['valor', 'valorTotal', 'valorEntrada'],
   },
   /**
+   * A LEITURA DE PROGRAMAS (Task 11).
+   *
+   * `GET /v1/programas` devolve dinheiro em TRÊS profundidades: `saldoAReceber`
+   * nos indicadores, `saldo` em cada sessão da agenda, e `saldo` em cada linha
+   * da lista. As três saem por dois nomes, e os dois estão declarados.
+   *
+   * `GET /v1/programas/:id` acrescenta `recebido`, `valorTotal` e o
+   * `itens[].valor` — este último sob o nome `valor`, que a lista já cobre em
+   * qualquer profundidade.
+   *
+   * `temSaldo` NÃO entra: ele é booleano derivado, não é monetário, e é
+   * exatamente o que a equipe sem `valores` recebe no lugar do número. Pô-lo
+   * aqui apagaria o aviso que o MANUAL pede antes da sessão.
+   */
+  {
+    metodo: 'GET',
+    caminho: '/v1/programas',
+    camposDeDinheiro: ['saldoAReceber', 'saldo', 'valor', 'valorOrcamento', 'valorAberto'],
+  },
+  {
+    metodo: 'GET',
+    caminho: '/v1/programas/:id',
+    camposDeDinheiro: [
+      'saldo',
+      'recebido',
+      'valorTotal',
+      'valor',
+      'valorOrcamento',
+      'valorAberto',
+    ],
+  },
+  /**
    * AS SESSÕES (Task 9). As duas devolvem `TarefaNaLista` — a mesma forma da
    * rota genérica de tarefa —, então herdam `DINHEIRO_DA_TAREFA` por direito.
    *

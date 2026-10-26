@@ -1,7 +1,8 @@
-import { ConsultaDeHoje, type HojeComFinanceiro } from '@fir/contracts'
+import { ConsultaDeHoje, type HojeComProgramas } from '@fir/contracts'
 import { BadRequestException, Controller, Get, Inject, Query, Req } from '@nestjs/common'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { HojeFinanceiroService } from '../financeiro/hoje-financeiro.service'
+import { LeituraDeProgramasService } from '../programas/leitura.service'
 import { ConsultaDeTarefasService } from '../tarefas/consulta.service'
 import { autorDe, exigirEscopo } from '../tarefas/leitura'
 
@@ -21,21 +22,22 @@ export class HojeController {
   constructor(
     @Inject(ConsultaDeTarefasService) private readonly consulta: ConsultaDeTarefasService,
     @Inject(HojeFinanceiroService) private readonly financeiro: HojeFinanceiroService,
+    @Inject(LeituraDeProgramasService) private readonly programas: LeituraDeProgramasService,
   ) {}
 
   @Get()
   async abrir(
     @Req() req: RequisicaoComContexto,
     @Query() consulta: unknown,
-  ): Promise<HojeComFinanceiro> {
+  ): Promise<HojeComProgramas> {
     const dados = ConsultaDeHoje.safeParse(consulta)
     if (!dados.success) throw new BadRequestException('Confira os filtros da tela.')
     // `!` seguro: `SessaoGuard` é global e esta rota não é `@Publico()`.
     const c = req.contexto!
     exigirEscopo(c, dados.data.escopo)
-    // As duas em paralelo: são leituras independentes, e a tela Hoje é a que
-    // a recepção recarrega o dia inteiro.
-    const [tarefas, financeiro] = await Promise.all([
+    // As TRÊS em paralelo: são leituras independentes, e a tela Hoje é a que a
+    // recepção recarrega o dia inteiro.
+    const [tarefas, financeiro, sessoes] = await Promise.all([
       this.consulta.hoje(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), dados.data),
       this.financeiro.bloco({
         clinicaId: c.clinicaId,
@@ -48,8 +50,24 @@ export class HojeController {
         podeGerirContas: c.pode('contas.gerir'),
         podeFinmes: c.pode('finmes'),
       }),
+      /**
+       * AS SESSÕES DE PROGRAMAS, em bloco próprio.
+       *
+       * O escopo é o da tela: `equipe` traz todas, `meu` e `solicitei` traz as
+       * de quem está olhando. Resolvido AQUI, com o id da SESSÃO — nunca com um
+       * id do cliente (é a mesma razão do `'eu'` em `GET /v1/programas`).
+       *
+       * Vazio sem a permissão `programas`, e "validar" é não compor a seção.
+       */
+      this.programas.sessoesDeHoje(
+        { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
+        {
+          podePrograma: c.pode('programas'),
+          responsavelId: dados.data.escopo === 'equipe' ? null : c.ator,
+        },
+      ),
     ])
-    return { ...tarefas, financeiro }
+    return { ...tarefas, financeiro, sessoes: [...sessoes] }
   }
 }
 

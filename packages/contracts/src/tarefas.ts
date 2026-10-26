@@ -338,6 +338,33 @@ export const TarefaNaLista = z.object({
   unidadeId: Uuid.nullable(),
   atrasada: z.boolean(),
   pagamento: PagamentoNaSaida.nullable(),
+  /**
+   * A IDENTIDADE DE SESSÃO — `null` em toda tarefa que não é sessão (épico 5).
+   *
+   * Por que mora aqui e não num contrato próprio: **a mesma tarefa aparece na
+   * tela Hoje, na agenda de Programas e na ficha da paciente**, e as três
+   * desenham o mesmo cartão. Uma forma separada para a sessão obrigaria a
+   * terceira a não saber que o cartão é de um programa — e aí o toque no
+   * círculo iria para a rota genérica, que recusa.
+   *
+   * **O rótulo que a usuária lê sai de `descricao`** ("Aplicação 5/12 ·
+   * Tirzepatida 2,5 mg", gravada na montagem), nunca da composição de
+   * `indice/total` no front: renomear o procedimento no catálogo não reescreve
+   * a história de quem já está em tratamento, e `descricao` é essa história.
+   * `indice` e `total` existem para ORDENAR e para a barra de progresso.
+   *
+   * `programaId` é o que leva o toque para `POST /v1/programas/sessoes/:id/…`
+   * em vez da rota genérica, e o que faz o cartão linkar para a ficha do
+   * programa.
+   */
+  sessao: z
+    .object({
+      programaId: Uuid,
+      itemChave: z.string(),
+      indice: z.number().int(),
+      total: z.number().int(),
+    })
+    .nullable(),
 })
 export type TarefaNaLista = z.infer<typeof TarefaNaLista>
 

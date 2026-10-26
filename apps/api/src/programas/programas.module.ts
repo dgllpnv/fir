@@ -3,6 +3,7 @@ import { provedorDeRelogio } from '../comum/relogio'
 import { TarefasModule } from '../tarefas/tarefas.module'
 import { CatalogoController } from './catalogo.controller'
 import { CatalogoService } from './catalogo.service'
+import { LeituraDeProgramasService } from './leitura.service'
 import { MontadorDePrograma } from './montador-de-programa'
 import { MontadorRelacional } from './montador.service'
 import { BaixaDeInsumos, BaixaInerte } from './baixa-de-insumos'
@@ -29,6 +30,7 @@ import { SessoesService } from './sessoes.service'
   providers: [
     CatalogoService,
     ProgramasService,
+    LeituraDeProgramasService,
     SessoesService,
     provedorDeRelogio,
     // O seam da montagem, ligado à implementação relacional.
@@ -45,6 +47,8 @@ import { SessoesService } from './sessoes.service'
      */
     { provide: BaixaDeInsumos, useClass: BaixaInerte },
   ],
-  exports: [MontadorDePrograma, BaixaDeInsumos],
+  // `LeituraDeProgramasService` e EXPORTADO porque `HojeController` (em
+  // `HojeModule`) compoe o bloco "Sessoes de programas" com ele.
+  exports: [MontadorDePrograma, BaixaDeInsumos, LeituraDeProgramasService],
 })
 export class ProgramasModule {}

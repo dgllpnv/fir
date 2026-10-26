@@ -1,6 +1,9 @@
 import {
+  ConsultaDeProgramas,
   EncerrarPrograma,
+  type FichaDoPrograma,
   MontarPrograma,
+  type PainelDeProgramas,
   type ProgramaEncerradoNaSaida,
   type ProgramaMontadoNaSaida,
 } from '@fir/contracts'
@@ -10,17 +13,21 @@ import {
   Controller,
   Delete,
   ForbiddenException,
+  Get,
   HttpCode,
   HttpStatus,
   Inject,
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   Req,
 } from '@nestjs/common'
+import { DadoSensivel } from '../auditoria/acesso.decorator'
 import { Exige } from '../autorizacao/autorizacao.guard'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { primeiroErro } from '../tarefas/tarefas.controller'
+import { LeituraDeProgramasService } from './leitura.service'
 import { ProgramasService } from './programas.service'
 
 /**
@@ -37,7 +44,50 @@ import { ProgramasService } from './programas.service'
 @Exige('programas')
 export class ProgramasController {
   // `@Inject` explícito: o esbuild não emite `design:paramtypes`.
-  constructor(@Inject(ProgramasService) private readonly programas: ProgramasService) {}
+  constructor(
+    @Inject(ProgramasService) private readonly programas: ProgramasService,
+    @Inject(LeituraDeProgramasService) private readonly leitura: LeituraDeProgramasService,
+  ) {}
+
+  /**
+   * `GET /v1/programas` — os quatro blocos da tela, prontos.
+   *
+   * Sem `@DadoSensivel`: a mesma razão da listagem de pacientes. Uma lista que
+   * devolve nome e progresso é a tela que a recepção abre cinquenta vezes por
+   * dia, e registrar acesso em cada abertura enterraria a trilha que importa —
+   * a da FICHA, que carrega dose e insumo.
+   */
+  @Get()
+  async painel(
+    @Req() req: RequisicaoComContexto,
+    @Query() consulta: unknown,
+  ): Promise<PainelDeProgramas> {
+    const dados = ConsultaDeProgramas.safeParse(consulta)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.leitura.painel(
+      { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
+      dados.data,
+    )
+  }
+
+  /**
+   * `GET /v1/programas/:id` — **e `@DadoSensivel` aqui não é zelo.**
+   *
+   * A ficha carrega dose, insumo e procedimento aplicado por paciente: dado
+   * pessoal sensível de saúde (LGPD art. 11, regra 18). A pergunta que a lei
+   * faz é *"quem olhou o tratamento da minha paciente"*, e a resposta precisa
+   * existir — registro de **acesso**, não só de escrita.
+   */
+  @Get(':id')
+  @DadoSensivel('pacientes')
+  async ficha(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<FichaDoPrograma> {
+    const c = req.contexto!
+    return this.leitura.ficha({ clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso }, id)
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)

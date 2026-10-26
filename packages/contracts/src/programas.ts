@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Hora, quantidadeEmTexto, Uuid } from './comum'
-import { FORMAS, PagamentoEmbutido } from './tarefas'
+import { HojeComFinanceiro } from './financeiro'
+import { FORMAS, PagamentoEmbutido, TarefaNaLista } from './tarefas'
 
 /**
  * O CATÁLOGO E O PROGRAMA — o vocabulário que o legado inverte.
@@ -374,6 +375,227 @@ export const SessaoDoPrograma = z.object({
   status: z.enum(['aberta', 'concluida', 'cancelada']),
 })
 export type SessaoDoPrograma = z.infer<typeof SessaoDoPrograma>
+
+/* =========================================================================
+ * A LEITURA — e tudo calculado no SERVIDOR
+ * ========================================================================= */
+
+/**
+ * As cinco situações que a tela desenha, derivadas no DOMÍNIO
+ * (`situacaoDoPrograma`, `@fir/domain`).
+ *
+ * A precedência é `encerrado > concluido > atrasado > hoje > emdia`, e ela não
+ * é escolha de tela: um `CASE WHEN` no SQL seria a segunda implementação, e é
+ * a segunda que diverge.
+ */
+export const SITUACOES_DO_PROGRAMA = ['encerrado', 'concluido', 'atrasado', 'hoje', 'emdia'] as const
+export type SituacaoNaSaida = (typeof SITUACOES_DO_PROGRAMA)[number]
+
+/**
+ * Os indicadores do topo da tela Programas — **prontos**.
+ *
+ * `docs/design.md` proíbe cálculo no front, e aqui a razão é concreta: contar
+ * "sessões atrasadas" no cliente exigiria baixar todas as sessões abertas da
+ * clínica para desenhar quatro números.
+ *
+ * Medidos no protótipo (`vAcomp`): pacientes em programa (não encerrados e não
+ * concluídos), programas concluídos, sessões de hoje, próximos 7 dias,
+ * atrasadas, e pacientes com atraso de **mais de 7 dias** — o "risco de
+ * abandono" que a nota da PO nomeia.
+ *
+ * `saldoAReceber` e `pacientesQueDevem` são **monetário e contagem**: o
+ * primeiro é redigido pelo `RedacaoInterceptor` (regra 17) e vem `null` para
+ * quem não tem `valores`; o segundo não é dinheiro e sobrevive, porque a
+ * equipe precisa saber **que** há gente devendo mesmo sem ver quanto.
+ */
+export const IndicadoresDeProgramas = z.object({
+  pacientesEmPrograma: z.number().int(),
+  programasConcluidos: z.number().int(),
+  sessoesHoje: z.number().int(),
+  sessoesProximos7: z.number().int(),
+  sessoesAtrasadas: z.number().int(),
+  pacientesEmRisco: z.number().int(),
+  saldoAReceber: centavosNaSaida,
+  pacientesQueDevem: z.number().int(),
+})
+export type IndicadoresDeProgramas = z.infer<typeof IndicadoresDeProgramas>
+
+/**
+ * Uma sessão na agenda: a `TarefaNaLista` que a tela já sabe desenhar, mais o
+ * **aviso de saldo do programa**.
+ *
+ * O aviso é o que o MANUAL cap. 8 pede — *"a próxima sessão mostra um alerta
+ * com o valor"* — e ele existe para a cobrança acontecer **no atendimento**,
+ * que é o único momento em que a paciente está na frente de alguém.
+ *
+ * `temSaldo` é booleano e **não é monetário**: sobrevive à redação. A equipe
+ * precisa do aviso antes da sessão e não precisa do número para dá-lo.
+ */
+export const SessaoNaAgenda = z.object({
+  tarefa: TarefaNaLista,
+  temSaldo: z.boolean(),
+  saldo: centavosNaSaida,
+})
+export type SessaoNaAgenda = z.infer<typeof SessaoNaAgenda>
+
+/**
+ * A linha de "Pacientes em programa".
+ *
+ * `procedimentos` é a concatenação dos nomes **gravados na montagem**
+ * (`itens_do_programa.procedimento_nome`), nunca um `JOIN` no catálogo em
+ * tempo de leitura (D-2 do épico 3).
+ */
+export const ProgramaNaLista = z.object({
+  id: Uuid,
+  pacienteId: Uuid,
+  pacienteNome: z.string(),
+  pacienteTelefone: z.string(),
+  procedimentos: z.string(),
+  rotuloSessao: z.string(),
+  modoDeCobranca: z.enum(['avulso', 'saldo']),
+  situacao: z.enum(SITUACOES_DO_PROGRAMA),
+  motivoEncerramento: z.string().nullable(),
+  diasDeAtraso: z.number().int(),
+  realizadas: z.number().int(),
+  total: z.number().int(),
+  percentual: z.number().int(),
+  proximaEm: DiaCivil.nullable(),
+  retornoEm: DiaCivil.nullable(),
+  ultimoPagamentoEm: DiaCivil.nullable(),
+  unidadeId: Uuid.nullable(),
+  temSaldo: z.boolean(),
+  saldo: centavosNaSaida,
+})
+export type ProgramaNaLista = z.infer<typeof ProgramaNaLista>
+
+/** Os cinco filtros de situação da tela, medidos no protótipo. */
+export const FILTROS_DE_SITUACAO = [
+  'ativos',
+  'atrasados',
+  'saldo',
+  'concluidos',
+  'encerrados',
+  'todos',
+] as const
+
+export const ConsultaDeProgramas = z
+  .object({
+    unidadeId: Uuid.optional(),
+    situacao: z.enum(FILTROS_DE_SITUACAO).default('ativos'),
+    procedimentoId: Uuid.optional(),
+    /**
+     * `'eu'` é o filtro **"Minhas sessões"** — o que a enfermagem abre todo
+     * dia. Resolvido no SERVIDOR contra a sessão: aceitar o id do cliente
+     * deixaria qualquer um ver a agenda de qualquer um trocando o parâmetro.
+     */
+    responsavelId: z.union([Uuid, z.literal('eu')]).optional(),
+    q: z.string().trim().max(120).optional(),
+  })
+  .strict()
+export type ConsultaDeProgramas = z.infer<typeof ConsultaDeProgramas>
+
+/**
+ * `GET /v1/programas` — **quatro blocos, todos calculados no servidor**.
+ *
+ * A agenda é dividida como o protótipo a divide, e a ordem importa: atrasadas
+ * **primeiro**, da mais antiga. Misturá-las com as de hoje faz a recepção ver
+ * trinta cartões e parar de olhar.
+ */
+export const PainelDeProgramas = z.object({
+  indicadores: IndicadoresDeProgramas,
+  agenda: z.object({
+    atrasadas: z.array(SessaoNaAgenda),
+    hoje: z.array(SessaoNaAgenda),
+    realizadasHoje: z.array(SessaoNaAgenda),
+    proximos7: z.array(SessaoNaAgenda),
+  }),
+  /** Contatos de retorno até 30 dias: quem já pode repetir o procedimento. */
+  retornos: z.array(TarefaNaLista),
+  lista: z.array(ProgramaNaLista),
+})
+export type PainelDeProgramas = z.infer<typeof PainelDeProgramas>
+
+/**
+ * **A resposta de verdade de `GET /v1/hoje`, com as sessões.**
+ *
+ * Mora aqui pela mesma razão mecânica que `HojeComFinanceiro` mora em
+ * `financeiro.ts`: `programas.ts` já importa `tarefas.ts` e `financeiro.ts`
+ * também, e pôr `SessaoNaAgenda` dentro de `RespostaDeHoje` faria `tarefas.ts`
+ * importar de volta. Ciclo entre arquivos de contrato é a classe de problema
+ * que só aparece no bundler de alguém, meses depois.
+ *
+ * **As sessões estão FORA de `tarefas`, de `pendentes` e das bolinhas da
+ * semana** — e isso não é detalhe de layout. Uma paciente de doze aplicações
+ * semanais põe doze cartões nas listas do dia de alguém; com dez pacientes em
+ * programa, a recepção vê cento e vinte "pendentes" e para de olhar. O bloco
+ * próprio é o que o protótipo faz (medido: *"SESSÕES DE PROGRAMAS"*, com as
+ * atrasadas primeiro), e o `FORA_DO_RECONTATO` da consulta é quem garante.
+ */
+export const HojeComProgramas = HojeComFinanceiro.extend({
+  /** As atrasadas PRIMEIRO, da mais antiga. Vazio sem a permissão `programas`. */
+  sessoes: z.array(SessaoNaAgenda),
+})
+export type HojeComProgramas = z.infer<typeof HojeComProgramas>
+
+/** Um item na ficha do programa, com as sessões dele e o contato de retorno. */
+export const ItemNaFicha = z.object({
+  chave: z.string(),
+  procedimentoId: Uuid,
+  procedimentoNome: z.string(),
+  rotuloSessao: z.string(),
+  sessoes: z.number().int(),
+  intervaloDias: z.number().int(),
+  inicio: DiaCivil,
+  depoisDe: z.string().nullable(),
+  responsavelId: Uuid,
+  responsavelNome: z.string(),
+  dose: z.string(),
+  insumo: z.object({ itemId: Uuid, quantidade: z.string(), unidade: z.string() }).nullable(),
+  valor: centavosNaSaida,
+  agenda: z.array(TarefaNaLista),
+  retorno: TarefaNaLista.nullable(),
+})
+export type ItemNaFicha = z.infer<typeof ItemNaFicha>
+
+/**
+ * `GET /v1/programas/:id` — a ficha, com **tudo derivado**.
+ *
+ * `recebido` e `saldo` **não existem como coluna** em `programas` (P-2 e
+ * regra 5): o primeiro soma `recebimentos`, o segundo vem do `saldoEmAberto`
+ * do épico 4, agrupado por programa. Guardá-los criaria um segundo número
+ * para a mesma pergunta, e o segundo é o que fica errado.
+ *
+ * `percentualNoPrazo` é realizadas no prazo ÷ realizadas. É o número que
+ * distingue "a paciente está no programa" de "a paciente está cumprindo o
+ * programa", e é por ele que a clínica descobre que metade das aplicações sai
+ * uma semana atrasada.
+ */
+export const FichaDoPrograma = z.object({
+  id: Uuid,
+  pacienteId: Uuid,
+  pacienteNome: z.string(),
+  pacienteTelefone: z.string(),
+  inicio: DiaCivil,
+  modoDeCobranca: z.enum(['avulso', 'saldo']),
+  situacao: z.enum(SITUACOES_DO_PROGRAMA),
+  motivoEncerramento: z.string().nullable(),
+  unidadeId: Uuid.nullable(),
+  tarefaDeOrigemId: Uuid.nullable(),
+  realizadas: z.number().int(),
+  total: z.number().int(),
+  percentual: z.number().int(),
+  percentualNoPrazo: z.number().int(),
+  sessoesAtrasadas: z.number().int(),
+  diasDeAtraso: z.number().int(),
+  recebido: centavosNaSaida,
+  saldo: centavosNaSaida,
+  temSaldo: z.boolean(),
+  valorTotal: centavosNaSaida,
+  itens: z.array(ItemNaFicha),
+  /** As tarefas do programa que não são sessão nem retorno. */
+  outras: z.array(TarefaNaLista),
+})
+export type FichaDoPrograma = z.infer<typeof FichaDoPrograma>
 
 /**
  * A resposta de `POST /v1/programas/:id/encerrar`.

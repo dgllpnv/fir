@@ -92,6 +92,9 @@ export const SELECT_TAREFA = `
          t.paciente_id, pa.nome AS paciente_nome, pa.telefone AS paciente_telefone,
          t.tipo, t.etapa::text AS etapa, t.historico, t.resultado, t.obs,
          t.serie_id, t.recorrencia, t.unidade_id,
+         -- A identidade de SESSÃO (épico 5). NULL em toda tarefa que não é
+         -- sessão, e garantida pelo CHECK sessao_e_do_programa quando é.
+         t.programa_id, t.item_chave, t.sessao_indice, t.sessao_total,
          -- O cast para texto no bigint é deliberado: o driver devolveria
          -- string de qualquer jeito, mas explicitar impede que uma mudança de
          -- configuração o traga como number — e number perto de dinheiro é a
@@ -145,6 +148,10 @@ export type LinhaDeTarefa = {
   serie_id: string | null
   recorrencia: string
   unidade_id: string | null
+  programa_id: string | null
+  item_chave: string | null
+  sessao_indice: number | null
+  sessao_total: number | null
   atrasada: boolean
   rec_id: string | null
   rec_valor: string | null
@@ -201,6 +208,22 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   recorrencia: l.recorrencia,
   unidadeId: l.unidade_id,
   atrasada: l.atrasada,
+  /**
+   * Os quatro andam juntos ou nenhum, e isso é o banco falando: o
+   * `CHECK sessao_e_do_programa` da 0010 exige os quatro quando o tipo é
+   * sessão, e `numeracao_so_em_sessao` proíbe `sessao_indice` e `sessao_total`
+   * em qualquer outro tipo. A conferência por `sessao_indice` basta; o `!` nos
+   * outros não é confiança, é a constraint.
+   */
+  sessao:
+    l.sessao_indice === null
+      ? null
+      : {
+          programaId: l.programa_id!,
+          itemChave: l.item_chave!,
+          indice: l.sessao_indice,
+          total: l.sessao_total!,
+        },
   pagamento:
     l.rec_id === null
       ? null

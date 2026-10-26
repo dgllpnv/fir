@@ -195,6 +195,23 @@ export class MontadorRelacional extends MontadorDePrograma {
         programaId,
         p.recebimentoDaAdesaoId,
       ])
+      /**
+       * E A TAREFA COMPANHEIRA TAMBÉM — `adesaoId: aid` no protótipo.
+       *
+       * O pagamento da adesão vive numa tarefa `Pagamento de orçamento`, e é
+       * ela que a ficha do programa mostra em "outras tarefas". Sem o carimbo,
+       * a ficha mostraria doze sessões e nenhum pagamento: a recepção veria um
+       * programa em modo `saldo` sem nenhuma origem visível para a dívida.
+       *
+       * Vale para as DUAS portas: a tarefa criada por `POST /v1/programas` e o
+       * cartão de orçamento que o `fechar` usou. No segundo caso é o próprio
+       * `tarefaDeOrigemId`, e carimbá-lo de novo é idempotente.
+       */
+      await tx.query(
+        `UPDATE tarefas SET programa_id = $1
+          WHERE id = (SELECT tarefa_id FROM recebimentos WHERE id = $2)`,
+        [programaId, p.recebimentoDaAdesaoId],
+      )
     }
 
     // 7. OS CONTATOS DE RETORNO DESTE PACIENTE, POR PROCEDIMENTO.

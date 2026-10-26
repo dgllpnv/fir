@@ -121,6 +121,25 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'preços de quem monta o programa não mediria conferência nenhuma. A ' +
       'redação (regra 17) continua valendo, e há teste para ela.',
   },
+  {
+    caminho: '/v1/programas',
+    razao:
+      'O painel de programas (épico 5). Devolve `saldoAReceber` e o `saldo` de ' +
+      'cada programa — **dívida acumulada**, não agregado de dia nenhum. A ' +
+      'conferência às cegas é sobre quanto ENTROU num dia cujo caixa pode estar ' +
+      'aberto; o saldo em aberto não muda quando o caixa fecha e não é ' +
+      'comparável com gaveta nenhuma. E esconder o saldo de quem vai atender a ' +
+      'paciente é o oposto do que o MANUAL pede: o aviso existe para a cobrança ' +
+      'acontecer NO atendimento. A redação (regra 17) continua valendo.',
+  },
+  {
+    caminho: '/v1/programas/:id',
+    razao:
+      'A ficha do programa. `recebido` é a soma dos pagamentos DAQUELE programa ' +
+      'ao longo de meses, não de um dia — o mesmo raciocínio do LTV da ficha do ' +
+      'paciente, que já está fora por este motivo. `saldo` é dívida. Nenhum dos ' +
+      'dois é comparável com o que está na gaveta hoje.',
+  },
   { caminho: '/v1/busca-de-pacientes', razao: 'Três campos: id, nome e telefone (decisão D-7).' },
   {
     caminho: '/v1/auditoria',

@@ -91,10 +91,18 @@ const linhaCrua = async (programaId: string) => {
   return r.rows[0]
 }
 
+/**
+ * As SESSÕES vivas do programa — e só elas.
+ *
+ * `tipo` no filtro de propósito: desde que a tarefa companheira do pagamento da
+ * adesão também carrega `programa_id` (paridade com o `adesaoId: aid` do
+ * protótipo), contar tudo o que aponta para o programa misturaria a sessão com
+ * o lançamento do dinheiro — e a exclusão trata os dois de formas diferentes.
+ */
 const sessoesVivasDe = async (programaId: string): Promise<number> => {
   const r = await c.migrate.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM tarefas
-      WHERE programa_id = $1 AND excluida_em IS NULL`,
+      WHERE programa_id = $1 AND excluida_em IS NULL AND tipo = 'Sessão de plano'`,
     [programaId],
   )
   return Number(r.rows[0]!.n)
@@ -110,7 +118,8 @@ const sessoesVivasDe = async (programaId: string): Promise<number> => {
  */
 const tarefasNoBancoDe = async (programaId: string): Promise<number> => {
   const r = await c.migrate.query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM tarefas WHERE programa_id = $1`,
+    `SELECT count(*)::text AS n FROM tarefas
+      WHERE programa_id = $1 AND tipo = 'Sessão de plano'`,
     [programaId],
   )
   return Number(r.rows[0]!.n)

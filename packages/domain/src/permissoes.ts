@@ -136,4 +136,17 @@ export const CAMPOS_MONETARIOS = [
   // Nome específico de propósito: `porSessao` sozinho seria ambíguo e
   // `preco` colidiria com qualquer campo futuro de preço de insumo.
   'valorPorSessao',
+  /**
+   * O indicador "Saldo a receber nos programas", no topo da tela Programas.
+   *
+   * **Encontrado pela varredura `campos-de-dinheiro-registrados`**, não por
+   * revisão: sem esta linha, o número atravessava para a enfermagem sem
+   * `valores`. É o nome número quarenta que o `CLAUDE.md` descreve — o que
+   * ninguém revisa com o cuidado do primeiro.
+   *
+   * `aReceber` (do financeiro) já estava acima e **não** cobre este: a redação
+   * casa nome exato, não prefixo, de propósito — um casamento por prefixo
+   * apagaria `aReceberQuantos` no dia em que alguém o criasse.
+   */
+  'saldoAReceber',
 ] as const

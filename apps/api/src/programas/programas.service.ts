@@ -10,6 +10,8 @@ import {
   Dinheiro,
   ehErro,
   Quantidade,
+  TIPO_RETORNO,
+  TIPO_SESSAO,
   type ErroDeDominio,
   type Result,
 } from '@fir/domain'
@@ -214,8 +216,9 @@ export class ProgramasService {
         `SELECT count(*)::text AS n
            FROM recebimentos r
            JOIN tarefas t ON t.id = r.tarefa_id
-          WHERE t.programa_id = $1 AND r.estornado_em IS NULL AND t.excluida_em IS NULL`,
-        [id],
+          WHERE t.programa_id = $1 AND t.tipo = $2
+            AND r.estornado_em IS NULL AND t.excluida_em IS NULL`,
+        [id, TIPO_SESSAO],
       )
       if (Number(pagas.rows[0]!.n) > 0) {
         // A mensagem dá AS DUAS SAÍDAS. "Não é possível excluir" sozinho manda
@@ -227,16 +230,29 @@ export class ProgramasService {
       }
 
       /**
-       * UM `UPDATE` ALCANÇA SESSÕES **E** CONTATOS DE RETORNO.
+       * **A EXCLUSÃO ALCANÇA O QUE O PROGRAMA CRIOU, e nada além.**
        *
-       * Os dois carregam `programa_id`, então a exclusão não precisa saber a
-       * diferença. Uma segunda consulta por tipo seria o lugar onde o tipo
-       * novo do épico 7 ficaria de fora sem ninguém notar.
+       * As SESSÕES e os CONTATOS DE RETORNO são do programa: ele os escreveu,
+       * e sem ele eles não têm sentido. Vão com soft delete.
+       *
+       * As OUTRAS tarefas do programa — o pagamento da adesão, o cartão de
+       * orçamento que o fechou, um reagendamento que alguém anotou — **não
+       * são dele**: elas existiam antes, ou valem por si. O protótipo faz a
+       * mesma distinção (`ids = tasks.filter(ehSessao)` para apagar,
+       * `t.adesaoId = ''` para o resto), e a razão é o dinheiro: apagar a
+       * tarefa do pagamento da adesão esconderia da ficha da paciente um
+       * recebimento que continua contando receita.
        */
       const tarefas = await c.query<{ id: string }>(
         `UPDATE tarefas SET excluida_em = now()
-          WHERE programa_id = $1 AND excluida_em IS NULL
+          WHERE programa_id = $1 AND excluida_em IS NULL AND tipo = ANY($2)
           RETURNING id`,
+        [id, [TIPO_SESSAO, TIPO_RETORNO]],
+      )
+      // O resto perde o vínculo e FICA, com a linha do tempo intacta.
+      await c.query(
+        `UPDATE tarefas SET programa_id = NULL, item_chave = NULL
+          WHERE programa_id = $1 AND excluida_em IS NULL`,
         [id],
       )
 
