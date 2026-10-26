@@ -2,6 +2,7 @@ import type { EditarTarefa, ExclusaoDeTarefa, TarefasAfetadas } from '@fir/contr
 import {
   diaCivil,
   ehOk,
+  ehSessao,
   instanteDaConclusao,
   podeEditar,
   podeExcluir,
@@ -23,6 +24,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { unidadeValida } from '../comum/unidade'
+import { SESSAO_NAO_SE_EXCLUI } from '../programas/mensagens'
 import { type AutorDaRequisicao, lerTarefas } from './leitura'
 import { exigirDominio } from './tarefas.service'
 
@@ -258,6 +260,18 @@ export class EdicaoDeTarefasService {
       // O responsável NÃO exclui: ele conserta o que vai executar, e não apaga
       // o que outra pessoa pediu.
       exigirAutorizacao(podeExcluir(t, autor))
+
+      /**
+       * **EXCLUIR UMA SESSÃO É RECUSADO** (decisão P-6 do épico 5).
+       *
+       * Apagar a sessão 5/12 abre buraco na numeração, e a numeração é o que a
+       * reprogramação usa para saber o que vem depois: com 5 ausente, a 6 em
+       * diante seriam recalculadas a partir de uma distância errada, e a série
+       * inteira escorregaria sem nenhum erro na tela.
+       *
+       * A mensagem dá as DUAS saídas que existem, em português de balcão.
+       */
+      if (ehSessao(t)) throw new ConflictException(SESSAO_NAO_SE_EXCLUI)
 
       const pago = await c.query(
         'SELECT 1 FROM recebimentos WHERE tarefa_id = $1 AND estornado_em IS NULL',

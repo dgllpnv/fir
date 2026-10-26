@@ -41,6 +41,35 @@ import type pg from 'pg'
  */
 const TIPOS_QUE_ABATEM = TIPOS.filter((t) => t.recebimento === true).map((t) => t.nome)
 
+/**
+ * **E A SESSÃO ABATE TAMBÉM, QUANDO O PROGRAMA ESTÁ EM MODO `saldo`.**
+ *
+ * Esta é a segunda metade da regra, e ela era um buraco: até o épico 5, uma
+ * sessão paga não tinha `programa_id`, então ela não podia nem ser agrupada —
+ * quanto menos abater. O protótipo tem as duas metades lado a lado
+ * (`saldoInfo`, medido 2026-10-26):
+ *
+ * ```js
+ * if (ehRecebimento(t))      g(...).abatido += valor
+ * else if (ehSessao(t)) { const a = adesao(t.adesaoId)
+ *                         if (a && a.modo === 'saldo') g(...).abatido += valor }
+ * ```
+ *
+ * `Sessão de plano` tem `pagavel: true` e **não** `recebimento: true`, porque
+ * ela não é um recebimento de saldo — é um atendimento que carregou dinheiro.
+ * O que decide se o dinheiro ABATE é o **modo de cobrança do programa**:
+ *
+ *  - `saldo`: a adesão abriu valor em aberto, e cada sessão paga o quita.
+ *    Somar sem abater faria a paciente dever R$ 2.400 para sempre, pagando
+ *    R$ 300 por sessão doze vezes.
+ *  - `avulso`: não há saldo para abater; cada sessão registra o que foi pago
+ *    no dia. Abater aqui criaria crédito do nada.
+ *
+ * E a condição é do PROGRAMA, não do tipo — é por isso que ela não cabe em
+ * `TIPOS` e tem de entrar na consulta.
+ */
+const TIPO_DA_SESSAO = TIPOS.find((t) => t.sessao === true)!.nome
+
 type LinhaDeGrupo = {
   paciente_id: string
   programa_id: string | null
@@ -58,16 +87,21 @@ type LinhaDeGrupo = {
  * depois": o dia em que o agrupamento passou a existir, ele não pediu nova
  * forma de resposta nem nova regra de clamp.
  *
- * `$1` clínica · `$2` tipos que abatem · `$3` ids de paciente.
+ * `$1` clínica · `$2` tipos que abatem · `$3` ids de paciente · `$4` o tipo
+ * da sessão.
  */
 const GRUPOS = `
   SELECT paciente_id, programa_id,
          coalesce(sum(valor_aberto), 0)::text AS aberto,
-         coalesce(sum(valor) FILTER (WHERE tipo = ANY($2)), 0)::text AS abatido
+         coalesce(sum(valor) FILTER (
+           WHERE tipo = ANY($2)
+              OR (tipo = $4 AND modo_de_cobranca = 'saldo')), 0)::text AS abatido
     FROM (SELECT r.paciente_id,
                  r.programa_id,
-                 r.valor, r.valor_aberto, r.tipo
+                 r.valor, r.valor_aberto, r.tipo,
+                 p.modo_de_cobranca
             FROM recebimentos r
+            LEFT JOIN programas p ON p.id = r.programa_id
            WHERE r.clinica_id = $1 AND r.estornado_em IS NULL
              AND r.paciente_id = ANY($3::uuid[])) e
    GROUP BY paciente_id, programa_id`
@@ -94,7 +128,7 @@ export async function saldosDe(
   for (const id of pacienteIds) saldos.set(id, VAZIO)
   if (pacienteIds.length === 0) return saldos
 
-  const r = await c.query<LinhaDeGrupo>(GRUPOS, [clinicaId, TIPOS_QUE_ABATEM, [...pacienteIds]])
+  const r = await c.query<LinhaDeGrupo>(GRUPOS, [clinicaId, TIPOS_QUE_ABATEM, [...pacienteIds], TIPO_DA_SESSAO])
 
   const porPaciente = new Map<string, EventoDeSaldo[]>()
   for (const linha of r.rows) {

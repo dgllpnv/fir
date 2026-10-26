@@ -199,6 +199,25 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     // devolvê-los, a redação já os cobre.
     camposDeDinheiro: ['valor', 'valorTotal', 'valorEntrada'],
   },
+  /**
+   * AS SESSÕES (Task 9). As duas devolvem `TarefaNaLista` — a mesma forma da
+   * rota genérica de tarefa —, então herdam `DINHEIRO_DA_TAREFA` por direito.
+   *
+   * `concluir` ACEITA `pagamento` no corpo e `reabrir` ESTORNA: as duas
+   * devolvem a tarefa com o pagamento embutido (ou `null`, depois do estorno),
+   * e é por isso que nenhuma das duas pode ficar de fora. Reabrir é, das duas,
+   * a que mais mexe em dinheiro.
+   */
+  {
+    metodo: 'POST',
+    caminho: '/v1/programas/sessoes/:id/concluir',
+    camposDeDinheiro: DINHEIRO_DA_TAREFA,
+  },
+  {
+    metodo: 'POST',
+    caminho: '/v1/programas/sessoes/:id/reabrir',
+    camposDeDinheiro: DINHEIRO_DA_TAREFA,
+  },
 ]
 
 /**

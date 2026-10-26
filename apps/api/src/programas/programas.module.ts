@@ -5,8 +5,11 @@ import { CatalogoController } from './catalogo.controller'
 import { CatalogoService } from './catalogo.service'
 import { MontadorDePrograma } from './montador-de-programa'
 import { MontadorRelacional } from './montador.service'
+import { BaixaDeInsumos, BaixaInerte } from './baixa-de-insumos'
 import { ProgramasController } from './programas.controller'
 import { ProgramasService } from './programas.service'
+import { SessoesController } from './sessoes.controller'
+import { SessoesService } from './sessoes.service'
 
 /**
  * PROGRAMAS — o catálogo, a montagem e o seam que a jornada consome.
@@ -22,15 +25,26 @@ import { ProgramasService } from './programas.service'
  */
 @Module({
   imports: [TarefasModule],
-  controllers: [CatalogoController, ProgramasController],
+  controllers: [CatalogoController, ProgramasController, SessoesController],
   providers: [
     CatalogoService,
     ProgramasService,
+    SessoesService,
     provedorDeRelogio,
-    // O seam, ligado à implementação relacional. O épico 6 fará o mesmo
-    // movimento com `BaixaDeInsumos`.
+    // O seam da montagem, ligado à implementação relacional.
     { provide: MontadorDePrograma, useClass: MontadorRelacional },
+    /**
+     * **O SEAM DO ÉPICO 6, INERTE.**
+     *
+     * Quando o estoque entrar, isto vira
+     * `{ provide: BaixaDeInsumos, useClass: BaixaRelacional }` — uma linha, o
+     * mesmo movimento que a Task 8 fez com o montador — e `BaixaInerte` é
+     * **apagada**, não deixada para trás. O invariante que a implementação de
+     * verdade terá de honrar está escrito, com teste, em
+     * `baixa-de-insumos.test.ts`.
+     */
+    { provide: BaixaDeInsumos, useClass: BaixaInerte },
   ],
-  exports: [MontadorDePrograma],
+  exports: [MontadorDePrograma, BaixaDeInsumos],
 })
 export class ProgramasModule {}

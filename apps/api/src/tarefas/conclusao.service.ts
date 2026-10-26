@@ -5,6 +5,7 @@ import {
   diaCivil,
   ehErro,
   ehOk,
+  ehSessao,
   type Etapa,
   ETAPA_AO_CANCELAR,
   type EventoDeJornada,
@@ -31,6 +32,7 @@ import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
+import { SESSAO_PELA_ROTA_PROPRIA } from '../programas/mensagens'
 import { type AutorDaRequisicao, lerTarefas, TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from './leitura'
 import { exigirDominio, registrarPagamento } from './tarefas.service'
 
@@ -140,6 +142,19 @@ export class ConclusaoService {
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const t = await carregar(c, id)
       exigirAutorizacao(podeConcluir(t, autor))
+
+      /**
+       * **A ROTA GENÉRICA RECUSA UMA SESSÃO** (decisão P-5 do épico 5).
+       *
+       * Concluir uma sessão faz quatro coisas que concluir uma tarefa não faz:
+       * reprograma as próximas, dá baixa nos insumos, cria o contato de retorno
+       * na última do item, e carimba `programa_id` no recebimento. Passar por
+       * aqui faria três delas simplesmente não acontecer — sem erro nenhum.
+       *
+       * A mensagem diz o MOTIVO, não a rota: a recepção não lê URL.
+       */
+      if (ehSessao(t)) throw new ConflictException(SESSAO_PELA_ROTA_PROPRIA)
+
       const concluidaEm = exigirDominio(instanteDaConclusao(dados.em, hoje, fuso, agora))
 
       let tipo = t.tipo

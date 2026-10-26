@@ -73,7 +73,13 @@ export type Cenario = {
 
 type Corpo = Record<string, unknown>
 
-export async function montarCenario(prefixo: string): Promise<Cenario> {
+/** Um provider substituído no contêiner de teste. Ver `trocas` abaixo. */
+export type TrocaDeProvider = { readonly token: unknown; readonly valor: unknown }
+
+export async function montarCenario(
+  prefixo: string,
+  trocas: readonly TrocaDeProvider[] = [],
+): Promise<Cenario> {
   const codigo = `${prefixo}-${Date.now()}`
   const migrate = new pg.Client({ connectionString: URL_MIG })
   migrate.on('error', (e) => console.error(`[${prefixo}] migrate:`, e.message))
@@ -242,10 +248,23 @@ export async function montarCenario(prefixo: string): Promise<Cenario> {
     [outraClinica, pessoaDaOutra, HOJE],
   )
 
-  const mod = await Test.createTestingModule({ imports: [AppModule] })
+  /**
+   * `trocas` substitui providers do `AppModule` — e existe por UM motivo.
+   *
+   * O seam `BaixaDeInsumos` do épico 5 é inerte até o épico 6. Provar que a
+   * conclusão de uma sessão **chama** a baixa com a dose certa, e que uma baixa
+   * que FALHA desfaz a conclusão inteira, exige uma implementação de teste no
+   * lugar da inerte — e não há outra porta: o espião precisa estar no
+   * contêiner antes de `app.init()`.
+   *
+   * Mantenha a lista de usos curta. Substituir provider em teste e2e é a porta
+   * por onde a suíte deixa de medir o sistema e passa a medir o dublê.
+   */
+  const base = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(RELOGIO)
     .useValue(new RelogioFixo(AGORA))
-    .compile()
+  for (const t of trocas) base.overrideProvider(t.token).useValue(t.valor)
+  const mod = await base.compile()
   const app = mod.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
   await registrarCookie(app)
   await app.init()

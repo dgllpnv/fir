@@ -150,7 +150,17 @@ export const ehContato = (t: TarefaClassificavel): boolean => {
 }
 
 export const ehAtendimento = (t: TarefaClassificavel): boolean => infoDoTipo(t.tipo).atende === true
-export const ehSessao = (t: TarefaClassificavel): boolean => infoDoTipo(t.tipo).sessao === true
+/**
+ * **Pede só `tipo`**, e não `TarefaClassificavel`.
+ *
+ * `ehReceita` precisa do `valor` porque um atendimento com pagamento embutido
+ * conta como receita; `ehSessao` não lê valor nenhum. Exigir `valor` aqui
+ * obrigava cada chamador a inventar um `valor: 0n` para uma pergunta que não é
+ * sobre dinheiro — e inventar dinheiro para passar por um tipo é como um
+ * `valor: 0n` de mentira termina somado em algum lugar.
+ */
+export const ehSessao = (t: { readonly tipo: string }): boolean =>
+  infoDoTipo(t.tipo).sessao === true
 
 export const aceitaPagamento = (nome: string): boolean => infoDoTipo(nome).pagavel === true
 export const ehPagamento = (nome: string): boolean => infoDoTipo(nome).receita === true
