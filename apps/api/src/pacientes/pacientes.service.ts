@@ -14,6 +14,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { unidadeValida } from '../comum/unidade'
+import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 import { saldoDe, saldosDe } from '../financeiro/saldo.repositorio'
 
 /**
@@ -135,8 +136,20 @@ const SELECT_BASE = `
            WHERE t.paciente_id = p.id AND t.status = 'concluida' AND t.excluida_em IS NULL
              AND t.tipo = ANY($3)
          ) AS ultimo_atendimento,
+         -- O LTV É O QUE ELA JÁ DEIXOU NA CLÍNICA, e promessa não é pagamento.
+         --
+         -- D-9: a venda a prazo é uma linha de recebimentos com valor = 0 e a
+         -- dívida em valor_aberto. Somar valor_aberto aqui é o erro plausível
+         -- de quem lê "lifetime value" como "quanto ela vale" — e faria a
+         -- paciente que deve R$ 3.600 parecer ter pago R$ 3.600, que é a
+         -- regra 4 virada do avesso. A dívida sai em saldo, ao lado.
+         --
+         -- O filtro usa a mesma constante do caixa e da lista do dia; o
+         -- protótipo filtra o mesmo (pagos = rec.filter(valor > 0)), que é o
+         -- que mantém o ticket médio dele honesto.
          (SELECT coalesce(sum(r.valor), 0)::bigint FROM recebimentos r
            WHERE r.paciente_id = p.id AND r.estornado_em IS NULL
+             AND ${DINHEIRO_QUE_ENTROU}
          )::text AS ltv
     FROM pacientes p
    WHERE p.clinica_id = $1`

@@ -164,10 +164,59 @@ describe('a regra 3, no banco', () => {
     await expect(inserirRecebimento(null, 2_000n)).resolves.toBeDefined()
   })
 
-  it('valor zero ou negativo é recusado', async () => {
+  /**
+   * **D-9 trocou o `CHECK`, e este teste mudou de significado.**
+   *
+   * Até a `0010`, `recebimentos.valor` tinha `CHECK (valor > 0)` e este teste
+   * provava "zero e negativo são recusados". A `0011` substituiu aquele
+   * `CHECK` por `valor > 0 OR valor_aberto > 0`, porque a clínica fecha um
+   * programa que a paciente paga depois e o sistema precisa registrar a
+   * dívida (`docs/decisoes.md`, D-9).
+   *
+   * O que **não** mudou: **negativo continua recusado**, e a linha que não
+   * registra nada também. O que mudou é que zero + dívida é uma linha
+   * legítima — e ela é invisível para o caixa, para a lista do dia e para o
+   * LTV, provado em `apps/api/src/financeiro/venda-a-prazo.e2e.test.ts`.
+   *
+   * `inserirRecebimento` manda `forma: 'Pix'`, então aqui as combinações com
+   * valor zero morrem na bicondicional da forma antes de chegar ao resto — e
+   * é isso que se quer: no caminho de escrita de verdade quem monta a linha é
+   * o serviço, e ele grava forma vazia junto do valor zero.
+   */
+  it('valor negativo continua recusado, e zero SÓ vale com dívida (D-9)', async () => {
     const tarefa = await inserirTarefa()
-    await expect(inserirRecebimento(tarefa, 0n)).rejects.toThrow(/valor/i)
-    await expect(inserirRecebimento(tarefa, -1n)).rejects.toThrow(/valor/i)
+    // Negativo, com forma VAZIA: assim a linha atravessa a bicondicional da
+    // forma e morre em `recebimento_valor_nao_negativo`, que é a constraint
+    // que este caso existe para provar. Com 'Pix' ela morreria na forma, e o
+    // teste diria que a não-negatividade está guardada quando ela não está.
+    await expect(
+      umId(
+        `INSERT INTO recebimentos
+           (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, valor_aberto, recebido_em, registrado_por)
+         VALUES ($1,$2,$3,'Pagamento de consulta',-1,'',100000, now(), $4) RETURNING id`,
+        [clinica, paciente, tarefa, pessoa],
+      ),
+    ).rejects.toThrow(/recebimento_valor_nao_negativo/)
+    // Zero COM forma de pagamento: não existe Pix de R$ 0,00.
+    await expect(inserirRecebimento(tarefa, 0n)).rejects.toThrow(/forma_so_com_dinheiro/i)
+    // Zero sem forma e sem dívida: a linha não registra nada.
+    await expect(
+      umId(
+        `INSERT INTO recebimentos
+           (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, valor_aberto, recebido_em, registrado_por)
+         VALUES ($1,$2,$3,'Pagamento de consulta',0,'',0, now(), $4) RETURNING id`,
+        [clinica, paciente, tarefa, pessoa],
+      ),
+    ).rejects.toThrow(/recebimento_registra_algo/)
+    // Zero COM dívida e sem forma: a venda a prazo, e ela passa.
+    await expect(
+      umId(
+        `INSERT INTO recebimentos
+           (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, valor_aberto, recebido_em, registrado_por)
+         VALUES ($1,$2,$3,'Pagamento de orçamento',0,'',360000, now(), $4) RETURNING id`,
+        [clinica, paciente, tarefa, pessoa],
+      ),
+    ).resolves.toBeDefined()
   })
 })
 

@@ -17,6 +17,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { unidadeValida } from '../comum/unidade'
+import { DINHEIRO_QUE_ENTROU } from './dinheiro-que-entrou'
 
 /**
  * O QUE o paciente está pagando → o TIPO de tarefa que o faturamento
@@ -121,12 +122,10 @@ export class RecebimentosService {
   async registrar(ctx: Contexto, dados: RegistrarRecebimento): Promise<RecebimentoNaLista> {
     const ref = dados.ref as Referencia
 
-    // 409, e não 501: o cartão da paciente está impecável — ela de fato não
-    // tem programa em andamento, porque programa não existe ainda. É o mesmo
-    // texto da tela do protótipo.
-    if (ref === 'programa') {
-      throw new ConflictException('Este paciente não tem programa em andamento.')
-    }
+    // O 409 "Este paciente não tem programa em andamento." SAIU AQUI (épico 5,
+    // Task 11). Ele era verdade enquanto programa não existia; agora a recusa
+    // é a do programa de verdade, lá embaixo, e ela sabe a diferença entre
+    // "não existe" e "não é desta paciente".
 
     const agora = this.relogio.agora()
     const hojeDaClinica = diaCivil(agora, ctx.fuso)
@@ -147,6 +146,34 @@ export class RecebimentosService {
 
       const jaExiste = await this.porRequisicao(c, ctx, dados.requisicaoId)
       if (jaExiste !== undefined) return jaExiste
+
+      /**
+       * O PAGAMENTO DE UM PROGRAMA — e o `programa_id` que o saldo agrupa.
+       *
+       * Sem este carimbo, o abatimento cairia no grupo GERAL do
+       * `saldoEmAberto` (épico 4) e a paciente com dois programas veria o
+       * pagamento de um abater a dívida do outro. O agrupamento por adesão é
+       * a regra 5, e é o que a cobrança usa.
+       *
+       * A conferência é por PACIENTE, não só por clínica: um `programaId`
+       * válido de OUTRA paciente colaria um pagamento na dívida alheia, e
+       * nenhuma FK impede isso — `recebimentos.programa_id` referencia
+       * `programas`, não o par (programa, paciente). A RLS cuida da clínica;
+       * esta consulta cuida da paciente.
+       */
+      // A união é estreitada por `dados.ref`, e não pela variável `ref`: ela
+      // é um `as`, e um `as` não estreita o objeto de onde saiu.
+      const programaId = dados.ref === 'programa' ? dados.programaId : null
+      if (programaId !== null) {
+        const prog = await c.query(
+          `SELECT 1 FROM programas
+            WHERE id = $1 AND paciente_id = $2 AND excluido_em IS NULL`,
+          [programaId, dados.pacienteId],
+        )
+        if (prog.rowCount === 0) {
+          throw new ConflictException('Este paciente não tem programa em andamento.')
+        }
+      }
 
       const unidade = await unidadeValida(c, dados.unidadeId)
       const tipo = TIPO_DA_REFERENCIA[ref]
@@ -173,8 +200,8 @@ export class RecebimentosService {
       const inserido = await c.query<{ id: string }>(
         `INSERT INTO recebimentos
            (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, valor_aberto, recebido_em,
-            unidade_id, registrado_por, requisicao_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+            unidade_id, registrado_por, requisicao_id, programa_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (clinica_id, requisicao_id) WHERE requisicao_id IS NOT NULL DO NOTHING
          RETURNING id`,
         [
@@ -191,6 +218,7 @@ export class RecebimentosService {
           unidade,
           ctx.ator,
           dados.requisicaoId,
+          programaId,
         ],
       )
 
@@ -226,6 +254,15 @@ export class RecebimentosService {
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const r = await c.query<LinhaCrua>(
         `${SELECT_BASE}
+           -- D-9: a VENDA A PRAZO fica fora desta lista. Ela é uma linha de
+           -- recebimentos com valor = 0 e a dívida inteira em valor_aberto —
+           -- o programa que fechou e que a paciente paga depois. Mostrá-la
+           -- aqui poria um R$ 0,00 sem forma na seção "Recebimentos de hoje"
+           -- e a somaria no contador do cabeçalho, que é o que o protótipo faz
+           -- (ehReceb dá true por ehPagamento(tipo) antes de olhar o valor) e
+           -- o que a decisão proíbe. A dívida aparece no SALDO da paciente,
+           -- que é o lugar dela.
+           AND ${DINHEIRO_QUE_ENTROU}
            AND ((r.recebido_em AT TIME ZONE $2)::date) BETWEEN $3::date AND $4::date
            AND ($5::uuid IS NULL OR r.paciente_id = $5)
            AND ($6::boolean OR r.estornado_em IS NULL)

@@ -24,6 +24,7 @@ import type { PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
+import { DINHEIRO_QUE_ENTROU } from './dinheiro-que-entrou'
 import { pacientesQuePodemTerSaldo, saldosDe } from './saldo.repositorio'
 
 /** O rótulo que liga a tarefa à rotina que a criou. `CONTEXT.md`: Marcador de rotina. */
@@ -249,6 +250,7 @@ export class VisaoDoMesService {
          FROM recebimentos r
          LEFT JOIN tarefas t ON t.id = r.tarefa_id
         WHERE r.clinica_id = $1 AND r.estornado_em IS NULL
+          AND ${DINHEIRO_QUE_ENTROU}
           AND r.recebido_em >= $2 AND r.recebido_em < $3
           AND (t.id IS NULL OR t.excluida_em IS NULL)`,
       [ctx.clinicaId, j.de, j.ate, ctx.fuso],

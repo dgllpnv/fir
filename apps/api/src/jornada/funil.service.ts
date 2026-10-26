@@ -21,6 +21,7 @@ import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
+import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 import { bordasDoPeriodo } from '../tarefas/consulta.service'
 
 /**
@@ -314,6 +315,16 @@ async function contarEventos(
  * recebimentos da paciente no MESMO DIA do atendimento, o que conta dinheiro
  * de outro atendimento quando há dois no mesmo dia, e perde o pagamento
  * lançado no dia seguinte. Aqui o vínculo é a chave estrangeira.
+ *
+ * O filtro da D-9 está no `JOIN` e não no `WHERE` de propósito: `onde` vem de
+ * fora, montado pelo chamador, e emendar a condição nele faria o número do
+ * parâmetro depender de quem chama. No `JOIN` ele vale para todos os três
+ * recortes do funil sem que nenhum deles precise saber da decisão.
+ *
+ * Por que ele importa aqui, sendo que somar zero é invisível: a função se
+ * chama "o que entrou", e um dia alguém a trocará por `count(*)` ou por
+ * `avg(r.valor)` para medir ticket médio por etapa. No dia em que isso
+ * acontecer, a venda a prazo entraria no denominador.
  */
 async function somarRecebido(
   c: pg.PoolClient,
@@ -327,6 +338,7 @@ async function somarRecebido(
     `SELECT coalesce(sum(r.valor), 0)::text AS total
        FROM tarefas t
        JOIN recebimentos r ON r.tarefa_id = t.id AND r.estornado_em IS NULL
+            AND ${DINHEIRO_QUE_ENTROU}
       WHERE ${onde}
         AND EXISTS (
           SELECT 1 FROM jsonb_array_elements(t.historico) ev

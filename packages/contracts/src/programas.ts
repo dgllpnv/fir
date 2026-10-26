@@ -26,25 +26,30 @@ const valorTotal = dinheiroEmTexto.refine((v): v is bigint => v !== null && v > 
 })
 
 /**
- * A ENTRADA É MAIOR QUE ZERO, e isso não é escolha deste contrato.
+ * A ENTRADA PODE SER ZERO — **D-9, decidida pelo dono em 2026-10-26.**
  *
- * `recebimentos.valor` tem `CHECK (valor > 0)` desde a 0006, e todo o sistema
- * concorda: `PagamentoEmbutido.valor` (épico 2), `RegistrarRecebimento`
- * (épico 4) e o `recebimento` do `fechar` (épico 3) exigem o mesmo. Um
- * recebimento é dinheiro que ENTROU; zero não é um.
+ * "Fechou, paga depois": a clínica fecha um programa de R$ 3.600, a paciente
+ * não paga nada hoje e fica devendo tudo. **Medido no protótipo rodando**, em
+ * `montarNovaAdesao`: não há validação exigindo entrada, o campo de forma de
+ * pagamento só aparece quando `ent > 0` (`adformal.hidden = !(ent > 0)`), e
+ * `criarAdesao` grava `{valor: "", valorAberto: 3600, formaPagamento: ""}`.
  *
- * O que isso custa, e está escrito aqui para quem for ler: o protótipo aceita
- * `valorEntrada = 0` com `valorTotal = 3600` — "fechou, paga depois" — e
- * representa o saldo numa tarefa com `valor: ""` e `valorAberto: 3600`. Aqui
- * o saldo em aberto é DERIVADO de `recebimentos.valor_aberto` (regra 5), e
- * não existe linha de recebimento sem valor recebido. **Um programa sem
- * entrada não tem como abrir saldo** — ele se monta sem `pagamento`, e o
- * saldo entra quando o primeiro pagamento for lançado.
+ * Recusar isso faria a clínica **perder um recebível**: ela vendeu R$ 3.600 e
+ * o sistema registraria zero. O saldo em aberto continua DERIVADO de
+ * `recebimentos.valor_aberto` (regra 5) — o que mudou é que a linha de
+ * recebimento passa a existir quando registra **alguma coisa**, dinheiro
+ * recebido **ou** dinheiro devido (`0011`, `recebimento_registra_algo`).
  *
- * É pergunta de produto, não de implementação, e está no relatório do épico 5.
+ * O que NÃO mudou: `PagamentoEmbutido` (épico 2) e `RegistrarRecebimento`
+ * (épico 4) continuam exigindo valor maior que zero. "Houve pagamento? Sim"
+ * com zero num atendimento não é venda a prazo, é lançamento em branco. E o
+ * `fechar` da jornada também continua exigindo entrada — **isso é paridade,
+ * não limitação**: no protótipo o botão "Fechou" abre a tela Recebimento, que
+ * recusa com `if (!(v > 0)) toast("Informe o valor recebido.")`. A porta da
+ * venda a prazo é a montagem do programa, nos dois sistemas.
  */
-const valorEntrada = dinheiroEmTexto.refine((v): v is bigint => v !== null && v > 0n, {
-  message: 'O valor pago agora precisa ser maior que zero. Sem pagamento, monte o programa sem valor.',
+const valorEntrada = dinheiroEmTexto.refine((v): v is bigint => v !== null && v >= 0n, {
+  message: 'informe o valor pago na adesão em centavos, zero ou mais',
 })
 
 /** Milésimos inteiros e POSITIVOS. Não existe aplicação de dose nenhuma. */
@@ -247,12 +252,25 @@ export const MontarPrograma = z
       .object({
         valorTotal,
         valorEntrada,
-        forma: z.enum(FORMAS),
+        /**
+         * **Obrigatória quando entrou dinheiro, PROIBIDA quando não entrou.**
+         *
+         * A tela da PO faz exatamente isso: `adformal.hidden = !(ent > 0)` e
+         * `if (ent > 0 && !adforma.value) toast(...)`. A bicondicional está
+         * também no banco (`recebimento_forma_so_com_dinheiro`, 0011), porque
+         * "Pix" num recebimento de R$ 0,00 é um Pix que ninguém fez.
+         */
+        forma: z.enum(FORMAS).optional(),
       })
       .strict()
       .refine((p) => p.valorEntrada <= p.valorTotal, {
         path: ['valorEntrada'],
         message: 'O valor pago não pode ser maior que o total.',
+      })
+      .refine((p) => (p.valorEntrada > 0n) === (p.forma !== undefined), {
+        path: ['forma'],
+        message:
+          'Escolha a forma de pagamento da entrada — e não informe forma nenhuma quando a paciente não pagou nada agora.',
       })
       .optional(),
   })

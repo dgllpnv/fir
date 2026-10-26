@@ -154,7 +154,11 @@ export class ProgramasService {
         // `bigint` vira texto no parâmetro: o driver não serializa bigint, e
         // `Number()` perderia precisão acima de 2^53 (regra 1).
         pagamento.valorEntrada.toString(),
-        pagamento.forma,
+        // D-9: sem entrada não há forma de pagamento — dinheiro que não se
+        // moveu não tem como ter se movido por Pix. A string vazia é o que o
+        // protótipo grava (`formaPagamento: ""`) e o que a constraint
+        // `recebimento_forma_so_com_dinheiro` exige.
+        pagamento.forma ?? '',
         aberto.toString(),
         agora,
         unidade,
