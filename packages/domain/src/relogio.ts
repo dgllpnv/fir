@@ -119,6 +119,23 @@ export function somarDias(dia: string, n: number): string {
 }
 
 /**
+ * Dias civis entre dois dias, `ate − de`. Negativo quando `ate` é anterior.
+ *
+ * Aritmética de calendário em UTC, sem fuso: `Date.UTC` ignora horário de
+ * verão, então a diferença é sempre múltiplo exato de 24 h e a divisão é
+ * inteira. O protótipo faz `Math.round((parse(b) - parse(a)) / 864e5)` sobre
+ * datas LOCAIS — e o `Math.round` existe lá exatamente porque, no fuso local,
+ * um dia de virada de horário de verão tem 23 ou 25 horas.
+ */
+export function diasEntre(de: string, ate: string): number {
+  const [a1, m1, d1] = de.split('-').map(Number)
+  const [a2, m2, d2] = ate.split('-').map(Number)
+  const t1 = Date.UTC(a1 ?? 1970, (m1 ?? 1) - 1, d1 ?? 1)
+  const t2 = Date.UTC(a2 ?? 1970, (m2 ?? 1) - 1, d2 ?? 1)
+  return (t2 - t1) / 86_400_000
+}
+
+/**
  * Soma meses. Dia 29, 30 ou 31 em mês curto **cai no último dia do mês** — é a
  * regra da v20, e as 4 clínicas dependem dela.
  *

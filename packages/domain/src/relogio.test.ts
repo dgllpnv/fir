@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { diaCivil, fimDoMes, inicioDoDia, janela, RelogioFixo, somarDias, somarMeses } from './relogio'
+import {
+  diaCivil,
+  diasEntre,
+  fimDoMes,
+  inicioDoDia,
+  janela,
+  RelogioFixo,
+  somarDias,
+  somarMeses,
+} from './relogio'
 
 const BAHIA = 'America/Bahia' // UTC−3, sem horário de verão
 
@@ -80,5 +89,32 @@ describe('aritmética de datas civis', () => {
   it('ano bissexto', () => {
     expect(somarMeses('2028-01-31', 1)).toBe('2028-02-29')
     expect(fimDoMes('2028-02')).toBe('2028-02-29')
+  })
+})
+
+describe('diasEntre', () => {
+  it('conta os dias civis de um para o outro, e é negativo ao voltar', () => {
+    expect(diasEntre('2026-11-02', '2026-11-09')).toBe(7)
+    expect(diasEntre('2026-11-09', '2026-11-02')).toBe(-7)
+    expect(diasEntre('2026-11-02', '2026-11-02')).toBe(0)
+  })
+
+  it('atravessa fevereiro e a virada do ano', () => {
+    expect(diasEntre('2026-02-26', '2026-03-01')).toBe(3)
+    expect(diasEntre('2028-02-26', '2028-03-01')).toBe(4) // bissexto
+    expect(diasEntre('2026-12-28', '2027-01-04')).toBe(7)
+  })
+
+  it('NÃO depende do fuso: o dia de 23 horas do horário de verão continua UM dia', () => {
+    // O protótipo faz `Math.round((parse(b) - parse(a)) / 864e5)` sobre datas
+    // LOCAIS, e o `Math.round` está lá exatamente porque, no fuso local, o dia
+    // da virada tem 23 ou 25 horas. Aqui a conta é em UTC e não há o que
+    // arredondar.
+    expect(diasEntre('2018-11-03', '2018-11-04')).toBe(1)
+    expect(diasEntre('2019-02-16', '2019-02-17')).toBe(1)
+  })
+
+  it('`somarDias` e `diasEntre` são inversos', () => {
+    expect(diasEntre('2026-01-31', somarDias('2026-01-31', 400))).toBe(400)
   })
 })
