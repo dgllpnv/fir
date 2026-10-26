@@ -136,7 +136,22 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
   // O MESMO `PagamentoEmbutido` do épico 2, não uma segunda cópia: se fosse
   // outro esquema, "valor em aberto pode ser zero" valeria num e não no
   // outro, e a diferença apareceria no saldo da paciente.
-  z.object({ acao: z.literal('fechar'), recebimento: PagamentoEmbutido, nota: Nota }).strict(),
+  z
+    .object({
+      acao: z.literal('fechar'),
+      recebimento: PagamentoEmbutido,
+      /**
+       * O início do programa, quando a proposta tiver um.
+       *
+       * `ItemOrcado` não tem data — só `depoisDe`. Quem não depende de ninguém
+       * começa no início do programa, e o início vem daqui. OPCIONAL: o padrão
+       * é HOJE DA CLÍNICA, calculado no servidor (regra 24), porque o relógio
+       * do cliente não é autoridade sobre data de negócio.
+       */
+      inicioDoPrograma: DiaCivil.optional(),
+      nota: Nota,
+    })
+    .strict(),
   // `motivoId`, e NÃO o nome: o nome vem da lista da clínica, resolvido no
   // servidor dentro da mesma transação (decisão D-2). Aceitar o nome do
   // cliente faria a história contar o que o navegador disse.
