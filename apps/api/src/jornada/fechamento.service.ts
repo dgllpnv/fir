@@ -1,17 +1,15 @@
 import type { MoverEtapa } from '@fir/contracts'
 import { Dinheiro, ehErro } from '@fir/domain'
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  NotImplementedException,
-} from '@nestjs/common'
+import { BadRequestException, Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { AutorDaRequisicao } from '../tarefas/leitura'
 import { registrarPagamento } from '../tarefas/tarefas.service'
 import { type CartaoCarregado, centavosNoJsonb, type Efeitos } from './cartao'
-import { MontadorDePrograma } from '../programas/montador-de-programa'
+import {
+  MontadorDePrograma,
+  traduzirErroDeMontagem,
+} from '../programas/montador-de-programa'
 
 /**
  * FECHAR — uma transação só.
@@ -152,10 +150,23 @@ export class FechamentoService {
         atorId: x.autor.id,
         hojeDaClinica: x.hojeDaClinica,
       })
-      // 501, não 409: o cartão está impecável — o servidor é que está
-      // incompleto. Dizer "conflito" mandaria a recepção procurar o erro no
-      // que ela fez.
-      if (ehErro(r)) throw new NotImplementedException(r.erro.mensagem)
+      /**
+       * **O 501 ACABOU** — e a tradução é a mesma de `POST /v1/programas`.
+       *
+       * Enquanto o montador não existia, qualquer recusa era 501: o cartão
+       * estava impecável e o servidor é que estava incompleto. Agora a recusa
+       * é do mundo, não do servidor, e o status diz o que fazer: **409** para
+       * o procedimento que saiu do catálogo (o estado mudou entre o orçamento
+       * e o fechamento), **400** para ciclo, item órfão ou responsável
+       * inativo.
+       *
+       * A exceção derruba a transação inteira, inclusive o recebimento
+       * inserido acima — e é por isso que `traduzirErroDeMontagem` mora junto
+       * dos códigos, em `programas/`: duas traduções é como uma delas devolve
+       * 500 para o procedimento excluído, mandando a recepção procurar o erro
+       * no que ela fez.
+       */
+      if (ehErro(r)) throw traduzirErroDeMontagem(r.erro)
     }
 
     return {

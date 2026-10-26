@@ -22,8 +22,7 @@ import type { Transacao } from '../banco/transacao'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import {
   MontadorDePrograma,
-  PROCEDIMENTO_FORA_DO_CATALOGO,
-  RESPONSAVEL_INVALIDO,
+  traduzirErroDeMontagem,
   type ItemParaMontar,
   type ProgramaMontado,
 } from './montador-de-programa'
@@ -96,7 +95,7 @@ export class ProgramasService {
         atorId: ctx.ator,
         hojeDaClinica: hoje,
       })
-      if (ehErro(montado)) throw traduzir(montado.erro)
+      if (ehErro(montado)) throw traduzirErroDeMontagem(montado.erro)
 
       return this.lerMontado(c, montado.valor, modo, dados)
     })
@@ -270,19 +269,6 @@ const paraItemDeMontagem = (i: MontarPrograma['itens'][number]): ItemParaMontar 
           quantidade: Quantidade.deMilesimos(i.insumo.quantidade, i.insumo.unidade),
         },
 })
-
-/**
- * ERRO É VALOR NO DOMÍNIO, EXCEÇÃO NA BORDA — e o status diz o que fazer.
- *
- * `409` para o catálogo: o corpo está bem formado, o que mudou foi o ESTADO
- * do catálogo. `400` para o resto: foi o cliente que mandou algo que não
- * fecha (ciclo, item inexistente, responsável inativo).
- */
-function traduzir(e: ErroDeDominio): Error {
-  if (e.codigo === PROCEDIMENTO_FORA_DO_CATALOGO) return new ConflictException(e.mensagem)
-  if (e.codigo === RESPONSAVEL_INVALIDO) return new BadRequestException(e.mensagem)
-  return new BadRequestException(e.mensagem)
-}
 
 /** Reexportado para o controlador reconhecer o tipo do `Result`. */
 export type { Result }

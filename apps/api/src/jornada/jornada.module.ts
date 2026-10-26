@@ -6,42 +6,31 @@ import { FunilController } from './funil.controller'
 import { FunilService } from './funil.service'
 import { JornadaController } from './jornada.controller'
 import { JornadaService } from './jornada.service'
-import { MontadorDePrograma } from '../programas/montador-de-programa'
-import { MontadorIndisponivel } from './montador-de-programa'
 import { MotivosController, MotivosService } from './motivos.controller'
+import { ProgramasModule } from '../programas/programas.module'
 
 /**
  * `TarefasModule` é importado porque `reabrir` DELEGA para
  * `ConclusaoService.reabrir` — uma implementação, duas portas. Reescrever o
  * estorno do recebimento aqui seria a segunda cópia da regra que mexe em
  * dinheiro, e a segunda cópia é a que esquece o estorno.
+ *
+ * `ProgramasModule` é importado porque `fechar` MONTA O PROGRAMA — e esta é a
+ * linha que o épico 3 prometeu e que a Task 8 do épico 5 cumpriu. Ele exporta
+ * `MontadorDePrograma` ligado ao `MontadorRelacional`; o `MontadorIndisponivel`
+ * que devolvia 501 foi **apagado**, não deixado para trás: provider
+ * alternativo que ninguém usa é o lugar onde a próxima pessoa pluga sem
+ * perceber.
+ *
+ * A dependência é de mão única — `jornada → programas` é a que o DADO já tem
+ * (`tarefas.programa_orcado` guarda `procedimentoId` desde o épico 3). O
+ * inverso seria ciclo de módulo, e a saída para o ciclo seria um `forwardRef`,
+ * que é onde a ordem de inicialização vira defeito intermitente.
  */
 @Module({
-  imports: [TarefasModule],
+  imports: [TarefasModule, ProgramasModule],
   controllers: [JornadaController, FunilController, MotivosController],
-  providers: [
-    JornadaService,
-    FechamentoService,
-    FunilService,
-    MotivosService,
-    /**
-     * **A LINHA QUE FALTA TROCAR — Task 8 do plano do épico 5.**
-     *
-     * `MontadorDePrograma` é o seam, e ele agora mora em
-     * `apps/api/src/programas/`. `MontadorRelacional` já EXISTE e funciona
-     * (`ProgramasModule` o exporta): o conserto é
-     * `imports: [TarefasModule, ProgramasModule]` e apagar esta linha, mais
-     * `jornada/montador-de-programa.ts`.
-     *
-     * Por que não agora: `fechar` é o caminho do DINHEIRO, e ligá-lo sem os
-     * testes de atomicidade da Task 8 seria entregar as quatro escritas sem a
-     * prova de que elas vivem ou morrem juntas. Enquanto isso o montador
-     * recusa, e a recusa desfaz a transação inteira — em vez de deixar o
-     * dinheiro lançado e as sessões sem existir.
-     */
-    { provide: MontadorDePrograma, useClass: MontadorIndisponivel },
-    provedorDeRelogio,
-  ],
+  providers: [JornadaService, FechamentoService, FunilService, MotivosService, provedorDeRelogio],
   exports: [JornadaService],
 })
 export class JornadaModule {}

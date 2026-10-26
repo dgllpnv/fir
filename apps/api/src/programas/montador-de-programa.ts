@@ -1,4 +1,5 @@
-import type { Dinheiro, Quantidade, Result } from '@fir/domain'
+import type { Dinheiro, ErroDeDominio, Quantidade, Result } from '@fir/domain'
+import { BadRequestException, ConflictException } from '@nestjs/common'
 import type { PessoaId } from '../banco/ator'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { Transacao } from '../banco/transacao'
@@ -99,3 +100,22 @@ export const PROCEDIMENTO_FORA_DO_CATALOGO = 'PROCEDIMENTO_FORA_DO_CATALOGO'
 
 /** 400: o responsável saiu da clínica, ou nunca foi desta clínica. */
 export const RESPONSAVEL_INVALIDO = 'RESPONSAVEL_INVALIDO'
+
+/**
+ * ERRO É VALOR NO DOMÍNIO, EXCEÇÃO NA BORDA — e o status diz o que fazer.
+ *
+ * Mora aqui, junto dos códigos, e não em cada serviço: **as duas portas da
+ * montagem** (`POST /v1/programas` e o `fechar` da jornada) traduzem o mesmo
+ * `Result`, e duas traduções é como uma delas devolve 500 para o procedimento
+ * excluído — mandando a recepção procurar o erro no que ela fez.
+ *
+ * `409` para o catálogo: o corpo está bem formado e os ids são uuids de
+ * verdade. O que mudou foi o ESTADO do catálogo — alguém excluiu o
+ * procedimento entre o orçamento e o fechamento. `400` para o resto: foi o
+ * cliente que mandou algo que não fecha (ciclo, item inexistente, responsável
+ * inativo).
+ */
+export function traduzirErroDeMontagem(e: ErroDeDominio): Error {
+  if (e.codigo === PROCEDIMENTO_FORA_DO_CATALOGO) return new ConflictException(e.mensagem)
+  return new BadRequestException(e.mensagem)
+}
