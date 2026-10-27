@@ -210,6 +210,9 @@ export class LeituraDeProgramasService {
       const lista = await this.montarLista(c, ctx, hoje, programas, saldoDoPrograma, q)
 
       return {
+        // O dia do SERVIDOR na resposta: a tela nao tem de onde tirar "hoje"
+        // que nao seja o relogio do cliente (regra 24).
+        hoje,
         indicadores: this.indicadores(lista, abertas, hoje, limite7),
         agenda: {
           // Atrasadas PRIMEIRO e da mais antiga: a nota da PO diz que elas
@@ -359,6 +362,7 @@ export class LeituraDeProgramasService {
 
       return {
         id: p.id,
+        hoje,
         pacienteId: p.paciente_id,
         pacienteNome: p.paciente_nome,
         pacienteTelefone: p.paciente_telefone,

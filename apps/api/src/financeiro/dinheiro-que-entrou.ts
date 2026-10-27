@@ -28,7 +28,7 @@
  *
  * O protótipo concorda em dois dos quatro e **vaza no segundo**: `ehReceb` dá
  * `true` por `ehPagamento(tipo)` antes de olhar o valor. Medido em
- * 2026-10-26; está na ADR 0005 como divergência consciente.
+ * 2026-10-26; está na ADR 0006 como divergência consciente.
  */
 
 /**

@@ -92,10 +92,13 @@ export function TelaTarefas({
   eu,
   podeEquipe,
   podeReceber,
+  podeValores,
 }: {
   eu: string
   podeEquipe: boolean
   podeReceber: boolean
+  /** Repassado ao montador do orçamento, dentro do cartão da jornada. */
+  podeValores: boolean
 }) {
   const [f, setF] = useState<Filtros>(VAZIOS)
   const [busca, setBusca] = useState('')
@@ -379,6 +382,7 @@ export function TelaTarefas({
                 eu={eu}
                 podeEquipe={podeEquipe}
                 podeReceber={podeReceber}
+                podeValores={podeValores}
                 acoes={{ ...acoes, mover }}
               />
             ))

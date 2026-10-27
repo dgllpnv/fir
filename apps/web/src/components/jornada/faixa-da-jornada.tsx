@@ -8,6 +8,11 @@ import { acoesDaEtapa, contextoDaEtapa } from '@/lib/acoes-da-etapa'
 import { chamar } from '@/lib/api'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto, linkDeWhatsApp, somarDiasNaTela } from '@/lib/formato'
+import {
+  Montador,
+  montadorVazio,
+  type EstadoDoMontador,
+} from '../programas/montador'
 
 /**
  * A JORNADA DENTRO DO PRÓPRIO CARTÃO — sem modal e sem outra tela.
@@ -43,9 +48,29 @@ type Props = {
   readonly mover: MoverEtapa
   /** `temPerm(…, 'receber')`. Sem ela, "Fechou" não aparece (decisão D-7). */
   readonly podeReceber: boolean
+  /**
+   * `temPerm(…, 'valores')`. Sem ela, o campo de valor do ITEM não aparece no
+   * montador do orçamento.
+   *
+   * **E isto não é um `if` sobre dinheiro já redigido** — a proibição de
+   * `docs/design.md` é sobre ESCONDER valor que o servidor mandou. Aqui o
+   * campo é de ENTRADA: é o preço que a pessoa vai digitar, e quem não tem
+   * `valores` não digita preço. Mostrá-lo seria oferecer um campo cujo envio o
+   * servidor recusaria.
+   *
+   * `false` por omissão, para que um chamador novo não exponha o campo por
+   * esquecimento: o padrão seguro é o que mostra menos.
+   */
+  readonly podeValores?: boolean
 }
 
-export function FaixaDaJornada({ tarefa: t, hoje, mover, podeReceber }: Props) {
+export function FaixaDaJornada({
+  tarefa: t,
+  hoje,
+  mover,
+  podeReceber,
+  podeValores = false,
+}: Props) {
   const [emForm, setEmForm] = useState<AcaoDeJornada | null>(null)
   if (t.etapa === null) return null
 
@@ -125,6 +150,7 @@ export function FaixaDaJornada({ tarefa: t, hoje, mover, podeReceber }: Props) {
           acao={emForm}
           tarefa={t}
           hoje={hoje}
+          podeValores={podeValores}
           aoFechar={() => setEmForm(null)}
           aoSalvar={async (corpo) => {
             await mover(t.id, corpo)
@@ -208,13 +234,23 @@ function FormularioDaAcao({
   hoje,
   aoFechar,
   aoSalvar,
+  podeValores,
 }: {
   acao: AcaoDeJornada
   tarefa: TarefaNaLista
   hoje: string
   aoFechar: () => void
   aoSalvar: (corpo: Record<string, unknown>) => Promise<void>
+  podeValores: boolean
 }) {
+  /**
+   * O cartão **já traz** uma proposta de programa?
+   *
+   * `programaOrcado` chega na `TarefaNaLista` desde o épico 3. É ele que decide
+   * se o fechamento precisa perguntar a data de início — e perguntar quando não
+   * há proposta seria um campo sem efeito, que ensina a equipe a clicar sem ler.
+   */
+  const temProposta = t.programaOrcado !== null && t.programaOrcado.length > 0
   const [prazo, setPrazo] = useState(t.prazo >= hoje ? t.prazo : hoje)
   const [hora, setHora] = useState(t.hora ?? '')
   const [nota, setNota] = useState('')
@@ -226,6 +262,27 @@ function FormularioDaAcao({
   const [entrada, setEntrada] = useState('')
   const [aberto, setAberto] = useState('')
   const [forma, setForma] = useState<(typeof FORMAS)[number]>(FORMAS[0])
+  /**
+   * A caixa **"É um programa: montar agora"** do `registrarOrcamento`, e o
+   * montador por trás dela — **o MESMO componente de Nova adesão** (MANUAL
+   * cap. 8: três entradas, um montador). Duplicá-lo é como a terceira entrada
+   * deixa de aceitar `depoisDe` e ninguém percebe — e `depoisDe` é a escalada
+   * de dose, que é a razão de `itens[]` existir.
+   *
+   * A proposta **não tem data**, só `depoisDe`: o início é informado no
+   * FECHAMENTO. Por isso o montador aqui nasce com a data de hoje e ela não
+   * atravessa para o corpo.
+   */
+  const [ehPrograma, setEhPrograma] = useState(false)
+  const [montagem, setMontagem] = useState<EstadoDoMontador>(() => montadorVazio(hoje))
+  /**
+   * O **início do programa**, no `fechar` — e só quando o cartão traz proposta.
+   *
+   * Nasce em HOJE, o dia do servidor, e o campo é OPCIONAL no contrato: não
+   * mandar significa "hoje da clínica", decidido lá. A tela **mostra** o que o
+   * servidor faria; ela não é a autoridade da data (regra 24).
+   */
+  const [inicioDoPrograma, setInicioDoPrograma] = useState(hoje)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
@@ -263,12 +320,39 @@ function FormularioDaAcao({
       case 'registrarOrcamento': {
         const centavos = centavosDoTexto(valor)
         if (centavos === null || centavos <= 0n) return 'Informe o valor do orçamento.'
+        /**
+         * O PROGRAMA PROPOSTO, quando a caixa está marcada.
+         *
+         * `ItemOrcado` não tem `inicio`: a proposta diz **o quê**, e o
+         * fechamento diz **quando**. O item sem procedimento é recusado aqui,
+         * antes do envio, porque o 400 do contrato chegaria com o caminho de
+         * um campo que a pessoa vê vazio na tela.
+         */
+        if (ehPrograma && montagem.itens.some((x) => x.procedimentoId === '')) {
+          return 'Escolha o procedimento de cada item do programa.'
+        }
         return {
           acao,
           // STRING DE CENTAVOS. `JSON.stringify` de um `bigint` lança, e de um
           // `number` perderia o centavo que a regra 1 existe para guardar.
           valor: centavos.toString(),
           retomarEm: quando,
+          ...(ehPrograma
+            ? {
+                programa: montagem.itens.map((x) => ({
+                  chave: x.chave,
+                  procedimentoId: x.procedimentoId,
+                  sessoes: x.sessoes,
+                  intervaloDias: x.intervaloDias,
+                  ...(x.depoisDe === '' ? {} : { depoisDe: x.depoisDe }),
+                  ...(x.responsavelId === '' ? {} : { responsavelId: x.responsavelId }),
+                  ...(x.dose === '' ? {} : { dose: x.dose }),
+                  ...(x.valor.trim() === ''
+                    ? {}
+                    : { valor: (centavosDoTexto(x.valor) ?? 0n).toString() }),
+                })),
+              }
+            : {}),
           ...comNota,
         }
       }
@@ -286,6 +370,14 @@ function FormularioDaAcao({
         return {
           acao,
           recebimento: { valor: valorEntrada.toString(), forma, valorAberto: emAberto.toString() },
+          /**
+           * `inicioDoPrograma` só viaja quando há proposta a montar.
+           *
+           * Mandá-lo num fechamento sem programa seria descrever uma
+           * requisição que não é esta — o contrato o aceita, o serviço o
+           * ignoraria, e o campo passaria a existir sem significado.
+           */
+          ...(temProposta ? { inicioDoPrograma } : {}),
           ...comNota,
         }
       }
@@ -328,6 +420,41 @@ function FormularioDaAcao({
             <input type="date" value={quando} onChange={(e) => setQuando(e.target.value)} />
           </label>
         </div>
+      ) : null}
+
+      {/*
+        "É UM PROGRAMA: MONTAR AGORA" — a terceira entrada do montador.
+
+        A proposta fica guardada no cartão (`tarefas.programa_orcado`) e o
+        `fechar` a monta **na mesma transação do pagamento**. Montar o programa
+        só no fechamento é o que impede o caso do protótipo: lá são duas
+        chamadas do cliente, e entre elas cabe uma rede que cai — a paciente
+        paga, o programa existe, e o cartão continua em "Orçamentos em aberto".
+      */}
+      {acao === 'registrarOrcamento' ? (
+        <>
+          <label
+            className="campo"
+            style={{ display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'center' }}
+          >
+            <input
+              type="checkbox"
+              checked={ehPrograma}
+              style={{ width: 'auto' }}
+              onChange={(e) => setEhPrograma(e.target.checked)}
+            />
+            É um programa: montar agora
+          </label>
+          {ehPrograma ? (
+            <>
+              <p className="nota">
+                As sessões só nascem quando o orçamento <b>fechar</b> — e aí a data de início é
+                informada no fechamento. Aqui ficam o procedimento, as sessões e o encadeamento.
+              </p>
+              <Montador estado={montagem} aoMudar={setMontagem} podeValores={podeValores} />
+            </>
+          ) : null}
+        </>
       ) : null}
 
       {acao === 'followUp' ? (
@@ -377,6 +504,32 @@ function FormularioDaAcao({
               onChange={(e) => setAberto(e.target.value)}
             />
           </label>
+
+          {/*
+            O INÍCIO DO PROGRAMA, e só quando há proposta.
+
+            Fechar este cartão vai **montar o programa**: `n` sessões na agenda
+            da enfermagem, a partir desta data. O campo nasce em hoje — o dia
+            do servidor —, e é o único momento em que alguém escolhe quando o
+            tratamento começa.
+          */}
+          {temProposta ? (
+            <>
+              <p className="nota">
+                Ao fechar, o programa é montado e as sessões entram na agenda — na mesma transação
+                do pagamento.
+              </p>
+              <label className="campo" style={{ maxWidth: 260 }}>
+                Data da primeira sessão
+                <input
+                  type="date"
+                  className="num"
+                  value={inicioDoPrograma}
+                  onChange={(e) => setInicioDoPrograma(e.target.value)}
+                />
+              </label>
+            </>
+          ) : null}
         </>
       ) : null}
 

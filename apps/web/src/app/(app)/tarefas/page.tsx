@@ -18,5 +18,12 @@ export default async function Tarefas() {
   const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
   const podeEquipe = temPerm(quem, perfis, 'tarefas.equipe')
   const podeReceber = temPerm(quem, perfis, 'receber')
-  return <TelaTarefas eu={eu.usuario.id} podeEquipe={podeEquipe} podeReceber={podeReceber} />
+  return (
+    <TelaTarefas
+      eu={eu.usuario.id}
+      podeEquipe={podeEquipe}
+      podeReceber={podeReceber}
+      podeValores={temPerm(quem, perfis, 'valores')}
+    />
+  )
 }

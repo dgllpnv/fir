@@ -20,6 +20,12 @@ O legado carrega três gerações de nomes para as mesmas coisas. Essa dívida s
 | `admin = true/false` | `Perfil de acesso` com `permissões` | O booleano foi substituído pela matriz; usá-lo reintroduz o modelo antigo |
 | `qtd` sem unidade | `Quantidade` com `medida` | Quantidade sem unidade é a origem da dose errada |
 
+**A única exceção, e ela é deliberada:** o **nome do tipo de tarefa** continua `'Sessão de plano'`
+(`TIPO_SESSAO`, em `packages/domain/src/tipos-de-tarefa.ts`). É a string gravada em milhares de
+linhas nas 4 clínicas; renomeá-la obrigaria o migrador a reescrever dado para ganhar nada. **Não
+"corrija" essa constante.** O rótulo que a usuária lê não é o nome do tipo — ele sai de
+`itens_do_programa.rotulo_sessao`.
+
 ---
 
 ## Os dois value objects
@@ -96,6 +102,23 @@ Dinheiro que entra. *"Atendimento é tarefa; dinheiro é recebimento."*
 
 `Orçamento` **não** é recebimento: `valorOrcamento` nunca entra em receita, LTV ou meta.
 
+### `Venda a prazo`
+A linha de `recebimentos` com **`valor = 0`, `valor_aberto > 0` e forma vazia**: o programa fechou, a paciente não pagou nada hoje e deve tudo. Decisão **D-9** do dono (2026-10-26), e o protótipo faz o mesmo — *"fechou, paga depois"*.
+
+Ela existe porque o saldo vem de **uma** fonte (regra 5): sem linha não há dívida registrada, e a clínica que vendeu R$ 3.600 teria zero no sistema.
+
+**Invariantes:**
+- **A linha nunca é vazia:** `CHECK (valor > 0 OR valor_aberto > 0)` — ela registra dinheiro recebido **ou** dinheiro devido. `valor >= 0` sozinho aceitaria uma linha que não registra nada.
+- **Forma vazia ⟺ valor zero** (`CHECK ((valor > 0) = (forma <> ''))`). Não existe forma de pagamento para dinheiro que não se moveu, e "Pix" num recebimento de R$ 0,00 apareceria como um Pix que ninguém fez no primeiro lugar que parasse de filtrar.
+- **`valor` nunca é negativo.** Um recebimento negativo subtrai da receita do dia sem passar por estorno, que é o caminho que a regra 20 fecha.
+
+### `Dinheiro que entrou`
+A pergunta *"quanto entrou"* — e ela **exclui a `Venda a prazo`**. Um filtro só (`DINHEIRO_QUE_ENTROU`), usado pelo **caixa do dia**, pela **lista de recebimentos do dia**, pelo **LTV da paciente** e pela **receita do mês**.
+
+Uma constante e não quatro `WHERE`s, pela mesma razão da regra 17: o quarto lugar não é revisado com o cuidado do primeiro, e o quinto nasce sem o filtro. **Se vazar no caixa**, a conferência acusa uma diferença que não existe e a recepcionista procura por uma hora o erro que ela não cometeu. O protótipo vaza num dos quatro (a lista do dia) — divergência consciente, ver [ADR 0006](docs/adr/0006-programa-montado-por-itens.md).
+
+A pergunta do **saldo** é a oposta e **tem** de incluir a venda a prazo: somar o que a paciente deve é somar `valor_aberto`.
+
 ### `Saldo em aberto`
 Derivado: `aberto − abatido`, **agrupado por `Programa`**, com um grupo geral para o que não é de programa. Nunca campo mutável, nunca colapsado num total só.
 
@@ -125,10 +148,64 @@ O rótulo que liga uma `Tarefa` à rotina que a criou (ex.: `fechamento-do-mes`)
 ### `Procedimento`
 O catálogo da clínica (aba `Planos` no legado). Tem sessões e intervalo **sugeridos**, rótulo da sessão, valor **por sessão**, regra de retorno, e os insumos: `insumoPadrao` mais `insumos[]` fixos.
 
+**Invariantes:**
+- **Sessões e intervalo são sugestão, e mudá-los não toca em quem já está em tratamento.** O MANUAL diz exatamente isso (cap. 11): *"Mudanças de sessões e intervalo valem para novas adesões; quem já está no programa mantém as sessões programadas."* O que torna a frase verdadeira não é disciplina: é que a sessão é **materializada** e o item copia `procedimento_nome` e `rotulo_sessao` no instante da montagem. Nenhum caminho de leitura alcança a agenda de quem já começou. Renomear "Tirzepatida" para "Tirzepatida 5 mg" não reescreve a ficha de ninguém — o agrupamento usa o `procedimento_id`, a leitura usa o nome gravado.
+- **Desativar é um estado** (`ativo`): o procedimento deixa de ser oferecido em adesão nova e **continua montando** uma proposta feita antes da desativação. Excluir é soft delete, e é **recusado** enquanto algum programa ou alguma **proposta viva** (`tarefas.programa_orcado`) o usar.
+
 ### `Programa`
 Montado **por paciente**, com vários `Item do programa` — cada um com seu procedimento, sessões, intervalo, dose e início (data própria, início do programa, ou `depoisDe` outro item). Ex.: Tirzepatida 4× 2,5 mg, depois 4× 5 mg.
 
-Programa antigo sem `itens` é lido como um programa de um item `i1` — conversão de **leitura**, derivada, nunca gravada.
+**Invariantes:**
+- **Não existe programa sem itens.** O `Code.gs` da v20 tem uma adesão = **um** `planoId`; a conversão *"adesão antiga = programa de um item `i1`"* acontece **uma vez, no migrador do épico 9**, e o runtime nunca deriva nada. É o mesmo movimento de `etapaDerivada` na ADR 0004 — o migrador deriva, a leitura não.
+- **Nenhum número derivado é gravado:** nem `sessoes`, nem `saldo`, nem `recebido`, nem `valor_total`, nem o nome do programa. O legado guarda os cinco. O nome sai da concatenação dos `procedimento_nome` dos itens; o total, da soma de `itens_do_programa.valor`; o recebido e o saldo, de `recebimentos`. Cada campo desses é um segundo número para a mesma pergunta, e o segundo é o que fica errado.
+- **`Σ itens.valor = valorTotal`, exatamente.** O valor negociado é rateado entre os **itens**, proporcional a valor de referência × sessões, nunca entre as sessões — é por item que a clínica encerra, troca ou desconta.
+- **Encerrar e excluir são rotas diferentes porque a intenção é diferente.** Encerrar é *a paciente parou*: `situacao = 'encerrado'`, sessões abertas canceladas, realizadas no histórico, **estoque intocado** (as doses saíram do frasco). Excluir é *o registro foi feito por engano*: soft delete, compensação no estoque, e **recusado quando há recebimento vivo** (D-8). Ver [ADR 0006](docs/adr/0006-programa-montado-por-itens.md).
+
+### `Item do programa`
+Um `Procedimento` dentro do `Programa`, com **sessões, intervalo, dose e início próprios**. É o que torna a escalada de dose **um** tratamento: Tirzepatida 4× 2,5 mg e depois 4× 5 mg são dois itens de um programa, não duas adesões sem vínculo.
+
+**Invariantes:**
+- **A chave é do programa** (`i1`, `i2`), e é por ela que a sessão, o contato de retorno e a reprogramação se referem ao item. Repetida, é recusada.
+- **O início é uma de três coisas:** data própria, o início do programa, ou **`depoisDe` outro item**. No encadeamento, **o intervalo é o do filho, não o do pai** — item mensal que segue item semanal começa 30 dias depois da última sessão do pai, não 7. Medido no protótipo rodando; um teste com 7 e 7 nos dois itens não distingue as duas implementações, que é exatamente o caso com que todo mundo confere.
+- **Ciclo em `depoisDe` é recusado, nomeando o item.** No protótipo `i1 depoisDe i2` com `i2 depoisDe i1` passa, e o programa nasce sem sessão nenhuma, em silêncio.
+- **`procedimento_nome` e `rotulo_sessao` são copiados no instante da montagem.** É o que protege quem já começou da edição do catálogo.
+- **A dose nunca anda sem a unidade:** `insumo_milesimos` (inteiro, regra 8) e `insumo_unidade` viajam e são gravados juntos, ou nenhum dos dois. Quantidade sem unidade é a origem da dose errada.
+- **`valor` é preço negociado, não recebimento.** Ele não entra em receita, LTV nem meta (regra 4, pelo espírito). A soma dos `valor` dos itens é **exatamente** o valor total do programa.
+- **Limite:** 12 itens na montagem, 10 na proposta do orçamento. Não se contradizem — a proposta é subconjunto da montagem.
+- **O intervalo vai a 365 dias** no item (é o caso real: um retorno anual), e a 180 no catálogo (é sugestão).
+
+### `Sessão`
+Uma `Tarefa` de tipo `'Sessão de plano'`, **numerada dentro do seu item** (`5/12` do item `i1`, não do programa).
+
+**Invariantes:**
+- **A sessão é materializada, não derivada.** Uma linha por sessão, escrita **uma vez** na montagem, com `programa_id`, `item_chave`, `sessao_indice` e `sessao_total`. O programa não recalcula a agenda a cada leitura: ele só a **move** quando alguém pede. Uma sessão cancelada continua existindo; uma sessão reprogramada não vira outra.
+- **A numeração é do item, e é única nele** (`UNIQUE (programa_id, item_chave, sessao_indice)`). Ser sessão implica ter os quatro campos, com `indice BETWEEN 1 AND total`; e **só** sessão é numerada — um follow-up com `sessao_indice` é dado que nenhuma tela sabe mostrar.
+- **Não se exclui uma sessão**: cancele-a, ou encerre o programa. Excluir abre buraco na numeração (`5/12` sem `6/12`), e é a numeração que a reprogramação usa para saber o que vem depois.
+- **Concluir uma sessão tem rota própria**, e `POST /v1/tarefas/:id/concluir` a recusa. Concluir uma sessão não é concluir uma tarefa: ela reprograma as seguintes, dá baixa no estoque e, na última do item, cria o `Contato de retorno`.
+- **Reprogramar é escolha obrigatória no corpo, nunca padrão.** Um padrão silencioso move a agenda de doze aplicações sem ninguém ter pedido, e o movimento só aparece na semana seguinte.
+- **Sessão concluída não conta na jornada.** Contá-la faria doze aplicações de uma paciente virarem doze atendimentos no denominador da conversão.
+
+**O nome do tipo é `'Sessão de plano'`, e isso é deliberado** — é a string gravada em milhares de linhas nas 4 clínicas, e renomeá-la obrigaria o migrador a reescrever dado para ganhar nada. **O rótulo que a usuária lê não é o nome do tipo:** ele sai de `itens_do_programa.rotulo_sessao` ("Aplicação 5/12 · Tirzepatida 2,5 mg"). O termo proibido `plano` continua proibido em todo o resto.
+
+### `Modo de cobrança`
+Como o programa cobra: **`saldo`** quando a adesão abriu valor em aberto (a paciente deve, e a dívida aparece no `Saldo em aberto` agrupada por este programa) ou **`avulso`** quando cada sessão registra o que foi pago no dia.
+
+**Invariantes:** é **derivado uma vez, na montagem**, do pagamento informado — não um campo que a recepção escolhe numa lista. Os dois legados fazem a mesma conta (`saldo` se `valorAberto > 0`, senão `avulso`), e a conferência do épico 9 compara o valor campo a campo.
+
+### `Contato de retorno`
+A `Tarefa` criada **sozinha** quando o último item termina, para a paciente repetir o procedimento.
+
+```
+podeEm = última sessão do item + quantidade (meses ou dias)
+prazo  = podeEm − antecedência
+se prazo < hoje da clínica  →  prazo = hoje da clínica
+```
+
+**Invariantes:**
+- **Um por item**, não um por adesão — e nasce só quando não restam sessões abertas **daquele item**, não há retorno vivo dele, o programa não está encerrado e o procedimento tem regra de retorno. Para o dado migrado (um item `i1`) as duas regras coincidem, e é isso que o épico 9 cobra.
+- **A aritmética de mês é a regra 25**: 4 meses de 31/01 cai no último dia do mês curto, pelo `somarMeses` que já existe. Escrita à mão, ela devolve 03/03 em vez de 28/02.
+- **O prazo nunca nasce no passado**, e `hoje` é o do **servidor**, no fuso da clínica (regra 24) — o protótipo usa o relógio do navegador. Sem o clamp, um retorno calculado a partir de uma sessão antiga nasce *"atrasado há cinco meses"*, e a lista de hoje abre com um cartão vermelho que ninguém atrasou.
+- **Aderir de novo cancela o retorno antigo** do mesmo paciente + procedimento, com `obs: 'Paciente refez o procedimento'`. Sem isso, quem acabou de comprar o tratamento recebe a ligação de *"você já pode repetir"*.
 
 ### `Item de estoque`
 Três unidades, e as conversões vivem **no cadastro**:
@@ -166,6 +243,11 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 |---|---|
 | **Recontatar** | Agendamentos com no-show ou desmarcação aguardando novo contato |
 | **Item do programa** | Um procedimento dentro do programa, com sessões, intervalo, dose e início |
+| **Sessão** | Uma `Tarefa` de tipo `'Sessão de plano'`, numerada **dentro do seu item** |
+| **Modo de cobrança** | `saldo` (a adesão abriu valor em aberto) ou `avulso` (cada sessão registra o que pagou) |
+| **Contato de retorno** | A tarefa criada sozinha ao fim de um item, para a paciente repetir o procedimento |
+| **Venda a prazo** | Recebimento de `valor = 0` com `valor_aberto > 0`: o programa fechou, ela paga depois |
+| **Dinheiro que entrou** | A pergunta "quanto entrou", que exclui a venda a prazo. Um filtro, quatro consultas |
 | **Unidade de estoque / compra / uso** | Como se conta / como se compra / como se aplica |
 | **Contagem às cegas** | Contagem sem mostrar a quantidade esperada |
 | **Caixa às cegas** | Conferência do caixa sem mostrar o valor registrado |
@@ -180,3 +262,25 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 | **Marcador de rotina** | O rótulo que liga uma tarefa à rotina que a criou |
 | **Perfil de acesso** | Conjunto de permissões por pilar |
 | **Pilar** | Dia a dia · Comercial · Financeiro · Processos · Pessoas · Gestão |
+
+---
+
+## Onde a regra deste arquivo já foi quebrada
+
+A regra do topo — *termo novo entra aqui primeiro, e só depois vira código* — foi invertida uma
+vez, e vale registrar em vez de apagar.
+
+**`Modo de cobrança` e `Contato de retorno` viraram coluna de banco antes de entrar neste
+arquivo.** `programas.modo_de_cobranca` e as colunas de retorno de `procedimentos` nasceram na
+migration `0010`, e os verbetes só chegaram no fechamento do épico 5. **Não deu defeito porque os
+dois nomes vieram prontos do protótipo** (`modo: 'saldo' | 'avulso'` e `retorno`/`antecedencia`),
+então código, banco e tela já concordavam — o glossário só confirmou o que estava escrito.
+
+O que isso custou é o que a regra existe para evitar: durante o épico inteiro, as **invariantes**
+dos dois termos moravam só em comentário de serviço e em `CHECK` de migration. Quem tivesse
+precisado saber se o modo é escolhido ou derivado teria de ler o montador para descobrir. Migration
+aplicada não se edita, então inverter a ordem significa que um nome mal escolhido vira dívida de
+esquema — e aí a correção deixa de ser de uma linha neste arquivo.
+
+**Para a próxima entidade:** o verbete antes da migration. Custa dez minutos, e é o momento em que
+um nome ambíguo ainda é barato de trocar.

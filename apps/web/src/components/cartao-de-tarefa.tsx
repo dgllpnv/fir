@@ -46,6 +46,8 @@ type Props = {
   readonly podeEquipe: boolean
   /** `temPerm(…, 'receber')`. Sem ela, "Fechou" some da faixa (D-7). */
   readonly podeReceber?: boolean
+  /** Repassado a `FaixaDaJornada`: o campo de valor do ITEM no montador. */
+  readonly podeValores?: boolean
   readonly acoes: AcoesDoCartao
   /** Em Hoje o prazo é redundante — a tela inteira já é daquele dia. */
   readonly semPrazo?: boolean
@@ -57,6 +59,7 @@ export function CartaoDeTarefa({
   eu,
   podeEquipe,
   podeReceber = true,
+  podeValores = false,
   acoes,
   semPrazo,
 }: Props) {
@@ -180,6 +183,7 @@ export function CartaoDeTarefa({
             hoje={hoje}
             mover={acoes.mover}
             podeReceber={podeReceber}
+            podeValores={podeValores}
           />
         )}
 

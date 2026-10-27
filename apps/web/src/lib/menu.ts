@@ -94,7 +94,7 @@ export const MENU: readonly ItemDeMenu[] = [
       'Cadastro, histórico e ficha do paciente, com o saldo em aberto por programa.',
   },
   { href: '/programas', rotulo: 'Programas', grupo: 'Comercial', perm: 'programas',
-    epico: 5,
+    epico: null,
     promessa:
       'Programa montado por itens, sessões da enfermagem e retorno por item.',
   },
@@ -169,8 +169,18 @@ export const MENU: readonly ItemDeMenu[] = [
     href: '/procedimentos',
     rotulo: 'Procedimentos',
     grupo: 'Gestão',
-    perm: 'programas.gerir',
-    epico: 5,
+    /**
+     * `config` e **não** `programas.gerir` — e isto é a API falando.
+     *
+     * `CatalogoController` exige `programas` para LER e `config` para cada
+     * escrita (salvar, editar, excluir). O catálogo é **configuração** da
+     * clínica, não operação do dia: quem monta programas usa o catálogo; quem
+     * o EDITA muda o que toda nova adesão vai sugerir. Pôr `programas.gerir`
+     * no menu mostraria a tela a quem só consegue ler dentro dela — que é
+     * exactamente o tipo de item que ensina a equipe a tocar e levar 403.
+     */
+    perm: 'config',
+    epico: null,
     promessa: 'O catálogo de procedimentos, com os insumos que cada um consome.',
   },
   {

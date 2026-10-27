@@ -51,11 +51,12 @@ Etapas, `historico`, envio de confirmação, **Recontatar**, orçamento com prog
 
 **Fica pronto:** o módulo mais intrincado, e o que a implantação de 30 dias mais exige da clínica.
 **Depende de:** épico 5 (a baixa vem da sessão concluída).
+**Como a baixa entra:** pelo seam **`BaixaDeInsumos`**, trocando `BaixaInerte` por a implementação de verdade — uma linha em `programas.module.ts`, como o épico 5 fez com o `MontadorDePrograma`. Os três invariantes que ela tem de honrar já têm teste nesta árvore.
 **Ensaie antes:** a reversão. Concluir → reabrir → concluir → reabrir tem de devolver o saldo ao ponto inicial, com o mesmo lote.
 
 ## Épico 7 — Pessoas
 
-Fichas, contrato, férias, documentos com validade, metas mensais (automáticas e manuais), conversas 1:1, banco de horas, alertas.
+Fichas, contrato, férias, documentos com validade, metas mensais (automáticas e manuais), conversas 1:1, banco de horas, alertas — e a tela **"Minhas metas"**, que estava no épico 5 por engano meu (ver a correção lá). Ela lê ficha de RH, as metas do mês e os **8 indicadores `IND_PES`**, que são contagens derivadas e é onde número divergente vai aparecer na migração; `paridade.md` sempre a listou aqui.
 
 **Fica pronto:** a gestão de equipe, com salário atrás de `pessoas.gerir`.
 **Serve também** clínicas maiores e multiunidade, junto com Tarefas.

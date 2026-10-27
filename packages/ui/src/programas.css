@@ -1,0 +1,225 @@
+/* ==========================================================================
+   PROGRAMAS — o que a tela de programa tem e as outras não.
+   ==========================================================================
+
+   Arquivo curto de propósito. O cartão de sessão reusa `.tarefa`, os
+   indicadores reusam `.indicador`, a lista reusa `.linha`, o painel reusa
+   `.painel` e `.pergunta`. O que entra aqui é só o que não existia:
+
+     - o AVISO DE SALDO, que precisa ler como aviso e não como etiqueta;
+     - a SEÇÃO POR ITEM da ficha do programa;
+     - a LINHA DO MONTADOR, com os campos raros recolhidos.
+
+   Nenhum gradiente decorativo, nenhum roxo, nenhuma sombra de profundidade
+   falsa (`docs/design.md` §3). `--gold` é traço; `--gold-ink` é texto.
+   ========================================================================== */
+
+/* ---------------------------------------------- `.linha` como BOTÃO */
+
+/**
+ * `.linha` nasceu para `<a>` e `<div>`. O catálogo de procedimentos a usa como
+ * `<button>`, porque a linha **abre a edição ali mesmo** em vez de navegar — e
+ * um `<a href="#">` que não navega é um link mentindo para o leitor de tela.
+ *
+ * O botão traz três padrões do agente de usuário que a linha não quer:
+ * `text-align: center`, `font` próprio e `background`/`border` de controle.
+ * Medido na tela: sem isto o nome do procedimento e a linha-resumo saem
+ * **centralizados**, e a coluna de "N pacientes ativos" deixa de alinhar à
+ * direita — que é o contrário do que `docs/design.md` pede de uma coluna
+ * comparável.
+ */
+button.linha {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+button.linha:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: -2px;
+}
+
+/* --------------------------------------------------------- aviso de saldo */
+
+/**
+ * Lê como AVISO, e por isso usa a tinta de atenção — não a dourada.
+ *
+ * `--warn-ink` e não `--warn`: o token sem `-ink` reprova em AA como texto
+ * sobre fundo claro (4,20:1), e foi por isso que `--warn-ink` existe.
+ */
+.aviso-de-saldo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: var(--r);
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.aviso-de-saldo > b {
+  color: var(--warn-ink);
+}
+.aviso-de-saldo .num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--warn-ink);
+}
+
+/* ------------------------------------------------- a seção por item, ficha */
+
+.item-do-programa {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.item-do-programa > header {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.item-do-programa > header > b {
+  font-family: var(--display);
+  font-size: 16px;
+}
+/* A linha de resumo do item: dose, intervalo, responsável, valor. */
+.item-do-programa .resumo-do-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.item-do-programa .resumo-do-item .num {
+  font-variant-numeric: tabular-nums;
+}
+.item-do-programa > .sessoes {
+  display: grid;
+  padding: 10px 10px 4px;
+}
+
+/* ------------------------------------------------ progresso, na lista e na ficha */
+
+/**
+ * A barra é um DESENHO; o número é o texto ao lado.
+ *
+ * O percentual vem do servidor, e `larguraDaBarra` o limita a 100 — uma barra
+ * que passa do fim não diz nada, e o número já conta a história.
+ */
+.progresso {
+  display: grid;
+  gap: 4px;
+}
+.progresso > .texto {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.progresso > .trilha {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--line);
+  overflow: hidden;
+}
+.progresso > .trilha > i {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+}
+.progresso[data-situacao='atrasado'] > .trilha > i {
+  background: var(--bad);
+}
+.progresso[data-situacao='encerrado'] > .trilha > i {
+  background: var(--muted);
+}
+.progresso[data-situacao='concluido'] > .trilha > i {
+  background: var(--ok);
+}
+
+/* ------------------------------------------------------- linha do montador */
+
+/**
+ * Uma linha por procedimento. **Fechada, mostra TRÊS campos** — procedimento,
+ * sessões e quando começa —, medido no protótipo. O resto fica atrás de
+ * "Ajustar intervalo, dose, responsável e valor", porque campo raro numa tela
+ * de rotina tem custo e precisa ser pago (`docs/design.md` §1).
+ */
+.item-montado {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  background: var(--surface);
+}
+.item-montado > .cabeca {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.item-montado > .cabeca > b {
+  font-size: 13px;
+}
+.item-montado .tres {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr;
+}
+.item-montado .ajustes {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.item-montado > details > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gold-ink);
+  list-style: none;
+}
+.item-montado > details > summary::-webkit-details-marker {
+  display: none;
+}
+.item-montado > details > summary::before {
+  content: '+ ';
+}
+.item-montado > details[open] > summary::before {
+  content: '− ';
+}
+
+/* A prévia do cronograma, calculada pelo DOMÍNIO e só formatada aqui. */
+.previa-do-cronograma {
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+/**
+ * **390 px é o caso principal**, e o desktop é a tela larga do mesmo desenho.
+ *
+ * Duas colunas só a partir de 560 px, e nunca três: a terceira coluna é o que
+ * faz a página rolar na horizontal no aparelho da recepção.
+ */
+@media (min-width: 560px) {
+  .item-montado .tres,
+  .item-montado .ajustes {
+    grid-template-columns: 1fr 1fr;
+  }
+}

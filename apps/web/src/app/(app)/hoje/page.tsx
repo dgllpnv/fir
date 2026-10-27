@@ -19,5 +19,12 @@ export default async function Hoje() {
   // `fechar` cria dinheiro, e o servidor exige `receber` além de `jornada`
   // (decisão D-7). Aqui só se decide se o BOTÃO aparece.
   const podeReceber = temPerm(quem, perfis, 'receber')
-  return <TelaHoje eu={eu.usuario.id} podeEquipe={podeEquipe} podeReceber={podeReceber} />
+  return (
+    <TelaHoje
+      eu={eu.usuario.id}
+      podeEquipe={podeEquipe}
+      podeReceber={podeReceber}
+      podeValores={temPerm(quem, perfis, 'valores')}
+    />
+  )
 }

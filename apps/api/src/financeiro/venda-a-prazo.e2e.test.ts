@@ -39,7 +39,7 @@ import {
  * | lista do dia | `ehReceb` dá `true` por `ehPagamento(tipo)` — **VAZA** | exclui |
  * | LTV | `soma(rec)` não muda; `pagamentos` conta só `valor > 0` | exclui |
  *
- * A linha do meio é **divergência consciente** (ADR 0005): no protótipo a
+ * A linha do meio é **divergência consciente** (ADR 0006): no protótipo a
  * seção "Recebimentos de hoje" ganha uma linha de `R$ 0,00` com forma vazia, e
  * o contador do cabeçalho a soma. É exatamente o ruído que D-9 proíbe.
  */

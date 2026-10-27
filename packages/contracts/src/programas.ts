@@ -502,6 +502,19 @@ export type ConsultaDeProgramas = z.infer<typeof ConsultaDeProgramas>
  * trinta cartões e parar de olhar.
  */
 export const PainelDeProgramas = z.object({
+  /**
+   * **O dia civil de hoje, no fuso da CLÍNICA — do servidor** (regra 24).
+   *
+   * A tela precisa dele para duas coisas: o campo "data de realização" do
+   * painel de conclusão nasce nele, e é contra ele que a pergunta da
+   * reprogramação decide se há algo a mover.
+   *
+   * Vem na resposta, e não de `new Date()` no navegador, porque o relógio do
+   * cliente não é autoridade sobre data de negócio: um computador de balcão
+   * com a data errada registraria a aplicação no dia que ele acha que é — e
+   * reprogramaria doze sessões a partir dele.
+   */
+  hoje: DiaCivil,
   indicadores: IndicadoresDeProgramas,
   agenda: z.object({
     atrasadas: z.array(SessaoNaAgenda),
@@ -572,6 +585,14 @@ export type ItemNaFicha = z.infer<typeof ItemNaFicha>
  */
 export const FichaDoPrograma = z.object({
   id: Uuid,
+  /**
+   * O dia civil de hoje, no fuso da CLÍNICA — **do servidor** (regra 24).
+   *
+   * A ficha conclui sessão, e o painel de conclusão nasce com a data de hoje.
+   * Tirá-la de `new Date()` seria o relógio do cliente decidindo quando a
+   * aplicação aconteceu.
+   */
+  hoje: DiaCivil,
   pacienteId: Uuid,
   pacienteNome: z.string(),
   pacienteTelefone: z.string(),

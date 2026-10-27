@@ -1,12 +1,14 @@
 'use client'
 
-import type { Escopo, HojeComFinanceiro, TarefaNaLista } from '@fir/contracts'
+import type { Escopo, HojeComProgramas, TarefaNaLista } from '@fir/contracts'
 import { useState } from 'react'
+import { chamar } from '@/lib/api'
 import { useAcoesDeTarefa } from '@/lib/acoes-de-tarefa'
 import { consultaEmTexto, useDados } from '@/lib/dados'
 import { formatarDinheiro } from '@fir/ui'
 import { centavos as centavosDoTexto } from '@/lib/financeiro'
 import { diaEmTexto, linkDeWhatsApp, plural, rotuloDoDia } from '@/lib/formato'
+import { CartaoDeSessao, corpoDaSessao } from './programas/cartao-de-sessao'
 import { CartaoDeTarefa } from './cartao-de-tarefa'
 import { Carregando, Erro, Toast } from './estados'
 import { PainelDeEdicao } from './painel-de-edicao'
@@ -29,16 +31,19 @@ export function TelaHoje({
   eu,
   podeEquipe,
   podeReceber,
+  podeValores,
 }: {
   eu: string
   podeEquipe: boolean
   podeReceber: boolean
+  /** Repassado ao montador do orçamento, dentro do cartão da jornada. */
+  podeValores: boolean
 }) {
   const [dia, setDia] = useState<string | null>(null)
   const [escopo, setEscopo] = useState<Escopo>('meu')
 
   const caminho = `v1/hoje${consultaEmTexto({ dia: dia ?? undefined, escopo })}`
-  const { dados, carregando, erro, recarregar } = useDados<HojeComFinanceiro>(caminho)
+  const { dados, carregando, erro, recarregar } = useDados<HojeComProgramas>(caminho)
 
   // Concluir, cancelar, reabrir e editar são as MESMAS quatro ações da tela
   // Tarefas, e moram num lugar só. Ver `lib/acoes-de-tarefa.ts`.
@@ -287,6 +292,61 @@ export function TelaHoje({
                   </a>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/*
+            SESSÕES DE PROGRAMAS — bloco próprio, **depois do financeiro e
+            antes das concluídas**, com as ATRASADAS PRIMEIRO (medido no
+            protótipo: a seção se chama "SESSÕES DE PROGRAMAS" e é separada).
+
+            O bloco é próprio porque uma paciente de doze aplicações semanais
+            poria doze cartões nas listas do dia; com dez pacientes em
+            programa, a recepção veria cento e vinte "pendentes" e pararia de
+            olhar. O servidor já as tira de `tarefas`, de `pendentes` e das
+            bolinhas da semana (`FORA_DO_RECONTATO`).
+
+            Vazio sem a permissão `programas`, e aí a seção não existe.
+
+            O círculo abre o painel COM a pergunta da reprogramação — é o mesmo
+            `CartaoDeSessao` da tela Programas, não uma segunda versão dele:
+            concluir pela rota genérica daqui faria três dos quatro efeitos da
+            sessão não acontecerem, e o servidor recusa por isso (P-5).
+          */}
+          {dados.dia !== dados.hoje || dados.sessoes.length === 0 ? null : (
+            <div className="grupo">
+              <h3>
+                Sessões de programas
+                <span className="contador">{dados.sessoes.length}</span>
+              </h3>
+              <p className="nota">
+                Aplicações e sessões da equipe para hoje, com as atrasadas primeiro. Ao concluir, a
+                baixa no estoque é feita sozinha.
+              </p>
+              {dados.sessoes.map((s) => (
+                <CartaoDeSessao
+                  key={s.tarefa.id}
+                  item={s}
+                  hoje={dados.hoje}
+                  podeReceber={podeReceber}
+                  aoConcluir={async (id, d) => {
+                    await chamar(`v1/programas/sessoes/${id}/concluir`, {
+                      method: 'POST',
+                      body: JSON.stringify(corpoDaSessao(d)),
+                    })
+                    setRecado('Sessão concluída.')
+                    recarregar()
+                  }}
+                  aoReabrir={async (id) => {
+                    await chamar(`v1/programas/sessoes/${id}/reabrir`, {
+                      method: 'POST',
+                      body: JSON.stringify({}),
+                    })
+                    setRecado('Sessão reaberta. O pagamento foi estornado, se havia.')
+                    recarregar()
+                  }}
+                />
+              ))}
             </div>
           )}
 

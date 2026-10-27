@@ -41,7 +41,7 @@ Legenda de estado: ⬜ não começou · 🟡 em andamento · ✅ pronto e testad
 
 | Ação | v20 | Estado | Nota |
 |---|---|---|---|
-| `moverEtapa` | `POST /v1/tarefas/:id/jornada` · `GET /v1/jornada` | ✅ | Uma rota, união discriminada por ação; motivo de perda obrigatório no servidor; fechamento numa transação; funil contado por `acao` declarada. `fechar` com programa é 501 até o épico 5. Ver ADR 0004 |
+| `moverEtapa` | `POST /v1/tarefas/:id/jornada` · `GET /v1/jornada` | ✅ | Uma rota, união discriminada por ação; motivo de perda obrigatório no servidor; fechamento numa transação; funil contado por `acao` declarada. **`fechar` com programa deixou de ser 501 no épico 5:** ele monta o programa pelo mesmo `MontadorDePrograma` de `POST /v1/programas`, na **mesma transação** do recebimento e da etapa, e o `MontadorIndisponivel` foi apagado. Ver ADR 0004 e [ADR 0006](adr/0006-programa-montado-por-itens.md) |
 
 ## Épico 4 — Financeiro
 
@@ -59,11 +59,11 @@ Legenda de estado: ⬜ não começou · 🟡 em andamento · ✅ pronto e testad
 
 | Ação | v20 | Estado | Nota |
 |---|---|---|---|
-| `salvarPlano` | v20 | ⬜ | `Plano` do legado = **catálogo**. Nunca chamar só "plano" (CONTEXT.md) |
-| `excluirPlano` | v20 | ⬜ | |
-| `criarAdesao` | v20 | ⬜ | `Adesão` do legado = **programa do paciente**. Termo proibido isolado |
-| `encerrarAdesao` | v20 | ⬜ | |
-| `excluirAdesao` | v20 | ⬜ | |
+| `salvarPlano` | v20 | ✅ | `POST /v1/procedimentos` e `PATCH /v1/procedimentos/:id`. **`Plano` virou `Procedimento`** — nunca chamar só "plano" (CONTEXT.md). O `PATCH` é **parcial**: `SalvarProcedimento` tem `.default()`, e usá-lo no `PATCH` reescreveria o rótulo da sessão e apagaria os descartáveis ao desativar um procedimento |
+| `excluirPlano` | v20 | ✅ | `DELETE /v1/procedimentos/:id`. **Soft delete** (regra 20) — o protótipo dá `splice`, o `Code.gs` dá `deleteRow`, e o histórico dessas pacientes depende do item. E a recusa **alcança também as propostas vivas** (`tarefas.programa_orcado`), que nenhum dos dois confere — era o buraco D-J2 do épico 3 |
+| `criarAdesao` | v20 | ✅ | `POST /v1/programas`, com o **mesmo `MontadorDePrograma`** que o `fechar` usa — uma porta só para as duas entradas. **`Adesão` virou `Programa`**, montado por `Item do programa`. `@Exige('programas')` na rota e `receber` cobrado no serviço quando o corpo traz dinheiro: a enfermagem monta o programa, o pagamento vai pela tela Recebimentos. O protótipo não exige nada |
+| `encerrarAdesao` | v20 | ✅ | `POST /v1/programas/:id/encerrar`, com `@Exige('programas.gerir')` no lugar do `me.admin` do `Code.gs`. Sessões abertas e contatos de retorno viram `cancelada`; as realizadas ficam no histórico; o **estoque fica intocado** — as doses saíram do frasco |
+| `excluirAdesao` | v20 | ✅ | `DELETE /v1/programas/:id`. **Soft delete, e recusa (409) quando há recebimento vivo** nas sessões — D-8, e diverge do MANUAL dela. Sessões e contatos de retorno vão com soft delete; o **pagamento da adesão e o cartão de orçamento são desvinculados e preservados**; o estoque é compensado, nunca apagado. Ver [ADR 0006](adr/0006-programa-montado-por-itens.md) |
 
 ## Épico 6 — Estoque
 
@@ -156,6 +156,33 @@ desenhou continua idêntica. É a mesma informação, buscada por partes.
   com a divergência escrita. Não existe divergência silenciosa.
 - O épico 9 só fecha com **as 59 linhas em ✅** e o relatório de conferência por clínica
   batendo exatamente (regra 28: migração sem reconciliação é cópia).
+
+---
+
+## A conferência de migração, escrita antes de migrar
+
+A regra 28 cobra totais que batem **exatamente, por clínica**. As igualdades abaixo são escritas
+**no épico em que o módulo nasce** e executadas no épico 9, e a ordem importa: escrita depois, a
+conferência é desenhada já conhecendo o resultado da migração, e aí ela confirma o migrador em
+vez de medi-lo.
+
+**Um único registro divergente reprova a clínica inteira.** Não existe "99% migrado".
+
+### Épico 5 — programas (as seis que o épico 9 vai cobrar)
+
+| # | A igualdade | Por que esta, e o que ela pega |
+|---|---|---|
+| 1 | **Quantidade de programas** por clínica = quantidade de `Adesoes` vivas da v20 | O piso. Uma adesão que o migrador não enxergou é uma paciente em tratamento que desapareceu da agenda da enfermagem |
+| 2 | **Quantidade de sessões por programa** = quantidade de linhas de `Tarefas` com aquele `adesaoId` | As 4 clínicas já reprogramaram e **cancelaram sessões à mão**. O migrador não recria a série a partir de `(início, n, intervalo)` — ele traz as linhas que existem. Se a contagem bater pela soma e não linha a linha, uma sessão cancelada voltou a existir |
+| 3 | **`Σ itens.sessoes` = `adesoes.sessoes`** da v20 | A v20 **guarda** o derivado; nós não (ADR 0006). A igualdade é o que prova que descartá-lo foi seguro. Divergência aqui significa que a conversão "uma adesão = um item `i1`" perdeu ou inventou sessão |
+| 4 | **`modo_de_cobranca` idêntico**, campo a campo | `saldo` × `avulso` decide se a dívida aparece no `Saldo em aberto`. Errado para menos, a clínica perde a cobrança; errado para mais, ela cobra quem já pagou |
+| 5 | **Saldo por programa idêntico** ao `pacientesComSaldo` da v20 | É a regra 28 escrita no `CLAUDE.md` (*saldo por adesão*), e é a cobrança que a clínica roda toda semana. O nosso saldo é **derivado** de `recebimentos`; o da v20 é campo. Esta é a igualdade que cruza as duas modelagens |
+| 6 | **Contatos de retorno abertos idênticos** | A v20 cria **um por adesão**, nós criamos **um por item** — e para o dado migrado (um item `i1`) as duas regras têm de dar o mesmo resultado. Divergência aqui é a regra nova vazando para dado antigo, e o sintoma é uma paciente recebendo duas ligações de "você já pode repetir" |
+
+**O que fica fora de propósito, e vale dizer:** o **rateio** do valor negociado entre os itens
+(ADR 0006) **não existe na v20 nem no protótipo** — `criarAdesao` só grava `itens[].valor` quando o
+cliente o manda. Não há com o que comparar, e a conferência não finge que há. O que ela compara é a
+igualdade que o rateio garante: `Σ itens.valor` = o valor total do programa migrado.
 
 ---
 

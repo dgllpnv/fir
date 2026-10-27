@@ -131,30 +131,10 @@ A tela contorna com uma segunda consulta (`escopo=equipe&limite=1`) e mostra os 
 
 ## Épico 3 — o que a jornada deixou em aberto
 
-### D-J1 · `fechar` com programa montado devolve 501
-
-Um orçamento **sem** programa fecha por inteiro: o `Recebimento`, a etapa e o valor do
-negócio, numa transação só. Um orçamento **com** programa não — a tabela de programas não
-existe, e o `MontadorDePrograma` recusa.
-
-A proposta inteira fica gravada em `programa_orcado` desde o `registrarOrcamento`, então
-**nada se perde**. A clínica contorna registrando o recebimento pela tela Recebimentos
-(épico 4) — que também não existe ainda, o que torna o contorno teórico até lá.
-
-**Gatilho:** o épico 5. Ele troca `useClass: MontadorIndisponivel` por o montador de
-verdade em `jornada.module.ts`, e o teste *"o montador indisponível DESFAZ a escrita do
-dinheiro"* vira o teste do caminho feliz.
-
-### D-J2 · O `procedimentoId` da proposta não é validado contra nada
-
-`programa_orcado` é `jsonb` e **nenhuma chave estrangeira o protege**. A tabela
-`procedimentos` não existe nesta árvore, então o `registrarOrcamento` aceita qualquer UUID
-no campo. O `responsavelId` **é** conferido (pessoa ativa desta clínica, dentro da
-transação, com a RLS ativa); o procedimento não.
-
-**Gatilho:** o épico 5, na montagem — é lá que o id precisa virar sessões. **Sintoma se
-esquecer:** doze aplicações de um procedimento que nunca existiu, descobertas na agenda da
-enfermagem.
+> **D-J1 e D-J2 saíram: o épico 5 as pagou.** `fechar` com programa monta o programa na mesma
+> transação do recebimento e da etapa (o `MontadorIndisponivel` foi **apagado**, não desligado), e
+> o `procedimentoId` da proposta passou a ser validado contra o catálogo na montagem, com 409
+> nomeando o item. Pela regra do fim deste arquivo, dívida paga sai — o histórico fica no git.
 
 ### D-J3 · Não existe tela para a clínica editar os motivos de perda
 
@@ -193,6 +173,121 @@ Funciona e foi medido — nenhuma rolagem horizontal de página em 390/768/1440,
 temas. Mas é **uma** direção, escolhida por quem implementou.
 
 **Gatilho:** a primeira vez que o dono olhar a tela. **Quem decide:** ele.
+
+---
+
+## Épico 5 — o que os programas deixaram em aberto
+
+### D-P1 · `BaixaDeInsumos` está inerte: nenhuma sessão dá baixa no estoque
+
+O seam existe, recebe a transação aberta, é chamado com a dose certa e é desfeito na reabertura —
+e `BaixaInerte` responde sem escrever movimento nenhum, porque `itens_de_estoque` não existe
+nesta árvore.
+
+Os testes do **seam** existem e passam contra o espião e contra uma implementação de referência que
+mantém movimentos em memória. Os testes do **estoque de verdade** são do épico 6, e os três
+invariantes que ele terá de honrar estão escritos: `desfazer` restaura a mesma quantidade e o
+mesmo lote, a ida-e-volta é idempotente, e item que não aproveita sobra gera **dois** movimentos
+(consumo + descarte da sobra) com os **dois** compensados.
+
+**Gatilho:** a primeira tarefa do épico 6 — ela troca `BaixaInerte` por a implementação, uma linha
+em `programas.module.ts`. **Sintoma até lá:** a enfermagem conclui doze aplicações e a prateleira
+continua cheia no sistema. Visível, e por isso tolerável.
+
+### D-P2 · `procedimentos.insumo_padrao_id` e `insumos_do_procedimento.item_id` não têm FK
+
+`itens_de_estoque` não existe, então nada impede gravar um uuid que não aponta para nada. O mesmo
+vale para `itens_do_programa.insumo_id`.
+
+É **dose por paciente sem integridade referencial** — dado de saúde (regra 18). Um item apagado no
+épico 6 deixaria órfão silencioso, e o sintoma seria uma sessão que não sabe o que aplicar.
+
+**Gatilho:** a migration do épico 6. Ela acrescenta a FK por **expand**, e **varre os órfãos
+antes** — acrescentar a FK sem varrer faz a migration falhar na clínica com dado, que é o pior
+momento para descobrir.
+
+### D-P3 · O migrador do épico 9 tem de reconciliar o catálogo por `nome_chave`
+
+Toda clínica nova nasce com os cinco procedimentos semeados. **As 4 clínicas já os receberam, e já
+os editaram** — renomearam, mudaram sessões, trocaram o valor. Um `INSERT` cego do catálogo da v20
+colide com a semeadura.
+
+A reconciliação é por `nome_chave` (o índice único é `(clinica_id, nome_chave)`), e o que a v20
+tiver ganha: ela é a verdade operacional.
+
+**Gatilho:** a primeira clínica migrada. **Sintoma se esquecer:** a migration estoura na colisão —
+falha fechado, que é o modo bom. O ruim é alguém "resolver" com `ON CONFLICT DO NOTHING` e a
+clínica terminar a migração com o procedimento semeado em vez do dela, com o valor errado.
+
+### D-P4 · A campanha do programa está aceita no contrato e ignorada
+
+`criarAdesao` do protótipo aceita `campanhaId`, e o nosso contrato também. O serviço **não grava**:
+a tabela `campanhas` é do épico 8.
+
+Foi decidido, não esquecido — mesma forma da D10 (campanha na tarefa e no paciente). A coluna entra
+por **expand**.
+
+**Gatilho:** o épico 8. **O que herda pronto:** nada a desfazer — o campo já atravessa a borda
+validado.
+
+### D-P5 · O limite de itens é 10 na proposta e 12 na montagem
+
+`programaOrc` do `moverEtapa` aceita **10** itens; `criarAdesao` aceita **12**. É o protótipo
+discordando de si mesmo, e **os dois valem** porque não se contradizem: a proposta é subconjunto da
+montagem, então nenhum caminho quebra (ADR 0006, divergência 4).
+
+Harmonizar é alteração no contrato do épico 3.
+
+**Gatilho:** a PO pedir 12 no orçamento. **Sintoma até lá:** nenhum — o orçamento de 11 itens
+simplesmente não existe.
+
+### D-P6 · O trigger de auditoria descarta `UPDATE` que não mudou nada, e isso limita o que a trilha prova
+
+`registrar_auditoria` (migration `0004`) calcula o diff e sai sem escrever quando ele é vazio
+(`IF v_para IS NULL THEN RETURN NULL`). É deliberado e está certo: cada salvamento de formulário
+sem alteração viraria um "alterou" sem `de → para`, e o ruído esconde o que importa.
+
+**A consequência é sobre o teste, não sobre o produto.** Um serviço que reescreva linhas com os
+**mesmos** valores é **invisível** à trilha — então a asserção *"a trilha não ganha ruído"* não
+distingue "o serviço não reescreveu" de "o serviço reescreveu igual". Medido, tentando a mutação,
+e está escrito no próprio teste (`sessoes.e2e.test.ts`): o que ela pega é o que o banco não pega —
+um serviço que reescreve com valores **diferentes**, recalculando a série do zero em vez de aplicar
+o delta do domínio. Essa é a mutação que morde.
+
+Não é defeito. É o **alcance real** da asserção, registrado para quem a ler e achar que ela prova
+mais do que prova.
+
+**Gatilho:** quem for provar invariante de trilha de auditoria. Contar entradas não basta; a
+asserção precisa de valores.
+
+### D-P7 · O filtro de `Dinheiro que entrou` no LTV é declarativo, e quem o protege é uma varredura
+
+Três dos quatro lugares que excluem a `Venda a prazo` (D-9) são observáveis por fora: a linha de
+R$ 0,00 apareceria no esperado do caixa e na lista do dia, e o teste e2e a pega.
+
+**O LTV não é.** Ele é um `sum(r.valor)`, e **somar zero é invisível**: remover o filtro de lá
+deixa toda a suíte verde. Medido antes de escrever o teste.
+
+Quem o protege é a varredura `teste/dinheiro-que-entrou.test.ts`, que confere o **texto da consulta
+SQL** no código de produção — prova estrutural, no mesmo espírito de `rotina-rls.test.ts`. O
+alcance, dito sem exagero: uma soma montada por concatenação em tempo de execução escaparia dela.
+
+**Gatilho:** quem trocar o LTV por uma **contagem** ou uma **média**. Aí o zero deixa de ser
+invisível e passa a mover o número — uma paciente que só tem venda a prazo entraria no denominador
+como se tivesse pagado, e o "LTV médio" cairia sem ninguém ter mudado nada na clínica.
+
+### D-P8 · O resíduo de clínicas de teste continua, e a causa raiz está intacta desde o épico 3
+
+Quando uma suíte morre no meio, o `afterAll` não roda e as clínicas de teste sobram no banco local.
+**Foram 133 nesta entrega**, apagadas com `apagarClinicaDeTeste` (o helper, não `DELETE` à mão — ele
+sabe desligar as travas de append-only e desfazer o ciclo de FK entre `tarefas` e `programas`).
+
+Não suja produção e não falseia resultado: cada suíte cria as suas. Mas o banco local cresce sem
+limite, e a limpeza é manual e lembrada.
+
+**Gatilho:** nenhum, e é por isso que ela já atravessou três épicos. O conserto é um `globalTeardown`
+no Vitest que varre por prefixo, ou um `beforeAll` que varre o que sobrou da rodada anterior — o
+segundo é mais barato e não depende de a rodada terminar.
 
 ---
 
