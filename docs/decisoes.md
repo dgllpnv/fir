@@ -125,7 +125,21 @@ Excluir um programa que tenha **sessão realizada e paga** é **recusado** (409)
 
 ## D-9 · Programa sem entrada abre saldo · 2026-10-26
 
-A clínica fecha um programa de R$ 3.600, a paciente não paga nada hoje e fica devendo tudo. **O protótipo aceita** — *"fechou, paga depois"* — e representa o saldo com valor recebido vazio e `valorAberto: 3600`.
+> **⚠️ CORREÇÃO, 2026-10-26, no mesmo dia.** A premissa com que esta decisão foi
+> apresentada ao dono **estava errada**, e a correção é minha. Eu disse que *"o
+> protótipo aceita entrada zero"*. **Ele não aceita.** Medido na fonte dela: a tela
+> de recebimento exige valor (*"Informe o valor recebido"*), e o caso "não pagou"
+> tem caminho próprio (*"Informe o valor pago (ou marque 'Não')"*) — não é um zero.
+> O primeiro relatório leu aquele caminho como "aceita zero", e eu repassei sem
+> conferir na fonte.
+>
+> **O que isso muda, e o que não muda.** `MontarPrograma` **continua recusando**
+> `valorEntrada: 0` — paridade com ela, e há teste. O que a decisão de fato
+> entregou foi a **forma da linha**: `valor = 0` com `valor_aberto > 0` passou a ser
+> representável, e é disso que o modo **saldo** precisa, onde a sessão paga abate
+> um valor em aberto. A decisão continua válida; a justificativa é que estava errada.
+
+A clínica fecha um programa de R$ 3.600 e a paciente fica devendo. A representação desse saldo exige uma linha com **valor recebido zero e valor em aberto positivo** — e o `CHECK (valor > 0)` de `recebimentos` a tornava impossível.
 
 O `CHECK (valor > 0)` de `recebimentos` impedia isso: sem entrada não havia linha, e sem linha não havia dívida registrada.
 
@@ -133,7 +147,7 @@ O `CHECK (valor > 0)` de `recebimentos` impedia isso: sem entrada não havia lin
 
 **Por que esta formulação e não `valor >= 0`:** aquela aceitaria uma linha completamente vazia. Esta é **mais restritiva** que o original em um sentido (nenhuma linha pode ser vazia) e mais permissiva só no caso que a clínica precisa.
 
-**Escolhida pelo dono em 2026-10-26**, e coerente com a premissa que ele afirmara na mesma data: *"o protótipo funcional dela é o parâmetro principal, deve seguir o mesmo comportamento funcional"*. As alternativas eram (a) montar o programa sem valor — que **faz a clínica perder um recebível**, porque vendeu R$ 3.600 e o sistema registra zero — e (c) guardar o valor em aberto fora de `recebimentos`, que faria o saldo vir de duas fontes quando a regra 5 existe para ele vir de uma.
+**Escolhida pelo dono em 2026-10-26** — sobre a premissa corrigida acima. A premissa que ele afirmara na mesma data era: *"o protótipo funcional dela é o parâmetro principal, deve seguir o mesmo comportamento funcional"*. As alternativas eram (a) montar o programa sem valor — que **faz a clínica perder um recebível**, porque vendeu R$ 3.600 e o sistema registra zero — e (c) guardar o valor em aberto fora de `recebimentos`, que faria o saldo vir de duas fontes quando a regra 5 existe para ele vir de uma.
 
 **Condição inegociável, e sem ela a decisão não vale:** a linha de valor zero **não pode aparecer** no caixa do dia, na lista de recebimentos do dia, nem no LTV do paciente. Três filtros, três testes, escritos **antes** do código. Uma venda a prazo não é dinheiro que entrou no caixa.
 
