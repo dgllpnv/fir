@@ -88,3 +88,49 @@ paciente. Tratar as duas como equivalentes é como se confunde ambiente de
 desenvolvimento com produção.
 
 Nunca reutilize esta senha fora daqui.
+
+## `fir reset` é obrigatório depois de mexer em `bootstrap-papeis.sql`
+
+O bootstrap roda **uma vez**, na criação do volume, pelo
+`docker-entrypoint-initdb.d` do Postgres. Editá-lo não muda nada num volume
+que já existe.
+
+Isso importa de verdade desde a migration `0013`: ela exige o papel
+`fir_painel`, que nasce no bootstrap. Sem `fir reset`, `pnpm db:migrate` falha
+com
+
+```
+ERRO em 0013_painel.sql: o papel fir_painel não existe
+HINT: Local: rode `fir reset` depois de atualizar infra/bootstrap-papeis.sql.
+```
+
+e o sintoma — "a migration não aplica" — não aponta sozinho para a causa.
+
+```bat
+fir reset   :: derruba e APAGA os volumes (digite ZERAR para confirmar)
+fir         :: sobe de novo, migra e semeia
+```
+
+**`fir reset` apaga o banco local inteiro.** Quem tiver dado próprio numa
+clínica de desenvolvimento perde — e precisa semear de novo. É o preço de o
+bootstrap ser idempotente por construção em vez de por script.
+
+## O terceiro papel: `fir_painel`
+
+| Papel | Login | BYPASSRLS | Quem usa |
+|---|---|---|---|
+| `fir_migrate` | sim | **sim** | só as migrations |
+| `fir_app` | sim | não | a API do produto |
+| `fir_painel` | sim | **não** | o painel do superadmin |
+
+`fir_painel` **não tem** `BYPASSRLS`, e isso é a decisão: o superadmin fixa
+`app.clinica_id` da clínica em que opera, como qualquer um (D-10). A `0013`
+**recusa migrar** se alguém lhe der o privilégio.
+
+São duas conexões separadas **por autenticação**, nunca por `SET ROLE` — D-5,
+restrição 5: `RESET ROLE` desfaz na mesma transação, e aí o privilégio de
+criar clínica passa a existir na conexão que serve o balcão.
+
+Em produção o papel não nasce no bootstrap: ele nasce em
+`infra/producao/provisionar-painel.sh`, com a senha vinda do `.env`. Ver
+`infra/producao/README.md`.

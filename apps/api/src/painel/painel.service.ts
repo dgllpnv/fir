@@ -1,9 +1,10 @@
 import type { OperadorPublico } from '@fir/contracts'
+import { avaliarSenha, ehErro, type ErroDeDominio } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
 import { HASH_FALSO, PISO_DE_RESPOSTA_MS } from '../autenticacao/autenticacao.service'
 import { semaforoArgon2 } from '../autenticacao/concorrencia'
-import { conferirSenha } from '../autenticacao/senha'
+import { conferirSenha, hashDeSenha } from '../autenticacao/senha'
 import { hashDoToken, limiteExcedido, novoToken } from '../autenticacao/sessao'
 import { SISTEMA, operadorIdDeFonteConfiavel, type OperadorId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
@@ -208,6 +209,80 @@ export class PainelService {
         operador: operadorPublico(operador),
       } satisfies ContextoDoPainel
     })
+  }
+
+  /**
+   * O operador troca a PRÓPRIA senha — e esta é a saída obrigatória da
+   * provisória gerada pelo break-glass da VPS.
+   *
+   * **Sem esta rota, o primeiro operador nasceria trancado**: o break-glass
+   * cria a conta com senha provisória de 72 h, e o painel não tem outro
+   * caminho para trocá-la. O painel ficaria fechado três dias depois de ser
+   * aberto, e o remédio seria voltar ao SSH.
+   *
+   * Mesmo molde de `AutenticacaoService.trocarAPropriaSenha`, e as mesmas
+   * razões medidas lá: Argon2 fora de transação, **a regra ANTES do hash**
+   * (hashear primeiro entregaria ao atacante com sessão válida um jeito de
+   * consumir o semáforo com senhas que nunca seriam aceitas), e revogação das
+   * OUTRAS sessões.
+   *
+   * O contexto da regra monta-se AQUI, a partir da sessão, e nunca do corpo —
+   * um contexto vindo do cliente seria um contexto vazio escolhido por ele.
+   */
+  async trocarAPropriaSenha(
+    contexto: ContextoDoPainel,
+    tokenDaSessao: string,
+    atual: string,
+    nova: string,
+  ): Promise<'ok' | 'atual-invalida' | ErroDeDominio> {
+    const linha = await this.banco.nasTabelasDoPainel(contexto.ator, async (c) => {
+      const r = await c.query<{ senha_hash: string }>(
+        'SELECT senha_hash FROM operadores WHERE id = $1 AND ativo',
+        [contexto.operador.id],
+      )
+      return r.rows[0] ?? null
+    })
+    if (!linha) return 'atual-invalida'
+
+    const confere = await semaforoArgon2.executar(() => conferirSenha(atual, linha.senha_hash))
+    if (!confere) return 'atual-invalida'
+
+    const juizo = avaliarSenha(nova, {
+      contexto: [contexto.operador.usuario, contexto.operador.nome],
+    })
+    if (ehErro(juizo)) return juizo.erro
+
+    const hash = await semaforoArgon2.executar(() => hashDeSenha(nova))
+    const hashDaSessaoAtual = hashDoToken(tokenDaSessao)
+
+    await this.banco.nasTabelasDoPainel(contexto.ator, async (c) => {
+      await c.query(
+        `UPDATE operadores
+            SET senha_hash = $1, senha_provisoria = false, senha_provisoria_expira_em = NULL
+          WHERE id = $2`,
+        [hash, contexto.operador.id],
+      )
+      // As OUTRAS sessões caem; esta sobrevive, porque derrubá-la devolveria
+      // o operador à tela de entrada logo depois de fazer a coisa certa.
+      await c.query(
+        `UPDATE sessoes_de_operador SET revogada_em = now()
+          WHERE operador_id = $1 AND token_hash <> $2 AND revogada_em IS NULL`,
+        [contexto.operador.id, hashDaSessaoAtual],
+      )
+      // A troca é SOBRE operadores: vai para a trilha do painel. O hash não
+      // atravessa — `auditoria_sem_segredos` o esconderia de qualquer forma,
+      // e aqui ele nem é passado.
+      await registrarNoPainel(c, {
+        atorTipo: 'operador',
+        atorId: contexto.operador.id,
+        acao: 'alterou',
+        entidade: 'operadores',
+        entidadeId: contexto.operador.id,
+        para: { senha_hash: '(trocada pelo próprio operador)' },
+      })
+    })
+
+    return 'ok'
   }
 
   /** Revoga a sessão do painel. Token desconhecido não é erro: nada a fazer. */

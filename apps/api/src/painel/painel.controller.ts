@@ -1,8 +1,13 @@
-import { EntrarNoPainelEntrada, type PainelEuSaida } from '@fir/contracts'
+import {
+  EntrarNoPainelEntrada,
+  type PainelEuSaida,
+  TrocarSenhaDoOperadorEntrada,
+} from '@fir/contracts'
 import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpException,
@@ -127,6 +132,41 @@ export class PainelController {
     const token = req.cookies?.[NOME_DO_COOKIE_PAINEL]
     if (token) await this.painel.sair(token)
     res.clearCookie(NOME_DO_COOKIE_PAINEL, { path: '/' })
+  }
+
+  /**
+   * O operador troca a PRÓPRIA senha — e é a ÚNICA coisa que ele pode fazer
+   * enquanto a senha for provisória (ver `PainelGuard`).
+   *
+   * Três status, e cada um diz uma coisa diferente à tela:
+   *  - **400** o corpo não é o corpo desta rota (campo a mais, campo faltando).
+   *  - **403** a senha ATUAL não confere. Não é 401: a sessão vale.
+   *  - **422** a senha nova não passa na regra, com a mensagem do DOMÍNIO.
+   */
+  @Post('eu/senha')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async trocarSenha(
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComPainel & { cookies?: Record<string, string> },
+  ): Promise<void> {
+    const dados = TrocarSenhaDoOperadorEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException('Informe a senha atual e a nova senha.')
+
+    const contexto = req.painel
+    if (!contexto) throw new NotFoundException()
+    const token = req.cookies?.[NOME_DO_COOKIE_PAINEL] ?? ''
+
+    const r = await this.painel.trocarAPropriaSenha(
+      contexto,
+      token,
+      dados.data.atual,
+      dados.data.nova,
+    )
+    if (r === 'ok') return
+    if (r === 'atual-invalida') throw new ForbiddenException('A senha atual não confere.')
+    // A mensagem vem do DOMÍNIO: é a mesma frase que a tela mostra antes do
+    // envio, e escrevê-la de novo aqui seria a segunda verdade.
+    throw new HttpException(r.mensagem, HttpStatus.UNPROCESSABLE_ENTITY)
   }
 
   @Get('eu')

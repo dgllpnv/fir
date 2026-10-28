@@ -199,3 +199,20 @@ export type PessoaNoPainel = z.infer<typeof PessoaNoPainel>
 
 export const PessoasDoPainel = z.object({ itens: z.array(PessoaNoPainel) })
 export type PessoasDoPainel = z.infer<typeof PessoasDoPainel>
+
+/**
+ * O operador troca a PRÓPRIA senha — e esta rota é a saída obrigatória da
+ * provisória gerada pelo break-glass da VPS.
+ *
+ * Sem ela, o primeiro operador nasceria com uma credencial que vence em 72 h
+ * e **sem caminho para trocá-la**: o painel ficaria trancado três dias depois
+ * de ser aberto. `.strict()` pela mesma razão de `TrocarSenhaEntrada`: um
+ * campo `contexto` aceito aqui seria um contexto escolhido pelo cliente.
+ */
+export const TrocarSenhaDoOperadorEntrada = z
+  .object({
+    atual: z.string().min(1, 'Informe a senha atual.').max(SENHA_MAX),
+    nova: z.string().min(1, 'Informe a nova senha.').max(SENHA_MAX),
+  })
+  .strict()
+export type TrocarSenhaDoOperadorEntrada = z.infer<typeof TrocarSenhaDoOperadorEntrada>

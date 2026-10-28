@@ -1,6 +1,8 @@
 import {
   type CanActivate,
   type ExecutionContext,
+  ConflictException,
+  HttpStatus,
   Inject,
   Injectable,
   NotFoundException,
@@ -46,6 +48,28 @@ const LIBERADAS: ReadonlySet<string> = new Set([
   'POST /v1/superadmin/entrar',
   'POST /v1/superadmin/sair',
 ])
+
+/**
+ * E as únicas que uma sessão de operador com **senha provisória** atravessa.
+ *
+ * A provisória de operador é gerada pelo break-glass da VPS e **ditada por
+ * telefone** — ela é credencial compartilhada por construção, e a única coisa
+ * que ela pode fazer é deixar de ser. Sem esta lista, a credencial que
+ * atravessou um canal inseguro criaria clínica e administradora em qualquer
+ * clínica.
+ *
+ * É a mesma forma de `senha-provisoria.guard.ts`, e mora aqui em vez de num
+ * quinto guard porque o estado já foi lido: `contextoDoToken` acabou de
+ * trazer o operador do banco.
+ */
+const LIBERADAS_COM_PROVISORIA: ReadonlySet<string> = new Set([
+  'GET /v1/superadmin/eu',
+  'POST /v1/superadmin/eu/senha',
+  'POST /v1/superadmin/sair',
+])
+
+/** O código no corpo, para a tela redirecionar sem casar texto de mensagem. */
+export const CODIGO_SENHA_PROVISORIA_DO_PAINEL = 'SENHA_PROVISORIA_OPERADOR'
 
 const juntar = (...partes: (string | undefined)[]): string => {
   const limpo = partes
@@ -111,6 +135,18 @@ export class PainelGuard implements CanActivate {
     if (!contexto) throw new NotFoundException()
 
     req.painel = contexto
+
+    // 409 e não 404: aqui a sessão JÁ foi provada válida, e esconder a rota
+    // de quem acabou de autenticar não esconde nada. "Termine isto primeiro"
+    // é precondição da sessão, não resposta à pergunta "você pode?".
+    if (contexto.operador.senhaProvisoria && !LIBERADAS_COM_PROVISORIA.has(chave)) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        codigo: CODIGO_SENHA_PROVISORIA_DO_PAINEL,
+        message: 'Troque a senha provisória antes de continuar.',
+      })
+    }
+
     return true
   }
 }

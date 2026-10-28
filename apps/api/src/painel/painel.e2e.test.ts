@@ -113,8 +113,10 @@ afterAll(async () => {
   await app.close()
 })
 
+const http = () => request(app.getHttpServer())
+
 const entrarNoPainel = (usuario = USUARIO_OP, senha = SENHA_OP) =>
-  request(app.getHttpServer()).post('/v1/superadmin/entrar').send({ usuario, senha })
+  http().post('/v1/superadmin/entrar').send({ usuario, senha })
 
 const sessaoDoPainel = async (): Promise<string> =>
   paresDe(cookies(await entrarNoPainel().expect(200)))
@@ -342,5 +344,119 @@ describe('o limite por origem do painel é SEPARADO do limite do produto', () =>
       .post('/v1/entrar')
       .send({ clinica: codigo, usuario: USUARIO_PESSOA, senha: SENHA_PESSOA })
       .expect(200)
+  })
+})
+
+/**
+ * A PROVISÓRIA DE OPERADOR — a saída do break-glass.
+ *
+ * O `redefinir-superadmin.sh` cria o operador com senha provisória de 72 h.
+ * Sem esta rota e sem este guard, a conta nasceria **trancada**: a credencial
+ * venceria em três dias e não haveria caminho para trocá-la, e o remédio
+ * seria voltar ao SSH.
+ *
+ * E a provisória foi DITADA por telefone — é credencial compartilhada por
+ * construção. Com ela, a única coisa que o operador pode fazer é deixar de
+ * tê-la.
+ */
+describe('operador com senha provisória', () => {
+  const USUARIO_PROV = `prov.${sufixo}`
+  const NOVA = 'sete-telhados-de-barro'
+  let comProvisoria: string
+  let idProvisorio: string
+
+  beforeAll(async () => {
+    idProvisorio = (
+      await migrate.query<{ id: string }>(
+        `INSERT INTO operadores (usuario, nome, senha_hash, senha_provisoria,
+                                 senha_provisoria_expira_em)
+         VALUES ($1, 'Recém-criado pela VPS', $2, true, now() + interval '72 hours')
+         RETURNING id`,
+        [USUARIO_PROV, await hashDeSenha(SENHA_OP)],
+      )
+    ).rows[0]!.id
+    comProvisoria = paresDe(cookies(await entrarNoPainel(USUARIO_PROV, SENHA_OP).expect(200)))
+  })
+
+  afterAll(async () => {
+    await migrate.query('DELETE FROM tentativas_de_operador WHERE identificador = $1', [
+      USUARIO_PROV,
+    ])
+    await apagarOperadorDeTeste(migrate, idProvisorio)
+  })
+
+  it('TODA rota de painel que não é saída responde 409, com o código', async () => {
+    for (const rota of [
+      ['GET', '/v1/superadmin/clinicas'],
+      ['POST', '/v1/superadmin/clinicas'],
+    ] as const) {
+      const r = await http()[rota[0] === 'GET' ? 'get' : 'post'](rota[1])
+        .set('Cookie', comProvisoria)
+        .send({})
+      expect(r.status, rota.join(' ')).toBe(409)
+      expect(r.body.codigo).toBe('SENHA_PROVISORIA_OPERADOR')
+    }
+  })
+
+  it('as três saídas continuam abertas — senão o operador fica preso', async () => {
+    await http().get('/v1/superadmin/eu').set('Cookie', comProvisoria).expect(200)
+    await http()
+      .post('/v1/superadmin/eu/senha')
+      .set('Cookie', comProvisoria)
+      .send({ atual: 'chute-errado-aqui', nova: NOVA })
+      .expect(403)
+  })
+
+  it('a nova senha passa pela regra do domínio, com a mensagem que corrige', async () => {
+    const r = await http()
+      .post('/v1/superadmin/eu/senha')
+      .set('Cookie', comProvisoria)
+      .send({ atual: SENHA_OP, nova: `${USUARIO_PROV}-mais-forte` })
+    expect(r.status).toBe(422)
+    expect(r.body.message).toMatch(/nome da clínica, o seu nome nem o seu usuário/)
+  })
+
+  it('o contexto da regra vem do SERVIDOR: campo a mais é 400', async () => {
+    await http()
+      .post('/v1/superadmin/eu/senha')
+      .set('Cookie', comProvisoria)
+      .send({ atual: SENHA_OP, nova: NOVA, contexto: [] })
+      .expect(400)
+  })
+
+  it('trocar limpa a provisória, revoga as OUTRAS sessões e destrava o painel', async () => {
+    const outra = paresDe(cookies(await entrarNoPainel(USUARIO_PROV, SENHA_OP).expect(200)))
+    await http()
+      .post('/v1/superadmin/eu/senha')
+      .set('Cookie', outra)
+      .send({ atual: SENHA_OP, nova: NOVA })
+      .expect(204)
+
+    // A sessão anterior cai; esta sobrevive e já alcança o painel.
+    await http().get('/v1/superadmin/eu').set('Cookie', comProvisoria).expect(404)
+    await http().get('/v1/superadmin/clinicas').set('Cookie', outra).expect(200)
+
+    const linha = await migrate.query<{
+      senha_provisoria: boolean
+      senha_provisoria_expira_em: Date | null
+    }>(
+      'SELECT senha_provisoria, senha_provisoria_expira_em FROM operadores WHERE id = $1',
+      [idProvisorio],
+    )
+    expect(linha.rows[0]).toEqual({ senha_provisoria: false, senha_provisoria_expira_em: null })
+
+    // E a nova senha entra; a antiga, não.
+    await entrarNoPainel(USUARIO_PROV, NOVA).expect(200)
+    await entrarNoPainel(USUARIO_PROV, SENHA_OP).expect(401)
+  })
+
+  it('a senha nova não aparece na trilha do painel — só o FATO da troca', async () => {
+    const t = await migrate.query<{ para: unknown }>(
+      `SELECT para FROM auditoria_do_painel
+        WHERE ator_id = $1 AND acao = 'alterou' ORDER BY em DESC, id DESC LIMIT 1`,
+      [idProvisorio],
+    )
+    expect(JSON.stringify(t.rows[0])).not.toContain(NOVA)
+    expect(JSON.stringify(t.rows[0])).not.toMatch(/\$argon2/)
   })
 })

@@ -1,0 +1,251 @@
+# O Firmare Rotinas de Gestão em produção.
+#
+# ## Por que containers avulsos, e não um stack do EasyPanel
+#
+# A VPS roda a produção de outros negócios em Docker Swarm, orquestrada pelo
+# EasyPanel — a Mavia inclusive. Este produto entra **ao lado e nunca dentro**
+# daquela orquestração, pelas mesmas três razões já pagas lá:
+#
+# 1. **Um erro aqui não pode alcançar o que já está lá.**
+# 2. `docker compose down` desfaz tudo; um stack meio-criado no painel, não.
+# 3. O Traefik do EasyPanel tem o provider Docker ligado, então ele descobre
+#    estes containers por **label** — sem escrever no arquivo que o painel
+#    gera e sobrescreve.
+#
+# ## O que encara a internet
+#
+# Só o `web`. A API **não é publicada**: o navegador chama `/api/...` na
+# origem do web, e o servidor do Next repassa pela rede interna. É a mesma
+# topologia do ambiente local, e é o que faz o cookie `__Host-` funcionar sem
+# CORS.
+#
+# Nenhum serviço publica porta no host.
+
+name: fir
+
+services:
+  # -------------------------------------------------------------------------
+  # Postgres — o banco deste produto, e só dele
+  # -------------------------------------------------------------------------
+  # As migrations criam RLS, tornam `fir_migrate` dono do esquema `public` e
+  # dependem de três papéis com senha. Instalar isso no cluster de outro
+  # produto seria sujar o banco alheio com a nossa topologia de papéis.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fir
+      POSTGRES_PASSWORD: ${SENHA_POSTGRES:?defina SENHA_POSTGRES}
+      POSTGRES_DB: fir
+      # UTC no banco, sempre. A conversão para o fuso DA CLÍNICA é do domínio
+      # (regra 22) — e o fuso é propriedade da clínica, nunca global.
+      TZ: UTC
+      PGTZ: UTC
+      SENHA_MIGRATE: ${SENHA_MIGRATE:?defina SENHA_MIGRATE}
+      SENHA_APP: ${SENHA_APP:?defina SENHA_APP}
+    volumes:
+      - postgres-dados:/var/lib/postgresql/data
+      # Roda uma vez, na criação do volume. Cria `fir_migrate` e `fir_app`.
+      # **`fir_painel` NÃO nasce aqui**: ele é criado por
+      # `provisionar-painel.sh`, contra um banco que já existe, com a senha
+      # vinda do `.env`. Ver o cabeçalho daquele arquivo.
+      - ./10-papeis.sh:/docker-entrypoint-initdb.d/10-papeis.sh:ro
+    networks: [dados]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fir -d fir']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${SENHA_REDIS:?defina SENHA_REDIS}']
+    environment:
+      # O `redis-cli` lê esta variável sozinho — sem ela o `ping` do
+      # healthcheck responde NOAUTH e o container nunca fica saudável.
+      REDISCLI_AUTH: ${SENHA_REDIS:?defina SENHA_REDIS}
+    volumes:
+      - redis-dados:/data
+    networks: [dados]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    image: fir/api:${VERSAO:-mais-recente}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://fir_app:${SENHA_APP:?}@postgres:5432/fir
+      DATABASE_URL_MIGRATE: postgresql://fir_migrate:${SENHA_MIGRATE:?}@postgres:5432/fir
+      # A conexão do PAINEL — segunda conexão, **autenticada** como
+      # `fir_painel` (D-5, restrição 5). Escrita no `.env` por
+      # `provisionar-painel.sh`. Sem ela, o painel sobe apontando para o
+      # padrão local e falha em voz alta na primeira consulta, que é melhor
+      # do que subir apontando para `fir_app` e funcionar.
+      DATABASE_URL_PAINEL: ${DATABASE_URL_PAINEL:?rode ./provisionar-painel.sh}
+      REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
+      # Um salto confiável: o Traefik, e mais nada. Sem isto `req.ip` é o
+      # endereço do proxy, todas as clínicas viram um IP só, e o limite por
+      # origem passa a ser um limite global. Ver `main.ts`.
+      PROXY_SALTOS_CONFIAVEIS: '1'
+      TZ: UTC
+      HOST: '0.0.0.0'
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [dados]
+
+  web:
+    image: fir/web:${VERSAO:-mais-recente}
+    restart: unless-stopped
+    environment:
+      API_INTERNA: http://api:4811
+      TZ: UTC
+    depends_on:
+      api: { condition: service_started }
+    networks: [dados, easypanel]
+    labels:
+      traefik.enable: 'true'
+      # `easypanel` e não `dados`: sem isto o Traefik pode escolher o IP da
+      # rede errada e falhar em alcançar o container, com um 502 que não
+      # explica nada.
+      traefik.docker.network: easypanel
+
+      # -----------------------------------------------------------------------
+      # O PRODUTO — tudo que **não** é o painel
+      # -----------------------------------------------------------------------
+      # A negação não é estilo: é o que faz a allowlist do painel **falhar
+      # fechada**. Sem ela, os dois roteadores se sobrepõem e o do produto casa
+      # `/superadmin` também; no dia em que o middleware não puder ser
+      # construído — `IPS_DO_PAINEL` vazia, um CIDR com erro de digitação — o
+      # Traefik **descarta o roteador do painel** em vez de bloquear, e o
+      # produto passa a servir `/superadmin` sem allowlist nenhuma. O controle
+      # não falharia fechado: ele sumiria, em silêncio, com uma linha de log
+      # num Traefik que não é nosso.
+      #
+      # E o gatilho mais provável desse erro de digitação é justamente o
+      # procedimento de recuperação de lockout, executado por uma pessoa só,
+      # sob pressão, por SSH.
+      #
+      # Com as regras **disjuntas**, se o painel cai ninguém o serve: 404.
+      # Disjunção também torna `priority` desnecessária — não há empate a
+      # desempatar, e uma label a menos é um acoplamento a menos.
+      traefik.http.routers.fir.rule: 'Host(`${DOMINIO:?defina DOMINIO}`) && !PathRegexp(`(?i)(^|/)superadmin(/|$$)`)'
+      traefik.http.routers.fir.entrypoints: https
+      traefik.http.routers.fir.tls: 'true'
+      # Explícito nos três roteadores, embora o Traefik resolva sozinho hoje:
+      # a dedução por serviço único **só vale enquanto o serviço for único**.
+      # No dia em que este container declarar um segundo
+      # `loadbalancer.server.port`, todo roteador sem `service` é removido da
+      # configuração — inclusive o do produto, e o site inteiro sai do ar por
+      # uma label que ninguém ligou ao sintoma.
+      traefik.http.routers.fir.service: fir
+      traefik.http.services.fir.loadbalancer.server.port: '4810'
+
+      # -----------------------------------------------------------------------
+      # O PAINEL — atrás da allowlist de IP (D-5, restrição 6)
+      # -----------------------------------------------------------------------
+      # A contrapartida assumida pelo adiamento do MFA. Mesma troca que o
+      # Mavia registrou na C-6a.
+      #
+      # ## Por que a regra é "um segmento chamado `superadmin`", e não um prefixo
+      #
+      # O caminho óbvio — `PathPrefix('/superadmin') || PathPrefix('/api/v1/superadmin')`
+      # — **é contornável, e foi contornado contra a produção do Mavia antes
+      # de existir allowlist**. Duas assimetrias entre o Traefik e o Next se
+      # somam:
+      #
+      # 1. `PathPrefix` do Traefik é sensível à caixa; o rewrite do Next não é
+      #    (`caseSensitive: false` no `routes-manifest.json`).
+      #    `/API/v1/superadmin/eu` não casa a regra e ainda assim alcança o
+      #    controlador — 401 medido lá.
+      # 2. O Traefik casa o caminho **cru**; quem normaliza `//`, `/./` e
+      #    `/x/../` é o servidor do Next. `/api//v1/superadmin/eu` também
+      #    mediu 401.
+      #
+      # Enumerar grafias num prefixo é jogo perdido — some sempre uma. Casar
+      # **um segmento igual a `superadmin`** é imune às duas: qualquer grafia
+      # que o Next normalize para uma rota de painel tem esse segmento, em
+      # qualquer caixa e sob qualquer ruído de barra.
+      #
+      # O excesso é deliberado e é para o lado seguro: bloqueia também
+      # `/_next/static/chunks/app/superadmin/*`, que anunciaria a forma do
+      # painel a quem quiser ler. **Nenhuma rota de produto tem segmento
+      # `superadmin`**, e `teste/rotas-protegidas.test.ts` cobra isso nos dois
+      # sentidos — toda rota de painel sob o segmento, nenhuma de produto.
+      #
+      # E o segmento NÃO é `painel` de propósito: `painel` é chave de
+      # permissão existente (`painel` → `valores`) e é o nome da tela do épico
+      # 8. No dia em que `/painel` virasse tela de indicadores, esta allowlist
+      # a bloquearia para a clínica inteira.
+      traefik.http.routers.fir-painel.rule: 'Host(`${DOMINIO}`) && PathRegexp(`(?i)(^|/)superadmin(/|$$)`)'
+      # Explícito: um roteador sem `entrypoints` liga-se a **todas** as
+      # entradas, e o painel passaria a ser servido em texto claro no `http`
+      # em vez de redirecionado.
+      traefik.http.routers.fir-painel.entrypoints: https
+      traefik.http.routers.fir-painel.tls: 'true'
+      traefik.http.routers.fir-painel.service: fir
+      traefik.http.routers.fir-painel.middlewares: fir-ips-do-painel
+
+      # `sourcerange` e **NADA MAIS**. Sem `ipstrategy`, sem `depth`, sem
+      # `excludedips` — e isto é a decisão de segurança desta seção, não
+      # estilo.
+      #
+      # A estratégia padrão compara contra o endereço do **socket**, que não
+      # se forja. Qualquer `ipstrategy` faria o middleware ler o
+      # `X-Forwarded-For` — e a entrada HTTPS deste Traefik roda com
+      # `FORWARDEDHEADERS_INSECURE=true`, o que significa que o cabeçalho
+      # **vem do cliente**. Uma allowlist que lê um cabeçalho que o atacante
+      # escreve atravessa-se com uma linha de `curl`.
+      #
+      # ⚠️ **INVARIANTE DO PRIMEIRO SALTO.** Isto só vale enquanto o Traefik
+      # for o primeiro salto TCP. Um CDN à frente faz o `RemoteAddr` virar o
+      # do CDN e a allowlist **falha aberta, sem mudar de cor**. Item
+      # obrigatório de conferência no dia em que o domínio próprio entrar
+      # (pendência P-8).
+      #
+      # `:-` e não `-`: com `:-`, variável ausente **e** vazia caem no padrão
+      # fechado. Com `-`, a string vazia sobrescreveria o padrão, o middleware
+      # não se construiria, e cairíamos no modo de falha que a negação do
+      # roteador do produto existe para conter.
+      traefik.http.middlewares.fir-ips-do-painel.ipallowlist.sourcerange: '${IPS_DO_PAINEL:-127.0.0.1/32}'
+
+      # HTTP existe só para mandar embora. O cookie de sessão tem prefixo
+      # `__Host-`, que obriga `Secure` — em `http://` o navegador o descarta e
+      # ninguém consegue ficar logado. Servir isto sem TLS não é degradação: é
+      # o login não existir.
+      #
+      # **Ele cobre `/superadmin` por redirecionar tudo**, e é por isso que o
+      # painel não precisa de um par em `http`: um `GET http://…/superadmin`
+      # de origem não permitida leva 301 antes de qualquer coisa alcançar a
+      # aplicação, refaz em HTTPS e aí encontra a allowlist.
+      #
+      # Se um dia esta entrada passar a **servir** algo em vez de
+      # redirecionar, o painel fica descoberto nela. Esta é a linha que
+      # precisa disparar o alarme nesse dia.
+      traefik.http.routers.fir-http.rule: Host(`${DOMINIO}`)
+      traefik.http.routers.fir-http.entrypoints: http
+      traefik.http.routers.fir-http.service: fir
+      # `@file` porque o middleware é definido pelo provider de arquivo do
+      # EasyPanel, e este router vem do provider Docker.
+      traefik.http.routers.fir-http.middlewares: redirect-to-https@file
+
+networks:
+  # Onde os dados vivem. **Sem saída para a internet**, e é o ponto: um
+  # Postgres comprometido não tem por onde exfiltrar.
+  dados:
+    driver: bridge
+    internal: true
+
+  # A rede do EasyPanel, onde o Traefik vive. `external` porque ela já existe
+  # e **não é nossa** — declarar sem isso faria o compose tentar criá-la.
+  easypanel:
+    external: true
+
+volumes:
+  postgres-dados:
+  redis-dados:
