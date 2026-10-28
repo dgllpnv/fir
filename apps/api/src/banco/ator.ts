@@ -46,7 +46,58 @@ export const pessoaIdDeFonteConfiavel = (id: string): PessoaId => id as PessoaId
  */
 export const SISTEMA = Symbol('ator.sistema')
 
-export type Ator = PessoaId | typeof SISTEMA
+/**
+ * O OPERADOR do painel — o superadmin. **Ele não é uma `pessoa`** (D-5,
+ * restrição 1; D-10): tabela própria sem `clinica_id`, cookie próprio,
+ * prefixo de rota próprio.
+ *
+ * ## Por que ele é um OBJETO, e `PessoaId` continua sendo uma string marcada
+ *
+ * `atorParaOBanco` e `atorEmColunas` precisam distinguir os três atores **em
+ * tempo de execução**, e uma marca de tipo só existe para o compilador: duas
+ * marcas sobre `string` seriam o mesmo `typeof 'string'` na execução, e a
+ * tradução viraria palpite — exatamente o tipo de "funciona hoje" que escreve
+ * o ator errado numa trilha append-only, onde não há como corrigir depois.
+ *
+ * As duas saídas possíveis eram tornar **os dois** discriminados, ou só este.
+ * O segundo é o que está aqui, e a razão é de risco, não de preguiça:
+ * `PessoaId` atravessa ~20 arquivos como string (parâmetro de SQL,
+ * `aplicadoPorId`, `autorId`), e trocá-lo por um objeto seria uma mudança
+ * mecânica em cada um deles — mudança grande, em código de dinheiro e de
+ * dose, para comprar a mesma propriedade que esta assimetria já dá. Com
+ * `symbol | object | string`, `typeof` separa os três casos e as duas funções
+ * são **totais**.
+ *
+ * O preço é a assimetria entre os dois tipos, e ele está escrito aqui para
+ * quem estranhar.
+ */
+declare const marcaDeOperador: unique symbol
+
+export type OperadorId = {
+  readonly tipo: 'operador'
+  readonly id: string
+  readonly [marcaDeOperador]?: true
+}
+
+/**
+ * A ÚNICA porta de entrada de um `OperadorId`. O `as` mora aqui, uma vez.
+ *
+ * O único chamador legítimo é `PainelService.contextoDoToken`, onde o
+ * operador vem do HASH do cookie `__Host-fir-painel`. Se um segundo aparecer,
+ * a pergunta é a de sempre: este valor poderia ter sido escrito pelo
+ * navegador? Se puder, ele não é um `OperadorId` — e um operador forjado
+ * alcança **todas** as clínicas, não só uma.
+ */
+export const operadorIdDeFonteConfiavel = (id: string): OperadorId => ({ tipo: 'operador', id })
+
+export type Ator = PessoaId | OperadorId | typeof SISTEMA
+
+/**
+ * A sentinela que a trigger `registrar_auditoria` (0013) entende, ao lado de
+ * `sistema` e do uuid cru. Esta é a ÚNICA tradução, e ela mora ao lado do
+ * tipo de propósito.
+ */
+export const PREFIXO_OPERADOR = 'operador:'
 
 /**
  * A sentinela que o banco entende para "o sistema" — ver o cabeçalho de
@@ -56,8 +107,16 @@ export type Ator = PessoaId | typeof SISTEMA
  */
 export const SISTEMA_NO_BANCO = 'sistema'
 
-export const atorParaOBanco = (ator: Ator): string =>
-  ator === SISTEMA ? SISTEMA_NO_BANCO : ator
+/**
+ * Função TOTAL sobre os três atores — `typeof` separa símbolo, objeto e
+ * string, e não há ramo "senão". Um `as` aqui seria um palpite sobre qual
+ * marca um valor carrega, e o palpite erra em silêncio.
+ */
+export const atorParaOBanco = (ator: Ator): string => {
+  if (ator === SISTEMA) return SISTEMA_NO_BANCO
+  if (typeof ator === 'object') return `${PREFIXO_OPERADOR}${ator.id}`
+  return ator
+}
 
 /**
  * O ator nas COLUNAS de `auditoria`, para quem insere a linha à mão.
@@ -67,10 +126,15 @@ export const atorParaOBanco = (ator: Ator): string =>
  * concordar, e a `CHECK ator_tem_id` da migration 0004 recusa `'pessoa'` sem
  * id — então a tradução mora aqui, uma vez, e não dentro de um `INSERT`.
  *
- * `'operador'` não aparece: o superadmin do épico 12 não é uma `pessoa`
- * (decisão D-5, restrição 1) e não atravessa este tipo.
+ * `'operador'` PASSA A APARECER aqui (migration 0013, decisão D-10): o
+ * superadmin continua não sendo uma `pessoa`, mas ele escreve na trilha **da
+ * clínica em que opera**, e é essa linha que a clínica lê para saber o que
+ * fizemos dentro dela. O acesso é total; o registro é obrigatório.
  */
 export const atorEmColunas = (
   ator: Ator,
-): { readonly tipo: 'pessoa' | 'sistema'; readonly id: string | null } =>
-  ator === SISTEMA ? { tipo: 'sistema', id: null } : { tipo: 'pessoa', id: ator }
+): { readonly tipo: 'pessoa' | 'operador' | 'sistema'; readonly id: string | null } => {
+  if (ator === SISTEMA) return { tipo: 'sistema', id: null }
+  if (typeof ator === 'object') return { tipo: 'operador', id: ator.id }
+  return { tipo: 'pessoa', id: ator }
+}
