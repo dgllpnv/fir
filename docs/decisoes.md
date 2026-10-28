@@ -202,6 +202,20 @@ Tira duas pendências do caminho crítico de uma vez: **P-9 (SMTP)** deixa de bl
 
 A formulação que vale: **o acesso é total; o registro é obrigatório.** A clínica não pode nos barrar, mas pode nos **ver**. É isso que, com o DPA (P-3), separa acesso de operador de acesso arbitrário.
 
+### Emenda, no mesmo dia: duas coisas que eu tinha deixado em silêncio
+
+**1. A D-5 restrição 4 dizia "a clínica pode revogar". Com a D-10, ela não pode — e isso precisa ser decisão escrita, não omissão.** Eu listei o que *não muda* e simplesmente não mencionei a 4; lido de fora, parece esquecimento.
+
+A razão de não poder: o superadmin **cria** a clínica e o admin dela. Uma clínica que revoga o acesso de quem a provisiona tranca a si mesma fora de qualquer suporte, e tranca a nós fora de um sistema que operamos. O `Code.gs` concorda por analogia — na v20 o dono edita a planilha central e as clínicas não têm voz nisso.
+
+**O que a clínica tem, em troca, e precisa estar no DPA (P-3):** ela **vê tudo** o que fazemos, na trilha dela, sem pedir; e ela pode **encerrar o contrato**, o que encerra o tratamento. Controlador revoga operador rescindindo, não cortando acesso individual enquanto usa o serviço.
+
+**2. A trilha do próprio operador não tinha onde morar.** `auditoria.clinica_id` é `NOT NULL`, e "operador criado", "senha de operador redefinida pela VPS" e "operador entrou" não pertencem a clínica nenhuma — e a clínica sentinela já foi recusada por escrito na migration `0002`.
+
+**Regra de repartição, em uma frase:** o que toca dado **de uma clínica** vai para a `auditoria` dela, com `ator_tipo = 'operador'`; o que é **sobre operadores** vai para `auditoria_do_painel`.
+
+**3. Quem cria o superadmin nº 1** é o mesmo comando de break-glass na VPS — e ele **avisa quando houver menos de dois ativos**. Um superadmin só é um ponto único de falha com nome bonito.
+
 ---
 
 ## O que ainda depende do dono
