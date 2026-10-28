@@ -52,11 +52,13 @@ O que o plano terá de resolver: as três unidades do item, FIFO de validade, co
 
 ## Antes do primeiro deploy — não se resolve com código
 
+> Detalhe de cada um, com custo e o que eu faço depois: [`o-que-depende-de-voce.md`](o-que-depende-de-voce.md).
+
 | | O que falta | Quem |
 |---|---|---|
 | **P-9** | **SMTP** — sem ele não há convite nem recuperação de senha | dono |
-| **P-8** | Domínio e certificado — sem TLS o cookie `__Host-` não existe, logo **o login não existe** | dono |
-| **D1** | `PROXY_SALTOS_CONFIAVEIS` — atrás do Traefik todas as clínicas viram um IP só, e o limite passa a barrar quem não errou senha | nós, ao criar `infra/producao/` |
+| **P-8** | **Domínio próprio.** Correção: ele **não** bloqueia o login — o EasyPanel dá subdomínio com TLS válido, como no Mavia. Bloqueia o **e-mail**, e sem e-mail ninguém cria conta | dono |
+| **D1** | ~~`PROXY_SALTOS_CONFIAVEIS`~~ — **decidido: `1`**, pela topologia do Mavia (Traefik é o primeiro salto TCP). Vira item de conferência se um CDN entrar na frente, porque aí falha **aberto** | resolvido |
 | **D2** | O piso de tempo de 100 ms foi calibrado nesta máquina — medir o p99 na VPS | nós, no primeiro deploy |
 
 ## Antes da primeira clínica real

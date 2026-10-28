@@ -249,6 +249,7 @@ Pacotes `mattpocock-skills`, `superpowers` e `claude-security` instalados.
 | `docs/pipeline.md` | A pipeline completa, fase a fase |
 | `docs/decisoes.md` | As escolhas do dono do produto, com data, e o que ainda depende dele |
 | `docs/roadmap.md` | O que falta, em ordem, e o que fica pronto em cada etapa |
+| `docs/o-que-depende-de-voce.md` | **O que trava e depende do dono**, com custo e o que acontece depois |
 | `docs/fila.md` | **O que falta, por prioridade** — ordenado pelo caminho mais curto até as 4 clínicas migradas. Comece por aqui |
 | `docs/paridade.md` | **As 59 ações do protótipo, com estado.** É o que "paridade" significa — sem ela, é palavra, não portão |
 | `docs/dividas.md` | Dívida carregada, cada uma com o **gatilho** que a torna urgente. Duas mordem no primeiro deploy |
