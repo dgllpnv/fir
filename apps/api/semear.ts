@@ -6,13 +6,27 @@
  * terceiro dia.
  */
 import pg from 'pg'
-import { perfisPadrao } from '@fir/domain'
+import { avaliarSenha, ehErro, perfisPadrao } from '@fir/domain'
 import { hashDeSenha } from './src/autenticacao/senha.js'
 import { declararAtorSistema } from './src/banco/limpeza-de-teste'
 
 const CODIGO = 'demo'
-const EMAIL = 'demo@firmare.local'
-const SENHA = 'firmare-demonstracao'
+const NOME_DA_CLINICA = 'Clínica Modelo'
+const SENHA = 'quatro-pedras-no-caminho'
+
+/**
+ * A semente aplica a MESMA regra que a API aplicaria.
+ *
+ * Sem isto ela seria o único lugar do produto por onde uma senha fraca
+ * entra — e seria exatamente o molde que o migrador das 4 clínicas (épico 9)
+ * copiaria. A senha anterior, `firmare-demonstracao`, REPROVA aqui: contém
+ * `firmare`, que `avaliarSenha` bloqueia sempre. Isso é o resultado certo, e
+ * é a razão de a verificação existir.
+ */
+const juizo = avaliarSenha(SENHA, { contexto: [CODIGO, NOME_DA_CLINICA] })
+if (ehErro(juizo)) {
+  throw new Error(`a senha da semente não passa na regra: ${juizo.erro.mensagem}`)
+}
 
 const url =
   process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'
@@ -42,8 +56,8 @@ if (existente.rows[0]) {
 await c.query('BEGIN')
 try {
   const cl = await c.query<{ id: string }>(
-    `INSERT INTO clinicas (codigo, nome, fuso) VALUES ($1, 'Clínica Modelo', 'America/Bahia') RETURNING id`,
-    [CODIGO],
+    `INSERT INTO clinicas (codigo, nome, fuso) VALUES ($1, $2, 'America/Bahia') RETURNING id`,
+    [CODIGO, NOME_DA_CLINICA],
   )
   const clinicaId = cl.rows[0]!.id
 
@@ -57,9 +71,9 @@ try {
   // A administradora: `admin = true` e, pela restrição `pessoa_tem_acesso_definido`,
   // sem perfil.
   await c.query(
-    `INSERT INTO pessoas (clinica_id, nome, email, funcao, senha_hash, admin)
-     VALUES ($1, 'Dra. Helena Prado', $2, 'Médica responsável', $3, true)`,
-    [clinicaId, EMAIL, await hashDeSenha(SENHA)],
+    `INSERT INTO pessoas (clinica_id, nome, usuario, funcao, senha_hash, admin)
+     VALUES ($1, 'Dra. Helena Prado', 'helena', 'Médica responsável', $2, true)`,
+    [clinicaId, await hashDeSenha(SENHA)],
   )
 
   // Uma pessoa por perfil, para exercitar a redação de valores sem ficar
@@ -73,17 +87,17 @@ try {
   // `pf_sup` para que as cinco perfis tenham, cada um, uma pessoa — seis
   // pessoas ao todo.
   const porPerfil: [string, string, string, string][] = [
-    ['pf_sup', 'Beatriz Nunes', 'beatriz@firmare.local', 'Supervisão'],
-    ['pf_rec', 'Juliana Santos', 'juliana@firmare.local', 'Recepção'],
-    ['pf_enf', 'Camila Rocha', 'camila@firmare.local', 'Enfermagem'],
-    ['pf_com', 'Patrícia Lima', 'patricia@firmare.local', 'Comercial interno'],
-    ['pf_fin', 'Rosa Andrade', 'rosa@firmare.local', 'Financeiro'],
+    ['pf_sup', 'Beatriz Nunes', 'beatriz', 'Supervisão'],
+    ['pf_rec', 'Juliana Santos', 'juliana', 'Recepção'],
+    ['pf_enf', 'Camila Rocha', 'camila', 'Enfermagem'],
+    ['pf_com', 'Patrícia Lima', 'patricia', 'Comercial interno'],
+    ['pf_fin', 'Rosa Andrade', 'rosa', 'Financeiro'],
   ]
-  for (const [chave, nome, email, funcao] of porPerfil) {
+  for (const [chave, nome, usuario, funcao] of porPerfil) {
     const r = await c.query(
-      `INSERT INTO pessoas (clinica_id, nome, email, funcao, senha_hash, admin, perfil_id)
+      `INSERT INTO pessoas (clinica_id, nome, usuario, funcao, senha_hash, admin, perfil_id)
        SELECT $1, $2, $3, $4, $5, false, id FROM perfis WHERE clinica_id = $1 AND chave = $6`,
-      [clinicaId, nome, email, funcao, await hashDeSenha(SENHA), chave],
+      [clinicaId, nome, usuario, funcao, await hashDeSenha(SENHA), chave],
     )
     /**
      * A ARMADILHA DO `INSERT ... SELECT`: ele não falha quando o `WHERE` não
@@ -109,7 +123,7 @@ try {
 
   await c.query('COMMIT')
   process.stdout.write(
-    `clínica "${CODIGO}" criada · entre com ${EMAIL} / ${SENHA}\n` +
+    `clínica "${CODIGO}" · usuário "helena" · senha "${SENHA}"\n` +
       `credenciais valem SÓ neste ambiente local\n`,
   )
 } catch (e) {

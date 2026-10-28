@@ -7,7 +7,7 @@ import { chamar, ErroDaApi } from '@/lib/api'
 export default function Entrar() {
   const router = useRouter()
   const [clinica, setClinica] = useState('demo')
-  const [email, setEmail] = useState('')
+  const [usuario, setUsuario] = useState('')
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
@@ -17,7 +17,10 @@ export default function Entrar() {
     setErro('')
     setEnviando(true)
     try {
-      await chamar('v1/entrar', { method: 'POST', body: JSON.stringify({ clinica, email, senha }) })
+      await chamar('v1/entrar', {
+        method: 'POST',
+        body: JSON.stringify({ clinica, usuario, senha }),
+      })
       router.push('/hoje')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
@@ -49,12 +52,19 @@ export default function Entrar() {
             />
           </label>
           <label className="campo">
-            E-mail
+            Usuário
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={usuario}
+              onChange={(e) => setUsuario(e.target.value)}
               autoComplete="username"
+              // O teclado do tablet maiusculiza e corrige por padrão. Os três
+              // atributos abaixo desligam isso. Sem eles "Ana" chega ao
+              // servidor e só não falha porque o contrato canoniza — e a
+              // pessoa fica vendo na tela uma coisa diferente da que o
+              // sistema usa.
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               required
             />
           </label>

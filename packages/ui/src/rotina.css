@@ -498,7 +498,20 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
   font-weight: 500;
   line-height: 1.4;
 }
-.caixa input { margin-top: 2px; flex: none; width: 18px; height: 18px; accent-color: var(--gold); }
+/* `input[type=...]` e NÃO `.caixa input`, e isto é correção de defeito, não
+   capricho: `.caixa` é usada em DOIS papéis — a linha de marcar (aqui) e o
+   formulário da tela de entrar (`.entrada .caixa`, shell.css). Com o seletor
+   largo, os três campos de texto da tela de entrar herdavam 18×18 px e viravam
+   bolinhas intocáveis. Medido em 2026-10-28, no dev local: `Clínica`,
+   `Usuário` e `Senha` com 18 px de largura. */
+.caixa input[type='checkbox'],
+.caixa input[type='radio'] {
+  margin-top: 2px;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--gold);
+}
 
 /* A paciente já escolhida: uma faixa, não um campo. O nome dela fica em
    destaque porque é a âncora de tudo o que vem abaixo no formulário. */
