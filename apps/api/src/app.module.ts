@@ -13,6 +13,7 @@ import { HojeModule } from './hoje/hoje.module'
 import { JornadaModule } from './jornada/jornada.module'
 import { RedacaoInterceptor } from './comum/redacao.interceptor'
 import { PacientesModule } from './pacientes/pacientes.module'
+import { PessoasModule } from './pessoas/pessoas.module'
 import { ProgramasModule } from './programas/programas.module'
 import { SaudeController } from './saude/saude.controller'
 import { TarefasModule } from './tarefas/tarefas.module'
@@ -23,6 +24,7 @@ import { TarefasModule } from './tarefas/tarefas.module'
     AutenticacaoModule,
     AuditoriaModule,
     PacientesModule,
+    PessoasModule,
     TarefasModule,
     JornadaModule,
     ClinicaModule,
