@@ -31,6 +31,19 @@ export const sessaoAtual = cache(async (): Promise<Sessao> => {
   if (!r.ok) redirect('/entrar')
 
   const eu = (await r.json()) as EuSaida
+
+  /**
+   * O desvio para a troca de senha, no SERVIDOR, antes de qualquer render.
+   *
+   * O guard da API já recusa toda rota de negócio com 409, e `chamar()`
+   * desvia no cliente. Esta é a terceira camada, e a que importa para a
+   * primeira navegação: sem ela a pessoa veria a Shell montar, o menu
+   * aparecer e cada bloco falhar sozinho — uma tela quebrada em vez de uma
+   * instrução.
+   *
+   * `/trocar-senha` NÃO usa esta função, justamente para não entrar em laço.
+   */
+  if (eu.usuario.senhaProvisoria) redirect('/trocar-senha')
   // `perms` chega como string[] do JSON; o domínio quer ChaveDePermissao[].
   // O estreitamento acontece aqui, uma vez, e não em cada chamada de temPerm.
   const perfis = eu.perfis.map((p) => ({

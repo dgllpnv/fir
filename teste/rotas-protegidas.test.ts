@@ -1,10 +1,13 @@
 import 'reflect-metadata'
 import { AppModule } from '@fir/api/app.module'
+import { apagarClinicaDeTeste, declararAtorSistema } from '@fir/api/banco/limpeza-de-teste'
+import { hashDeSenha } from '@fir/api/autenticacao/senha'
 import { registrarCookie } from '@fir/api/main'
 import { RequestMethod } from '@nestjs/common'
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants'
 import { MetadataScanner, ModulesContainer, NestFactory } from '@nestjs/core'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
+import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ROTAS_COM_DINHEIRO, ROTAS_PUBLICAS } from './registro'
 
@@ -196,5 +199,122 @@ describe('toda rota do Nest está autenticada, ou é pública de propósito', ()
           `${r.statusCode} sem cookie de sessão, e não 401. Rota DESPROTEGIDA.`,
       ).toBe(401)
     }
+  })
+})
+
+/**
+ * A MESMA varredura, para a senha provisória.
+ *
+ * Lista escrita à mão falha no endpoint número quarenta; varredura não. O que
+ * se protege aqui é a classe inteira: a rota que alguém escrever amanhã nasce
+ * recusando uma sessão com senha provisória, e abrir uma exige acrescentar
+ * uma linha a `LIBERADAS`, que é visível na revisão.
+ *
+ * Por que isso importa mais do que parece: a provisória foi gerada pelo
+ * servidor, DITADA no balcão e anotada num papel. Ela é uma credencial
+ * compartilhada por construção — a recepcionista, quem a ditou e quem
+ * estava ao lado a conhecem. A única coisa que ela pode fazer é deixar de ser.
+ */
+describe('nenhuma rota de negócio atravessa a senha provisória', () => {
+  const LIBERADAS = new Set(['GET /v1/eu', 'POST /v1/eu/senha', 'POST /v1/sair'])
+
+  let migrate: pg.Client
+  let clinica: string
+  let cookie: string[]
+  const codigo = `prov-${Date.now()}`
+  const PROVISORIA = 'pinheiro-balde-sete-azul'
+
+  beforeAll(async () => {
+    migrate = new pg.Client({
+      connectionString:
+        process.env['DATABASE_URL_MIGRATE'] ??
+        'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir',
+    })
+    await migrate.connect()
+    await declararAtorSistema(migrate)
+
+    clinica = (
+      await migrate.query<{ id: string }>(
+        `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica da Provisória') RETURNING id`,
+        [codigo],
+      )
+    ).rows[0]!.id
+    // ADMIN de propósito: `temPerm` libera tudo para quem é admin, então
+    // nenhum 403 pode mascarar um 409 que não veio. A varredura mede o guard
+    // da provisória, não a matriz de permissões.
+    await migrate.query(
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin,
+                            senha_provisoria, senha_provisoria_expira_em)
+       VALUES ($1, 'Ana Nova', 'ana.nova', $2, true, true, now() + interval '72 hours')`,
+      [clinica, await hashDeSenha(PROVISORIA)],
+    )
+
+    const fastify = app.getHttpAdapter().getInstance()
+    const r = await fastify.inject({
+      method: 'POST',
+      url: '/v1/entrar',
+      payload: { clinica: codigo, usuario: 'ana.nova', senha: PROVISORIA },
+    })
+    expect(r.statusCode, 'a fixture não conseguiu entrar com a provisória').toBe(200)
+    const bruto = r.headers['set-cookie']
+    cookie = Array.isArray(bruto) ? bruto : [String(bruto)]
+  })
+
+  afterAll(async () => {
+    await apagarClinicaDeTeste(migrate, clinica)
+    await migrate.end()
+  })
+
+  it('TODA rota não-pública e não-liberada responde 409 SENHA_PROVISORIA', async () => {
+    const fastify = app.getHttpAdapter().getInstance()
+    const alvos = rotas.filter((r) => !r.publico && !LIBERADAS.has(chave(r)))
+    expect(
+      alvos.length,
+      'nenhuma rota a verificar — ou tudo virou público, ou a varredura quebrou',
+    ).toBeGreaterThan(5)
+
+    for (const rota of alvos) {
+      const url = rota.caminho.replace(/:[^/]+/g, '00000000-0000-0000-0000-000000000000')
+      const metodo = rota.metodo === 'ALL' ? 'GET' : rota.metodo
+      const r = await fastify.inject({
+        method: metodo as 'GET',
+        url,
+        payload: {},
+        cookies: Object.fromEntries(
+          cookie.map((c) => {
+            const [nome, ...resto] = c.split(';')[0]!.split('=')
+            return [nome!, resto.join('=')]
+          }),
+        ),
+      })
+      expect(
+        r.statusCode,
+        `${rota.metodo} ${rota.caminho} (${rota.controlador}.${rota.handler}) respondeu ` +
+          `${r.statusCode} para uma sessão com SENHA PROVISÓRIA, e não 409.`,
+      ).toBe(409)
+      expect(r.json()).toMatchObject({ codigo: 'SENHA_PROVISORIA' })
+    }
+  })
+
+  it('as três rotas LIBERADAS de fato respondem — senão a pessoa fica presa', async () => {
+    const fastify = app.getHttpAdapter().getInstance()
+    const chavesExistentes = new Set(rotas.map(chave))
+    for (const k of LIBERADAS) {
+      expect(chavesExistentes.has(k), `${k} está em LIBERADAS mas não existe no AppModule`).toBe(
+        true,
+      )
+    }
+    const r = await fastify.inject({
+      method: 'GET',
+      url: '/v1/eu',
+      cookies: Object.fromEntries(
+        cookie.map((c) => {
+          const [nome, ...resto] = c.split(';')[0]!.split('=')
+          return [nome!, resto.join('=')]
+        }),
+      ),
+    })
+    expect(r.statusCode).toBe(200)
+    expect(r.json().usuario.senhaProvisoria).toBe(true)
   })
 })

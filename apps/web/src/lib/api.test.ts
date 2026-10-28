@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chamar, ErroDaApi } from './api'
+import { CAMINHO_TROCAR_SENHA, chamar, ErroDaApi } from './api'
 
 /**
  * O cabeçalho `content-type` não é detalhe de transporte — é o que decidiu, em
@@ -67,6 +67,44 @@ describe('chamar', () => {
     const espiao = espiar()
     await chamar('v1/hoje')
     expect(espiao.chamadas[0]![1].credentials).toBe('include')
+  })
+
+  it('409 SENHA_PROVISORIA desvia para a troca de senha, e não para a tela', async () => {
+    /**
+     * O desvio mora no transporte de propósito.
+     *
+     * Com senha provisória o servidor responde 409 em TODA rota de negócio
+     * (guard global). Tratado tela a tela, a tela escrita amanhã mostraria
+     * "Conflito" num aviso vermelho e deixaria a pessoa parada no balcão —
+     * com uma credencial que outra pessoa conhece.
+     */
+    const ida: string[] = []
+    vi.stubGlobal('window', { location: { assign: (u: string) => ida.push(u) } })
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({
+        ok: false,
+        status: 409,
+        json: async () => ({ message: 'Troque a senha provisória antes de continuar.', codigo: 'SENHA_PROVISORIA' }),
+      } as unknown as Response),
+    )
+    await expect(chamar('v1/hoje')).rejects.toThrow(ErroDaApi)
+    expect(ida).toEqual([CAMINHO_TROCAR_SENHA])
+  })
+
+  it('409 de OUTRA coisa não desvia — só o código estável desvia', async () => {
+    // Casar status 409 sozinho mandaria para a troca de senha quem só tentou
+    // fechar o caixa duas vezes no mesmo dia.
+    const ida: string[] = []
+    vi.stubGlobal('window', { location: { assign: (u: string) => ida.push(u) } })
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({
+        ok: false,
+        status: 409,
+        json: async () => ({ message: 'O caixa de hoje já foi fechado.' }),
+      } as unknown as Response),
+    )
+    await expect(chamar('v1/caixa')).rejects.toThrow('O caixa de hoje já foi fechado.')
+    expect(ida).toEqual([])
   })
 
   it('erro da API vira ErroDaApi com a mensagem do servidor', async () => {

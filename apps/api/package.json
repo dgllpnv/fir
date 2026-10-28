@@ -9,7 +9,8 @@
     "./main": "./src/main.ts",
     "./auditoria/acesso.decorator": "./src/auditoria/acesso.decorator.ts",
     "./banco/ator": "./src/banco/ator.ts",
-    "./banco/limpeza-de-teste": "./src/banco/limpeza-de-teste.ts"
+    "./banco/limpeza-de-teste": "./src/banco/limpeza-de-teste.ts",
+    "./autenticacao/senha": "./src/autenticacao/senha.ts"
   },
   "scripts": {
     "dev": "tsx watch src/main.ts",

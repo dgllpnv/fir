@@ -93,3 +93,25 @@ export type EuSaida = z.infer<typeof EuSaida>
 
 export const EntrarSaida = EuSaida
 export type EntrarSaida = z.infer<typeof EntrarSaida>
+
+/**
+ * Trocar a PRÓPRIA senha — a mesma rota que serve à troca voluntária e ao
+ * primeiro acesso obrigatório.
+ *
+ * `.strict()`, e isto é o ponto da regra de contexto: um campo `contexto`
+ * aceito aqui seria um contexto ESCOLHIDO PELO CLIENTE, e bastaria mandá-lo
+ * vazio para que o bloqueio por nome da clínica e nome da pessoa deixasse de
+ * existir. O contexto monta-se no servidor, a partir da sessão. Campo a mais
+ * é 400, nunca ignorado em silêncio.
+ *
+ * `min(1)` em `atual` e não `min(SENHA_MIN)`: a senha que a pessoa TEM pode
+ * ser mais curta que a regra de hoje, e exigir a regra no campo da senha
+ * antiga trancaria exatamente quem precisa trocar.
+ */
+export const TrocarSenhaEntrada = z
+  .object({
+    atual: z.string().min(1, 'Informe a senha atual.').max(SENHA_MAX),
+    nova: z.string().min(1, 'Informe a nova senha.').max(SENHA_MAX),
+  })
+  .strict()
+export type TrocarSenhaEntrada = z.infer<typeof TrocarSenhaEntrada>

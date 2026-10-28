@@ -1,9 +1,10 @@
-import { EntrarEntrada, type EuSaida } from '@fir/contracts'
+import { EntrarEntrada, TrocarSenhaEntrada, type EuSaida } from '@fir/contracts'
 import { diaCivil } from '@fir/domain'
 import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpException,
@@ -189,5 +190,46 @@ export class AutenticacaoController {
       // navegador não decide, e o do servidor web é um terceiro relógio.
       hoje: diaCivil(this.relogio.agora(), c.clinicaFuso),
     }
+  }
+
+  /**
+   * Troca a PRÓPRIA senha. Uma rota só para a troca voluntária e para o
+   * primeiro acesso obrigatório — duas rotas seriam duas chances de uma delas
+   * esquecer a regra de força ou a revogação das outras sessões.
+   *
+   * Autenticada (sem `@Publico()`), e liberada pelo `SenhaProvisoriaGuard`:
+   * é a saída de quem está preso pela provisória.
+   *
+   * Três status, e cada um diz uma coisa diferente à tela:
+   *  - **400** o corpo não é o corpo desta rota (campo a mais, campo faltando).
+   *  - **403** a senha ATUAL não confere. Não é 401: a sessão vale: quem não
+   *    prova a senha de novo é que não pode fazer ESTA ação.
+   *  - **422** a senha nova não passa na regra, e a mensagem diz o que corrigir.
+   */
+  @Post('eu/senha')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async trocarSenha(
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComContexto & { cookies?: Record<string, string> },
+  ): Promise<void> {
+    const dados = TrocarSenhaEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException('Informe a senha atual e a nova senha.')
+
+    const contexto = req.contexto!
+    // O token da sessão ATUAL, para que ela seja a única que sobrevive à
+    // troca. Vem do cookie, que é o mesmo que o `SessaoGuard` já validou.
+    const token = req.cookies?.[NOME_DO_COOKIE] ?? ''
+
+    const r = await this.auth.trocarAPropriaSenha(
+      contexto,
+      token,
+      dados.data.atual,
+      dados.data.nova,
+    )
+    if (r === 'ok') return
+    if (r === 'atual-invalida') throw new ForbiddenException('A senha atual não confere.')
+    // A mensagem vem do DOMÍNIO: é a mesma frase que a tela mostra antes do
+    // envio, e escrevê-la de novo aqui seria a segunda verdade.
+    throw new HttpException(r.mensagem, HttpStatus.UNPROCESSABLE_ENTITY)
   }
 }

@@ -3,6 +3,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
 import { AcessoInterceptor } from './auditoria/acesso.interceptor'
 import { AuditoriaModule } from './auditoria/auditoria.module'
 import { AutenticacaoModule } from './autenticacao/autenticacao.module'
+import { SenhaProvisoriaGuard } from './autenticacao/senha-provisoria.guard'
 import { SessaoGuard } from './autenticacao/sessao.guard'
 import { AutorizacaoGuard } from './autorizacao/autorizacao.guard'
 import { BancoModule } from './banco/banco.module'
@@ -42,6 +43,13 @@ import { TarefasModule } from './tarefas/tarefas.module'
     // esquecer significa rota protegida, e abrir exige `@Publico()` —
     // deliberado, e conferido por teste/rotas-protegidas.test.ts.
     { provide: APP_GUARD, useClass: SessaoGuard },
+    // ENTRE os dois, e não depois: quem está preso pela senha provisória tem
+    // de receber 409 em TODA rota de negócio, inclusive nas que o perfil dele
+    // não alcança. Depois de `AutorizacaoGuard`, a resposta seria 403 numa
+    // rota sem permissão, e a tela — que redireciona pelo `codigo` — não
+    // redirecionaria. "Termine isto primeiro" é precondição da sessão, não
+    // resposta à pergunta "você pode?".
+    { provide: APP_GUARD, useClass: SenhaProvisoriaGuard },
     { provide: APP_GUARD, useClass: AutorizacaoGuard },
     // Global de propósito: a redação não é opcional por rota.
     //

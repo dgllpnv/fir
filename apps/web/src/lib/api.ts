@@ -9,10 +9,15 @@ export class ErroDaApi extends Error {
   constructor(
     readonly status: number,
     mensagem: string,
+    /** O código estável do corpo, quando há um. A tela casa isto, nunca texto. */
+    readonly codigo?: string,
   ) {
     super(mensagem)
   }
 }
+
+/** Onde a pessoa com senha provisória é obrigada a terminar o primeiro acesso. */
+export const CAMINHO_TROCAR_SENHA = '/trocar-senha'
 
 export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
   /**
@@ -35,8 +40,29 @@ export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Prom
     },
   })
   if (!r.ok) {
-    const corpo = (await r.json().catch(() => ({}))) as { message?: string }
-    throw new ErroDaApi(r.status, corpo.message ?? 'Não foi possível completar a ação.')
+    const corpo = (await r.json().catch(() => ({}))) as { message?: string; codigo?: string }
+    /**
+     * O DESVIO PARA A TROCA DE SENHA mora aqui, e não em cada tela.
+     *
+     * O servidor é quem impõe: com senha provisória, toda rota de negócio
+     * responde 409 `SENHA_PROVISORIA` (guard global, ver
+     * `senha-provisoria.guard.ts`). Tratar isso tela a tela significa que a
+     * tela escrita amanhã mostra "Conflito" num aviso vermelho e deixa a
+     * pessoa parada. Aqui o desvio é a regra, e vale para a ação que ninguém
+     * previu.
+     *
+     * `window.location.assign` e não o router do Next: a troca de senha
+     * revoga sessões e muda o que o servidor devolve em toda rota — uma
+     * navegação do cliente levaria junto o cache de dados da página velha.
+     */
+    if (corpo.codigo === 'SENHA_PROVISORIA' && typeof window !== 'undefined') {
+      window.location.assign(CAMINHO_TROCAR_SENHA)
+    }
+    throw new ErroDaApi(
+      r.status,
+      corpo.message ?? 'Não foi possível completar a ação.',
+      corpo.codigo,
+    )
   }
   return r.status === 204 ? (undefined as T) : ((await r.json()) as T)
 }

@@ -325,3 +325,13 @@
   color: var(--on-gold);
   font-weight: 600;
 }
+
+/* A tela de trocar a senha no primeiro acesso reusa `.entrada` inteira. Só a
+   frase que explica por que a pessoa está ali é própria: ela precisa ser lida
+   ANTES dos campos, e por isso não é um ícone de dica. */
+.aviso-primeiro-acesso {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}

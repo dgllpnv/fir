@@ -1,5 +1,13 @@
 import type { EuSaida } from '@fir/contracts'
-import { diaCivil, temPerm, type ChaveDePermissao, type Perfil } from '@fir/domain'
+import {
+  avaliarSenha,
+  diaCivil,
+  ehErro,
+  temPerm,
+  type ChaveDePermissao,
+  type ErroDeDominio,
+  type Perfil,
+} from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { SISTEMA, pessoaIdDeFonteConfiavel } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
@@ -8,7 +16,7 @@ import { type ClinicaId, clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
 import { inteiroDoAmbiente } from '../comum/ambiente'
 import type { ContextoDaRequisicao, PerfilComChave } from '../comum/contexto'
 import { semaforoArgon2 } from './concorrencia'
-import { conferirSenha } from './senha'
+import { conferirSenha, hashDeSenha } from './senha'
 import { DURACAO_SESSAO_MS, hashDoToken, limiteExcedido, novoToken } from './sessao'
 
 export class CredencialInvalida extends Error {}
@@ -503,6 +511,87 @@ export class AutenticacaoService {
         await c.query('UPDATE sessoes SET revogada_em = now() WHERE token_hash = $1', [hash])
       },
     )
+  }
+
+  /**
+   * Troca a PRÓPRIA senha — a mesma operação para a troca voluntária e para o
+   * primeiro acesso obrigatório.
+   *
+   * O contexto da regra monta-se AQUI, a partir da sessão, e nunca do corpo:
+   * um contexto vindo do cliente seria um contexto vazio escolhido pelo
+   * cliente, e o bloqueio por nome da clínica e nome da pessoa deixaria de
+   * existir. `avaliarSenha` ainda acrescenta `firmare` por conta própria.
+   *
+   * Três etapas, no mesmo molde de `entrar` e pela mesma razão medida lá: o
+   * Argon2 NUNCA roda dentro de transação, para não segurar uma conexão do
+   * pool durante ~25 ms de hash.
+   */
+  async trocarAPropriaSenha(
+    contexto: ContextoDaRequisicao,
+    tokenDaSessao: string,
+    atual: string,
+    nova: string,
+  ): Promise<'ok' | 'atual-invalida' | ErroDeDominio> {
+    const { clinicaId, ator, usuario } = contexto
+
+    // --- TRANSAÇÃO 1 (curta): só o hash guardado. Nenhum Argon2.
+    const linha = await this.banco.naClinica(clinicaId, ator, async (c) => {
+      const r = await c.query<{ senha_hash: string }>(
+        'SELECT senha_hash FROM pessoas WHERE id = $1 AND ativo',
+        [usuario.id],
+      )
+      return r.rows[0] ?? null
+    })
+    if (!linha) return 'atual-invalida'
+
+    // --- FORA DE TRANSAÇÃO: o semáforo e o Argon2.
+    const confere = await semaforoArgon2.executar(() => conferirSenha(atual, linha.senha_hash))
+    if (!confere) return 'atual-invalida'
+
+    /**
+     * A REGRA VEM ANTES DO HASH, e esta ordem é a invariante.
+     *
+     * `hashDeSenha` custa 19 MiB e ~25 ms por chamada, e é o recurso que o
+     * semáforo protege. Hashear primeiro e julgar depois entregaria ao
+     * atacante com sessão válida um jeito de consumir o semáforo inteiro com
+     * senhas que nunca seriam aceitas — e, pior, colocaria a senha recusada
+     * dentro do Argon2 antes de qualquer decisão sobre ela.
+     */
+    const juizo = avaliarSenha(nova, {
+      contexto: [contexto.clinicaCodigo, contexto.clinicaNome, usuario.usuario, usuario.nome],
+    })
+    if (ehErro(juizo)) return juizo.erro
+
+    const hash = await semaforoArgon2.executar(() => hashDeSenha(nova))
+    const hashDaSessaoAtual = hashDoToken(tokenDaSessao)
+
+    // --- TRANSAÇÃO 2 (curta): a senha, o fim da provisória e as outras sessões.
+    await this.banco.naClinica(clinicaId, ator, async (c) => {
+      await c.query(
+        `UPDATE pessoas
+            SET senha_hash = $1, senha_provisoria = false, senha_provisoria_expira_em = NULL
+          WHERE id = $2`,
+        [hash, usuario.id],
+      )
+      /**
+       * REVOGA AS OUTRAS SESSÕES, e mantém esta.
+       *
+       * Quem troca a senha o faz, metade das vezes, porque desconfia de que
+       * alguém a conhece — e numa recepção com computador compartilhado essa
+       * desconfiança é razoável. Uma troca que deixa a sessão do outro de pé
+       * não serve justamente ao caso em que ela precisa servir.
+       *
+       * A sessão de quem trocou sobrevive porque derrubá-la devolveria a
+       * pessoa à tela de entrada logo depois de ela fazer a coisa certa.
+       */
+      await c.query(
+        `UPDATE sessoes SET revogada_em = now()
+          WHERE pessoa_id = $1 AND token_hash <> $2 AND revogada_em IS NULL`,
+        [usuario.id, hashDaSessaoAtual],
+      )
+    })
+
+    return 'ok'
   }
 
   async perfisPublicos(clinicaId: ClinicaId): Promise<Perfil[]> {
