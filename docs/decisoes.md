@@ -155,6 +155,55 @@ O `CHECK (valor > 0)` de `recebimentos` impedia isso: sem entrada não havia lin
 
 ---
 
+## D-10 · Usuário e senha, sem e-mail. O superadmin cria os admins · 2026-10-27
+
+**Substitui a D-3 na parte do identificador.** O login passa a ser **clínica + usuário + senha**. Não há e-mail em lugar nenhum.
+
+**A cadeia de criação:**
+
+```
+superadmin  →  cria a clínica e o admin dela
+admin       →  cria as pessoas da clínica, com usuário e senha
+```
+
+**O superadmin tem acesso total** e pode criar qualquer perfil para qualquer clínica.
+
+### Por que, e o que isso destrava
+
+Tira duas pendências do caminho crítico de uma vez: **P-9 (SMTP)** deixa de bloquear qualquer coisa, e **P-8 (domínio)** deixa de bloquear o e-mail — sobra só como questão de confiança e marca. Era a cadeia que travava a primeira clínica entrar.
+
+**E aproxima do protótipo, não afasta.** O modelo dela é exatamente este: a pessoa diz quem é, digita um segredo curto, e quem administra gerencia. Foi o e-mail que foi acréscimo nosso.
+
+### O que vem de graça, e vale dizer
+
+**Menos dado pessoal coletado.** Num produto que guarda dado de saúde, não pedir e-mail da equipe é uma linha a menos na avaliação de impacto. E `tentativas_login` passa a guardar um nome de usuário em vez de um e-mail — menos PII na trilha.
+
+### Esqueci a senha — a cadeia inteira
+
+| Quem esquece | Quem resolve | De onde veio |
+|---|---|---|
+| Pessoa da clínica | **o admin da clínica redefine** | Protótipo, AJUDA: *"Peça ao administrativo da clínica"* |
+| Admin da clínica | **o superadmin redefine** | Segue da cadeia de criação |
+| Superadmin | **comando na VPS**, por quem tem SSH, gravado na trilha | Não existe no protótipo. A v20 tem a planilha central que o dono edita direto; o equivalente moderno é o comando |
+
+**Melhoria sobre ela, e é inegociável:** na v20 e no protótipo o admin **vê** o PIN de cada pessoa. Aqui ele **redefine e nunca vê** — a senha é hash desde o primeiro dia. Ver a credencial de outra pessoa é o defeito que a D-0 descreve na v20.
+
+**Senha definida na criação é provisória**, e a pessoa é obrigada a trocar no primeiro acesso. Depois de criada, ninguém a lê de novo — nem quem a digitou.
+
+### O que fica mais perigoso, e precisa de resposta no plano
+
+**Nome de usuário é adivinhável de um jeito que e-mail não era.** `recepcao`, `ana`, `admin` — com o código da clínica conhecido, o espaço de busca encolhe muito. O que já temos passa a valer mais, não menos: limite por conta, **limite por origem**, piso de tempo igualado, e Argon2id. **O plano precisa acrescentar exigência de senha forte** — era aceitável depender do e-mail ser desconhecido; não é mais.
+
+### O superadmin: o que muda e o que NÃO muda da D-5
+
+**Muda:** ele não espera concessão da clínica para existir. Ele **cria** o admin dela — exigir autorização prévia de quem ainda não existe seria absurdo.
+
+**Não muda, e isto é o que nos protege:** ele continua **não sendo uma `pessoa`** (tabela, cookie e prefixo de rota próprios); **toda ação dele vai para a trilha que a clínica enxerga**; a allowlist de rede continua na frente, falhando fechada; e ele **nunca atravessa a RLS** — fixa `app.clinica_id` como qualquer um.
+
+A formulação que vale: **o acesso é total; o registro é obrigatório.** A clínica não pode nos barrar, mas pode nos **ver**. É isso que, com o DPA (P-3), separa acesso de operador de acesso arbitrário.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |
