@@ -12,8 +12,24 @@ Uma linha por classe de dado pessoal:
 |---|---|---|---|---|---|
 | **Trilha de ESCRITA** (`auditoria`, `acao` em `criou`/`alterou`/`removeu`): quem, quando, de → para, incluindo nome, e-mail e — quando o épico 7 e o 6 chegarem — salário e dose | Prestação de contas do operador, segurança da informação, resposta a incidente e prova de "quem alterou isto" | Art. 7º, II (obrigação legal/regulatória do operador) para o registro em si; **o conteúdo de `de`/`para` herda a base legal do dado original** — art. 11, II, "f" para dose e lote, art. 7º, II para RH | Paciente e funcionária da clínica | **5 anos** a contar do registro | Eliminação da linha, por job privilegiado. Suspensa enquanto houver processo administrativo ou judicial em curso sobre o período |
 | **Trilha de ACESSO** (`auditoria`, `acao = 'acessou'`): quem abriu qual ficha, quando | Responder "quem olhou o prontuário da minha paciente" (regra 18, art. 11) e detectar acesso indevido | Art. 7º, II e art. 11, II, "a"/"f" conforme o dado acessado | Funcionária que acessou; indiretamente o paciente acessado | **1 ano** a contar do registro | Eliminação da linha, por job privilegiado |
+| **`pessoas.usuario`** — o identificador de login, único por clínica. **Substitui `pessoas.email`, que deixou de existir (D-10, ADR 0007)** | Autenticar a funcionária e atribuir a ela o que ela fez | Art. 7º, V (execução de contrato com a clínica) | Funcionária da clínica | Enquanto houver vínculo, **mais 5 anos** — o mesmo horizonte da trilha de escrita, que o referencia por `ator_id` | **Nenhuma**: a pessoa se **desativa** (`ativo = false`), nunca se apaga. Apagá-la quebraria a trilha que ela assina |
+| **`tentativas_login.identificador`** — o `usuario` tentado, com sucesso/falha e instante | Limite de tentativas por conta e resposta a incidente de acesso | Art. 7º, II e art. 7º, IX (legítimo interesse em segurança) | Funcionária, e **quem quer que tenha tentado** | **1 ano**, como a trilha de acesso: mesmo perfil de volume e de decaimento | Eliminação da linha, por job privilegiado |
+| **`operadores`** — `usuario`, `nome` e hash de senha do superadmin. **Sem `clinica_id`**: não é dado de clínica nenhuma | Autenticar quem opera o produto e atribuir a ele o que fez | Art. 7º, V (nosso próprio contrato de trabalho/sociedade) | **Nós**, não a clínica | Enquanto houver vínculo, mais 5 anos | Desativação (`ativo = false`), nunca exclusão — `auditoria_do_painel` aponta para o id |
 
 As demais classes já conhecidas, do protótipo e da v20 — nome, telefone, aniversário, histórico de contato, valor pago, saldo, **dose, produto, lote e aplicação por paciente**, salário, contrato, admissão, férias, documento com validade, banco de horas, foto de nota fiscal.
+
+### O ganho de minimização da D-10, e por que ele precisa estar escrito
+
+**`pessoas.email` deixou de existir.** O produto parou de coletar o e-mail da
+equipe: não há coluna, não há convite, não há SMTP. Numa ferramenta que guarda
+dado de saúde, é **uma classe inteira de dado pessoal a menos** na avaliação
+de impacto — e é a linha que a avaliação vai citar.
+
+E `tentativas_login.identificador` **mudou de classe**: ele guardava um
+e-mail, que é identificador pessoal fora do contexto do produto e
+correlacionável com qualquer outro serviço; passa a guardar `ana.silva`, que
+só significa alguma coisa dentro daquela clínica. O prazo não muda; a
+sensibilidade do que vaza num dump daquela tabela, sim.
 
 ### Por que dois prazos, e não um
 
@@ -42,6 +58,14 @@ O que o titular leva, e **o que ele não pode levar** — o extrato de um pacien
 
 ## 5. Registro de acesso
 Que leituras geram trilha: ficha de paciente com histórico de aplicação, ficha de pessoa com salário, qualquer rota do painel interno. Para dado sensível, saber **quem leu** é tão exigível quanto saber quem escreveu.
+
+**O painel do superadmin ainda NÃO marca leitura** (2026-10-28), e isso é
+defensável só porque ele não lê dado clínico: ele cria clínica, cria pessoa e
+redefine senha, e a **escrita** dele cai inteira na trilha que a clínica lê,
+com `ator_tipo = 'operador'`, pela trigger. No dia em que uma rota de
+`/v1/superadmin` devolver ficha de paciente, ela nasce com `@DadoSensivel` **e**
+com a concessão da pendência **P-10** — as duas, não uma. É o que separa
+acesso de operador de acesso arbitrário.
 
 **Implementado** (épico da trilha, tasks 5 e 6): `@DadoSensivel('<tabela>')` marca a rota, e um interceptor global grava `acao = 'acessou'` em toda resposta de **sucesso** dela — erro não grava, porque ninguém viu nada. A marcação é **explícita**: registrar todo `GET` encheria a trilha de ruído, e ruído esconde o que importa. Hoje a única rota marcada é `GET /v1/auditoria` — quem lê a trilha de todo mundo também fica nela. As fichas de paciente e de pessoa entram ao nascer, nos épicos 2 e 7.
 

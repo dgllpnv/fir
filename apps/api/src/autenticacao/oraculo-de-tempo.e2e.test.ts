@@ -75,17 +75,60 @@ const entrar = (usuario: string, senha: string, cod = codigo) =>
 
 const mediana = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!
 
-const medir = async (usuario: string, senha: string, cod = codigo): Promise<number> => {
-  const tempos: number[] = []
-  // Cinco amostras e a MEDIANA: a primeira de cada processo carrega o
-  // aquecimento do binding nativo do Argon2.
-  for (let i = 0; i < 5; i++) {
-    const inicio = performance.now()
-    await entrar(usuario, senha, cod).expect(401)
-    tempos.push(performance.now() - inicio)
-  }
-  return mediana(tempos)
+/**
+ * UMA CONTA POR AMOSTRA, e isto é o que torna a medição possível.
+ *
+ * O limite por identificador é 5 falhas em 15 minutos, e ele vale aqui como
+ * vale em produção. Com cinco amostras numa conta só, este arquivo ficava
+ * exatamente na BORDA do limite — e a borda é onde o teste fica
+ * não-determinístico: qualquer tentativa a mais naquela conta, de onde quer
+ * que viesse, trocava o 401 que ele espera por um 429.
+ */
+const AMOSTRAS = 7
+
+const umaTentativa = async (usuario: string, senha: string, cod: string): Promise<number> => {
+  const inicio = performance.now()
+  await entrar(usuario, senha, cod).expect(401)
+  return performance.now() - inicio
 }
+
+/**
+ * Mede os DOIS caminhos **intercalados**, e isto é correção, não estética.
+ *
+ * A versão anterior media cinco vezes A e depois cinco vezes B. Sob a suíte
+ * completa — seis pacotes do turbo em paralelo nesta máquina — uma rajada de
+ * carga cai inteira dentro de um dos dois blocos, e a razão entre eles passa
+ * a medir **quando o bloco rodou**, não o que ele faz. Observado: verde
+ * rodando só `@fir/api`, vermelho 1 de 4 na suíte completa, nos DOIS
+ * arquivos de oráculo.
+ *
+ * Intercalado, qualquer oscilação da máquina atinge os dois quase
+ * igualmente, e a razão volta a medir a única diferença real entre eles.
+ *
+ * Teste não-determinístico é pior que teste ausente: ensina a equipe a rodar
+ * de novo até passar, e aí o vermelho verdadeiro também vira ruído.
+ */
+const medirIntercalado = async (
+  a: { usuarios: readonly string[]; cod?: string },
+  b: { usuarios: readonly string[]; cod?: string },
+): Promise<{ a: number; b: number }> => {
+  const temposA: number[] = []
+  const temposB: number[] = []
+  for (let i = 0; i < AMOSTRAS; i++) {
+    temposA.push(await umaTentativa(a.usuarios[i]!, 'chute-errado-aqui', a.cod ?? codigo))
+    temposB.push(await umaTentativa(b.usuarios[i]!, 'chute-errado-aqui', b.cod ?? codigo))
+  }
+  return { a: mediana(temposA), b: mediana(temposB) }
+}
+
+const serie = (prefixo: string) =>
+  Array.from({ length: AMOSTRAS }, (_, i) => `${prefixo}.${i}`)
+
+/** As contas que existem, uma por amostra, e as que nunca existiram. */
+const EXISTEM = serie('existe')
+const NAO_EXISTEM = serie('naoexiste')
+/** Série própria para o caso da CLÍNICA, para não dividir limite com a de cima. */
+const EXISTEM_CLINICA = serie('existeclin')
 
 beforeAll(async () => {
   const [{ AppModule }, { registrarCookie }, senhaMod, { PISO_DE_RESPOSTA_MS }, limpeza] =
@@ -109,9 +152,8 @@ beforeAll(async () => {
   const hash = await senhaMod.hashDeSenha(SENHA)
   await migrate.query(
     `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin)
-     VALUES ($1, 'Existe Um', 'existe.um', $2, true),
-            ($1, 'Existe Dois', 'existe.dois', $2, true)`,
-    [clinica, hash],
+     SELECT $1, 'Conta do oráculo', u, $2, true FROM unnest($3::text[]) AS u`,
+    [clinica, hash, [...EXISTEM, ...EXISTEM_CLINICA]],
   )
 
   const { FastifyAdapter } = await import('@nestjs/platform-fastify')
@@ -175,8 +217,10 @@ describe('toda saída 401 de entrar inclui um Argon2', () => {
    * número de consultas DIFERENTE, e não a este.
    */
   it('o usuário que NÃO existe gasta o mesmo Argon2 que a senha errada', async () => {
-    const existe = await medir('existe.um', 'chute-errado-aqui')
-    const naoExiste = await medir('nao.existe.aqui', 'chute-errado-aqui')
+    const { a: existe, b: naoExiste } = await medirIntercalado(
+      { usuarios: EXISTEM },
+      { usuarios: NAO_EXISTEM },
+    )
 
     // Sanidade: se o caminho REAL também é instantâneo, as duas medidas são
     // ruído e a razão não significa nada.
@@ -195,7 +239,18 @@ describe('toda saída 401 de entrar inclui um Argon2', () => {
 
   it('a clínica que NÃO existe gasta o mesmo Argon2 que a clínica existente', async () => {
     const piso401 = custoDeUmArgon2 * FRACAO_DE_UM_ARGON2
-    const naoExiste = await medir('existe.dois', 'chute-errado-aqui', `nao-existe-${Date.now()}`)
+    // Aqui a comparação é contra a REFERÊNCIA de Argon2, e não entre dois
+    // caminhos: eles fazem números DIFERENTES de consultas, e a razão entre
+    // eles desaba sob a suíte inteira sem defeito nenhum. Medido na entrega
+    // anterior. Só a mediana precisa de amostras suficientes.
+    const tempos: number[] = []
+    const clinicaInexistente = `nao-existe-${Date.now()}`
+    for (let i = 0; i < AMOSTRAS; i++) {
+      tempos.push(
+        await umaTentativa(EXISTEM_CLINICA[i]!, 'chute-errado-aqui', clinicaInexistente),
+      )
+    }
+    const naoExiste = mediana(tempos)
 
     expect(
       naoExiste,

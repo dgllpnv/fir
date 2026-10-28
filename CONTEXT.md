@@ -19,6 +19,9 @@ O legado carrega três gerações de nomes para as mesmas coisas. Essa dívida s
 | `valor` nu | `Dinheiro` ou `Quantidade` | Os dois convivem na mesma tela de estoque |
 | `admin = true/false` | `Perfil de acesso` com `permissões` | O booleano foi substituído pela matriz; usá-lo reintroduz o modelo antigo |
 | `qtd` sem unidade | `Quantidade` com `medida` | Quantidade sem unidade é a origem da dose errada |
+| `e-mail`, `email`, `convite` | `Usuário` (o identificador de login) | **D-10:** o e-mail saiu do produto inteiro. Não há coluna, não há convite, não há SMTP. `grep -rn "email"` em `apps` e `packages` devolve zero, e é assim que fica |
+| `admin` para o superadmin | `Operador` | `admin` é a administradora **da clínica**, que é uma `Pessoa`. O superadmin é um `Operador`, que **não é uma `Pessoa`** — confundir os dois é o primeiro passo para um booleano em `pessoas` |
+| `/painel` como rota do superadmin | `/superadmin` | `painel` é chave de permissão existente (`painel` → `valores`) e é o nome da tela do épico 8. A allowlist de IP casa o segmento `superadmin`; usar `painel` bloquearia a tela de indicadores para a clínica inteira |
 
 **A única exceção, e ela é deliberada:** o **nome do tipo de tarefa** continua `'Sessão de plano'`
 (`TIPO_SESSAO`, em `packages/domain/src/tipos-de-tarefa.ts`). É a string gravada em milhares de
@@ -50,9 +53,23 @@ O tenant. **Toda tabela de negócio tem `clinica_id NOT NULL` com RLS.** Tem `at
 ### `Pessoa` e `Perfil`
 `Pessoa` é quem usa a ferramenta; tem `ativo`, e desativar nunca apaga. O acesso vem de um `Perfil`, que é um conjunto de `permissões` por pilar — não mais de um booleano `admin`.
 
+**O identificador de login é `usuario`**, único por clínica, e **não há e-mail** (D-10). A forma canônica é `normalizar_nome(usuario)` restrita ao alfabeto de identificador — `^[a-z][a-z0-9]*([._-][a-z0-9]+)*$`, 3 a 32 — e quem a define é o **banco**, por `CHECK`. Ela existe para ser **ditável por telefone**: `ana.silva` se dita sem ambiguidade, `Ana Silva` não. Não há coluna "como foi digitado": um identificador de login não tem valor de exibição.
+
+**Senha definida por outra pessoa é `senha provisória`**: gerada no servidor (quatro palavras, `pinheiro-balde-sete-azul`), devolvida **uma única vez** na resposta que a criou, válida por 72 h, e a pessoa é obrigada a trocá-la no primeiro acesso. **Ninguém nunca lê a senha de outra pessoa** — nem quem a redefiniu. É o defeito da D-0 corrigido: na v20 o administrativo vê o PIN de cada pessoa.
+
 **`temPerm(usuario, perfis, chave)` é uma função só**, em `packages/domain`, usada por servidor e tela. O servidor sempre valida. Dependências entre chaves (`finmes` → `valores`, `painel` → `valores`) vivem na tabela.
 
 Perfis padrão de uma clínica nova: Supervisão/gestão · Recepção · Comercial · Enfermagem · Financeiro.
+
+### `Operador` — o superadmin
+
+**Ele NÃO é uma `Pessoa`.** Tabela própria (`operadores`, **sem `clinica_id`**), cookie próprio (`__Host-fir-painel`, 8 h), prefixo de rota próprio (`/v1/superadmin`). Um booleano `superadmin` em `pessoas` já teria perdido o modelo: a mesma sessão passaria a poder sair do próprio tenant, e a RLS que sustenta o produto dependeria de um `if` (D-5, restrição 1).
+
+**Ele nunca atravessa a RLS.** Ele fixa `app.clinica_id` da clínica em que opera, como qualquer um, por uma **segunda conexão autenticada** como `fir_painel` — papel sem `BYPASSRLS`. Duas conexões separadas por **autenticação**, nunca por `SET ROLE`: `RESET ROLE` desfaz na mesma transação (D-5, restrição 5).
+
+**A formulação que vale: o acesso é total; o registro é obrigatório.** A clínica não pode nos barrar, mas pode nos **ver**. Toda ação do operador dentro de uma clínica cai na `auditoria` **dela**, com `ator_tipo = 'operador'`, pela trigger. O que é **sobre operadores** — "o operador entrou", "a senha dele foi redefinida pela VPS" — vai para `auditoria_do_painel`, porque `auditoria.clinica_id` é `NOT NULL` e a clínica sentinela foi recusada por escrito na migration `0002`.
+
+A **cadeia de criação** (D-10): superadmin → cria a clínica e a administradora dela; admin → cria a equipe. A cadeia de **"esqueci a senha"** é a mesma, ao contrário: pessoa → o admin redefine; admin → o superadmin redefine; superadmin → **comando na VPS**, por quem tem SSH, gravado na trilha.
 
 ### `Tarefa`
 Qualquer item da rotina: interna, contato, atendimento, pagamento ou sessão. É a entidade mais usada do produto.

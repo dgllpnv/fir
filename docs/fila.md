@@ -2,19 +2,33 @@
 
 Ordenada pelo **caminho mais curto até as 4 clínicas migradas**, que é a entrega com data. Não por tamanho, nem por facilidade.
 
-**Estado em 2026-10-27:** 21 das 59 ações · 1.407 testes · épicos 2, 3, 4 e 5 e a auditoria fechados.
+**Estado em 2026-10-28:** 23 das 59 ações · 1.631 testes · épicos 2, 3, 4 e 5, a auditoria, a **identidade sem e-mail** e o **painel do superadmin** fechados.
 
 ---
 
-## 1 · Administração da clínica — **a que destrava tudo**
+## 1 · Administração da clínica — **o que sobrou dela**
 
-**Plano pronto:** `superpowers/plans/2026-10-24-plano-admin-da-clinica.md`, 10 tarefas.
+**Plano parcialmente superado:** `superpowers/plans/2026-10-24-plano-admin-da-clinica.md`
+(leia o carimbo no topo) e `2026-10-27-plano-acesso-sem-email.md`, que o
+substitui no que toca identidade.
 
-Hoje **uma pessoa só existe por SQL ou pela semente**. Nenhuma clínica consegue cadastrar a própria equipe — nem a primeira, nem no ensaio da migração. É a única coisa na fila que bloqueia **todas** as outras na prática.
+**O que já está entregue** (épico 4 de acesso, 2026-10-27/28):
 
-Entrega 6 ações: `salvarPessoa` · `excluirPessoa` · `pessoasOp` · `salvarPerfis` · `alterarPin` *(vira trocar senha)* · `salvarUnidade`. Mais as telas **Usuários e acessos** e **Unidades**.
+- o login é **clínica + usuário + senha** — não há e-mail no produto;
+- o **admin da clínica cria pessoa e redefine senha, e nunca vê** (`alterarPin` → *trocar senha*; `salvarPessoa` parcial);
+- troca obrigatória no primeiro acesso, por guard global;
+- o **superadmin** existe: cria a clínica e a administradora dela, alcança qualquer clínica, e **não faz nada sem deixar rastro na trilha que a clínica lê**.
 
-> A **P-9 (SMTP)** não bloqueia: o Mailpit local entrega o fluxo inteiro. Ela bloqueia produção.
+**O que falta deste item:** as Tasks 1, 6, 8 e 9 daquele plano — invariantes
+de pessoa no domínio (`podeDesativar`, `podeTrocarPerfil`, última admin),
+listar/ativar/desativar/trocar perfil, perfis e unidades, e a tela **Usuários
+e acessos**. Sem a tela, criar pessoa e redefinir senha só dá por HTTP.
+
+Entrega, ao fechar: `excluirPessoa` · `pessoasOp` · `salvarPerfis` ·
+`salvarUnidade`, mais as telas **Usuários e acessos** e **Unidades**.
+
+> A **P-9 (SMTP)** deixou de bloquear **qualquer coisa**: nenhuma linha do
+> produto depende de e-mail.
 
 ## 2 · Épico 6 — Estoque
 
@@ -56,8 +70,9 @@ O que o plano terá de resolver: as três unidades do item, FIFO de validade, co
 
 | | O que falta | Quem |
 |---|---|---|
-| **P-9** | **SMTP** — sem ele não há convite nem recuperação de senha | dono |
-| **P-8** | **Domínio próprio.** Correção: ele **não** bloqueia o login — o EasyPanel dá subdomínio com TLS válido, como no Mavia. Bloqueia o **e-mail**, e sem e-mail ninguém cria conta | dono |
+| ~~**P-9**~~ | ~~SMTP~~ — **sai da lista (D-10)**. Não há convite, não há recuperação por e-mail, não há `nodemailer`. O Mailpit continua no compose sem código que o chame | resolvido |
+| **P-8** | **Domínio próprio e certificado.** Já não bloqueia o login nem o e-mail: o EasyPanel dá subdomínio com TLS válido, como no Mavia. Sobra como questão de **marca** — e como **item obrigatório de conferência da allowlist do painel**: um CDN à frente faz a allowlist falhar ABERTA sem mudar de cor | dono |
+| **P-10** | **Concessão de acesso do operador a dado clínico.** Hoje o painel só trata identidade, com acesso total e registro obrigatório (D-10). No dia em que ele ler ficha de paciente, isso precisa virar concessão com motivo, prazo e revogação (D-5, restrições 2 e 4) | dono + `especialista-lgpd-saude` |
 | **D1** | ~~`PROXY_SALTOS_CONFIAVEIS`~~ — **decidido: `1`**, pela topologia do Mavia (Traefik é o primeiro salto TCP). Vira item de conferência se um CDN entrar na frente, porque aí falha **aberto** | resolvido |
 | **D2** | O piso de tempo de 100 ms foi calibrado nesta máquina — medir o p99 na VPS | nós, no primeiro deploy |
 
@@ -80,7 +95,12 @@ O que o plano terá de resolver: as três unidades do item, FIFO de validade, co
 
 ## Depois da paridade
 
-**Épico 10** (integrações — trava na P-7) · **Épico 11** (produto) · **Épico 12** (contas, assinatura e o painel do superadmin, com as sete condições da D-5).
+**Épico 10** (integrações — trava na P-7) · **Épico 11** (produto) · **Épico 12** (contas, assinatura e cotas).
+
+O **painel do superadmin saiu do épico 12** e foi entregue em 2026-10-28, com
+as sete condições da D-5 (menos a 4, revogada por escrito na D-10 e na ADR
+0008). O que fica para o 12 é o lado comercial: planos, cotas, assinatura, e
+a leitura de dado de negócio pelo painel — esta última presa na P-10.
 
 ---
 

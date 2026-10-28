@@ -42,11 +42,23 @@ O piso fecha o oráculo de tempo do código da clínica igualando toda resposta 
 
 **Gatilho:** primeiro deploy. **O que fazer:** medir o p99 de `/v1/entrar` na VPS e ajustar o piso acima dele, ou trocar o piso fixo por um que se adapte. Medir, não estimar.
 
-### D3 · Sem SMTP não existe caminho para criar a primeira conta
+### ~~D3 · Sem SMTP não existe caminho para criar a primeira conta~~ — **RESOLVIDA (D-10, 2026-10-28)**
 
-Pessoas só são criadas por SQL ou pela semente. Convite, cadastro e recuperação de senha dependem de SMTP.
+Era: pessoas só existiam por SQL ou pela semente, e convite, cadastro e recuperação de senha dependiam de SMTP.
 
-**Gatilho:** primeiro deploy útil. Já registrado como pendência P-9 em [`decisoes.md`](decisoes.md).
+**Como foi resolvida, e não contornada:** a **D-10** tirou o e-mail do produto. O caminho para criar a primeira conta passa a ser a cadeia de criação — `redefinir-superadmin.sh` na VPS cria o **primeiro operador**; o operador cria a **clínica e a administradora dela**; a administradora cria a **equipe**. Nenhum elo depende de SMTP, e cada elo deixa rastro na trilha que a clínica lê.
+
+**A P-9 foi encerrada** em [`decisoes.md`](decisoes.md). O Mailpit continua no compose para um dia de notificação, **sem código que o chame**.
+
+### D3a · O painel do superadmin não tem MFA
+
+O painel cria clínica e administradora **em qualquer clínica** — é a credencial mais valiosa do produto, e ela é só usuário + senha.
+
+**A contrapartida assumida é a allowlist de IP de rede** na frente de `/superadmin`, falhando fechada (ADR 0008). É a **mesma troca** que o Mavia registrou na C-6a, e ela é honesta enquanto o painel for operado de dois ou três endereços conhecidos.
+
+**O que a torna cara com o tempo:** a allowlist protege o *acesso ao painel*, não a *credencial*. Um notebook comprometido numa origem permitida tem as duas coisas. E ela depende da **invariante do primeiro salto** — um CDN à frente e ela falha aberta sem mudar de cor.
+
+**Gatilho:** o primeiro operador que precisar entrar de fora dos endereços conhecidos, ou a entrada de CDN/domínio próprio (P-8). O que cabe é WebAuthn no painel, não TOTP: com dois usuários, uma chave física é mais barata de operar que um segredo compartilhado.
 
 ---
 
@@ -293,7 +305,7 @@ segundo é mais barato e não depende de a rodada terminar.
 
 ## Pendências de produto, não de código
 
-Essas dependem do dono e estão em [`decisoes.md`](decisoes.md), não aqui: P-1 (UX de sessão no balcão), P-2 (hospedagem para dado de saúde), P-3 (DPA com cada clínica), P-4 (modelo comercial), P-5 (janela de migração), P-6 (perfil Consultoria), P-7 (integração com agenda), P-8 (domínio e certificado), P-9 (SMTP).
+Essas dependem do dono e estão em [`decisoes.md`](decisoes.md), não aqui: P-1 (UX de sessão no balcão), P-2 (hospedagem para dado de saúde), P-3 (DPA com cada clínica), P-4 (modelo comercial), P-5 (janela de migração), P-6 (perfil Consultoria), P-7 (integração com agenda), P-8 (domínio e certificado), ~~P-9 (SMTP — encerrada)~~, P-10 (concessão de acesso do operador a dado clínico).
 
 ---
 

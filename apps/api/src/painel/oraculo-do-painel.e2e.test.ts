@@ -59,13 +59,25 @@ const SENHA = 'quatro-pedras-no-caminho'
  * 2 de 6 execuções seguidas.
  */
 const sufixo = randomBytes(4).toString('hex')
-const USUARIO = `oraculo.${sufixo}`
-/** Também único: `medir` gasta 5 tentativas, e o limite por conta é 5/15 min. */
-const NAO_EXISTE = `naoexiste.${sufixo}`
+/**
+ * UMA CONTA POR AMOSTRA, e isto é o que torna a medição possível.
+ *
+ * O limite por identificador é 5 falhas em 15 minutos, e ele vale aqui como
+ * vale em produção — não dá para desligá-lo sem desligar o que se quer medir
+ * junto. Com uma conta só, a sexta amostra responde **429 em vez de 401** e o
+ * teste reprova por um controle que ele não está medindo. Medido: com cinco
+ * amostras ele ficava exatamente na borda, e a borda é onde o teste fica
+ * não-determinístico.
+ *
+ * Uma conta por amostra tira o limite do caminho sem tirá-lo do produto.
+ */
+const AMOSTRAS = 7
+const existentes = Array.from({ length: AMOSTRAS }, (_, i) => `oraculo.${sufixo}.${i}`)
+const inexistentes = Array.from({ length: AMOSTRAS }, (_, i) => `naoexiste.${sufixo}.${i}`)
 
 let app: NestFastifyApplication
 let migrate: pg.Client
-let operador: string
+let operadores: string[]
 let piso: number
 let custoDeUmArgon2: number
 let apagar: (c: pg.Client, id: string) => Promise<void>
@@ -76,19 +88,43 @@ const mediana = (xs: number[]): number => {
   return o.length % 2 === 0 ? ((o[m - 1] ?? 0) + (o[m] ?? 0)) / 2 : (o[m] ?? 0)
 }
 
-const medir = async (usuario: string): Promise<number> => {
-  const tempos: number[] = []
-  // Cinco amostras e a MEDIANA: a primeira de cada processo carrega o
-  // aquecimento do binding nativo do Argon2.
-  for (let i = 0; i < 5; i++) {
-    const inicio = performance.now()
-    await request(app.getHttpServer())
-      .post('/v1/superadmin/entrar')
-      .send({ usuario, senha: 'chute-errado-aqui' })
-      .expect(401)
-    tempos.push(performance.now() - inicio)
+const umaTentativa = async (usuario: string): Promise<number> => {
+  const inicio = performance.now()
+  await request(app.getHttpServer())
+    .post('/v1/superadmin/entrar')
+    .send({ usuario, senha: 'chute-errado-aqui' })
+    .expect(401)
+  return performance.now() - inicio
+}
+
+/**
+ * Mede os DOIS caminhos **intercalados**, e isto é correção, não estética.
+ *
+ * A primeira versão media cinco vezes A e depois cinco vezes B. Sob a suíte
+ * completa — seis pacotes do turbo em paralelo nesta máquina — uma rajada de
+ * carga cai inteira dentro de um dos dois blocos, e a razão entre eles passa
+ * a medir **quando o bloco rodou**, não o que ele faz. Medido: verde 4 de 4
+ * rodando só `@fir/api`, vermelho 1 de 3 na suíte completa.
+ *
+ * Intercalado, qualquer oscilação da máquina atinge os dois quase igualmente,
+ * e a razão volta a medir a única diferença real entre eles: um Argon2.
+ *
+ * Teste não-determinístico é pior que teste ausente: ensina a equipe a rodar
+ * de novo até passar, e aí o vermelho verdadeiro também vira ruído.
+ */
+const medirIntercalado = async (
+  a: readonly string[],
+  b: readonly string[],
+): Promise<{ a: number; b: number }> => {
+  const temposA: number[] = []
+  const temposB: number[] = []
+  // A primeira rodada de cada caminho carrega o aquecimento do binding
+  // nativo do Argon2 e é descartada pela mediana.
+  for (let i = 0; i < AMOSTRAS; i++) {
+    temposA.push(await umaTentativa(a[i]!))
+    temposB.push(await umaTentativa(b[i]!))
   }
-  return mediana(tempos)
+  return { a: mediana(temposA), b: mediana(temposB) }
 }
 
 beforeAll(async () => {
@@ -108,13 +144,13 @@ beforeAll(async () => {
   await limpeza.declararAtorSistema(migrate)
 
   const hash = await senhaMod.hashDeSenha(SENHA)
-  operador = (
-    await migrate.query<{ id: string }>(
-      `INSERT INTO operadores (usuario, nome, senha_hash)
-       VALUES ($1, 'Oráculo', $2) RETURNING id`,
-      [USUARIO, hash],
-    )
-  ).rows[0]!.id
+  const criados = await migrate.query<{ id: string }>(
+    `INSERT INTO operadores (usuario, nome, senha_hash)
+     SELECT u, 'Oráculo', $2 FROM unnest($1::text[]) AS u RETURNING id`,
+    [existentes, hash],
+  )
+  operadores = criados.rows.map((r) => r.id)
+  expect(operadores.length, 'a fixture não criou as contas da medição').toBe(AMOSTRAS)
 
   const { FastifyAdapter } = await import('@nestjs/platform-fastify')
   const { Test } = await import('@nestjs/testing')
@@ -138,9 +174,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await migrate.query('DELETE FROM tentativas_de_operador WHERE identificador = ANY($1)', [
-    [USUARIO, NAO_EXISTE],
+    [...existentes, ...inexistentes],
   ])
-  if (operador) await apagar(migrate, operador)
+  for (const id of operadores ?? []) await apagar(migrate, id)
   await migrate.end()
   await app.close()
 })
@@ -162,8 +198,7 @@ describe('toda saída 401 do painel inclui um Argon2', () => {
   })
 
   it('o operador que NÃO existe gasta o mesmo Argon2 que a senha errada', async () => {
-    const existe = await medir(USUARIO)
-    const naoExiste = await medir(NAO_EXISTE)
+    const { a: existe, b: naoExiste } = await medirIntercalado(existentes, inexistentes)
 
     // Sanidade: se o caminho REAL também é instantâneo, as duas medidas são
     // ruído e a razão não significa nada.

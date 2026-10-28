@@ -21,8 +21,8 @@ Legenda de estado: ⬜ não começou · 🟡 em andamento · ✅ pronto e testad
 
 | Ação | v20 | Estado | Nota |
 |---|---|---|---|
-| `login` | v20 | ✅ | `POST /v1/entrar`. **Muda de forma por D-3:** e-mail e senha com Argon2id e sessão opaca, no lugar de `uid`+`pin` em texto puro em cada requisição |
-| `alterarPin` | v20 | ⬜ | Vira *trocar senha*. O PIN sai e não volta como credencial primária (D-3) |
+| `login` | v20 | ✅ | `POST /v1/entrar`. **Muda de forma por D-3 e D-10:** **clínica + usuário + senha** com Argon2id e sessão opaca, no lugar de `uid`+`pin` em texto puro em cada requisição. Não há e-mail |
+| `alterarPin` | v20 | ✅ | Virou *trocar senha* (`POST /v1/eu/senha`), com **troca obrigatória no primeiro acesso** por guard global e revogação das outras sessões. O PIN sai e não volta como credencial primária (D-3). A regra de força mora em `packages/domain/senha-forte.ts` e vale na criação e na troca, nunca na entrada |
 
 ## Épico 2 — Núcleo da rotina
 
@@ -82,7 +82,7 @@ Legenda de estado: ⬜ não começou · 🟡 em andamento · ✅ pronto e testad
 
 | Ação | v20 | Estado | Nota |
 |---|---|---|---|
-| `salvarPessoa` | v20 | ⬜ | Salário atrás de `pessoas.gerir` |
+| `salvarPessoa` | v20 | 🟡 | **Parcial.** `POST /v1/pessoas` cria a pessoa já ativa, com senha provisória gerada no servidor e devolvida **uma vez** — o admin redefine e **nunca vê** (corrige o defeito da D-0: na v20 ele vê o PIN). `POST /v1/pessoas/:id/senha` redefine e derruba as sessões. **Falta a ficha** (contrato, documentos, férias, horas) e o salário atrás de `pessoas.gerir` — épico 7 |
 | `excluirPessoa` | v20 | ⬜ | |
 | `pessoasOp` | — | ⬜ | Ativar, desativar, operações em lote |
 | `salvarPerfis` | — | ⬜ | Perfis de permissão da clínica |

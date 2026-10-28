@@ -1,3 +1,33 @@
+> # ⚠️ PARCIALMENTE SUPERADO — 2026-10-27, e quase todo ENTREGUE em 2026-10-28
+>
+> A **D-10** tirou o e-mail do produto. Este plano foi escrito em torno de
+> **convite por e-mail com token de uso único**, e as **Tasks 2, 3 e 5 estão
+> mortas**. Leia `2026-10-27-plano-acesso-sem-email.md` antes de executar
+> qualquer coisa daqui — a seção "O que acontece com
+> `2026-10-24-plano-admin-da-clinica.md`" lá diz, tarefa a tarefa, o que
+> morre, o que muda e o que sobrevive.
+>
+> **Não implemente convite por e-mail.** `nodemailer` não entra; o Mailpit
+> continua de pé no compose sem código que o chame. A superfície pública do
+> produto é `POST /v1/entrar` e `POST /v1/sair`, e nada mais.
+>
+> | Tarefa daqui | Destino | Onde está |
+> |---|---|---|
+> | **1** invariantes de pessoa no domínio | **SOBREVIVE intacta** | ainda a fazer |
+> | **2** migration `convites` + `unidades` | **MORTA** | `unidades` nasceu na `0006`; não há convite |
+> | **3** serviço de correio (Mailpit) | **MORTA** | nenhuma linha do produto depende de SMTP |
+> | **4** `POST /v1/pessoas/convite` | **MUDOU → ENTREGUE** | virou `POST /v1/pessoas` (Task 7 do plano novo) |
+> | **5** `POST /v1/convite/aceitar` | **MORTA** | rota pública que criava credencial; os testes dela migraram |
+> | **6** listar/ativar/desativar/trocar perfil | **SOBREVIVE**, com `email` → `usuario` | ainda a fazer |
+> | **7** trocar a própria senha | **ENTREGUE** | virou a Task 6 do plano novo, com troca obrigatória no 1º acesso |
+> | **8** perfis e unidades | **SOBREVIVE intacta** | ainda a fazer |
+> | **9** as telas | **MUDOU** | `Usuários e acessos` mostra `usuario`; **sem** `convite/[token]` |
+> | **10** fechamento | **MUDOU** | a P-9 deixou de bloquear **qualquer coisa** |
+>
+> O que falta deste plano, hoje: **Tasks 1, 6, 8 e 9** — os invariantes de
+> domínio, a listagem com ativar/desativar/trocar perfil, perfis e unidades, e
+> a tela *Usuários e acessos*.
+
 # Administração da clínica — plano de implementação
 
 > **Para quem executa:** SUB-SKILL OBRIGATÓRIA — `superpowers:subagent-driven-development`. Passos com `- [ ]`.

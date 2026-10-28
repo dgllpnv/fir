@@ -106,6 +106,41 @@ export type RotaForaDaConferencia = {
 
 export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   { caminho: '/v1/saude', razao: 'Healthcheck: devolve {ok, banco}, sem dado de clínica.' },
+  // ---------------------------------------------------------------------
+  // O PAINEL DO SUPERADMIN (migration 0013, D-10).
+  //
+  // As quatro rotas tratam SÓ IDENTIDADE: quem é o operador, que clínicas
+  // existem, e quem são as pessoas de uma delas. Nenhuma devolve dinheiro,
+  // nenhuma soma um dia, e nenhuma sabe o que é um caixa.
+  //
+  // E elas estão a DUAS camadas de poder vazar um valor, não a zero: sem
+  // `req.contexto`, o `RedacaoInterceptor` cai no `pode = () => false` e
+  // apaga todo campo monetário. **No dia em que o painel mostrar dinheiro,
+  // esta classificação é a primeira a revisitar** — e a resposta certa será
+  // dar ao contexto do operador um `pode` próprio, nunca desligar o
+  // interceptor.
+  // ---------------------------------------------------------------------
+  {
+    caminho: '/v1/superadmin/eu',
+    razao: 'Quem é o OPERADOR do painel. Nenhum valor, nenhum dia, nenhuma clínica.',
+  },
+  {
+    caminho: '/v1/superadmin/clinicas',
+    razao:
+      'A lista de clínicas: código, nome, fuso e `ativa`. É o catálogo de ' +
+      'tenants, não dado de nenhum deles.',
+  },
+  {
+    caminho: '/v1/superadmin/clinicas/:clinicaId/pessoas',
+    razao:
+      'As pessoas de uma clínica, vistas pelo painel: usuário, nome, função, ' +
+      'perfil e se a senha é provisória. Nenhum salário (épico 7), nenhum ' +
+      'valor, nenhum dia.',
+  },
+  {
+    caminho: '/v1/superadmin/clinicas/:clinicaId/pessoas/:pessoaId',
+    razao: 'A ficha de uma pessoa, com os mesmos campos da lista acima.',
+  },
   { caminho: '/v1/eu', razao: 'Quem é você, a clínica e os perfis. Nenhum valor, nenhum dia.' },
   { caminho: '/v1/clinica', razao: 'Nome, código e fuso da clínica.' },
   { caminho: '/v1/equipe', razao: 'As pessoas ativas, para os seletores. Nenhum valor.' },

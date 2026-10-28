@@ -55,14 +55,97 @@ A lista curta e definitiva. O ponto de partida está em `CLAUDE.md` §5:
 
 Cada um com: o que observa, o que **não** observa, e por que não há um nono.
 
+> **O painel do superadmin (2026-10-28) NÃO acrescentou seam nenhum**, e isso é
+> o resultado desejado, não uma coincidência. Ele cai inteiro nos que já
+> existem: HTTP da API, `packages/domain` puro (`avaliarSenha`,
+> `canonizarUsuario`, `temPerm`), repositórios sobre Postgres real, e a
+> varredura de catálogo. Um painel que precisasse de um seam próprio seria um
+> painel que faz algo que o produto não sabe fazer — e é justamente isso que
+> ele não pode ser.
+
 ## 3. Modelo de dados
 Tabelas, `clinica_id`, policies de RLS, índices, o que é append-only e o que é soft delete. Derivado do `CONTEXT.md` — e o `CONTEXT.md` vem primeiro.
 
+### As quatro tabelas do painel, e por que elas NÃO têm `clinica_id`
+
+A migration `0013` acrescenta `operadores`, `sessoes_de_operador`,
+`tentativas_de_operador` e `auditoria_do_painel`. **Nenhuma tem `clinica_id`,
+e nenhuma tem RLS** — e isso não é exceção à regra 19, é a consequência dela:
+o superadmin **não é uma `Pessoa`** e não pertence a clínica nenhuma (D-5
+restrição 1, D-10). Uma coluna `clinica_id` aqui seria uma mentira sobre o
+modelo, e a clínica sentinela que a preencheria já foi recusada por escrito na
+`0002`.
+
+**O que as protege, então:**
+
+| Camada | Como |
+|---|---|
+| Privilégio | `REVOKE ALL … FROM fir_app`. A API do balcão **não lê nem o hash** de um operador |
+| Varredura | `teste/escrita-sem-rls.test.ts` cobra REVOKE de **toda** relação sem RLS — a próxima tabela sem RLS reprova sozinha |
+| Rede | allowlist de IP na frente do `/superadmin`, falhando fechada (`infra/producao`) |
+| Append-only | `auditoria_do_painel` tem o mesmo par REVOKE + trigger da `auditoria` |
+
+`teste/auditoria-inescapavel.test.ts` **não** as alcança, de propósito: ela
+varre tabelas **com `clinica_id`**, e a trilha de uma tabela sem tenant não
+teria onde morar.
+
+### A repartição das duas trilhas, em uma frase
+
+**O que toca dado de uma clínica vai para a `auditoria` daquela clínica, com
+`ator_tipo = 'operador'` — pela trigger, nunca à mão. O que é sobre operadores
+vai para `auditoria_do_painel`.** Nenhuma ação do painel fica sem registro, e
+nenhuma clínica deixa de ver o que foi feito dentro dela.
+
+### Os três papéis do banco
+
+| Papel | `BYPASSRLS` | Quem usa | Nasce em |
+|---|---|---|---|
+| `fir_migrate` | **sim** | só as migrations | bootstrap |
+| `fir_app` | não | a API do produto | bootstrap |
+| `fir_painel` | **não** | o painel do superadmin | bootstrap (local) · `provisionar-painel.sh` (produção) |
+
+Duas conexões separadas **por autenticação**, nunca por `SET ROLE` — `RESET
+ROLE` desfaz na mesma transação (D-5, restrição 5). A `0013` **recusa migrar**
+se `fir_painel` tiver `BYPASSRLS`, `SUPERUSER` ou `CREATEROLE`.
+
 ## 4. Superfície de API
 As ações do protótipo (`demoApiBase`) mapeadas para rotas, com a permissão de cada uma. A matriz rota × papel × recurso.
+
+### Os TRÊS estados de uma rota
+
+Toda rota do Nest é **exatamente um** destes, e a varredura de
+`teste/rotas-protegidas.test.ts` cobra os três por comportamento, não por
+lista:
+
+| Estado | Marca | Sem credencial |
+|---|---|---|
+| Pública | `@Publico()` | responde |
+| De clínica | nada (o padrão) | **401** |
+| De painel | `@SoOperador()` | **404** |
+
+O padrão é "de clínica" de propósito: esquecer a marca significa **rota
+protegida**, e abrir uma exige um decorador que aparece na revisão.
+
+**404 e não 401 no painel**: 401 confirma que a rota existe. Atrás da
+allowlist isso importa pouco; numa origem permitida mas sem credencial,
+importa.
+
+**O segmento de rota do painel é `superadmin`, e isso é um acoplamento
+declarado com a infraestrutura.** A allowlist do Traefik casa
+`(?i)(^|/)superadmin(/|$)` — um segmento, nunca um prefixo. Rota de painel
+fora dele ficaria **na frente da allowlist**; rota de produto dentro dele
+seria bloqueada para a clínica inteira. As duas reprovam na varredura.
 
 ## 5. Jobs
 O que roda em BullMQ, com que frequência, e o que acontece quando roda duas vezes.
 
 ## 6. Onde a redação de valores acontece
 O tradutor único que apaga campo monetário de quem não tem `valores`. **Um diagrama de onde ele fica na pilha**, porque é o controle que mais tende a ser contornado.
+
+> **As rotas do painel não são exceção, e hoje isso custa nada.** Elas não
+> populam `req.contexto` — o operador não tem clínica, nem perfis, nem
+> `pode` —, então o `RedacaoInterceptor` cai no `pode = () => false` e apaga
+> **todo** campo monetário. É o comportamento certo enquanto o painel só
+> tratar identidade. **No dia em que o painel mostrar dinheiro, esta é a linha
+> a revisitar**, e a resposta certa será dar ao contexto do operador um `pode`
+> próprio — nunca desligar o interceptor.
