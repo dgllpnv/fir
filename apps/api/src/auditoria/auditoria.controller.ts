@@ -10,7 +10,7 @@ import { AuditoriaService } from './auditoria.service'
  *
  * Toda outra rota entrega uma fatia do dado da clínica, e cada uma carrega os
  * próprios controles. Esta entrega o `de`/`para` de TODA escrita — hoje nome
- * e e-mail em claro, no épico 7 salário, no 6 dose e lote por paciente — num
+ * e telefone em claro, no épico 7 salário, no 6 dose e lote por paciente — num
  * só `GET`. Se as regras 17 e 18 valem em algum lugar, valem aqui primeiro.
  *
  * Três controles, e nenhum deles substitui os outros:

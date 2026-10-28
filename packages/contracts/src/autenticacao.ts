@@ -1,3 +1,4 @@
+import { SENHA_MAX, canonizarUsuario } from '@fir/domain'
 import { z } from 'zod'
 import { DiaCivil, Uuid } from './comum'
 
@@ -6,9 +7,31 @@ export const EntrarEntrada = z.object({
   // controlador: um campo que o schema não conhece é um campo que ninguém
   // valida.
   clinica: z.string().trim().toLowerCase().min(1, 'Informe a clínica.').max(60),
-  email: z.string().trim().toLowerCase().email('Informe um e-mail válido.'),
-  // Oito é o piso; a força real vem do limite de tentativas e do Argon2id.
-  senha: z.string().min(8, 'A senha precisa de pelo menos 8 caracteres.').max(200),
+  /**
+   * `transform` e NÃO `refine`: o canônico é o que segue adiante — para a
+   * consulta E para `tentativas_login`, que é o que faz o limite por conta
+   * contar `Helena`, `HELENA` e `heléna` como UMA conta. Validar a FORMA aqui
+   * recusaria `Helena`, que é o que o teclado do tablet entrega; a recusa de
+   * forma mora no cadastro e no `CHECK` do banco.
+   *
+   * `max(64)` antes do transform, e não `max(USUARIO_MAX)`: o teto aqui é de
+   * custo, não de regra. Quem digitar 40 caracteres recebe credencial
+   * inválida, como qualquer um que erre o usuário — nunca uma mensagem que
+   * diga como o identificador é formado.
+   */
+  usuario: z
+    .string()
+    .max(64)
+    .transform(canonizarUsuario)
+    .pipe(z.string().min(1, 'Informe o usuário.')),
+  /**
+   * `min(1)`, e **não** `min(SENHA_MIN)`. A tela de ENTRADA não aplica a
+   * regra de força: quem tem uma senha antiga de oito caracteres precisa
+   * conseguir entrar para poder trocá-la, e aplicar a política aqui tranca
+   * pessoas para fora por uma mudança de política. A regra vale na CRIAÇÃO e
+   * na TROCA, que é onde ela muda alguma coisa.
+   */
+  senha: z.string().min(1, 'Informe a senha.').max(SENHA_MAX),
 })
 export type EntrarEntrada = z.infer<typeof EntrarEntrada>
 
@@ -23,11 +46,19 @@ export type PerfilPublico = z.infer<typeof PerfilPublico>
 export const PessoaPublica = z.object({
   id: Uuid,
   nome: z.string(),
-  email: z.string(),
+  /** O identificador de login, na forma canônica. Não há e-mail (D-10). */
+  usuario: z.string(),
   funcao: z.string(),
   admin: z.boolean(),
   perfilId: Uuid.nullable(),
   ativo: z.boolean(),
+  /**
+   * A senha atual foi definida por outra pessoa e precisa ser trocada.
+   *
+   * Vai para a tela porque é ela que redireciona para `/trocar-senha`; o
+   * SERVIDOR é quem impõe, por guard global, e nunca confia neste booleano.
+   */
+  senhaProvisoria: z.boolean(),
 })
 export type PessoaPublica = z.infer<typeof PessoaPublica>
 

@@ -17,15 +17,15 @@ export class LimiteDeTentativas extends Error {}
 /**
  * Hash Argon2id de uma senha que não existe, gerado uma vez, OFFLINE, com os
  * mesmos parâmetros de `OPCOES` em senha.ts. Usado só para que o caminho de
- * "e-mail inexistente" gaste o mesmo tempo que o caminho de "senha errada".
+ * "usuário inexistente" gaste o mesmo tempo que o caminho de "senha errada".
  *
  * Medido contra a API viva, antes desta correção:
  *   existe@t.local      401 em 20 / 68 / 20 ms   (Argon2 roda)
  *   naoexiste@t.local   401 em  8 /  9 /  8 ms   (Argon2 não roda)
  * Três a oito vezes mais rápido — o relógio da resposta diz ao atacante
- * quais e-mails existem na clínica, mesmo com a mesma frase de erro nos
+ * quais usuários existem na clínica, mesmo com a mesma frase de erro nos
  * dois casos. `limiteExcedido` não contém isso: ele é por identificador, e
- * testar mil e-mails distintos não dispara bloqueio nenhum.
+ * testar mil usuários distintos não dispara bloqueio nenhum.
  *
  * É uma CONSTANTE, não um `hashDeSenha(...)` calculado aqui: `hashDeSenha`
  * custa o mesmo que `conferirSenha`, e gerá-la em tempo de execução dobraria
@@ -37,7 +37,7 @@ const HASH_FALSO =
 /**
  * Piso de duração da rota de entrada, em milissegundos.
  *
- * `HASH_FALSO` iguala o CUSTO DE HASH entre "e-mail existe" e "e-mail não
+ * `HASH_FALSO` iguala o CUSTO DE HASH entre "usuário existe" e "usuário não
  * existe", e rodar o hash falso também quando a clínica não existe iguala o
  * custo de hash entre os dois caminhos de clínica. Mas igualar o hash não
  * iguala o resto: o caminho com clínica real abre duas transações curtas
@@ -69,13 +69,31 @@ export const PISO_DE_RESPOSTA_MS = inteiroDoAmbiente('PISO_RESPOSTA_ENTRAR_MS', 
 type LinhaPessoa = {
   id: string
   nome: string
-  email: string
+  usuario: string
   funcao: string
   senha_hash: string
   admin: boolean
   perfil_id: string | null
   ativo: boolean
+  senha_provisoria: boolean
+  senha_provisoria_expira_em: Date | null
 }
+
+/** As colunas de `pessoas` que a sessão precisa. Uma lista só, nunca duas. */
+const COLUNAS_DA_PESSOA = `id, nome, usuario, funcao, senha_hash, admin, perfil_id, ativo,
+          senha_provisoria, senha_provisoria_expira_em`
+
+/** O que `PessoaPublica` leva da linha. Nunca o hash, nunca o prazo interno. */
+const pessoaPublica = (p: LinhaPessoa) => ({
+  id: p.id,
+  nome: p.nome,
+  usuario: p.usuario,
+  funcao: p.funcao,
+  admin: p.admin,
+  perfilId: p.perfil_id,
+  ativo: p.ativo,
+  senhaProvisoria: p.senha_provisoria,
+})
 
 @Injectable()
 export class AutenticacaoService {
@@ -127,15 +145,18 @@ export class AutenticacaoService {
   }
 
   /**
-   * Entra. A mesma frase de erro para e-mail inexistente e senha errada: frases
-   * diferentes dizem ao atacante quais e-mails existem naquela clínica.
+   * Entra. A mesma frase de erro para usuário inexistente e senha errada: frases
+   * diferentes dizem ao atacante quais usuários existem naquela clínica. Com o
+   * e-mail fora (D-10) isso vale MAIS, não menos: `ana`, `recepcao` e
+   * `juliana` se adivinham, e numa clínica de seis pessoas enumerar o
+   * conjunto inteiro de contas é exercício de dez minutos.
    *
    * TRÊS ETAPAS, e a ordem é a correção medida na revisão final da branch.
    * Antes, o Argon2 rodava DENTRO de `naClinica` — isto é, dentro de uma
    * transação que já tinha feito `pool.connect()` e `BEGIN`. Com pool de 10 e
    * semáforo de 4, cada requisição na fila do semáforo segurava uma das dez
    * conexões sem usá-la, só esperando. Medido com 900 logins concorrentes de
-   * e-mails distintos:
+   * identificadores distintos:
    *
    *   /v1/saude ocioso           mediana   2,3 ms
    *   /v1/saude sob a rajada     mediana   7,9 ms · p95 323 ms · max 5.241 ms
@@ -150,12 +171,12 @@ export class AutenticacaoService {
    */
   async entrar(
     codigoClinica: string,
-    email: string,
+    usuario: string,
     senha: string,
   ): Promise<{ eu: EuSaida; token: string }> {
     const inicio = performance.now()
     try {
-      return await this.entrarSemPiso(codigoClinica, email, senha)
+      return await this.entrarSemPiso(codigoClinica, usuario, senha)
     } finally {
       // `finally` de propósito: o piso vale para o caminho de SUCESSO e para
       // todos os de erro. Se valesse só para o erro, o relógio passaria a
@@ -168,7 +189,7 @@ export class AutenticacaoService {
 
   private async entrarSemPiso(
     codigoClinica: string,
-    email: string,
+    usuario: string,
     senha: string,
   ): Promise<{ eu: EuSaida; token: string }> {
     const clinica = await this.clinicaPorCodigo(codigoClinica)
@@ -226,21 +247,30 @@ export class AutenticacaoService {
     // função devolve resultado; quem lança é o código depois do COMMIT.
     //
     // `SISTEMA`: aqui ninguém provou identidade nenhuma ainda — quem teclou o
-    // e-mail apenas afirmou ser alguém. Nada é escrito nesta transação.
+    // usuário apenas afirmou ser alguém. Nada é escrito nesta transação.
     const etapa1 = await this.banco.naClinica(clinica.id, SISTEMA, async (c) => {
       const tentativas = await c.query<{ em: Date; sucesso: boolean }>(
         `SELECT em, sucesso FROM tentativas_login
          WHERE identificador = $1 AND em > now() - interval '15 minutes'`,
-        [email],
+        [usuario],
       )
       if (limiteExcedido(tentativas.rows, new Date())) {
         return { tipo: 'limite' as const }
       }
 
+      // `normalizar_nome($1)` cai sobre o PARÂMETRO, nunca sobre a coluna:
+      // escrito sobre a coluna, o índice único `(clinica_id, usuario)` vira
+      // enfeite e a entrada vira varredura. Medido em
+      // `teste/identidade-sem-email.test.ts`, com `EXPLAIN`.
+      //
+      // A normalização aqui é a SEGUNDA: o contrato já canonizou. Ela fica
+      // porque o banco é a autoridade sobre a forma canônica, e porque um
+      // chamador futuro que pule o contrato não pode produzir um 401 por
+      // caixa de letra.
       const p = await c.query<LinhaPessoa>(
-        `SELECT id, nome, email, funcao, senha_hash, admin, perfil_id, ativo
-         FROM pessoas WHERE email = $1 AND ativo`,
-        [email],
+        `SELECT ${COLUNAS_DA_PESSOA}
+         FROM pessoas WHERE usuario = normalizar_nome($1) AND ativo`,
+        [usuario],
       )
       return { tipo: 'segue' as const, pessoa: p.rows[0] ?? null }
     })
@@ -251,7 +281,7 @@ export class AutenticacaoService {
     //
     // Quando `pessoa` não existe, roda a MESMA verificação contra
     // `HASH_FALSO` em vez de pular para `false` — e pelo MESMO semáforo. Sem
-    // passar pelo semáforo aqui, um atacante testando e-mails inexistentes
+    // passar pelo semáforo aqui, um atacante testando usuários inexistentes
     // contornaria o teto de concorrência inteiro: cada requisição somaria
     // 19 MiB sem nunca disputar uma vaga. O resultado desta verificação é
     // descartado — a resposta é sempre credencial inválida.
@@ -259,27 +289,45 @@ export class AutenticacaoService {
     // `executar` pode REJEITAR com `FilaCheia`: acima do teto de espera, a
     // recusa é imediata (503 + Retry-After no controlador) em vez de a pessoa
     // esperar cinco segundos para só então falhar.
-    const ok = pessoa
+    const senhaConfere = pessoa
       ? await semaforoArgon2.executar(() => conferirSenha(senha, pessoa.senha_hash))
       : await semaforoArgon2.executar(() => conferirSenha(senha, HASH_FALSO)).then(() => false)
+
+    /**
+     * PROVISÓRIA VENCIDA NÃO AUTENTICA, e a frase de erro é a de sempre.
+     *
+     * Uma mensagem própria ("sua senha provisória expirou") diria ao atacante
+     * que a conta existe E que ela está num estado interessante — recém-criada,
+     * com uma credencial que alguém ditou no balcão e anotou num papel.
+     *
+     * O Argon2 JÁ RODOU acima, e tem de ter rodado: pular a verificação aqui
+     * devolveria o caminho rápido que `HASH_FALSO` e o piso existem para
+     * fechar, justamente para o estado de conta mais interessante de enumerar.
+     */
+    const vencida =
+      pessoa?.senha_provisoria === true &&
+      pessoa.senha_provisoria_expira_em !== null &&
+      pessoa.senha_provisoria_expira_em.getTime() <= this.relogio.agora().getTime()
+
+    const ok = senhaConfere && !vencida
 
     /**
      * O ATOR DA TRANSAÇÃO 2, e esta é a única escolha de ator não óbvia do
      * arquivo.
      *
-     * `ok` é, literalmente, "a senha confere" — identidade PROVADA. Quando
-     * confere, a pessoa é a autora do que esta transação escreve: a própria
-     * tentativa e a sessão. Quando não confere, não há identidade provada, e
-     * atribuir a escrita à dona do e-mail tentado seria escrever na trilha
-     * dela uma ação que ela não praticou — exatamente o que a trilha existe
-     * para não fazer. O que aconteceu de fato fica na PRÓPRIA linha de
-     * `tentativas_login`: o identificador tentado e `sucesso = false`.
+     * `senhaConfere` é identidade PROVADA. Quando confere, a pessoa é a
+     * autora do que esta transação escreve: a própria tentativa e a sessão.
+     * Quando não confere, não há identidade provada, e atribuir a escrita à
+     * dona do usuário tentado seria escrever na trilha dela uma ação que ela
+     * não praticou — exatamente o que a trilha existe para não fazer. O que
+     * aconteceu de fato fica na PRÓPRIA linha de `tentativas_login`: o
+     * identificador tentado e `sucesso = false`.
      *
-     * Vale também quando o limite estourou com a senha certa: a pessoa provou
-     * quem é, e foi o sistema que recusou. A trilha registra quem escreveu; o
-     * desfecho é outra coluna.
+     * É `senhaConfere`, e **não** `ok`: com o limite estourado, ou com a
+     * provisória vencida, a pessoa provou quem é e foi o SISTEMA que recusou.
+     * A trilha registra quem escreveu; o desfecho é outra coluna.
      */
-    const atorDaTentativa = ok && pessoa ? pessoaIdDeFonteConfiavel(pessoa.id) : SISTEMA
+    const atorDaTentativa = senhaConfere && pessoa ? pessoaIdDeFonteConfiavel(pessoa.id) : SISTEMA
 
     // --- TRANSAÇÃO 2 (curta): grava a tentativa e, se deu certo, cria a sessão.
     const resultado = await this.banco.naClinica(clinica.id, atorDaTentativa, async (c) => {
@@ -304,7 +352,7 @@ export class AutenticacaoService {
       const tentativas = await c.query<{ em: Date; sucesso: boolean }>(
         `SELECT em, sucesso FROM tentativas_login
          WHERE identificador = $1 AND em > now() - interval '15 minutes'`,
-        [email],
+        [usuario],
       )
       const excedido = limiteExcedido(tentativas.rows, new Date())
 
@@ -314,7 +362,10 @@ export class AutenticacaoService {
       // uma vez durante o bloqueio.
       await c.query(
         'INSERT INTO tentativas_login (clinica_id, identificador, sucesso) VALUES ($1, $2, $3)',
-        [clinica.id, email, ok && !excedido],
+        // O identificador gravado é o CANÔNICO, que é o que o contrato
+        // entrega. Sem isso, `Helena`, `HELENA` e `heléna` seriam três contas
+        // distintas para o limite, e cinco tentativas virariam quinze.
+        [clinica.id, usuario, ok && !excedido],
       )
       if (excedido) return { tipo: 'limite' as const }
       if (!ok || !pessoa) return { tipo: 'invalida' as const }
@@ -334,15 +385,7 @@ export class AutenticacaoService {
         tipo: 'ok' as const,
         token,
         eu: {
-          usuario: {
-            id: pessoa.id,
-            nome: pessoa.nome,
-            email: pessoa.email,
-            funcao: pessoa.funcao,
-            admin: pessoa.admin,
-            perfilId: pessoa.perfil_id,
-            ativo: pessoa.ativo,
-          },
+          usuario: pessoaPublica(pessoa),
           clinica: { id: clinica.id, codigo: clinica.codigo, nome: clinica.nome, fuso: clinica.fuso },
           perfis: perfisRaw.rows.map((x) => ({ id: x.id, chave: x.chave, nome: x.nome, perms: x.perms })),
           hoje: diaCivil(this.relogio.agora(), clinica.fuso),
@@ -400,7 +443,7 @@ export class AutenticacaoService {
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const p = await c.query<LinhaPessoa>(
-        `SELECT id, nome, email, funcao, senha_hash, admin, perfil_id, ativo
+        `SELECT ${COLUNAS_DA_PESSOA}
          FROM pessoas WHERE id = $1 AND ativo`,
         [sessao.pessoa_id],
       )
@@ -425,15 +468,7 @@ export class AutenticacaoService {
         clinicaNome: clinica.nome,
         clinicaFuso: clinica.fuso,
         ator,
-        usuario: {
-          id: pessoa.id,
-          nome: pessoa.nome,
-          email: pessoa.email,
-          funcao: pessoa.funcao,
-          admin: pessoa.admin,
-          perfilId: pessoa.perfil_id,
-          ativo: pessoa.ativo,
-        },
+        usuario: pessoaPublica(pessoa),
         perfis,
         pode: (chave: ChaveDePermissao) => temPerm(usuarioParaPermissao, perfis, chave),
       } satisfies ContextoDaRequisicao

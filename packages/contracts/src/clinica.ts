@@ -31,7 +31,7 @@ export type ClinicaAtual = z.infer<typeof ClinicaAtual>
  * caminho principal. O mesmo vale para o filtro por unidade da tela Tarefas.
  *
  * O que sai aqui é deliberadamente MAGRO: nome, função e o estado de ativo.
- * Nada de e-mail, nada de perfil, nada de salário. O nome de quem trabalha na
+ * Nada de usuário, nada de perfil, nada de salário. O nome de quem trabalha na
  * clínica já aparece em todo cartão de tarefa; o resto é do épico 7 e da tela
  * de Usuários, que têm permissão própria.
  */

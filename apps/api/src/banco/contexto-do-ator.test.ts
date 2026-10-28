@@ -52,9 +52,9 @@ beforeAll(async () => {
     [clinica],
   )
   const duas = await migrate.query<{ id: string }>(
-    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-     VALUES ($1, 'Juliana', 'juliana@ator.local', 'x', $2),
-            ($1, 'Camila',  'camila@ator.local',  'x', $2)
+    `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
+     VALUES ($1, 'Juliana', 'juliana', 'x', $2),
+            ($1, 'Camila',  'camila',  'x', $2)
      RETURNING id`,
     [clinica, perfil.rows[0]!.id],
   )

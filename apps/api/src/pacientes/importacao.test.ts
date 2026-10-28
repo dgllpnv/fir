@@ -115,9 +115,9 @@ beforeAll(async () => {
     ['juliana', rec],
   ] as const) {
     await migrate.query(
-      `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [clinica, nome, `${nome}@${codigo}.local`, hash, perfil],
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
+       VALUES ($1, $2, $2, $3, $4)`,
+      [clinica, nome, hash, perfil],
     )
   }
 
@@ -133,7 +133,7 @@ beforeAll(async () => {
   for (const quem of ['beatriz', 'juliana']) {
     const r = await request(app.getHttpServer())
       .post('/v1/entrar')
-      .send({ clinica: codigo, email: `${quem}@${codigo}.local`, senha: SENHA })
+      .send({ clinica: codigo, usuario: quem, senha: SENHA })
       .expect(200)
     const v = r.headers['set-cookie'] as unknown
     cookies[quem] = Array.isArray(v) ? (v as string[]) : typeof v === 'string' ? [v] : []

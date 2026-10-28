@@ -76,11 +76,12 @@ class ContextoDeMentiraGuard implements CanActivate {
       usuario: {
         id: '00000000-0000-0000-0000-000000000002',
         nome: 'Pessoa de Mentira',
-        email: 'mentira@local',
+        usuario: 'mentira',
         funcao: 'Teste',
         admin: false,
         perfilId: null,
         ativo: true,
+        senhaProvisoria: false,
       },
       perfis: [],
       pode: (chave) => perms.includes(chave),

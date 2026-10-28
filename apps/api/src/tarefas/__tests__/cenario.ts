@@ -184,9 +184,9 @@ export async function montarCenario(
   const hash = await hashDeSenha(SENHA)
   const pessoa = async (nome: string, perfil: string, ativo = true): Promise<string> =>
     umId(
-      `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id, ativo)
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id, ativo)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [clinica, nome, `${nome.toLowerCase()}@${codigo}.local`, hash, perfil, ativo],
+      [clinica, nome, nome.toLowerCase(), hash, perfil, ativo],
     )
 
   const pessoas: Record<string, string> = {
@@ -234,9 +234,9 @@ export async function montarCenario(
     [outraClinica],
   )
   const pessoaDaOutra = await umId(
-    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, admin)
-     VALUES ($1, 'Vizinha', $2, $3, true) RETURNING id`,
-    [outraClinica, `vizinha@${codigo}.local`, hash],
+    `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin)
+     VALUES ($1, 'Vizinha', 'vizinha', $2, true) RETURNING id`,
+    [outraClinica, hash],
   )
   const pacienteDaOutra = await umId(
     `INSERT INTO pacientes (clinica_id, nome) VALUES ($1, 'Vizinha Secreta') RETURNING id`,
@@ -274,7 +274,7 @@ export async function montarCenario(
   for (const quem of ['juliana', 'beatriz', 'camila', 'rita', 'sonia', 'nara']) {
     const r = await request(app.getHttpServer())
       .post('/v1/entrar')
-      .send({ clinica: codigo, email: `${quem}@${codigo}.local`, senha: SENHA })
+      .send({ clinica: codigo, usuario: quem, senha: SENHA })
       .expect(200)
     const v = r.headers['set-cookie'] as unknown
     cookies[quem] = Array.isArray(v) ? (v as string[]) : typeof v === 'string' ? [v] : []

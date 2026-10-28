@@ -55,9 +55,9 @@ beforeAll(async () => {
       [clinica, chave],
     )
     await migrate.query(
-      `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
        SELECT $1, 'Fulana', $2, 'x', id FROM perfis WHERE clinica_id = $1`,
-      [clinica, `fulana@${chave}.local`],
+      [clinica, `fulana.${chave}`],
     )
   }
 })
@@ -80,16 +80,16 @@ async function comClinica<T>(clinica: string, fn: () => Promise<T>): Promise<T> 
 
 describe('RLS — a clínica é a fronteira', () => {
   it('cada clínica enxerga só as próprias pessoas', async () => {
-    const naA = await comClinica(clinicaA, () => app.query('SELECT email FROM pessoas'))
-    expect(naA.rows.map((r) => r.email)).toEqual(['fulana@pf_a.local'])
+    const naA = await comClinica(clinicaA, () => app.query('SELECT usuario FROM pessoas'))
+    expect(naA.rows.map((r) => r.usuario)).toEqual(['fulana.pf_a'])
 
-    const naB = await comClinica(clinicaB, () => app.query('SELECT email FROM pessoas'))
-    expect(naB.rows.map((r) => r.email)).toEqual(['fulana@pf_b.local'])
+    const naB = await comClinica(clinicaB, () => app.query('SELECT usuario FROM pessoas'))
+    expect(naB.rows.map((r) => r.usuario)).toEqual(['fulana.pf_b'])
   })
 
   it('buscar o id da outra clínica devolve vazio — não erro, vazio', async () => {
     const r = await comClinica(clinicaA, () =>
-      app.query('SELECT email FROM pessoas WHERE clinica_id = $1', [clinicaB]),
+      app.query('SELECT usuario FROM pessoas WHERE clinica_id = $1', [clinicaB]),
     )
     expect(r.rows).toHaveLength(0)
   })

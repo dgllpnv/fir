@@ -47,10 +47,10 @@ const cookies: Record<string, string[]> = {}
 const umId = async (sql: string, params: unknown[]): Promise<string> =>
   (await migrate.query<{ id: string }>(sql, params)).rows[0]!.id
 
-const entrar = async (email: string): Promise<string[]> => {
+const entrar = async (usuario: string): Promise<string[]> => {
   const r = await request(app.getHttpServer())
     .post('/v1/entrar')
-    .send({ clinica: codigo, email, senha: SENHA })
+    .send({ clinica: codigo, usuario, senha: SENHA })
     .expect(200)
   const v = r.headers['set-cookie'] as unknown
   return Array.isArray(v) ? (v as string[]) : typeof v === 'string' ? [v] : []
@@ -124,16 +124,16 @@ beforeAll(async () => {
   )
 
   const hash = await hashDeSenha(SENHA)
-  const pessoa = async (nome: string, email: string, perfil: string): Promise<string> =>
+  const pessoa = async (nome: string, usuario: string, perfil: string): Promise<string> =>
     umId(
-      `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
        VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [clinica, nome, email, hash, perfil],
+      [clinica, nome, usuario, hash, perfil],
     )
 
-  pessoas['juliana'] = await pessoa('Juliana', `juliana@${codigo}.local`, rec)
-  pessoas['beatriz'] = await pessoa('Beatriz', `beatriz@${codigo}.local`, sup)
-  pessoas['camila'] = await pessoa('Camila', `camila@${codigo}.local`, enf)
+  pessoas['juliana'] = await pessoa('Juliana', 'juliana', rec)
+  pessoas['beatriz'] = await pessoa('Beatriz', 'beatriz', sup)
+  pessoas['camila'] = await pessoa('Camila', 'camila', enf)
 
   await migrate.query(
     `INSERT INTO perfis (clinica_id, chave, nome, perms)
@@ -158,7 +158,7 @@ beforeAll(async () => {
   await app.init()
   await app.getHttpAdapter().getInstance().ready()
 
-  for (const quem of ['juliana', 'beatriz', 'camila']) cookies[quem] = await entrar(`${quem}@${codigo}.local`)
+  for (const quem of ['juliana', 'beatriz', 'camila']) cookies[quem] = await entrar(quem)
 })
 
 afterAll(async () => {

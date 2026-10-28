@@ -4,7 +4,7 @@ import { inteiroDoAmbiente } from '../comum/ambiente'
  * Teto de verificações de Argon2 simultâneas no caminho de `entrar`.
  *
  * `limiteExcedido` (sessao.ts) bloqueia tentativas POR IDENTIFICADOR: cinco
- * falhas na mesma conta travam a sexta. Mas um atacante com mil e-mails
+ * falhas na mesma conta travam a sexta. Mas um atacante com mil usuários
  * distintos nunca esgota o limite de conta nenhuma — e cada verificação
  * custa até 19 MiB de memória (constante `OPCOES` em senha.ts), numa VPS
  * compartilhada com outro produto em produção. Sem teto de concorrência, mil

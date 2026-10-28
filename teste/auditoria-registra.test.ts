@@ -63,9 +63,9 @@ beforeAll(async () => {
   perfil = pf.rows[0]!.id
 
   const duas = await migrate.query<{ id: string }>(
-    `INSERT INTO pessoas (clinica_id, nome, email, funcao, senha_hash, perfil_id)
-     VALUES ($1, 'Juliana', 'juliana@registra.local', 'Recepção', 'hash-da-juliana', $2),
-            ($1, 'Camila',  'camila@registra.local',  'Recepção', 'hash-da-camila',  $2)
+    `INSERT INTO pessoas (clinica_id, nome, usuario, funcao, senha_hash, perfil_id)
+     VALUES ($1, 'Juliana', 'juliana', 'Recepção', 'hash-da-juliana', $2),
+            ($1, 'Camila',  'camila',  'Recepção', 'hash-da-camila',  $2)
      RETURNING id`,
     [clinica, perfil],
   )
@@ -127,8 +127,8 @@ describe('a trigger registra a escrita', () => {
     const nova = await comoAtor(pessoa, async () =>
       (
         await app.query<{ id: string }>(
-          `INSERT INTO pessoas (clinica_id, nome, email, funcao, senha_hash, perfil_id)
-           VALUES ($1, 'Nova', 'nova@registra.local', 'Recepção', 'h', $2) RETURNING id`,
+          `INSERT INTO pessoas (clinica_id, nome, usuario, funcao, senha_hash, perfil_id)
+           VALUES ($1, 'Nova', 'nova.pessoa', 'Recepção', 'h', $2) RETURNING id`,
           [clinica, perfil],
         )
       ).rows[0]!.id,
@@ -142,7 +142,7 @@ describe('a trigger registra a escrita', () => {
     expect(t.ator_tipo).toBe('pessoa')
     expect(t.ator_id).toBe(pessoa)
     expect(t.de).toBeNull()
-    expect(t.para).toMatchObject({ nome: 'Nova', email: 'nova@registra.local' })
+    expect(t.para).toMatchObject({ nome: 'Nova', usuario: 'nova.pessoa' })
   })
 
   it('UPDATE registra só as colunas que mudaram, de → para', async () => {
@@ -179,8 +179,8 @@ describe('a trigger registra a escrita', () => {
     const descartavel = await comoAtor(pessoa, async () =>
       (
         await app.query<{ id: string }>(
-          `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-           VALUES ($1, 'Passageira', 'passageira@registra.local', 'h', $2) RETURNING id`,
+          `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
+           VALUES ($1, 'Passageira', 'passageira', 'h', $2) RETURNING id`,
           [clinica, perfil],
         )
       ).rows[0]!.id,
@@ -230,8 +230,8 @@ describe('a trilha não vira histórico de segredo', () => {
   it('o INSERT de uma pessoa não leva o hash dela para a trilha', async () => {
     await comoAtor(pessoa, () =>
       app.query(
-        `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-         VALUES ($1, 'Com segredo', 'segredo@registra.local', '$argon2id$do-insert', $2)`,
+        `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
+         VALUES ($1, 'Com segredo', 'com.segredo', '$argon2id$do-insert', $2)`,
         [clinica, perfil],
       ),
     )

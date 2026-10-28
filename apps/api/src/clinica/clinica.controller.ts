@@ -13,7 +13,7 @@ import { BancoService } from '../banco/banco.service'
  * parte de criar uma tarefa, que é de todos (`menu.ts`, `perm: null`). Exigir
  * permissão aqui exigiria permissão para trabalhar.
  *
- * O que sai é MAGRO de propósito — nome, função, estado. E-mail, perfil e
+ * O que sai é MAGRO de propósito — nome, função, estado. Usuário, perfil e
  * qualquer dado de RH são da tela de Usuários (épico 1) e do épico 7, com
  * permissão própria. A RLS faz o filtro por clínica.
  */

@@ -7,9 +7,9 @@ import { inteiroDoAmbiente } from '../comum/ambiente'
  *
  * Por que existe, em cima do limite que já havia: `limiteExcedido`
  * (sessao.ts) conta por `identificador`, e cinco falhas travam **aquela
- * conta**. Um atacante com mil e-mails distintos atravessa esse limite
+ * conta**. Um atacante com mil usuários distintos atravessa esse limite
  * inteiro sem nunca disparar bloqueio nenhum — foi exatamente o cenário
- * medido na revisão da branch (900 logins com e-mails diferentes). Contar por
+ * medido na revisão da branch (900 logins com usuários diferentes). Contar por
  * origem é o controle que cobre esse caso, e é também o único que cobre o
  * caminho "clínica não existe", onde não há `clinica_id` para gravar tentativa
  * nenhuma.

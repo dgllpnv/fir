@@ -36,32 +36,35 @@ beforeAll(async () => {
      VALUES ($1, 'pf_rec', 'Recepção', ARRAY['jornada','receber']) RETURNING id`,
     [clinica],
   )
-  await migrate.query(
-    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-     VALUES ($1, 'Juliana', 'juliana@e2e.local', $2, $3)`,
-    [clinica, await hashDeSenha('senha-de-teste'), p.rows[0]!.id],
-  )
+  const perfil = p.rows[0]!.id
+
+  const criar = async (nome: string, usuario: string, senha: string) => {
+    await migrate.query(
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [clinica, nome, usuario, await hashDeSenha(senha), perfil],
+    )
+  }
+
+  await criar('Juliana', 'juliana', 'senha-de-teste')
   // Duas contas A/B dedicadas ao teste de isolamento do limite de
   // tentativas — nunca usadas por outro teste, para que o teste não dependa
   // da ordem de execução dos demais.
-  await migrate.query(
-    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-     VALUES ($1, 'Conta A', 'conta.a@e2e.local', $2, $3)`,
-    [clinica, await hashDeSenha('senha-da-conta-a'), p.rows[0]!.id],
-  )
-  await migrate.query(
-    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-     VALUES ($1, 'Conta B', 'conta.b@e2e.local', $2, $3)`,
-    [clinica, await hashDeSenha('senha-da-conta-b'), p.rows[0]!.id],
-  )
+  await criar('Conta A', 'conta.a', 'senha-da-conta-a')
+  await criar('Conta B', 'conta.b', 'senha-da-conta-b')
   // Conta dedicada à medição de tempo (Rodada de correção 1): precisa
   // existir de verdade, com hash válido, para que o caminho "senha errada"
-  // rode Argon2 de produção — comparado contra um e-mail que nunca existe.
-  await migrate.query(
-    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-     VALUES ($1, 'Conta Tempo', 'conta.tempo.existe@e2e.local', $2, $3)`,
-    [clinica, await hashDeSenha('senha-da-conta-tempo'), p.rows[0]!.id],
-  )
+  // rode Argon2 de produção — comparado contra um usuário que nunca existe.
+  await criar('Conta Tempo', 'conta.tempo.existe', 'senha-da-conta-tempo')
+  // Conta dedicada à medição do caminho de SUCESSO, para que o piso seja
+  // medido nas quatro saídas de `entrar` e não só nas três de erro.
+  await criar('Conta Piso', 'conta.piso', 'senha-da-conta-piso')
+  // E outra para a saída "senha errada" do mesmo teste: `conta.tempo.existe`
+  // já chega lá com cinco falhas gastas pelo teste de oráculo de tempo, e a
+  // sexta tentativa responderia 429 em vez de 401.
+  await criar('Conta Piso Errada', 'conta.piso.errada', 'senha-da-piso-errada')
+  // Conta dedicada ao limite por canônico: cinco grafias da MESMA conta.
+  await criar('Conta Grafia', 'grafia', 'senha-da-grafia')
 
   const mod = await Test.createTestingModule({ imports: [AppModule] }).compile()
   app = mod.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
@@ -79,7 +82,12 @@ afterAll(async () => {
 const entrar = (senha: string) =>
   request(app.getHttpServer())
     .post('/v1/entrar')
-    .send({ clinica: codigo, email: 'juliana@e2e.local', senha })
+    .send({ clinica: codigo, usuario: 'juliana', senha })
+
+const entrarComo = (usuario: string, senha: string, clinicaCodigo = codigo) =>
+  request(app.getHttpServer())
+    .post('/v1/entrar')
+    .send({ clinica: clinicaCodigo, usuario, senha })
 
 /**
  * O tipo de `Response.headers` do supertest/superagent não reflete o
@@ -97,12 +105,29 @@ describe('POST /v1/entrar', () => {
     await request(app.getHttpServer()).get('/v1/eu').expect(401)
   })
 
-  it('entra e devolve usuário, clínica e perfis', async () => {
+  it('entra com usuário e senha, e devolve usuário, clínica e perfis', async () => {
     const r = await entrar('senha-de-teste').expect(200)
-    expect(r.body.usuario.email).toBe('juliana@e2e.local')
+    expect(r.body.usuario.usuario).toBe('juliana')
     expect(r.body.clinica.codigo).toBe(codigo)
     expect(r.body.perfis[0].perms).toContain('jornada')
     expect(cookieDaResposta(r).join()).toMatch(/__Host-fir-sessao=/)
+  })
+
+  it('não há e-mail em lugar nenhum da resposta', async () => {
+    // D-10: o produto inteiro deixou de coletar e-mail da equipe. Uma linha a
+    // menos na avaliação de impacto, e uma a menos em `tentativas_login`.
+    const r = await entrar('senha-de-teste').expect(200)
+    expect(JSON.stringify(r.body)).not.toMatch(/@/)
+    expect(Object.keys(r.body.usuario)).not.toContain('email')
+  })
+
+  it('perdoa caixa, acento e espaço nas pontas no campo usuário', async () => {
+    // O corretor do tablet maiusculiza a primeira letra, e a colagem traz
+    // espaço. Isso não pode custar um chamado de suporte.
+    for (const digitado of ['Juliana', '  JULIANA ', 'juliána']) {
+      const r = await entrarComo(digitado, 'senha-de-teste')
+      expect(r.status, digitado).toBe(200)
+    }
   })
 
   it('o cookie é HttpOnly, Secure, SameSite e de caminho raiz', async () => {
@@ -114,21 +139,21 @@ describe('POST /v1/entrar', () => {
     expect(cookie).toMatch(/Path=\//)
   })
 
-  it('a resposta NUNCA contém o hash da senha nem o token cru', async () => {
+  it('a resposta NUNCA contém o hash da senha, a senha crua nem o token cru', async () => {
     const r = await entrar('senha-de-teste').expect(200)
     const texto = JSON.stringify(r.body)
     expect(texto).not.toMatch(/\$argon2id\$/)
     expect(texto).not.toMatch(/token/i)
+    expect(texto).not.toContain('senha-de-teste')
   })
 
-  it('senha errada responde 401 com a MESMA frase de e-mail inexistente', async () => {
+  it('a frase de erro não diz se o usuário existe, e não fala em e-mail', async () => {
     const a = await entrar('senha-errada').expect(401)
-    const b = await request(app.getHttpServer())
-      .post('/v1/entrar')
-      .send({ clinica: codigo, email: 'ninguem@e2e.local', senha: 'senha-de-teste' })
-      .expect(401)
-    // Mensagens diferentes dizem ao atacante quais e-mails existem na clínica.
+    const b = await entrarComo('ninguem', 'senha-de-teste').expect(401)
+    // Mensagens diferentes dizem ao atacante quais usuários existem na
+    // clínica — e com usuário adivinhável isso é a lista inteira da equipe.
     expect(a.body.message).toBe(b.body.message)
+    expect(a.body.message).not.toMatch(/mail/i)
   })
 
   it('com sessão, /v1/eu devolve usuário, clínica COMPLETA e perfis', async () => {
@@ -136,6 +161,8 @@ describe('POST /v1/entrar', () => {
     const cookie = cookieDaResposta(r)
     const eu = await request(app.getHttpServer()).get('/v1/eu').set('Cookie', cookie).expect(200)
     expect(eu.body.usuario.nome).toBe('Juliana')
+    expect(eu.body.usuario.usuario).toBe('juliana')
+    expect(eu.body.usuario.senhaProvisoria).toBe(false)
     // Código e nome vêm preenchidos: a tela monta o cabeçalho com eles, e um
     // campo vazio aqui vira "Firmare" genérico em produção.
     expect(eu.body.clinica.codigo).toBe(codigo)
@@ -162,8 +189,8 @@ describe('POST /v1/entrar', () => {
      */
     const juliana = (
       await migrate.query<{ id: string }>(
-        'SELECT id FROM pessoas WHERE clinica_id = $1 AND email = $2',
-        [clinica, 'juliana@e2e.local'],
+        'SELECT id FROM pessoas WHERE clinica_id = $1 AND usuario = $2',
+        [clinica, 'juliana'],
       )
     ).rows[0]!.id
     const desde = (
@@ -189,30 +216,50 @@ describe('POST /v1/entrar', () => {
     for (const linha of t.rows) expect(linha.ator_id).toBe(juliana)
   })
 
+  it('tentativas_login guarda o USUÁRIO, nunca um e-mail', async () => {
+    // D-10: menos PII na trilha. É o ganho de graça desta decisão, e vale
+    // registrar que ele está de pé.
+    await entrarComo('conta.b', 'chute-errado-aqui').expect(401)
+    const r = await migrate.query<{ identificador: string }>(
+      `SELECT identificador FROM tentativas_login
+        WHERE clinica_id = $1 ORDER BY em DESC, id DESC LIMIT 1`,
+      [clinica],
+    )
+    expect(r.rows[0]!.identificador).toBe('conta.b')
+    expect(r.rows[0]!.identificador).not.toMatch(/@/)
+  })
+
+  it('o limite por conta conta pelo CANÔNICO, não pelo que foi digitado', async () => {
+    // Senão `Grafia`, `GRAFIA` e `gráfia` seriam três contas distintas para o
+    // limite, e cinco tentativas virariam quinze com três grafias.
+    for (const g of ['grafia', 'Grafia', 'GRAFIA', 'gráfia', '  grafia  ']) {
+      await entrarComo(g, 'chute-errado-aqui').expect(401)
+    }
+    await entrarComo('grafia', 'senha-da-grafia').expect(429)
+  })
+
   it('cinco senhas erradas bloqueiam a sexta tentativa, mesmo com a senha certa', async () => {
     for (let i = 0; i < 5; i++) await entrar('senha-errada').expect(401)
     await entrar('senha-de-teste').expect(429)
   })
 
   it('o limite é por identificador: falhas na conta A não bloqueiam a conta B', async () => {
-    const porConta = (email: string, senha: string) =>
-      request(app.getHttpServer()).post('/v1/entrar').send({ clinica: codigo, email, senha })
-
     // Esgota o limite da conta A, isolada e nunca usada por outro teste.
     for (let i = 0; i < 5; i++) {
-      await porConta('conta.a@e2e.local', 'senha-errada').expect(401)
+      await entrarComo('conta.a', 'senha-errada').expect(401)
     }
-    await porConta('conta.a@e2e.local', 'senha-da-conta-a').expect(429)
+    await entrarComo('conta.a', 'senha-da-conta-a').expect(429)
 
-    // A conta B, na MESMA clínica, nunca tentou entrar: a consulta de
+    // A conta B, na MESMA clínica, está longe do teto: a consulta de
     // `limiteExcedido` filtra por `identificador = $1`, então as falhas da
     // conta A não aparecem na janela de tentativas da conta B.
-    await porConta('conta.b@e2e.local', 'senha-da-conta-b').expect(200)
+    await entrarComo('conta.b', 'senha-da-conta-b').expect(200)
   })
 
   /**
-   * Rodada de correção 1: o relógio da resposta não pode dizer qual e-mail
-   * existe. Medido contra a API viva ANTES da correção (hash falso):
+   * Rodada de correção 1: o relógio da resposta não pode dizer qual
+   * identificador existe. Medido contra a API viva ANTES da correção (hash
+   * falso):
    *
    *   existe@t.local      401 em 20 / 68 / 20 ms   (Argon2 roda)
    *   naoexiste@t.local   401 em  8 /  9 /  8 ms   (Argon2 não roda)
@@ -223,24 +270,26 @@ describe('POST /v1/entrar', () => {
    * Não afirmamos igualdade: só que o caminho sem pessoa custa pelo menos a
    * metade do caminho com pessoa real — suficiente para pegar a regressão
    * óbvia (hash falso removido), que reabriria a razão de 3x–8x medida acima.
+   *
+   * **Com o e-mail fora (D-10) este teste vale mais, não menos.** Antes,
+   * enumerar contas exigia descobrir o domínio; agora o nome de usuário é
+   * `ana`, `recepcao`, `juliana`, e um oráculo de tempo entrega a lista
+   * inteira da equipe de uma clínica de seis pessoas em dez minutos.
    */
-  it('o tempo de resposta não distingue e-mail inexistente de senha errada', async () => {
-    const medir = async (email: string, senha: string): Promise<number> => {
+  it('o tempo de resposta não distingue usuário inexistente de senha errada', async () => {
+    const medir = async (usuario: string, senha: string): Promise<number> => {
       const tempos: number[] = []
       for (let i = 0; i < 5; i++) {
         const inicio = performance.now()
-        await request(app.getHttpServer())
-          .post('/v1/entrar')
-          .send({ clinica: codigo, email, senha })
-          .expect(401)
+        await entrarComo(usuario, senha).expect(401)
         tempos.push(performance.now() - inicio)
       }
       tempos.sort((a, b) => a - b)
       return tempos[2]! // mediana de 5
     }
 
-    const medianaExiste = await medir('conta.tempo.existe@e2e.local', 'senha-errada-tempo')
-    const medianaNaoExiste = await medir('conta.tempo.naoexiste@e2e.local', 'senha-de-teste')
+    const medianaExiste = await medir('conta.tempo.existe', 'senha-errada-tempo')
+    const medianaNaoExiste = await medir('conta.tempo.naoexiste', 'senha-de-teste')
 
     expect(medianaNaoExiste).toBeGreaterThanOrEqual(medianaExiste * 0.5)
   })
@@ -258,14 +307,13 @@ describe('POST /v1/entrar', () => {
    * instalação, sem deixar rastro. O remédio é o mesmo do `HASH_FALSO`:
    * rodar a verificação de qualquer forma, pelo mesmo semáforo.
    *
-   * Mesma disciplina de medição do teste de e-mail acima: 5 amostras e a
-   * MEDIANA (a primeira de cada processo carrega o aquecimento do binding
-   * nativo).
+   * Mesma disciplina de medição do teste acima: 5 amostras e a MEDIANA (a
+   * primeira de cada processo carrega o aquecimento do binding nativo).
    *
    * Re-revisão (achado 1): a asserção ERA de razão
    * (`medianaNaoExiste >= medianaExiste * 0.5`), e 0,5 é mais FROUXO que o
    * resíduo de 0,65 que o próprio `PISO_DE_RESPOSTA_MS` existe para fechar
-   * (15,1 ms contra 23,4 ms, medido em `autenticacao.service.ts:44-46`).
+   * (15,1 ms contra 23,4 ms, medido em `autenticacao.service.ts`).
    * Provado por mutação: com `PISO_RESPOSTA_ENTRAR_MS=0` a razão sobe para
    * ~1 (as duas latências caem para o mesmo chão sem piso, e ficam tão
    * próximas quanto o piso as deixava distantes) e passava 3/3 — ou seja, o
@@ -277,6 +325,11 @@ describe('POST /v1/entrar', () => {
    * tem jitter de submilissegundo sob carga do runner), não uma concessão ao
    * defeito: nenhuma razão entre os dois caminhos entra na conta.
    *
+   * **As QUATRO saídas de `entrar`**, e não duas: a D-10 acrescentou a saída
+   * de sucesso à varredura. O piso está num `finally`, logo vale para o
+   * sucesso também — e precisa valer, senão o relógio passa a dizer "esta
+   * senha estava certa", que é o mesmo oráculo com outra pergunta.
+   *
    * Duas partes, de propósito — uma só não basta:
    *
    * 1. SANIDADE DO VALOR CONFIGURADO, contra uma referência FIXA (nunca
@@ -285,28 +338,24 @@ describe('POST /v1/entrar', () => {
    *    `PISO_RESPOSTA_ENTRAR_MS=0` arrastaria o LIMIAR para 0 junto com a
    *    medida, e `0 >= 0` passa sempre — exatamente o defeito que esta
    *    correção existe para fechar. `50` é fixo porque está ACIMA do jitter
-   *    de medição e ABAIXO do caminho SEM clínica desprotegido (~15 ms,
-   *    medido em `autenticacao.service.ts:44-46`): nenhum valor configurado
-   *    que ainda feche o resíduo pode ficar abaixo dele.
-   * 2. MECANISMO: as duas medianas têm de alcançar o piso que ESTÁ
+   *    de medição e ABAIXO do caminho SEM clínica desprotegido (~15 ms).
+   * 2. MECANISMO: as quatro medianas têm de alcançar o piso que ESTÁ
    *    configurado — pega a regressão de código (`finally` removido) mesmo
    *    com a variável de ambiente correta.
    */
-  it('o tempo de resposta não distingue clínica inexistente de clínica existente', async () => {
+  it('o piso de tempo vale para as QUATRO saídas de entrar', async () => {
     const PISO_MINIMO_SAO_MS = 50
 
-    const medir = async (clinicaCodigo: string): Promise<number> => {
+    const medir = async (
+      usuario: string,
+      senha: string,
+      clinicaCodigo: string,
+      esperado: number,
+    ): Promise<number> => {
       const tempos: number[] = []
       for (let i = 0; i < 5; i++) {
         const inicio = performance.now()
-        await request(app.getHttpServer())
-          .post('/v1/entrar')
-          .send({
-            clinica: clinicaCodigo,
-            email: `ninguem-${i}@e2e.local`,
-            senha: 'senha-qualquer-longa',
-          })
-          .expect(401)
+        await entrarComo(usuario, senha, clinicaCodigo).expect(esperado)
         tempos.push(performance.now() - inicio)
       }
       tempos.sort((a, b) => a - b)
@@ -319,19 +368,30 @@ describe('POST /v1/entrar', () => {
         `(${PISO_MINIMO_SAO_MS} ms) — o oráculo de código de clínica reabre`,
     ).toBeGreaterThanOrEqual(PISO_MINIMO_SAO_MS)
 
-    const medianaExiste = await medir(codigo)
-    const medianaNaoExiste = await medir(`nao-existe-${Date.now()}`)
+    const saidas: [string, number][] = [
+      // Sucesso: a conta existe e a senha confere. Cinco entradas seguidas não
+      // esbarram no limite — um sucesso zera a contagem de falhas.
+      ['sucesso', await medir('conta.piso', 'senha-da-conta-piso', codigo, 200)],
+      // Senha errada numa conta que existe.
+      ['senha errada', await medir('conta.piso.errada', 'chute-errado-aqui', codigo, 401)],
+      // Usuário que nunca existiu, na clínica que existe.
+      ['usuário inexistente', await medir('nao.existe.aqui', 'chute-errado-aqui', codigo, 401)],
+      // Clínica que nunca existiu: o caminho que NÃO abre transação nenhuma.
+      [
+        'clínica inexistente',
+        await medir('qualquer', 'chute-errado-aqui', `nao-existe-${Date.now()}`, 401),
+      ],
+    ]
 
     const pisoMinimo = PISO_DE_RESPOSTA_MS * 0.9
-    expect(
-      medianaExiste,
-      `mediana com clínica (${medianaExiste} ms) abaixo do piso configurado (${PISO_DE_RESPOSTA_MS} ms)`,
-    ).toBeGreaterThanOrEqual(pisoMinimo)
-    expect(
-      medianaNaoExiste,
-      `mediana sem clínica (${medianaNaoExiste} ms) abaixo do piso configurado (${PISO_DE_RESPOSTA_MS} ms) — ` +
-        'o piso pode ter sido removido ou desligado (ver PISO_RESPOSTA_ENTRAR_MS)',
-    ).toBeGreaterThanOrEqual(pisoMinimo)
+    for (const [nome, mediana] of saidas) {
+      expect(
+        mediana,
+        `a saída "${nome}" respondeu em ${mediana} ms, abaixo do piso configurado ` +
+          `(${PISO_DE_RESPOSTA_MS} ms) — o piso pode ter sido removido ou desligado ` +
+          '(ver PISO_RESPOSTA_ENTRAR_MS e o `finally` de `entrar`)',
+      ).toBeGreaterThanOrEqual(pisoMinimo)
+    }
   })
 })
 
@@ -359,16 +419,16 @@ describe('POST /v1/entrar — limite por origem', () => {
     await appLimitado.close()
   })
 
-  it('mil e-mails distintos NÃO atravessam o limite: a quarta tentativa leva 429', async () => {
+  it('mil usuários distintos NÃO atravessam o limite: a quarta tentativa leva 429', async () => {
     const tentar = (i: number) =>
       request(appLimitado.getHttpServer())
         .post('/v1/entrar')
         .send({
           clinica: codigo,
-          // E-mails DISTINTOS de propósito: é assim que o limite por
+          // Usuários DISTINTOS de propósito: é assim que o limite por
           // identificador (cinco falhas na mesma conta) é contornado, e é o
           // buraco que este limite tapa.
-          email: `origem-${i}-${Date.now()}@e2e.local`,
+          usuario: `origem.${i}.${Date.now()}`,
           senha: 'senha-qualquer-longa',
         })
 

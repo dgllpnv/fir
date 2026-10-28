@@ -39,9 +39,9 @@ async function criarPessoa(clinicaId: string): Promise<string> {
     [clinicaId],
   )
   return umId(
-    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-     VALUES ($1, 'Juliana', $2, 'x', $3) RETURNING id`,
-    [clinicaId, `juliana-${clinicaId}@teste.local`, perfil],
+    `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
+     VALUES ($1, 'Juliana', 'juliana', 'x', $2) RETURNING id`,
+    [clinicaId, perfil],
   )
 }
 

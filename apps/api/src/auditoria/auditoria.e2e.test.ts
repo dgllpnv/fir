@@ -98,10 +98,10 @@ const ultimoIdDaTrilha = async (): Promise<string> =>
     )
   ).rows[0]!.ultimo
 
-const cookieDe = async (email: string): Promise<string[]> => {
+const cookieDe = async (usuario: string): Promise<string[]> => {
   const r = await request(app.getHttpServer())
     .post('/v1/entrar')
-    .send({ clinica: codigo, email, senha: SENHA })
+    .send({ clinica: codigo, usuario, senha: SENHA })
     .expect(200)
   const v = r.headers['set-cookie'] as unknown
   return Array.isArray(v) ? (v as string[]) : typeof v === 'string' ? [v] : []
@@ -141,21 +141,21 @@ beforeAll(async () => {
   const hash = await hashDeSenha(SENHA)
   juliana = (
     await migrate.query<{ id: string }>(
-      `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-       VALUES ($1, 'Juliana', 'juliana@aud.local', $2, $3) RETURNING id`,
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
+       VALUES ($1, 'Juliana', 'juliana', $2, $3) RETURNING id`,
       [clinica, hash, rec],
     )
   ).rows[0]!.id
   helena = (
     await migrate.query<{ id: string }>(
-      `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, admin)
-       VALUES ($1, 'Helena', 'helena@aud.local', $2, true) RETURNING id`,
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin)
+       VALUES ($1, 'Helena', 'helena', $2, true) RETURNING id`,
       [clinica, hash],
     )
   ).rows[0]!.id
   await migrate.query(
-    `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-     VALUES ($1, 'Sandra', 'sandra@aud.local', $2, $3)`,
+    `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
+     VALUES ($1, 'Sandra', 'sandra', $2, $3)`,
     [clinica, hash, cfg],
   )
 
@@ -211,7 +211,7 @@ afterAll(async () => {
 
 describe('registro de acesso a dado sensível (regra 18)', () => {
   it('abrir a ficha marcada grava "acessou" na trilha, em nome de quem abriu', async () => {
-    const cookie = await cookieDe('juliana@aud.local')
+    const cookie = await cookieDe('juliana')
     const desde = await ultimoIdDaTrilha()
 
     await request(app.getHttpServer())
@@ -230,7 +230,7 @@ describe('registro de acesso a dado sensível (regra 18)', () => {
   })
 
   it('resposta de erro NÃO grava acesso — ninguém viu nada', async () => {
-    const cookie = await cookieDe('juliana@aud.local')
+    const cookie = await cookieDe('juliana')
     const desde = await ultimoIdDaTrilha()
 
     await request(app.getHttpServer())
@@ -242,7 +242,7 @@ describe('registro de acesso a dado sensível (regra 18)', () => {
   })
 
   it('rota NÃO marcada não grava acesso — senão a trilha vira ruído', async () => {
-    const cookie = await cookieDe('juliana@aud.local')
+    const cookie = await cookieDe('juliana')
     const desde = await ultimoIdDaTrilha()
 
     await request(app.getHttpServer())
@@ -255,7 +255,7 @@ describe('registro de acesso a dado sensível (regra 18)', () => {
   })
 
   it('duas aberturas deixam duas linhas: a trilha conta acessos, não registros distintos', async () => {
-    const cookie = await cookieDe('helena@aud.local')
+    const cookie = await cookieDe('helena')
     const desde = await ultimoIdDaTrilha()
 
     await request(app.getHttpServer())
@@ -308,7 +308,7 @@ describe('acesso que não pôde ser registrado não é acesso entregue', () => {
   it('a resposta falha em vez de entregar a ficha sem deixar rastro', async () => {
     const r = await request(appQuebrado.getHttpServer())
       .post('/v1/entrar')
-      .send({ clinica: codigo, email: 'juliana@aud.local', senha: SENHA })
+      .send({ clinica: codigo, usuario: 'juliana', senha: SENHA })
       .expect(200)
     const v = r.headers['set-cookie'] as unknown
     const cookie = Array.isArray(v) ? (v as string[]) : [v as string]
@@ -325,7 +325,7 @@ describe('acesso que não pôde ser registrado não é acesso entregue', () => {
 /**
  * A ROTA MAIS PERIGOSA DO SISTEMA.
  *
- * A trilha guarda `de`/`para` de toda escrita: hoje nome e e-mail em claro;
+ * A trilha guarda `de`/`para` de toda escrita: hoje nome e usuário em claro;
  * no épico 7, salário; no 6, dose e lote por paciente. Um `GET` sem controle
  * entrega, de uma vez, tudo o que as regras 17 e 18 protegem em todas as
  * outras rotas — e entrega com a aparência inofensiva de "log".
@@ -335,12 +335,12 @@ describe('GET /v1/auditoria', () => {
     request(app.getHttpServer()).get(`/v1/auditoria${query}`).set('Cookie', cookie)
 
   it('quem não tem "config" não lê a trilha', async () => {
-    const cookie = await cookieDe('juliana@aud.local')
+    const cookie = await cookieDe('juliana')
     await trilha(cookie).expect(403)
   })
 
   it('o admin lê, e só a própria clínica', async () => {
-    const cookie = await cookieDe('helena@aud.local')
+    const cookie = await cookieDe('helena')
     const r = await trilha(cookie, '?limite=200').expect(200)
 
     expect(r.body.itens.length).toBeGreaterThan(0)
@@ -352,7 +352,7 @@ describe('GET /v1/auditoria', () => {
   })
 
   it('sem "pessoas.gerir", de/para não entregam salário — e nem valor_aberto', async () => {
-    const semRh = await cookieDe('sandra@aud.local')
+    const semRh = await cookieDe('sandra')
     const r = await trilha(semRh, `?entidade=pessoas&entidadeId=${SINTETICO}`).expect(200)
 
     expect(r.body.itens).toHaveLength(1)
@@ -371,7 +371,7 @@ describe('GET /v1/auditoria', () => {
   })
 
   it('com "pessoas.gerir", o mesmo registro entrega o salário', async () => {
-    const cookie = await cookieDe('helena@aud.local')
+    const cookie = await cookieDe('helena')
     const r = await trilha(cookie, `?entidade=pessoas&entidadeId=${SINTETICO}`).expect(200)
     expect(r.body.itens).toHaveLength(1)
     expect(r.body.itens[0].para.salario).toBe(450_000)
@@ -379,7 +379,7 @@ describe('GET /v1/auditoria', () => {
   })
 
   it('a paginação é por (em, id): linha nova não empurra nem repete item', async () => {
-    const cookie = await cookieDe('helena@aud.local')
+    const cookie = await cookieDe('helena')
 
     const p1 = await trilha(cookie, '?limite=3').expect(200)
     expect(p1.body.itens).toHaveLength(3)
@@ -404,7 +404,7 @@ describe('GET /v1/auditoria', () => {
   })
 
   it('ler a trilha fica NA trilha — quem lê o prontuário de todo mundo também é alguém', async () => {
-    const cookie = await cookieDe('helena@aud.local')
+    const cookie = await cookieDe('helena')
     const desde = await ultimoIdDaTrilha()
 
     await trilha(cookie, '?limite=1').expect(200)

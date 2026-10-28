@@ -37,13 +37,13 @@ describe('busca de paciente para vincular tarefa (D-7)', () => {
       ])
     ).rows[0]!.codigo
     await c.migrate.query(
-      `INSERT INTO pessoas (clinica_id, nome, email, senha_hash, perfil_id)
-       VALUES ($1, 'Sandra', $2, $3, $4)`,
-      [c.clinica, `sandra@${codigo}.local`, await hashDeSenha('senha-de-teste-123'), perfil.rows[0]!.id],
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id)
+       VALUES ($1, 'Sandra', 'sandra', $2, $3)`,
+      [c.clinica, await hashDeSenha('senha-de-teste-123'), perfil.rows[0]!.id],
     )
     const r = await request(c.app.getHttpServer())
       .post('/v1/entrar')
-      .send({ clinica: codigo, email: `sandra@${codigo}.local`, senha: 'senha-de-teste-123' })
+      .send({ clinica: codigo, usuario: 'sandra', senha: 'senha-de-teste-123' })
       .expect(200)
     const v = r.headers['set-cookie'] as unknown
     semPacientes = Array.isArray(v) ? (v as string[]) : typeof v === 'string' ? [v] : []

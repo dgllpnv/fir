@@ -24,8 +24,15 @@ import { LimitePorOrigem } from './limite-por-origem'
 import { DURACAO_SESSAO_MS } from './sessao'
 import { NOME_DO_COOKIE } from './sessao.guard'
 
-/** Uma frase só para toda falha de credencial. Ver o teste e2e. */
-const FRASE = 'E-mail ou senha incorretos.'
+/**
+ * Uma frase só para toda falha de credencial — usuário inexistente, senha
+ * errada, clínica inexistente, provisória vencida. Ver o teste e2e.
+ *
+ * Com o e-mail fora (D-10) ela vale mais, não menos: o nome de usuário é
+ * adivinhável, e uma frase que distinga os casos entrega a lista de contas da
+ * clínica a quem souber o código dela.
+ */
+const FRASE = 'Usuário ou senha incorretos.'
 
 /** Quinze minutos — a janela de `limiteExcedido` em sessao.ts. */
 const RETRY_AFTER_LIMITE_POR_CONTA = 15 * 60
@@ -52,7 +59,7 @@ export class AutenticacaoController {
     /**
      * Limite POR ORIGEM, antes de qualquer trabalho — antes do parse, antes
      * da consulta à clínica, antes do Argon2. O limite que já existia conta
-     * por `identificador`, e mil e-mails distintos atravessam esse limite
+     * por `identificador`, e mil usuários distintos atravessam esse limite
      * inteiro: foi o cenário medido na revisão (900 logins, nenhum bloqueio).
      *
      * `req.ip` do Fastify, e NÃO um cabeçalho lido na mão. A diferença
@@ -81,13 +88,13 @@ export class AutenticacaoController {
 
     const dados = EntrarEntrada.safeParse(corpo)
     if (!dados.success) {
-      throw new BadRequestException('Confira a clínica, o e-mail e a senha.')
+      throw new BadRequestException('Confira a clínica, o usuário e a senha.')
     }
 
     try {
       const { eu, token } = await this.auth.entrar(
         dados.data.clinica,
-        dados.data.email,
+        dados.data.usuario,
         dados.data.senha,
       )
 
