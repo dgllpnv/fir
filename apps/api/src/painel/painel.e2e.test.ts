@@ -1,5 +1,6 @@
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
+import { randomBytes } from 'node:crypto'
 import pg from 'pg'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -28,10 +29,34 @@ let clinica: string
 let operador: string
 let operadorInativo: string
 
-const sufixo = `${Date.now() % 1_000_000}`
+/**
+ * Sufixo ALEATÓRIO, não `Date.now()`.
+ *
+ * `operadores.usuario` é único GLOBALMENTE — o operador não pertence a
+ * clínica nenhuma, então não há `clinica_id` para separar fixtures. Com
+ * `Date.now() % 1e6`, dois arquivos de teste que começam no mesmo
+ * milissegundo (e eles rodam em paralelo) produzem o MESMO usuário, e o
+ * segundo morre em `duplicate key value violates unique constraint`. Medido:
+ * 2 de 6 execuções seguidas.
+ */
+const sufixo = randomBytes(4).toString('hex')
 const codigo = `pnl-${sufixo}`
 const USUARIO_OP = `dono.${sufixo}`
 const USUARIO_INATIVO = `inativo.${sufixo}`
+/**
+ * O usuário da PESSOA e o nome que não existe também levam o sufixo, e isso
+ * não é estética.
+ *
+ * `tentativas_de_operador` é GLOBAL — o operador não pertence a clínica
+ * nenhuma, então não há `clinica_id` para separar execuções. Com um
+ * identificador fixo (`helena`), cada rodada deste arquivo somava uma falha
+ * à mesma conta, e na quinta rodada dentro de quinze minutos o teste "a
+ * credencial de pessoa NÃO entra" passava a receber **429 em vez de 401** —
+ * verde na primeira execução, vermelho na quinta, acusando um defeito que
+ * não existe.
+ */
+const USUARIO_PESSOA = `helena.${sufixo}`
+const NAO_EXISTE = `ninguem.${sufixo}`
 
 const cookies = (r: { headers: Record<string, string> }): string[] => {
   const v = r.headers['set-cookie'] as unknown
@@ -63,8 +88,8 @@ beforeAll(async () => {
   ).rows[0]!.id
   await migrate.query(
     `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin)
-     VALUES ($1, 'Dra. Helena', 'helena', $2, true)`,
-    [clinica, await hashDeSenha(SENHA_PESSOA)],
+     VALUES ($1, 'Dra. Helena', $3, $2, true)`,
+    [clinica, await hashDeSenha(SENHA_PESSOA), USUARIO_PESSOA],
   )
 
   operador = await criarOperador(USUARIO_OP)
@@ -80,7 +105,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await declararAtorSistema(migrate)
   await migrate.query('DELETE FROM tentativas_de_operador WHERE identificador = ANY($1)', [
-    [USUARIO_OP, USUARIO_INATIVO, 'ninguem.existe'],
+    [USUARIO_OP, USUARIO_INATIVO, USUARIO_PESSOA, NAO_EXISTE],
   ])
   for (const id of [operador, operadorInativo]) await apagarOperadorDeTeste(migrate, id)
   await apagarClinicaDeTeste(migrate, clinica)
@@ -99,7 +124,7 @@ const sessaoDoProduto = async (): Promise<string> =>
     cookies(
       await request(app.getHttpServer())
         .post('/v1/entrar')
-        .send({ clinica: codigo, usuario: 'helena', senha: SENHA_PESSOA })
+        .send({ clinica: codigo, usuario: USUARIO_PESSOA, senha: SENHA_PESSOA })
         .expect(200),
     ),
   )
@@ -133,7 +158,7 @@ describe('POST /v1/superadmin/entrar', () => {
 
   it('senha errada e operador inexistente dizem a MESMA frase', async () => {
     const a = await entrarNoPainel(USUARIO_OP, 'chute-errado-aqui').expect(401)
-    const b = await entrarNoPainel('ninguem.existe', 'chute-errado-aqui').expect(401)
+    const b = await entrarNoPainel(NAO_EXISTE, 'chute-errado-aqui').expect(401)
     expect(a.body.message).toBe(b.body.message)
     expect(a.body.message).toBe('Usuário ou senha incorretos.')
   })
@@ -189,7 +214,7 @@ describe('POST /v1/superadmin/entrar', () => {
     const casos: [string, () => Promise<unknown>][] = [
       ['sucesso', () => entrarNoPainel().expect(200)],
       ['senha errada', () => entrarNoPainel(USUARIO_OP, 'chute-errado-aqui').expect(401)],
-      ['inexistente', () => entrarNoPainel('ninguem.existe', 'chute-errado-aqui').expect(401)],
+      ['inexistente', () => entrarNoPainel(NAO_EXISTE, 'chute-errado-aqui').expect(401)],
     ]
     for (const [nome, fn] of casos) {
       expect(await medir(fn), nome).toBeGreaterThanOrEqual(PISO_DE_RESPOSTA_MS - 5)
@@ -206,7 +231,7 @@ describe('os dois espaços de identidade são disjuntos', () => {
   })
 
   it('a credencial de pessoa NÃO entra pelo login do painel', async () => {
-    await entrarNoPainel('helena', SENHA_PESSOA).expect(401)
+    await entrarNoPainel(USUARIO_PESSOA, SENHA_PESSOA).expect(401)
   })
 
   it('o cookie do PRODUTO não abre o painel — 404, não 401', async () => {
@@ -315,7 +340,7 @@ describe('o limite por origem do painel é SEPARADO do limite do produto', () =>
     // tentou nada nela".
     await request(appLimitado.getHttpServer())
       .post('/v1/entrar')
-      .send({ clinica: codigo, usuario: 'helena', senha: SENHA_PESSOA })
+      .send({ clinica: codigo, usuario: USUARIO_PESSOA, senha: SENHA_PESSOA })
       .expect(200)
   })
 })

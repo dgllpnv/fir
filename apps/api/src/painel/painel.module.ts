@@ -6,6 +6,9 @@ import {
   LIMITE_DO_PAINEL,
   MAX_PAINEL_POR_ORIGEM,
 } from './limite-do-painel'
+import { PainelClinicasController } from './painel-clinicas.controller'
+import { PainelClinicasService } from './painel-clinicas.service'
+import { PainelPessoasService } from './painel-pessoas.service'
 import { PainelController } from './painel.controller'
 import { PainelGuard } from './painel.guard'
 import { PainelService } from './painel.service'
@@ -20,9 +23,11 @@ import { PainelService } from './painel.service'
  * painel sem guard não entrega UMA clínica, entrega todas.
  */
 @Module({
-  controllers: [PainelController],
+  controllers: [PainelController, PainelClinicasController],
   providers: [
     PainelService,
+    PainelClinicasService,
+    PainelPessoasService,
     PainelGuard,
     provedorDeRelogio,
     {

@@ -1,4 +1,5 @@
 import type { NestFastifyApplication } from '@nestjs/platform-fastify'
+import { randomBytes } from 'node:crypto'
 import pg from 'pg'
 import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -47,8 +48,20 @@ const CUSTO_MINIMO_DO_ARGON2_MS = 3
 const FRACAO_DE_UM_ARGON2 = 0.6
 
 const SENHA = 'quatro-pedras-no-caminho'
-const sufixo = `${Date.now() % 1_000_000}`
+/**
+ * Sufixo ALEATÓRIO, não `Date.now()`.
+ *
+ * `operadores.usuario` é único GLOBALMENTE — o operador não pertence a
+ * clínica nenhuma, então não há `clinica_id` para separar fixtures. Com
+ * `Date.now() % 1e6`, dois arquivos de teste que começam no mesmo
+ * milissegundo (e eles rodam em paralelo) produzem o MESMO usuário, e o
+ * segundo morre em `duplicate key value violates unique constraint`. Medido:
+ * 2 de 6 execuções seguidas.
+ */
+const sufixo = randomBytes(4).toString('hex')
 const USUARIO = `oraculo.${sufixo}`
+/** Também único: `medir` gasta 5 tentativas, e o limite por conta é 5/15 min. */
+const NAO_EXISTE = `naoexiste.${sufixo}`
 
 let app: NestFastifyApplication
 let migrate: pg.Client
@@ -125,7 +138,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await migrate.query('DELETE FROM tentativas_de_operador WHERE identificador = ANY($1)', [
-    [USUARIO, 'nao.existe.aqui'],
+    [USUARIO, NAO_EXISTE],
   ])
   if (operador) await apagar(migrate, operador)
   await migrate.end()
@@ -150,7 +163,7 @@ describe('toda saída 401 do painel inclui um Argon2', () => {
 
   it('o operador que NÃO existe gasta o mesmo Argon2 que a senha errada', async () => {
     const existe = await medir(USUARIO)
-    const naoExiste = await medir('nao.existe.aqui')
+    const naoExiste = await medir(NAO_EXISTE)
 
     // Sanidade: se o caminho REAL também é instantâneo, as duas medidas são
     // ruído e a razão não significa nada.

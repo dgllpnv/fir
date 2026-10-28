@@ -281,6 +281,38 @@ describe('auditoria_do_painel', () => {
   })
 })
 
+describe('a repartição das duas trilhas', () => {
+  it('a trilha de CLÍNICA não aceita evento sem clínica — é por isso que a segunda existe', async () => {
+    /**
+     * A razão da `auditoria_do_painel`, medida e não afirmada.
+     *
+     * "O operador X entrou", "o operador Y foi criado" e "a senha do operador
+     * Z foi redefinida pela VPS" não pertencem a clínica nenhuma, e
+     * `auditoria.clinica_id` é `NOT NULL` — e tem de continuar sendo. A
+     * alternativa, uma clínica sentinela, já foi recusada por escrito na
+     * 0002: `clinicas` é a raiz do tenancy, não tem RLS, e a sentinela
+     * apareceria em toda listagem de clínicas como um caso especial.
+     */
+    await expect(
+      migrate.query(
+        `INSERT INTO auditoria (clinica_id, ator_tipo, ator_id, acao, entidade, entidade_id)
+         VALUES (NULL, 'operador', $1::uuid, 'acessou', 'operadores', $1::text)`,
+        [operador],
+      ),
+    ).rejects.toThrow(/null value in column "clinica_id"|not-null/i)
+  })
+
+  it('e a trilha do PAINEL não tem onde pôr uma clínica, nem por engano', async () => {
+    await expect(
+      migrate.query(
+        `INSERT INTO auditoria_do_painel (clinica_id, ator_tipo, ator_id, acao, entidade, entidade_id)
+         VALUES ($1, 'operador', $2, 'acessou', 'operadores', $2)`,
+        [clinica, operador],
+      ),
+    ).rejects.toThrow(/column "clinica_id" of relation "auditoria_do_painel" does not exist/i)
+  })
+})
+
 describe('a denylist de segredos alcança as colunas do painel', () => {
   it('senha_hash e token_hash não atravessam para de/para', async () => {
     const r = await migrate.query<{ j: string }>(
