@@ -13,6 +13,8 @@ import { HojeModule } from './hoje/hoje.module'
 import { JornadaModule } from './jornada/jornada.module'
 import { RedacaoInterceptor } from './comum/redacao.interceptor'
 import { PacientesModule } from './pacientes/pacientes.module'
+import { PainelGuard } from './painel/painel.guard'
+import { PainelModule } from './painel/painel.module'
 import { PessoasModule } from './pessoas/pessoas.module'
 import { ProgramasModule } from './programas/programas.module'
 import { SaudeController } from './saude/saude.controller'
@@ -25,6 +27,7 @@ import { TarefasModule } from './tarefas/tarefas.module'
     AuditoriaModule,
     PacientesModule,
     PessoasModule,
+    PainelModule,
     TarefasModule,
     JornadaModule,
     ClinicaModule,
@@ -45,6 +48,12 @@ import { TarefasModule } from './tarefas/tarefas.module'
     // esquecer significa rota protegida, e abrir exige `@Publico()` —
     // deliberado, e conferido por teste/rotas-protegidas.test.ts.
     { provide: APP_GUARD, useClass: SessaoGuard },
+    // LOGO DEPOIS de `SessaoGuard`, e antes dos dois de clínica: as rotas do
+    // painel não têm `req.contexto`, e os guards de provisória e de
+    // permissão nada têm a dizer sobre elas. Global pela mesma razão dos
+    // outros — uma rota de painel sem guard não entrega UMA clínica,
+    // entrega todas.
+    { provide: APP_GUARD, useClass: PainelGuard },
     // ENTRE os dois, e não depois: quem está preso pela senha provisória tem
     // de receber 409 em TODA rota de negócio, inclusive nas que o perfil dele
     // não alcança. Depois de `AutorizacaoGuard`, a resposta seria 403 numa

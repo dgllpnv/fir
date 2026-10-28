@@ -8,6 +8,7 @@ import {
 import { Reflector } from '@nestjs/core'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { PUBLICO } from '../autorizacao/publico.decorator'
+import { SO_OPERADOR } from '../painel/so-operador.decorator'
 import { AutenticacaoService } from './autenticacao.service'
 
 export const NOME_DO_COOKIE = '__Host-fir-sessao'
@@ -41,6 +42,28 @@ export class SessaoGuard implements CanActivate {
       ctx.getClass(),
     ])
     if (publico === true) return true
+
+    /**
+     * ROTA DE PAINEL: sai do caminho **sem popular `req.contexto`**.
+     *
+     * Quem a protege é o `PainelGuard`, e a ausência de contexto aqui é o
+     * desenho: o operador não pertence a clínica nenhuma, então não há
+     * `clinicaId`, não há `perfis` e não há `pode`. Popular um contexto
+     * fabricado seria tratá-lo como pessoa de alguma clínica — exatamente o
+     * que a D-5 restrição 1 proíbe.
+     *
+     * Consequência deliberada: sem `req.contexto`, o `RedacaoInterceptor`
+     * cai no `pode = () => false` e apaga todo campo monetário da resposta.
+     * Hoje isso custa nada — o painel só trata identidade. **No dia em que o
+     * painel mostrar dinheiro, esta é a linha a revisitar**, e a resposta
+     * certa será dar ao contexto do operador um `pode` próprio, nunca
+     * desligar o interceptor.
+     */
+    const soOperador = this.reflector.getAllAndOverride<boolean | undefined>(SO_OPERADOR, [
+      ctx.getHandler(),
+      ctx.getClass(),
+    ])
+    if (soOperador === true) return true
 
     const req = ctx
       .switchToHttp()

@@ -90,7 +90,10 @@ export type OperadorId = {
  */
 export const operadorIdDeFonteConfiavel = (id: string): OperadorId => ({ tipo: 'operador', id })
 
-export type Ator = PessoaId | OperadorId | typeof SISTEMA
+/** O tipo do ator que não é ninguém. Existe para quem precisa citá-lo. */
+export type Sistema = typeof SISTEMA
+
+export type Ator = PessoaId | OperadorId | Sistema
 
 /**
  * A sentinela que a trigger `registrar_auditoria` (0013) entende, ao lado de

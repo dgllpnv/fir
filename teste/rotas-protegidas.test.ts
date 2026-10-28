@@ -44,10 +44,29 @@ type RotaDescoberta = {
   readonly controlador: string
   readonly handler: string
   readonly publico: boolean
+  readonly soOperador: boolean
 }
 
 /** Mesma chave de `apps/api/src/autorizacao/publico.decorator.ts`. */
 const PUBLICO = 'fir:publico'
+
+/** Mesma chave de `apps/api/src/painel/so-operador.decorator.ts`. */
+const SO_OPERADOR = 'fir:so-operador'
+
+/**
+ * O segmento que a allowlist do Traefik casa (`infra/producao`). Toda rota de
+ * painel tem de estar debaixo dele, e nenhuma rota de produto pode estar.
+ */
+const SEGMENTO_DO_PAINEL = 'superadmin'
+
+/**
+ * As duas rotas de painel que o `PainelGuard` libera, pelas razões escritas
+ * lá: `entrar` CRIA a sessão, e `sair` precisa poder limpar um cookie morto.
+ */
+const LIBERADAS_NO_PAINEL: ReadonlySet<string> = new Set([
+  'POST /v1/superadmin/entrar',
+  'POST /v1/superadmin/sair',
+])
 
 const juntar = (...partes: (string | undefined)[]): string => {
   const limpo = partes
@@ -83,6 +102,7 @@ beforeAll(async () => {
 
       const prefixo = Reflect.getMetadata(PATH_METADATA, classe) as string | undefined
       const publicoNaClasse = Reflect.getMetadata(PUBLICO, classe) === true
+      const painelNaClasse = Reflect.getMetadata(SO_OPERADOR, classe) === true
       const proto = Object.getPrototypeOf(instancia) as Record<string, unknown>
 
       for (const nome of scanner.getAllMethodNames(proto)) {
@@ -100,6 +120,7 @@ beforeAll(async () => {
           controlador: classe.name,
           handler: nome,
           publico: publicoNaClasse || Reflect.getMetadata(PUBLICO, handler) === true,
+          soOperador: painelNaClasse || Reflect.getMetadata(SO_OPERADOR, handler) === true,
         })
       }
     }
@@ -174,9 +195,11 @@ describe('toda rota do Nest está autenticada, ou é pública de propósito', ()
     ).toEqual([])
   })
 
-  it('TODA rota não-pública responde 401 sem cookie de sessão', async () => {
+  it('TODA rota não-pública e de CLÍNICA responde 401 sem cookie de sessão', async () => {
     const fastify = app.getHttpAdapter().getInstance()
-    const protegidas = rotas.filter((r) => !r.publico)
+    // Rota de painel fica fora: ela responde 404 sem cookie de painel, e o
+    // `describe` abaixo é quem a cobra. 401 lá confirmaria que a rota existe.
+    const protegidas = rotas.filter((r) => !r.publico && !r.soOperador)
     expect(
       protegidas.length,
       'nenhuma rota protegida encontrada — ou tudo virou @Publico(), ou a varredura quebrou',
@@ -267,7 +290,12 @@ describe('nenhuma rota de negócio atravessa a senha provisória', () => {
 
   it('TODA rota não-pública e não-liberada responde 409 SENHA_PROVISORIA', async () => {
     const fastify = app.getHttpAdapter().getInstance()
-    const alvos = rotas.filter((r) => !r.publico && !LIBERADAS.has(chave(r)))
+    // Rota de painel fica fora: ela não usa a sessão do produto, e um cookie
+    // de clínica com senha provisória não a alcança de jeito nenhum — o
+    // `PainelGuard` responde 404 antes.
+    const alvos = rotas.filter(
+      (r) => !r.publico && !r.soOperador && !LIBERADAS.has(chave(r)),
+    )
     expect(
       alvos.length,
       'nenhuma rota a verificar — ou tudo virou público, ou a varredura quebrou',
@@ -316,5 +344,149 @@ describe('nenhuma rota de negócio atravessa a senha provisória', () => {
     })
     expect(r.statusCode).toBe(200)
     expect(r.json().usuario.senhaProvisoria).toBe(true)
+  })
+})
+
+/**
+ * A MESMA varredura, para o terceiro estado: **só-operador**.
+ *
+ * Toda rota do Nest é exatamente um de três — pública, de clínica, ou de
+ * painel. Os dois erros que isto pega são de copiar-e-colar, e os dois são
+ * caros:
+ *
+ *  - uma rota de painel SEM `@SoOperador()` cairia no `SessaoGuard` do
+ *    produto, exigiria cookie de clínica e precisaria de um `req.contexto`
+ *    que o painel não tem;
+ *  - uma rota de produto COM `@SoOperador()` sairia do controle de permissão
+ *    da clínica inteiro — e do guard da senha provisória junto.
+ *
+ * E a terceira asserção é a que amarra a infraestrutura ao código: a
+ * allowlist do Traefik (`infra/producao/docker-compose.yml`) casa **um
+ * segmento chamado `superadmin`**. Uma rota de painel fora desse segmento
+ * ficaria **na frente da allowlist**, exposta à internet; uma rota de produto
+ * dentro dele seria bloqueada para a clínica inteira. As duas reprovam aqui.
+ */
+describe('toda rota é exatamente um de três: pública, de clínica, ou de painel', () => {
+  it('nenhuma rota é pública E só-operador ao mesmo tempo', () => {
+    const confusas = rotas.filter((r) => r.publico && r.soOperador).map(chave)
+    expect(
+      confusas,
+      `rota(s) marcadas @Publico() E @SoOperador(): ${confusas.join(', ')}. ` +
+        'Os dois estados se excluem — @Publico() dispensa sessão, @SoOperador() exige a do painel.',
+    ).toEqual([])
+  })
+
+  it('toda rota só-operador está sob o segmento `superadmin`, e só elas', () => {
+    const temSegmento = (caminho: string) =>
+      caminho.split('/').some((p) => p.toLowerCase() === SEGMENTO_DO_PAINEL)
+
+    const foraDaAllowlist = rotas.filter((r) => r.soOperador && !temSegmento(r.caminho)).map(chave)
+    expect(
+      foraDaAllowlist,
+      `rota(s) de painel FORA do segmento /${SEGMENTO_DO_PAINEL}: ${foraDaAllowlist.join(', ')}. ` +
+        'A allowlist de IP do Traefik casa esse segmento; fora dele a rota fica na frente da ' +
+        'allowlist, exposta à internet.',
+    ).toEqual([])
+
+    const dentroSemMarca = rotas.filter((r) => !r.soOperador && temSegmento(r.caminho)).map(chave)
+    expect(
+      dentroSemMarca,
+      `rota(s) de PRODUTO sob /${SEGMENTO_DO_PAINEL}: ${dentroSemMarca.join(', ')}. ` +
+        'A allowlist bloquearia essa rota para a clínica inteira, e o sintoma seria ' +
+        '"dá 403 para todo mundo menos para o escritório".',
+    ).toEqual([])
+  })
+
+  it('TODA rota de painel que exige sessão responde 404 sem cookie de painel', async () => {
+    const fastify = app.getHttpAdapter().getInstance()
+    const alvos = rotas.filter((r) => r.soOperador && !LIBERADAS_NO_PAINEL.has(chave(r)))
+    expect(
+      alvos.length,
+      'nenhuma rota de painel a verificar — ou a marca sumiu, ou a varredura quebrou',
+    ).toBeGreaterThan(0)
+
+    for (const rota of alvos) {
+      const url = rota.caminho.replace(/:[^/]+/g, '00000000-0000-0000-0000-000000000000')
+      const metodo = rota.metodo === 'ALL' ? 'GET' : rota.metodo
+      const r = await fastify.inject({ method: metodo as 'GET', url, payload: {} })
+      expect(
+        r.statusCode,
+        `${rota.metodo} ${rota.caminho} (${rota.controlador}.${rota.handler}) respondeu ` +
+          `${r.statusCode} sem cookie de painel, e não 404. ` +
+          '401 confirmaria que a rota existe; 200 seria o painel aberto.',
+      ).toBe(404)
+    }
+  })
+
+  describe('e o cookie de CLÍNICA não abre nenhuma delas', () => {
+    let migrate: pg.Client
+    let clinica: string
+    let cookieDeClinica: Record<string, string>
+    const codigo = `naopainel-${Date.now()}`
+    const SENHA = 'quatro-pedras-no-caminho'
+
+    beforeAll(async () => {
+      migrate = new pg.Client({
+        connectionString:
+          process.env['DATABASE_URL_MIGRATE'] ??
+          'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir',
+      })
+      await migrate.connect()
+      await declararAtorSistema(migrate)
+      clinica = (
+        await migrate.query<{ id: string }>(
+          `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica sem painel') RETURNING id`,
+          [codigo],
+        )
+      ).rows[0]!.id
+      // ADMIN de propósito: `temPerm` libera tudo para quem é admin, então
+      // nenhum 403 pode mascarar um 404 que não veio.
+      await migrate.query(
+        `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin)
+         VALUES ($1, 'Admin da clínica', 'admin.clinica', $2, true)`,
+        [clinica, await hashDeSenha(SENHA)],
+      )
+
+      const fastify = app.getHttpAdapter().getInstance()
+      const entrada = await fastify.inject({
+        method: 'POST',
+        url: '/v1/entrar',
+        payload: { clinica: codigo, usuario: 'admin.clinica', senha: SENHA },
+      })
+      expect(entrada.statusCode, 'a fixture de clínica não conseguiu entrar').toBe(200)
+      const bruto = entrada.headers['set-cookie']
+      cookieDeClinica = Object.fromEntries(
+        (Array.isArray(bruto) ? bruto : [String(bruto)]).map((c) => {
+          const [nome, ...resto] = c.split(';')[0]!.split('=')
+          return [nome!, resto.join('=')]
+        }),
+      )
+    })
+
+    afterAll(async () => {
+      await apagarClinicaDeTeste(migrate, clinica)
+      await migrate.end()
+    })
+
+    it('TODA rota de painel responde 404 para uma sessão de clínica', async () => {
+      const fastify = app.getHttpAdapter().getInstance()
+      const alvos = rotas.filter((r) => r.soOperador && !LIBERADAS_NO_PAINEL.has(chave(r)))
+      for (const rota of alvos) {
+        const url = rota.caminho.replace(/:[^/]+/g, '00000000-0000-0000-0000-000000000000')
+        const metodo = rota.metodo === 'ALL' ? 'GET' : rota.metodo
+        const r = await fastify.inject({
+          method: metodo as 'GET',
+          url,
+          payload: {},
+          cookies: cookieDeClinica,
+        })
+        expect(
+          r.statusCode,
+          `${rota.metodo} ${rota.caminho} respondeu ${r.statusCode} para uma sessão de CLÍNICA. ` +
+            'O cookie do produto não pode abrir o painel: se abrir, qualquer admin de qualquer ' +
+            'clínica alcança todas as outras.',
+        ).toBe(404)
+      }
+    })
   })
 })

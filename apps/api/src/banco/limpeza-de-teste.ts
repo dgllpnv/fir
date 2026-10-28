@@ -57,6 +57,36 @@ export async function apagarTrilhaDeTeste(cliente: pg.Client, clinicaId: string)
 }
 
 /**
+ * Desfaz um OPERADOR de teste, trilha do painel inclusive.
+ *
+ * `auditoria_do_painel` é append-only nas duas camadas, como a `auditoria`, e
+ * precisar desligar a trigger aqui é a prova de que ela funciona. Só o DONO
+ * da tabela consegue (`fir_migrate`) — que é exatamente o papel que o
+ * `REVOKE` não alcança e que a trigger existe para alcançar.
+ *
+ * Em PRODUÇÃO nada disto é apagado: o operador se desativa (`ativo = false`)
+ * e a trilha dele continua sendo a resposta a "quem entrou no painel".
+ */
+export async function apagarOperadorDeTeste(cliente: pg.Client, operadorId: string): Promise<void> {
+  await cliente.query('DELETE FROM sessoes_de_operador WHERE operador_id = $1', [operadorId])
+  await cliente.query('BEGIN')
+  try {
+    await cliente.query(
+      'ALTER TABLE auditoria_do_painel DISABLE TRIGGER auditoria_do_painel_sem_update',
+    )
+    await cliente.query('DELETE FROM auditoria_do_painel WHERE ator_id = $1', [operadorId])
+    await cliente.query(
+      'ALTER TABLE auditoria_do_painel ENABLE TRIGGER auditoria_do_painel_sem_update',
+    )
+    await cliente.query('COMMIT')
+  } catch (e) {
+    await cliente.query('ROLLBACK')
+    throw e
+  }
+  await cliente.query('DELETE FROM operadores WHERE id = $1', [operadorId])
+}
+
+/**
  * As tabelas de negócio que uma clínica de teste deixa para trás, na ordem em
  * que as chaves estrangeiras permitem apagar.
  */

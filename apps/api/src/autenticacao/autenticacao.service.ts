@@ -35,11 +35,16 @@ export class LimiteDeTentativas extends Error {}
  * dois casos. `limiteExcedido` não contém isso: ele é por identificador, e
  * testar mil usuários distintos não dispara bloqueio nenhum.
  *
+ * EXPORTADA porque o painel do superadmin (`painel.service.ts`) precisa
+ * exatamente do mesmo remédio, contra o mesmo oráculo: operador inexistente
+ * tem de custar o mesmo que senha errada. Uma segunda constante lá seria uma
+ * segunda verdade, e a que ninguém revisasse ficaria com parâmetros velhos.
+ *
  * É uma CONSTANTE, não um `hashDeSenha(...)` calculado aqui: `hashDeSenha`
  * custa o mesmo que `conferirSenha`, e gerá-la em tempo de execução dobraria
  * o custo do caminho falso em vez de igualá-lo ao caminho real.
  */
-const HASH_FALSO =
+export const HASH_FALSO =
   '$argon2id$v=19$m=19456,t=2,p=1$9YZTdlx1c+RaX+8PmwuR2A$ME626mOd3LVS6WpTnqd8GsCKSk4Oy9VLSYkwIyrGRCs'
 
 /**

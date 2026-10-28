@@ -1,7 +1,16 @@
 import { Injectable, type OnModuleDestroy } from '@nestjs/common'
 import pg from 'pg'
-import { type Ator, type OperadorId, atorParaOBanco } from './ator'
+import { type Ator, type OperadorId, type Sistema, atorParaOBanco } from './ator'
 import type { ClinicaId } from './clinica-id'
+
+/**
+ * Quem pode ser ator numa transação do painel: um operador, ou o sistema.
+ *
+ * `Sistema` existe aqui por um caso só — a ENTRADA no painel, onde ninguém
+ * provou identidade nenhuma ainda. É o mesmo raciocínio que `entrar` do
+ * produto já faz na transação que grava a tentativa.
+ */
+type AtorDoPainel = OperadorId | Sistema
 
 /**
  * Pool único, com o papel `fir_app` — **sujeito à RLS**.
@@ -169,6 +178,25 @@ export class BancoService implements OnModuleDestroy {
     return this.emTransacao(this.poolDoPainel, ator, (c) =>
       fn(c, (id) => fixarClinicaNa(c, id)),
     )
+  }
+
+  /**
+   * As tabelas **do próprio painel**: `operadores`, `sessoes_de_operador`,
+   * `tentativas_de_operador` e `auditoria_do_painel`.
+   *
+   * Nenhuma delas tem `clinica_id`, e nenhuma tem RLS — quem as protege é o
+   * `REVOKE` da 0013, que deixa `fir_app` sem nem `SELECT`. Por isso esta
+   * transação não fixa clínica nenhuma: não há clínica a fixar.
+   *
+   * E por isso ela **não** é um atalho para ler dado de clínica: sem
+   * `app.clinica_id`, toda tabela de negócio responde zero linhas — a RLS
+   * nega por omissão, que é o modo de falha certo.
+   */
+  async nasTabelasDoPainel<T>(
+    ator: AtorDoPainel,
+    fn: (c: pg.PoolClient) => Promise<T>,
+  ): Promise<T> {
+    return this.emTransacao(this.poolDoPainel, ator, fn)
   }
 
   /**
