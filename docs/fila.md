@@ -2,7 +2,11 @@
 
 Ordenada pelo **caminho mais curto até as 4 clínicas migradas**, que é a entrega com data. Não por tamanho, nem por facilidade.
 
-**Estado em 2026-11-01:** 40 das 59 ações · 1.934 testes · épicos 1, 2, 3, 4, 5 e **6** fechados, mais a **primeira metade do 7** (a ficha de pessoa), mais a auditoria, a **identidade sem e-mail**, o **painel do superadmin** e a **administração da clínica**. O estoque inteiro está de pé: contagem às cegas, análise, curva ABC, NF-e idempotente e a tela `/estoque`.
+**Estado em 2026-11-01:** 58 das 59 ações · 2.034 testes · épicos 1, 2, 3, 4, 5, 6, **7** e **8** fechados (o painel geral com três dos seis blocos do MANUAL cap. 10), mais a auditoria, a **identidade sem e-mail**, o **painel do superadmin** e a **administração da clínica**.
+
+A única ação ainda em ⬜ é `carregar`, e ela **não vira rota de propósito** —
+ver `paridade.md`. O que falta para a paridade virar portão é o resto do
+capítulo 10 do painel, a **Ajuda e manual** e o épico 9.
 
 ---
 
@@ -76,7 +80,7 @@ texto** e não a imagem do QR, e a leitura pela **câmera** não existe — só 
 leitor USB e o código digitado (D-E6 e D-E7). As duas se pagam juntas, na
 primeira clínica que quiser ler pela câmera.
 
-## 3 · Épico 7 — Pessoas · **primeira metade FECHADA (2026-11-01)**
+## 3 · ~~Épico 7 — Pessoas~~ · **FECHADO (2026-11-01)**
 
 **16 ações + 8 indicadores.** O maior volume da fila.
 
@@ -109,18 +113,71 @@ O que a fatia resolveu, e como:
   lista de pessoas para os seletores) e o Fastify recusou em tempo de subida. A
   tela continua `/equipe`.
 
-**Falta a segunda metade:** `conversa` · `meta` · `excluirMeta` ·
-`copiarMetas` · `realizado`, os **8 indicadores** e a tela **"Minhas metas"**,
-que o roadmap punha no épico 5 por engano meu — medido no protótipo, aquela
-tela lê RH e os indicadores, nada de programa.
+**Entregue na segunda fatia:** `conversa` · `meta` · `excluirMeta` ·
+`copiarMetas` · `realizado`, os **8 indicadores**, a tela **`/minhas-metas`**
+(que o roadmap punha no épico 5 por engano — medido no protótipo, ela lê RH e
+os indicadores, nada de programa) e as abas **Metas do mês** e **Conversas
+1:1** em `/equipe`.
 
-**Onde o risco está, agora:** os 8 indicadores — dois deles são
-**percentuais**, não somas, e é onde número divergente vai aparecer na
-migração.
+O que a segunda fatia resolveu, e como:
 
-## 4 · Épico 8 — Campanhas e painel
+- **Os 8 indicadores são contagens derivadas, nunca coluna** (regra 11):
+  quatro consultas a `tarefas`, `recebimentos` e `contagens_de_estoque`. As
+  definições saíram do `realizadoMeta` do protótipo e estão **fixadas por 14
+  mutações, todas mortas por um número que muda** — a definição de cada uma
+  está em `paridade.md`, uma linha por indicador.
+- **Os dois percentuais eram o risco, e o risco era o DENOMINADOR.** Quatro
+  mutações diferentes sobre a borda de `tarefas_prazo` mudam o número:
+  `prazo <= hoje`, `status <> 'cancelada'`, o tipo que não é pagamento, e o
+  fuso em que o "no prazo" é medido.
+- **Duas lições de método, medidas.** Uma mutação SOBREVIVEU na primeira
+  rodada (`percentualNoPrazo(0,0)` é inalcançável pelo serviço, porque a
+  consulta tem `GROUP BY` e não devolve linha com `total = 0`); e quatro
+  matavam por CRASH — remover `t.prazo <= $4` deixa o parâmetro de bind sem
+  uso e o Postgres recusa o statement inteiro, o que prova que o teste
+  EXERCITA o código e não que ele MEDE o invariante. As cinco foram refeitas.
+- **Sem `valores`, a meta entrega só o percentual** (regra 17), e o mecanismo
+  é a ESCALA separar os campos: `metaEmDinheiro`/`realizadoEmDinheiro` para
+  `orc_valor`, `metaEmNumero`/`realizadoEmNumero` para os outros oito. Não há
+  `if` de permissão na tela — medido no navegador, com e sem a chave.
+- **`comoChamar` virou uma função do domínio**, e ela substituiu **cinco
+  cópias** de `split(' ')[0]` espalhadas pela web, todas erradas do mesmo
+  jeito: `"Dra. Helena Prado"` virava `"Dra."`, que não identifica ninguém num
+  consultório com duas doutoras. Achado por MEDIÇÃO, não por leitura.
 
-**3 ações**, mas destrava a dívida **D10** (campanha ficou de fora da tarefa e do cadastro de paciente) e a **D11** (indicadores de período na tela Pacientes).
+## 4 · Épico 8 — Campanhas e painel · **as 3 ações FECHADAS, o painel PARCIAL (2026-11-01)**
+
+**Entregue:** `salvarCampanha` · `excluirCampanha` · `importarCampanha`, a tela
+**`/campanhas`** e o **`/painel`** com Período · Cumprimento de prazos ·
+Pacientes no período (MANUAL cap. 10). A migration `0020` traz
+`tarefas.campanha_id` e `pacientes.campanha_id`, que é o que destrava a dívida
+**D10**.
+
+O que a fatia resolveu, e como:
+
+- **A varredura de transporte às cegas me pegou, e a pergunta dela era a
+  certa:** o painel agrega recebimentos **por FORMA** num período que pode
+  conter hoje — um período personalizado de `de = ate = hoje` entrega o
+  esperado da gaveta que alguém ainda vai contar. É a mesma classe de
+  `visao-do-mes`, com a janela escolhida por quem olha. A defesa é a do épico
+  4: `porForma` só soma os dias com caixa FECHADO, e dois campos declaram o
+  recorte. **O protótipo vaza aqui.**
+- **A importação de lista é idempotente por DOIS índices** (regra 26), e a
+  medição no ambiente local fez a volta inteira: 5 linhas → 5 pacientes e 5
+  tarefas; o mesmo arquivo de novo → `criadas: 0, ignoradas: 5`.
+- **Excluir campanha é soft delete e NÃO limpa o vínculo das tarefas.** O
+  protótipo limpa, e aí o trabalho feito perde a atribuição para sempre e o
+  painel do trimestre passado muda sozinho.
+- **`Dinheiro.media(n)` entrou no domínio** para o ticket médio. Não é
+  `ratear(n)[0]`: aquele é sempre a parte que ficou com o centavo do resto,
+  ou seja a média arredondada para cima, **sempre**.
+- **`contracts/src/painel.ts` era o painel do SUPERADMIN e virou
+  `superadmin.ts`.** O `CONTEXT.md` já proibia por escrito chamar o superadmin
+  de `painel`; o arquivo nasceu com o nome errado antes de a tela existir.
+
+**Falta do cap. 10:** Top 10 pagantes, desempenho por unidade, novos pacientes
+por origem e o bloco de campanhas no período. E a dívida **D11** (indicadores
+de período na tela Pacientes) continua aberta.
 
 ## 5 · Ajuda e manual
 
