@@ -145,6 +145,50 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   { caminho: '/v1/clinica', razao: 'Nome, código e fuso da clínica.' },
   { caminho: '/v1/equipe', razao: 'As pessoas ativas, para os seletores. Nenhum valor.' },
   { caminho: '/v1/unidades', razao: 'As unidades da clínica. Nenhum valor.' },
+  {
+    caminho: '/v1/pessoas',
+    razao:
+      'Usuários e acessos: nome, usuário, função, perfil e ativação. Nenhum ' +
+      'salário (épico 7), nenhum valor, nenhum dia — e nenhuma senha, que é o ' +
+      'ponto da D-0.',
+  },
+  {
+    caminho: '/v1/pessoas/perfis',
+    razao: 'A matriz de permissões da clínica. Chaves de permissão, nenhum valor.',
+  },
+  // ---------------------------------------------------------------------
+  // O ESTOQUE (épico 6).
+  //
+  // As três devolvem DINHEIRO — `custo` do item e do movimento de entrada —,
+  // e mesmo assim ficam FORA da conferência às cegas, porque a conferência é
+  // sobre **agregado de um dia cujo caixa pode estar aberto**: o esperado do
+  // caixa e o esperado da contagem. Custo de item não é nenhum dos dois; ele é
+  // redigido pela regra 17 (sem `valores`, vem `null`) e é isso que o protege.
+  //
+  // **A contagem às cegas é OUTRA rota, e ela não existe ainda.** Quando
+  // `criarContagem`/`salvarContagem` chegarem, a quantidade ESPERADA não pode
+  // atravessar antes do fechamento (regra 14) — e aí a rota da contagem entra
+  // em `ROTAS_DE_CONFERENCIA`, não aqui. Esta nota existe para que quem a
+  // escrever não copie a classificação destas três por parecerem vizinhas.
+  // ---------------------------------------------------------------------
+  {
+    caminho: '/v1/estoque',
+    razao:
+      'O catálogo de itens, com saldo DERIVADO e custo. Não é agregado de dia ' +
+      'nenhum: é o estado atual da prateleira, que a equipe precisa ver para ' +
+      'trabalhar. O custo é redigido sem `valores` (regra 17).',
+  },
+  {
+    caminho: '/v1/estoque/locais',
+    razao: 'Onde o item fica na clínica. Nenhum valor, nenhum dia.',
+  },
+  {
+    caminho: '/v1/estoque/movimentos',
+    razao:
+      'O extrato de entradas e saídas, linha a linha. Não é esperado de nada ' +
+      '— é o que foi REGISTRADO, que é justamente o lado que a conferência às ' +
+      'cegas não precisa esconder. O custo de entrada é redigido sem `valores`.',
+  },
   { caminho: '/v1/motivos-de-perda', razao: 'O catálogo de motivos do funil. Nenhum valor.' },
   {
     caminho: '/v1/procedimentos',

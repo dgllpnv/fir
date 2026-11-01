@@ -4,7 +4,6 @@ import type { ClinicaId } from '../banco/clinica-id'
 import type { Transacao } from '../banco/transacao'
 import {
   BaixaDeInsumos,
-  BaixaInerte,
   type MotivoDeDesfazer,
   type PedidoDeBaixa,
 } from './baixa-de-insumos'
@@ -299,15 +298,5 @@ describe('o seam BaixaDeInsumos — o invariante que o épico 6 herda', () => {
     const q = Quantidade.deMilesimos(5000n, 'mg')
     await b.baixar(TX, pedido('s1', [{ itemId: FRASCO, quantidade: q, principal: true }]))
     expect(b.movimentos.map((m) => m.tipo)).toEqual(['consumo'])
-  })
-})
-
-describe('BaixaInerte — a clínica sem estoque usa programas', () => {
-  it('as duas devolvem ok, e não falham', async () => {
-    // Inerte e NÃO um `throw`: uma recusa aqui transformaria "o estoque não
-    // entrou ainda" em "a enfermagem não consegue registrar a aplicação".
-    const b = new BaixaInerte()
-    expect(ehOk(await b.baixar())).toBe(true)
-    expect(ehOk(await b.desfazer())).toBe(true)
   })
 })

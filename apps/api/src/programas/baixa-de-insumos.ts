@@ -1,5 +1,4 @@
-import { ok, type Quantidade, type Result } from '@fir/domain'
-import { Injectable } from '@nestjs/common'
+import type { Quantidade, Result } from '@fir/domain'
 import type { PessoaId } from '../banco/ator'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { Transacao } from '../banco/transacao'
@@ -15,7 +14,8 @@ import type { Transacao } from '../banco/transacao'
  * aplicou.
  *
  * ────────────────────────────────────────────────────────────────────────────
- * O QUE O ÉPICO 6 TERÁ DE HONRAR, e que já tem teste nesta árvore
+ * O QUE O ÉPICO 6 HONROU — a implementação é `estoque/baixa-relacional.ts`,
+ * e os três invariantes abaixo continuam medidos nesta árvore
  * (`sessoes.test.ts`, contra o espião; e `baixa-de-insumos.test.ts`, contra
  * uma implementação de referência que mantém movimentos em memória):
  *
@@ -93,28 +93,4 @@ export abstract class BaixaDeInsumos {
     tarefaId: string,
     motivo: MotivoDeDesfazer,
   ): Promise<Result<void>>
-}
-
-/**
- * **Até o épico 6. Não falha: o programa funciona sem estoque configurado.**
- *
- * Deliberadamente inerte, e não um `throw`: a clínica que ainda não cadastrou
- * item de estoque nenhum continua montando programas e concluindo sessões. Uma
- * recusa aqui transformaria "o estoque não entrou ainda" em "a enfermagem não
- * consegue registrar a aplicação".
- *
- * **Quando o épico 6 chegar, troque o provider em `programas.module.ts` — uma
- * linha — e APAGUE esta classe.** Provider alternativo que ninguém usa é o
- * lugar onde a próxima pessoa pluga sem perceber; foi a lição do
- * `MontadorIndisponivel`, que o épico 3 deixou e a Task 8 do épico 5 removeu.
- */
-@Injectable()
-export class BaixaInerte extends BaixaDeInsumos {
-  async baixar(): Promise<Result<void>> {
-    return ok(undefined)
-  }
-
-  async desfazer(): Promise<Result<void>> {
-    return ok(undefined)
-  }
 }

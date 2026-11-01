@@ -276,8 +276,29 @@ describe('editar — e o que ela NÃO toca', () => {
     // `rotuloSessao` para "Sessão" e esvaziaria `descartaveis` — sem erro
     // nenhum, e a clínica descobriria na próxima sessão.
     const tirze = await porNome('Tirzepatida')
+    /**
+     * O descartável é um ITEM DE ESTOQUE de verdade.
+     *
+     * Até o épico 6 este teste passava um id de PACIENTE como `itemId`: a 0010
+     * deixou `insumos_do_procedimento.item_id` sem chave estrangeira (ela diz,
+     * literalmente, `-- épico 6, sem FK ainda`), e qualquer uuid servia. A 0016
+     * fechou a chave, e o fixture quebrou — que é a chave funcionando.
+     *
+     * Vale anotar: com o id de paciente, o `insumoPadrao` de um procedimento
+     * apontaria para nada, e a baixa automática da sessão não escreveria
+     * movimento nenhum. A sessão concluiria, o estoque não mexeria, e a clínica
+     * descobriria na análise do mês que o consumo do item está zerado.
+     */
+    const seringa = (
+      await c.migrate.query<{ id: string }>(
+        `INSERT INTO itens_de_estoque (clinica_id, nome, medida) VALUES ($1, 'Seringa 1 ml', 'un')
+         ON CONFLICT (clinica_id, nome_chave) WHERE excluido_em IS NULL DO UPDATE SET nome = excluded.nome
+         RETURNING id`,
+        [c.clinica],
+      )
+    ).rows[0]!.id
     await editar(tirze.id, {
-      descartaveis: [{ itemId: c.pacientes['ana']!, quantidade: '1000', unidade: 'un' }],
+      descartaveis: [{ itemId: seringa, quantidade: '1000', unidade: 'un' }],
     }).expect(200)
 
     await editar(tirze.id, { ativo: false }).expect(200)

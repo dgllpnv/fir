@@ -250,6 +250,47 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     caminho: '/v1/programas/sessoes/:id/reabrir',
     camposDeDinheiro: DINHEIRO_DA_TAREFA,
   },
+
+  /**
+   * O ESTOQUE (épico 6).
+   *
+   * **Um nome monetário só, e ele é `custo`** — o preço unitário do item, por
+   * `medida`, em centavos. Ele aparece em DOIS lugares: no cadastro do item e
+   * no movimento de ENTRADA (o que se pagou naquela compra).
+   *
+   * **`minimo` e a QUANTIDADE não entram, e a distinção custou um defeito.**
+   * Eles são quantidade, não dinheiro: a enfermagem sem `valores` precisa ver
+   * que sobraram duas ampolas, e esconder isso é esconder a dose, não o preço.
+   *
+   * **O campo da quantidade nasceu chamado `saldo`, e isso era um defeito.**
+   * `saldo` está em `CAMPOS_MONETARIOS` por causa do saldo em aberto da
+   * paciente, e o `RedacaoInterceptor` casa **nome de chave** em qualquer
+   * profundidade, sem olhar o tipo do valor — então a quantidade era apagada
+   * para quem não tem `valores`, e a tela do estoque da enfermagem mostrava o
+   * catálogo inteiro sem número nenhum. O campo virou `saldoEmEstoque`, que a
+   * redação não casa (ela compara nome exato, não prefixo, de propósito), e
+   * `estoque.e2e.test.ts` mede exatamente isto.
+   *
+   * **Nenhuma varredura pegaria.** `redacao-de-valores` cobra que todo campo
+   * MONETÁRIO tenha rota registrada; não há varredura que cobre o inverso —
+   * um campo não-monetário batizado como um. É o mesmo caso que
+   * `CAMPOS_MONETARIOS` já registra para `resultado` → `resultadoDoMes`.
+   */
+  { metodo: 'GET', caminho: '/v1/estoque', camposDeDinheiro: ['custo'] },
+  { metodo: 'POST', caminho: '/v1/estoque', camposDeDinheiro: ['custo'] },
+  { metodo: 'PATCH', caminho: '/v1/estoque/:id', camposDeDinheiro: ['custo'] },
+  { metodo: 'DELETE', caminho: '/v1/estoque/:id', camposDeDinheiro: ['custo'] },
+  { metodo: 'GET', caminho: '/v1/estoque/movimentos', camposDeDinheiro: ['custo'] },
+  { metodo: 'POST', caminho: '/v1/estoque/movimentos', camposDeDinheiro: ['custo'] },
+  /**
+   * A IMPORTAÇÃO aceita `custo` por linha e devolve só CONTAGENS. Ela entra
+   * aqui pelo lado da ENTRADA — a varredura varre os esquemas e não distingue
+   * entrada de saída —, e declará-la é mais verdadeiro que afrouxar a
+   * varredura: no dia em que o resultado trouxer o custo importado, a redação
+   * já o cobre.
+   */
+  { metodo: 'POST', caminho: '/v1/estoque/importar', camposDeDinheiro: ['custo'] },
+  /** Locais não têm dinheiro, e por isso NÃO estão aqui. */
 ]
 
 /**
@@ -268,8 +309,14 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'contas_a_pagar',
   // O épico 5 (0010): o catálogo, o programa e os dois filhos deles.
   'insumos_do_procedimento',
+  // O épico 6 (0015): o estoque. `movimentos_de_estoque` é APPEND-ONLY, e por
+  // isso `fir_app` tem só SELECT e INSERT nela — mas a proteção por clínica é
+  // a policy, exatamente como em qualquer outra tabela desta lista.
+  'itens_de_estoque',
   'itens_do_programa',
+  'locais_de_estoque',
   'metas_do_mes',
+  'movimentos_de_estoque',
   'motivos_de_perda',
   'pacientes',
   'procedimentos',

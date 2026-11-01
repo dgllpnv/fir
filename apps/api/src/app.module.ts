@@ -8,6 +8,7 @@ import { SessaoGuard } from './autenticacao/sessao.guard'
 import { AutorizacaoGuard } from './autorizacao/autorizacao.guard'
 import { BancoModule } from './banco/banco.module'
 import { ClinicaModule } from './clinica/clinica.module'
+import { EstoqueModule } from './estoque/estoque.module'
 import { FinanceiroModule } from './financeiro/financeiro.module'
 import { HojeModule } from './hoje/hoje.module'
 import { JornadaModule } from './jornada/jornada.module'
@@ -32,6 +33,9 @@ import { TarefasModule } from './tarefas/tarefas.module'
     JornadaModule,
     ClinicaModule,
     FinanceiroModule,
+    // ANTES de `ProgramasModule`, que o importa pelo seam `BaixaDeInsumos` —
+    // ligado no épico 6 e provido por `BaixaRelacional`.
+    EstoqueModule,
     ProgramasModule,
     // Depois de `TarefasModule`, `FinanceiroModule` e `ProgramasModule`: a
     // tela Hoje compõe as três leituras, e não é dona de nenhuma.

@@ -57,6 +57,40 @@ export async function apagarTrilhaDeTeste(cliente: pg.Client, clinicaId: string)
 }
 
 /**
+ * Apaga os MOVIMENTOS DE ESTOQUE de uma clínica de teste.
+ *
+ * Mesma forma de `apagarTrilhaDeTeste`, e pela mesma razão: a tabela é
+ * append-only nas duas camadas (REVOKE para `fir_app`, trigger para o dono), e
+ * **precisar desligar a trigger aqui é a prova de que ela funciona**. Só
+ * `fir_migrate` consegue, que é exatamente o papel que o REVOKE não alcança.
+ *
+ * Em PRODUÇÃO nada disto é apagado: desfazer uma baixa é um movimento
+ * COMPENSATÓRIO ligado à origem (regra 12). Esta função existe para a fixture
+ * e para nada mais.
+ *
+ * Tudo numa transação — `ALTER TABLE … DISABLE TRIGGER` toma ACCESS EXCLUSIVE
+ * e o segura até o COMMIT. Em autocommit, dois arquivos de teste em paralelo
+ * interleavam (A desliga, B desliga, A apaga, A religa, B apaga → B estoura em
+ * "append-only"), e o sintoma seria vermelho alternado acusando um defeito que
+ * não existe.
+ */
+export async function apagarMovimentosDeEstoqueDeTeste(
+  cliente: pg.Client,
+  clinicaId: string,
+): Promise<void> {
+  await cliente.query('BEGIN')
+  try {
+    await cliente.query('ALTER TABLE movimentos_de_estoque DISABLE TRIGGER movimentos_sem_update')
+    await cliente.query('DELETE FROM movimentos_de_estoque WHERE clinica_id = $1', [clinicaId])
+    await cliente.query('ALTER TABLE movimentos_de_estoque ENABLE TRIGGER movimentos_sem_update')
+    await cliente.query('COMMIT')
+  } catch (e) {
+    await cliente.query('ROLLBACK')
+    throw e
+  }
+}
+
+/**
  * Desfaz um OPERADOR de teste, trilha do painel inclusive.
  *
  * `auditoria_do_painel` é append-only nas duas camadas, como a `auditoria`, e
@@ -114,8 +148,15 @@ const EM_ORDEM_DE_APAGAR = [
   // COMPOSTA `(coluna, clinica_id)`: o filho vai antes do pai.
   'motivos_de_perda',
   'programas',
+  // O estoque (0015 e 0016). `insumos_do_procedimento` e `procedimentos`
+  // apontam para `itens_de_estoque` desde a 0016, então vêm ANTES dele;
+  // `itens_de_estoque` aponta para `locais_de_estoque`, `unidades` e
+  // `pessoas`. `movimentos_de_estoque` NÃO entra neste laço: ele é
+  // append-only, e sai por `apagarMovimentosDeEstoqueDeTeste`.
   'insumos_do_procedimento',
   'procedimentos',
+  'itens_de_estoque',
+  'locais_de_estoque',
   'pacientes',
   'unidades',
   'sessoes',
@@ -136,6 +177,9 @@ const EM_ORDEM_DE_APAGAR = [
 export async function apagarClinicaDeTeste(cliente: pg.Client, clinicaId: string): Promise<void> {
   await declararAtorSistema(cliente)
   await soltarCiclosDoPrograma(cliente, clinicaId)
+  // ANTES do laço: o movimento aponta para `tarefas`, `pacientes`,
+  // `procedimentos`, `programas` e `itens_de_estoque` — todos apagados abaixo.
+  await apagarMovimentosDeEstoqueDeTeste(cliente, clinicaId)
   for (const tabela of EM_ORDEM_DE_APAGAR) {
     await cliente.query(`DELETE FROM ${tabela} WHERE clinica_id = $1`, [clinicaId])
   }

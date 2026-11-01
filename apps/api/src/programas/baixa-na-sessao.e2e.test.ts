@@ -71,9 +71,20 @@ let c: Cenario
 let tirze: string
 
 /** Os uuids do épico 6 — ainda sem tabela por trás, e sem FK (dívida (b)). */
-const AMPOLA = '11111111-1111-4111-8111-111111111111'
-const SERINGA = '22222222-2222-4222-8222-222222222222'
-const AGULHA = '33333333-3333-4333-8333-333333333333'
+/** O insumo PRINCIPAL. Item de estoque de verdade desde a 0016 — ver a nota abaixo. */
+let AMPOLA: string
+/**
+ * Os dois descartáveis fixos do procedimento, e eles são ITENS DE ESTOQUE de
+ * verdade desde a 0016.
+ *
+ * Até o épico 6 eram uuids inventados: a 0010 deixou
+ * `insumos_do_procedimento.item_id` sem chave estrangeira (`-- épico 6, sem FK
+ * ainda`), e qualquer valor servia. Agora a chave existe, e os ids saem do
+ * banco — o que também torna este arquivo mais honesto: ele mede a SESSÃO
+ * pedindo a baixa, e o que ela pede são insumos que existem.
+ */
+let SERINGA: string
+let AGULHA: string
 
 const montar = (corpo: Record<string, unknown>, quem = 'beatriz') =>
   request(c.app.getHttpServer()).post('/v1/programas').set('Cookie', c.cookies[quem]!).send(corpo)
@@ -104,6 +115,19 @@ beforeAll(async () => {
     [c.clinica],
   )
   tirze = p.rows[0]!.id
+
+  const item = async (nome: string): Promise<string> =>
+    (
+      await c.migrate.query<{ id: string }>(
+        `INSERT INTO itens_de_estoque (clinica_id, nome, medida) VALUES ($1, $2, 'un')
+         RETURNING id`,
+        [c.clinica, nome],
+      )
+    ).rows[0]!.id
+  AMPOLA = await item('Tirzepatida ampola')
+  SERINGA = await item('Seringa 1 ml')
+  AGULHA = await item('Agulha 13x4,5')
+
   // Dois descartáveis fixos no procedimento, como o cadastro do protótipo tem.
   for (const [i, item] of [SERINGA, AGULHA].entries()) {
     await c.migrate.query(

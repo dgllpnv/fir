@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common'
 import { provedorDeRelogio } from '../comum/relogio'
+import { EstoqueModule } from '../estoque/estoque.module'
 import { TarefasModule } from '../tarefas/tarefas.module'
 import { CatalogoController } from './catalogo.controller'
 import { CatalogoService } from './catalogo.service'
 import { LeituraDeProgramasService } from './leitura.service'
 import { MontadorDePrograma } from './montador-de-programa'
 import { MontadorRelacional } from './montador.service'
-import { BaixaDeInsumos, BaixaInerte } from './baixa-de-insumos'
 import { ProgramasController } from './programas.controller'
 import { ProgramasService } from './programas.service'
 import { SessoesController } from './sessoes.controller'
@@ -25,7 +25,7 @@ import { SessoesService } from './sessoes.service'
  * instante para provar que o início padrão é hoje NO FUSO DA CLÍNICA.
  */
 @Module({
-  imports: [TarefasModule],
+  imports: [TarefasModule, EstoqueModule],
   controllers: [CatalogoController, ProgramasController, SessoesController],
   providers: [
     CatalogoService,
@@ -36,19 +36,25 @@ import { SessoesService } from './sessoes.service'
     // O seam da montagem, ligado à implementação relacional.
     { provide: MontadorDePrograma, useClass: MontadorRelacional },
     /**
-     * **O SEAM DO ÉPICO 6, INERTE.**
+     * **O SEAM DO ÉPICO 6 NÃO ESTÁ MAIS AQUI — ele está LIGADO.**
      *
-     * Quando o estoque entrar, isto vira
-     * `{ provide: BaixaDeInsumos, useClass: BaixaRelacional }` — uma linha, o
-     * mesmo movimento que a Task 8 fez com o montador — e `BaixaInerte` é
-     * **apagada**, não deixada para trás. O invariante que a implementação de
-     * verdade terá de honrar está escrito, com teste, em
-     * `baixa-de-insumos.test.ts`.
+     * `BaixaDeInsumos` vem de `EstoqueModule`, provido por `BaixaRelacional`, e
+     * `BaixaInerte` foi **apagada** em vez de deixada para trás: provider
+     * alternativo que ninguém usa é o lugar onde a próxima pessoa pluga sem
+     * perceber. Foi a lição do `MontadorIndisponivel`, que o épico 3 deixou e a
+     * Task 8 do épico 5 removeu — e a instrução estava escrita no próprio
+     * arquivo do seam.
+     *
+     * A DIREÇÃO da dependência é `programas → estoque`: o estoque sabe gravar
+     * movimento, o programa sabe quando pedir. Invertida, o módulo de programas
+     * passaria a conhecer o esquema do estoque.
      */
-    { provide: BaixaDeInsumos, useClass: BaixaInerte },
   ],
   // `LeituraDeProgramasService` e EXPORTADO porque `HojeController` (em
   // `HojeModule`) compoe o bloco "Sessoes de programas" com ele.
-  exports: [MontadorDePrograma, BaixaDeInsumos, LeituraDeProgramasService],
+  // `EstoqueModule` é RE-EXPORTADO, e não o token: quem importa
+  // `ProgramasModule` por causa do montador (a jornada) continua alcançando
+  // `BaixaDeInsumos` sem precisar saber que ele mudou de casa.
+  exports: [MontadorDePrograma, EstoqueModule, LeituraDeProgramasService],
 })
 export class ProgramasModule {}
