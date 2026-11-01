@@ -8,7 +8,11 @@ import {
   esquecerTiposDesconhecidos,
   infoDoTipo,
   TIPO_ANTIGO,
+  TIPO_PAGAMENTO_DE_ORCAMENTO,
   TIPOS,
+  TIPOS_DE_CONTATO,
+  TIPOS_DE_RECEITA,
+  TIPOS_PAGAVEIS,
   tipoAoConcluir,
   tiposDesconhecidosAvistados,
 } from './tipos-de-tarefa'
@@ -137,5 +141,57 @@ describe('tipo desconhecido avisa, e não lança', () => {
     for (const t of TIPOS) infoDoTipo(t.nome)
     expect(aviso).not.toHaveBeenCalled()
     expect(tiposDesconhecidosAvistados()).toEqual([])
+  })
+})
+
+/**
+ * **AS TRÊS LISTAS QUE O SQL DOS INDICADORES USA.**
+ *
+ * Elas existem para que `count(*) FILTER (WHERE t.tipo = ANY($1))` faça no
+ * banco a mesma pergunta que `ehContato` faz em TypeScript. O teste compara as
+ * duas implementações membro a membro: uma lista escrita à mão passaria o dia
+ * em que um tipo novo entrasse em `TIPOS`, e o indicador do mês devolveria um
+ * número a menos sem erro nenhum.
+ */
+describe('as listas derivadas, para o SQL dos indicadores', () => {
+  it('TIPOS_DE_CONTATO é exatamente `ehContato`, membro a membro', () => {
+    for (const t of TIPOS) {
+      expect(TIPOS_DE_CONTATO.includes(t.nome), t.nome).toBe(
+        ehContato({ tipo: t.nome, valor: 0n }),
+      )
+    }
+    expect(TIPOS_DE_CONTATO.length).toBeGreaterThan(0)
+  })
+
+  it('TIPOS_DE_RECEITA é exatamente `ehPagamento`, e tem os cinco do grupo', () => {
+    for (const t of TIPOS) expect(TIPOS_DE_RECEITA.includes(t.nome), t.nome).toBe(ehPagamento(t.nome))
+    expect([...TIPOS_DE_RECEITA].sort()).toEqual(
+      [
+        'Pagamento de consulta',
+        'Pagamento de orçamento',
+        'Pagamento de saldo em aberto',
+        'Sinal de consulta',
+      ].sort(),
+    )
+  })
+
+  it('TIPOS_PAGAVEIS é exatamente `aceitaPagamento`', () => {
+    for (const t of TIPOS)
+      expect(TIPOS_PAGAVEIS.includes(t.nome), t.nome).toBe(aceitaPagamento(t.nome))
+  })
+
+  /**
+   * O que faz `contatos` contar só contato com PACIENTE: a tarefa interna tem
+   * `tipo = ''`, e `''` não está na lista — embora `ehContato('')` seja true.
+   * A divergência é deliberada e está escrita em `indicadores.service.ts`.
+   */
+  it('a tarefa INTERNA (`tipo: ""`) NÃO está em TIPOS_DE_CONTATO', () => {
+    expect(ehContato({ tipo: '', valor: 0n })).toBe(true)
+    expect(TIPOS_DE_CONTATO.includes('')).toBe(false)
+  })
+
+  it('TIPO_PAGAMENTO_DE_ORCAMENTO é um nome que existe na tabela', () => {
+    expect(TIPOS.some((t) => t.nome === TIPO_PAGAMENTO_DE_ORCAMENTO)).toBe(true)
+    expect(ehPagamento(TIPO_PAGAMENTO_DE_ORCAMENTO)).toBe(true)
   })
 })

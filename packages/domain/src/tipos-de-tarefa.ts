@@ -33,6 +33,15 @@ export type InfoDoTipo = {
 export const TIPO_SESSAO = 'Sessão de plano'
 export const TIPO_RETORNO = 'Retorno de procedimento'
 
+/**
+ * O tipo que `orc_qtd` e `orc_valor` contam — *"Orçamentos fechados"*.
+ *
+ * Constante, e não a literal repetida em dois `FILTER` de SQL: a segunda cópia
+ * é a que fica sem o cedilha, e aí o indicador do mês devolve zero sem erro
+ * nenhum. É o mesmo cuidado de `TIPO_ANTIGO`.
+ */
+export const TIPO_PAGAMENTO_DE_ORCAMENTO = 'Pagamento de orçamento'
+
 const TIPOS_LITERAL = [
   { nome: 'Consulta agendada', grupo: 'Agenda', vira: 'Consulta realizada', desc: 'Consulta marcada. Ao concluir, vira Consulta realizada (com o pagamento, se houver). Sinal pago antes: lance como Sinal de consulta.' },
   { nome: 'Procedimento agendado', grupo: 'Agenda', vira: 'Procedimento realizado', desc: 'Procedimento marcado. Ao concluir, vira Procedimento realizado (com o pagamento, se houver).' },
@@ -198,6 +207,36 @@ export const TIPOS_DE_AGENDA: readonly string[] = TIPOS.filter((t) => t.vira !==
 export const TIPOS_REALIZADOS: readonly string[] = TIPOS.filter(
   (t) => t.grupo === 'Atendimento' && t.sessao !== true,
 ).map((t) => t.nome)
+
+/**
+ * As TRÊS listas de nome que o SQL dos indicadores precisa, derivadas das
+ * flags — nunca escritas à mão.
+ *
+ * Elas existem porque `ehContato`, `ehPagamento` e `aceitaPagamento` são
+ * funções de TypeScript, e os indicadores de `metas-de-pessoa` contam no
+ * BANCO: `count(*) FILTER (WHERE t.tipo = ANY($1))` precisa dos nomes, não da
+ * função. Derivar da mesma tabela é o que impede a resposta de depender de
+ * onde a pergunta foi feita — um tipo novo entra nas duas de uma vez.
+ *
+ * `TIPOS_DE_CONTATO` tem exatamente o predicado de `ehContato`. A diferença
+ * que sobra, e ela é deliberada: `ehContato('')` é **true** (tarefa interna
+ * não tem flag nenhuma), e `'' = ANY(TIPOS_DE_CONTATO)` é **false**. É isso
+ * que faz o indicador `contatos` contar só contato com PACIENTE — ver a nota
+ * em `indicadores.service.ts`.
+ */
+export const TIPOS_DE_CONTATO: readonly string[] = TIPOS.filter(
+  (t) => t.atende !== true && t.receita !== true && t.recebimento !== true,
+).map((t) => t.nome)
+
+/** O grupo Pagamentos: `ehPagamento`. É o que `tarefas_prazo` EXCLUI. */
+export const TIPOS_DE_RECEITA: readonly string[] = TIPOS.filter((t) => t.receita === true).map(
+  (t) => t.nome,
+)
+
+/** Atendimento que guarda o pagamento na própria tarefa: `aceitaPagamento`. */
+export const TIPOS_PAGAVEIS: readonly string[] = TIPOS.filter((t) => t.pagavel === true).map(
+  (t) => t.nome,
+)
 
 /**
  * Nomes de versões anteriores. A migração das 4 clínicas depende deste mapa.

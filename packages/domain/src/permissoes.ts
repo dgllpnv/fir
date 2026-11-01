@@ -181,4 +181,27 @@ export const CAMPOS_MONETARIOS = [
   'valorDaFalta',
   'valorUnitario',
   'custoDaNota',
+
+  // ---------------------------------------------------------------------
+  // O ÉPICO 7, segunda fatia: as METAS do mês de uma pessoa.
+  //
+  // Dos nove indicadores de `IND_PES`, **um é dinheiro** (`orc_valor`, em
+  // centavos) e oito são quantidade ou ponto percentual. Os dois nomes abaixo
+  // carregam o único que é — e a regra 17 exige que, sem `valores`, a meta
+  // entregue **só o percentual**.
+  //
+  // **O que NÃO entra aqui, e é o ponto inteiro:** `metaEmNumero`,
+  // `realizadoEmNumero`, `percentual` e `mediaDeAtingimento`. Nenhum é
+  // dinheiro. Registrá-los faria a recepcionista sem `valores` abrir "Minhas
+  // metas" e ler `— de —`, que é esconder o trabalho dela em vez do preço de
+  // alguma coisa — o mesmo defeito de `saldo` → `saldoEmEstoque`, pelo lado
+  // inverso. `percentual` é justamente o que sobra para quem não vê valor, e
+  // ele não revela a meta: "84% da meta" não diz quanto é a meta.
+  //
+  // `meta` já está nesta lista (a meta de faturamento, épico 4) e NÃO cobre
+  // estes dois: a redação casa nome EXATO, nunca prefixo — de propósito, senão
+  // `metaEmNumero` seria apagado junto.
+  // ---------------------------------------------------------------------
+  'metaEmDinheiro',
+  'realizadoEmDinheiro',
 ] as const
