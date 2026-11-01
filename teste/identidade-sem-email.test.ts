@@ -119,24 +119,68 @@ describe('pessoas.usuario substitui pessoas.email', () => {
    * `normalizar_nome($1)` cai sobre o PARÂMETRO. Escrito sobre a COLUNA, o
    * índice único vira enfeite e a entrada vira varredura.
    *
-   * **`enable_seqscan = off`, e isto não é trapaça.** Com três linhas na
+   * **`enable_seqscan = off`, e isto não é trapaça.** Com poucas linhas na
    * tabela o planejador escolhe `Seq Scan` qualquer que seja a consulta, e o
    * teste passaria a medir o tamanho da fixture em vez do formato do
    * predicado. Desligado o seqscan, o planejador usa o índice **se o
-   * predicado permitir** — e `normalizar_nome(usuario) = $1` não permite:
-   * vira `Filter`, nunca `Index Cond`. É a asserção sobre `Index Cond` que
-   * distingue os dois, e por isso ela nomeia a COLUNA.
+   * predicado permitir** — e `normalizar_nome(usuario) = $1` não permite.
+   *
+   * ──────────────────────────────────────────────────────────────────────────
+   * **O PREDICADO NÃO LEVA `clinica_id`, e isto é o conserto de uma fragilidade
+   * que o épico 7 expôs.**
+   *
+   * A versão anterior explicava `WHERE clinica_id = $1 AND usuario = …` e
+   * exigia `Index Cond` mencionando `usuario`. Ela passou a REPROVAR quando a
+   * migration 0018 acrescentou `pessoas_clinica_id_id_key UNIQUE (clinica_id,
+   * id)` — a chave que as FKs compostas de `fichas_de_pessoa` exigem. Com dois
+   * índices liderados por `clinica_id` e uma estimativa de uma linha, os dois
+   * planos custam o mesmo e o planejador escolhe pelo desempate: ele passou a
+   * ler a clínica pelo índice NOVO e filtrar `usuario` fora dele.
+   *
+   * Nada disso é defeito de produção — vinte pessoas por clínica tornam os dois
+   * planos indistinguíveis no relógio. O defeito era do TESTE: ele afirmava
+   * "o planejador escolhe este índice" quando o que importa é
+   * **"o predicado é indexável"**. Tirando `clinica_id` do `WHERE`, o índice
+   * novo deixa de ser candidato e a afirmação volta a ser sobre a única coisa
+   * que o teste existe para medir.
+   *
+   * E a asserção não é vazia: o MESMO `EXPLAIN` sobre a forma defeituosa é
+   * exigido abaixo e tem de NÃO produzir `Index Cond`. Sem esse par, uma
+   * expressão regular frouxa passaria nas duas formas.
+   * ──────────────────────────────────────────────────────────────────────────
    */
-  it('a consulta de entrada USA o índice — não varre a tabela', async () => {
+  it('a consulta de entrada USA o índice — e a forma torta NÃO usa', async () => {
     await migrate.query('BEGIN')
     try {
       await migrate.query('SET LOCAL enable_seqscan = off')
-      const p = await migrate.query<{ 'QUERY PLAN': string }>(
-        `EXPLAIN SELECT id FROM pessoas WHERE clinica_id = $1 AND usuario = normalizar_nome($2)`,
-        [clinicaA, 'Helena'],
-      )
-      const plano = p.rows.map((r) => r['QUERY PLAN']).join('\n')
-      expect(plano, plano).toMatch(/Index Cond:[^\n]*usuario/)
+      const explicar = async (onde: string, params: unknown[]): Promise<string> => {
+        const p = await migrate.query<{ 'QUERY PLAN': string }>(
+          `EXPLAIN SELECT id FROM pessoas WHERE ${onde}`,
+          params,
+        )
+        return p.rows.map((r) => r['QUERY PLAN']).join('\n')
+      }
+
+      // A FORMA CERTA — a que `autenticacao.service.ts` usa.
+      const certa = await explicar('usuario = normalizar_nome($1)', ['Helena'])
+      expect(certa, certa).toMatch(/Index Cond:[^\n]*usuario/)
+      expect(certa, certa).toContain('pessoas_clinica_id_usuario_key')
+
+      // A FORMA TORTA — `normalizar_nome` sobre a COLUNA. É ela que torna a
+      // asserção acima não-vazia: se os dois planos fossem iguais, o teste
+      // não distinguiria nada.
+      const torta = await explicar('normalizar_nome(usuario) = $1', ['helena'])
+      expect(torta, torta).not.toMatch(/Index Cond:[^\n]*usuario/)
+      expect(torta, torta).toMatch(/Filter:[^\n]*normalizar_nome\(usuario\)/)
+
+      // E a consulta REAL, com a clínica: o que não pode acontecer nela é a
+      // função cair sobre a coluna. Qual dos dois índices o planejador
+      // escolhe é escolha dele, e muda com o tamanho da tabela.
+      const real = await explicar('clinica_id = $1 AND usuario = normalizar_nome($2)', [
+        clinicaA,
+        'Helena',
+      ])
+      expect(real, real).not.toContain('normalizar_nome(usuario)')
     } finally {
       await migrate.query('ROLLBACK')
     }

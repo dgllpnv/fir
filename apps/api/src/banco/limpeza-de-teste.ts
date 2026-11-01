@@ -169,6 +169,16 @@ const EM_ORDEM_DE_APAGAR = [
   'notas_de_entrada',
   'itens_de_estoque',
   'locais_de_estoque',
+  // O pessoal (0018). Os três filhos apontam para `fichas_de_pessoa` pela
+  // chave COMPOSTA `(clinica_id, ficha_id)`, e a ficha aponta para `pessoas`
+  // (o usuário ligado, o gestor e quem a criou) — então os quatro vêm ANTES
+  // de `pessoas`, lá embaixo. `configuracao_de_pessoal` também aponta para
+  // `pessoas`, por `atualizada_por`.
+  'banco_de_horas',
+  'documentos_da_pessoa',
+  'ferias_da_pessoa',
+  'fichas_de_pessoa',
+  'configuracao_de_pessoal',
   'pacientes',
   'unidades',
   'sessoes',

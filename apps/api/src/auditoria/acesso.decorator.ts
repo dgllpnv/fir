@@ -37,7 +37,18 @@ export const DADO_SENSIVEL = 'fir:dado-sensivel'
  * Acrescente aqui conforme os épicos trouxerem as tabelas — `pacientes`,
  * `aplicacoes` e `programas` são do épico 2 e do 6.
  */
-export type EntidadeSensivel = 'auditoria' | 'pacientes' | 'pessoas'
+export type EntidadeSensivel =
+  | 'auditoria'
+  | 'pacientes'
+  | 'pessoas'
+  /**
+   * A FICHA DE RH (épico 7). Ela carrega o salário, e a pergunta que a clínica
+   * faz depois é *"quem abriu o salário dela"* — ninguém alterou nada, e a
+   * trigger de escrita não vê `SELECT`. A LISTA de fichas não é marcada, e por
+   * isso ela não carrega `salario`: marcar a lista encheria a trilha de
+   * "abriu a Equipe" e esconderia a pergunta útil.
+   */
+  | 'fichas_de_pessoa'
 
 /**
  * De onde sai o `entidade_id` da linha de trilha.

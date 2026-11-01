@@ -253,6 +253,43 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     razao: 'A matriz de permissões da clínica. Chaves de permissão, nenhum valor.',
   },
   // ---------------------------------------------------------------------
+  // A EQUIPE (épico 7, primeira metade) — `/v1/fichas`.
+  //
+  // A ficha aberta DEVOLVE DINHEIRO (`salario`), e mesmo assim as quatro
+  // ficam fora da conferência às cegas pela mesma razão do custo do estoque:
+  // a conferência é sobre **agregado de um dia cujo caixa pode estar
+  // aberto**. Salário não é o esperado de nada; ele é redigido pela regra 17,
+  // com a chave `pessoas.gerir` em vez de `valores`.
+  //
+  // O banco de horas é a classificação que vale escrever: ele AGREGA por MÊS,
+  // e um mês contém dias de caixa aberto. Ele fica fora porque o número é
+  // MINUTO transcrito do app de ponto — não é dinheiro nem é derivado de
+  // recebimento, e nenhuma soma de caixa o alcança. Se um dia ele passar a
+  // carregar custo de hora extra, esta linha é a primeira a revisitar.
+  // ---------------------------------------------------------------------
+  {
+    caminho: '/v1/fichas',
+    razao:
+      'A lista de fichas: nome, cargo, contrato, meses de casa e contagem de ' +
+      'alertas. SEM salário — ele só existe na ficha aberta.',
+  },
+  {
+    caminho: '/v1/fichas/:id',
+    razao:
+      'A ficha de RH, com `salario` — redigido por `pessoas.gerir`. Não há ' +
+      'agregado de dia nenhum: férias e documentos são calendário.',
+  },
+  {
+    caminho: '/v1/fichas/horas/:mes',
+    razao:
+      'O banco de horas: MINUTO transcrito do app de ponto, por mês. Não é ' +
+      'dinheiro, não deriva de recebimento, e nenhuma soma de caixa o alcança.',
+  },
+  {
+    caminho: '/v1/fichas/configuracao',
+    razao: 'O limite de alerta do banco de horas, em minutos. Nenhum valor, nenhum dia.',
+  },
+  // ---------------------------------------------------------------------
   // O ESTOQUE (épico 6).
   //
   // As três devolvem DINHEIRO — `custo` do item e do movimento de entrada —,

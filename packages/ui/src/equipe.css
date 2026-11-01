@@ -1,0 +1,149 @@
+/*
+ * A TELA EQUIPE — alertas, ficha, férias, documentos e banco de horas.
+ *
+ * ---------------------------------------------------------------------------
+ * 390 PX É O CASO PRINCIPAL, E AQUI ELE CUSTOU UMA DIVERGÊNCIA
+ *
+ * A tabela do banco de horas tem 7 colunas (pessoa, cinco meses, o mês a
+ * lançar e a observação). O protótipo a põe num `tablewrap` com
+ * `min-width: 620px` — ou seja, **rola na horizontal**, o que `docs/design.md`
+ * proíbe. Aqui ela vira BLOCO abaixo de 620 px: uma pessoa por bloco, o
+ * histórico em linha e o campo do mês embaixo. É o mesmo tratamento da
+ * conferência do caixa e da análise de estoque.
+ *
+ * ALGARISMOS TABULARES em toda coluna de saldo, de dias e de data: uma coluna
+ * de `+6h30` / `−2h15` / `0h` com dígitos de larguras diferentes não se
+ * compara de relance, e comparar de relance é o que a gestora faz ao passar os
+ * olhos na tabela do mês.
+ * ---------------------------------------------------------------------------
+ */
+
+/* ---------- alertas ---------- */
+
+.alertas { display: grid; }
+.alerta {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 6px;
+  border-bottom: 1px solid var(--line);
+  min-height: 56px;
+}
+.alerta > .info { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.alerta > .info b { font-weight: 600; }
+.alerta > .info span { font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+/* `--bad` como TINTA sobre `--bg`: o par está medido em contraste.test.ts. */
+.alerta.critico > .info span { color: var(--bad); }
+.alerta > .acao { flex-shrink: 0; align-self: center; }
+
+/* ---------- a ficha ---------- */
+
+.ficha-blocos {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  margin-bottom: 16px;
+}
+.ficha-bloco {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 12px 14px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.ficha-bloco > .eyebrow { margin: 0; }
+
+/* A mini-lista de férias, documentos e saldos: linha de item, não card. */
+.mini-lista { list-style: none; margin: 0; padding: 0; display: grid; }
+.mini-lista li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+  flex-wrap: wrap;
+}
+.mini-lista li:last-child { border-bottom: 0; }
+.mini-lista li .num { font-variant-numeric: tabular-nums; }
+.mini-lista li b { font-weight: 600; }
+.mini-lista li .sobra { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.mini-lista li.vazia { color: var(--muted); border-bottom: 0; }
+
+/* O formulário curto de "registrar férias" / "adicionar documento". */
+.mini-form { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; align-items: end; }
+.mini-form > .inteira { grid-column: 1 / -1; }
+.mini-form input,
+.mini-form select {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- banco de horas: tabela que vira bloco ---------- */
+
+table.horas { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.horas th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding: 8px 8px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+table.horas td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.horas th.direita, table.horas td.direita { text-align: right; }
+table.horas td.saldo { font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.horas td.saldo.estourou { color: var(--bad); font-weight: 600; }
+table.horas input { width: 100%; font-variant-numeric: tabular-nums; }
+table.horas input.saldo-digitado { text-align: right; max-width: 110px; }
+table.horas .cargo { font-size: 11px; color: var(--muted); }
+
+/* Abaixo de 620 px a tabela vira BLOCO: nada rola na horizontal. */
+@media (max-width: 620px) {
+  table.horas thead { display: none; }
+  table.horas,
+  table.horas tbody,
+  table.horas tr,
+  table.horas td { display: block; width: auto; }
+  table.horas tr {
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: var(--surface);
+  }
+  table.horas td { border-bottom: 0; padding: 4px 0; }
+  /* O rótulo da coluna vira prefixo da linha — a mesma informação, lida de
+     cima para baixo. */
+  table.horas td[data-rotulo]::before {
+    content: attr(data-rotulo) ': ';
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-right: 6px;
+  }
+  table.horas td.historico { display: flex; gap: 10px; flex-wrap: wrap; }
+  table.horas input.saldo-digitado { max-width: none; text-align: left; }
+}
+
+/* O histórico em linha, no modo bloco: mês + saldo, lado a lado. */
+.historico-de-horas { display: flex; gap: 10px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.historico-de-horas > span { color: var(--muted); font-size: 12.5px; }
+.historico-de-horas > span b { color: var(--ink); font-weight: 600; }
+.historico-de-horas > span.estourou b { color: var(--bad); }
+
+/* ---------- navegação de mês ---------- */
+
+.nav-de-mes {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+.nav-de-mes b { font-variant-numeric: tabular-nums; }

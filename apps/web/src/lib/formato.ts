@@ -13,6 +13,25 @@ export const diaEmTexto = (dia: string): string =>
 /** `aaaa-mm-dd` → `dd/mm`, para a faixa e para as listas apertadas. */
 export const diaCurto = (dia: string): string => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`
 
+/** `aaaa-mm` → `mm/aaaa`. O mês do banco de horas e da navegação dele. */
+export const mesEmTexto = (mes: string): string => `${mes.slice(5, 7)}/${mes.slice(0, 4)}`
+
+/**
+ * "8 meses", "2 anos", "2 anos e 8 meses" — a partir dos meses que o
+ * **SERVIDOR** contou (`mesesDeCasa`, em `packages/domain/pessoal.ts`).
+ *
+ * Mora aqui, e não em cada componente, porque a lista da Equipe e a ficha
+ * mostram a mesma frase: duas cópias é como uma delas passa a dizer
+ * "1 anos". O que não acontece aqui é CONTAR os meses — isso é do servidor, no
+ * fuso da clínica.
+ */
+export function tempoDeCasa(meses: number): string {
+  if (meses < 12) return plural(meses, 'mês', 'meses')
+  const anos = Math.floor(meses / 12)
+  const resto = meses % 12
+  return plural(anos, 'ano', 'anos') + (resto === 0 ? '' : ` e ${plural(resto, 'mês', 'meses')}`)
+}
+
 const DIAS_DA_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'] as const
 const DIAS_POR_EXTENSO = [
   'domingo',

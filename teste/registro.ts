@@ -311,6 +311,42 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     camposDeDinheiro: ['custo', 'custoDaNota'],
   },
   /** Locais não têm dinheiro, e por isso NÃO estão aqui. */
+
+  /**
+   * A EQUIPE (épico 7, primeira metade) — e **só a ficha ABERTA tem dinheiro**.
+   *
+   * `salario` é o único campo monetário do módulo, e ele é o único de
+   * `CAMPOS_MONETARIOS` cuja chave de permissão **não** é `valores`:
+   * `CHAVE_DO_CAMPO` o mapeia para `pessoas.gerir`, porque dado de RH não se
+   * libera junto com receita.
+   *
+   * **`GET /v1/fichas` NÃO está aqui, e é desenho.** A lista não carrega
+   * `salario`: a visão geral mostra quem a pessoa é e quantos alertas ela tem.
+   * É isso que permite marcar só a ficha aberta com `@DadoSensivel` e deixar a
+   * trilha respondendo *"quem abriu o salário dela"* em vez de *"quem abriu a
+   * Equipe"*.
+   *
+   * **O que NÃO entra em `CAMPOS_MONETARIOS`, e é o ponto:**
+   * `saldoEmMinutos`, `limiteDeHorasEmMinutos`, `diasConcedidos`,
+   * `diasRestantes`, `dias`, `diasParaVencer`, `mesesDeCasa`. Nenhum é
+   * dinheiro, e dois deles quase colidiram: `saldo` e `diferenca` já estão na
+   * lista por causa do caixa e do saldo da paciente, então um campo chamado
+   * `saldo` apagaria o banco de horas inteiro para quem não tem `valores` — o
+   * mesmo defeito que `saldo` → `saldoEmEstoque` registrou no épico 6.
+   */
+  { metodo: 'GET', caminho: '/v1/fichas/:id', camposDeDinheiro: ['salario'] },
+  { metodo: 'POST', caminho: '/v1/fichas', camposDeDinheiro: ['salario'] },
+  { metodo: 'PUT', caminho: '/v1/fichas/:id', camposDeDinheiro: ['salario'] },
+  /**
+   * As quatro rotas de férias e documento devolvem `FichaCompleta` — gravar e
+   * reler pela mesma porta, para que a tela não precise de uma segunda
+   * chamada só para saber em que estado os períodos aquisitivos ficaram. E
+   * `FichaCompleta` tem `salario`, então nenhuma delas pode ficar de fora.
+   */
+  { metodo: 'POST', caminho: '/v1/fichas/:id/ferias', camposDeDinheiro: ['salario'] },
+  { metodo: 'DELETE', caminho: '/v1/fichas/:id/ferias/:feriasId', camposDeDinheiro: ['salario'] },
+  { metodo: 'POST', caminho: '/v1/fichas/:id/documentos', camposDeDinheiro: ['salario'] },
+  { metodo: 'DELETE', caminho: '/v1/fichas/:id/documentos/:docId', camposDeDinheiro: ['salario'] },
 ]
 
 /**
@@ -322,9 +358,15 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
  */
 export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'auditoria',
+  // O épico 7, primeira metade (0018): a ficha de RH e os três filhos dela.
+  // `banco_de_horas` é a única MUTÁVEL do grupo — ela é transcrição do app de
+  // ponto, não livro-razão, e a correção de um saldo digitado errado fica na
+  // trilha pelo trigger. As outras três são soft delete.
+  'banco_de_horas',
   'caixa_por_forma',
   'caixas_do_dia',
   'cobrancas',
+  'configuracao_de_pessoal',
   'configuracao_financeira',
   // O épico 6, segunda fatia (0017): a contagem às cegas e a nota de entrada.
   // `contado_na_contagem` é a ÚNICA tabela mutável do módulo — ela é o rascunho
@@ -333,6 +375,9 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'contado_na_contagem',
   'contagens_de_estoque',
   'contas_a_pagar',
+  'documentos_da_pessoa',
+  'ferias_da_pessoa',
+  'fichas_de_pessoa',
   // O épico 5 (0010): o catálogo, o programa e os dois filhos deles.
   'insumos_do_procedimento',
   // O épico 6 (0015): o estoque. `movimentos_de_estoque` é APPEND-ONLY, e por

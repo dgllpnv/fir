@@ -2,7 +2,7 @@
 
 Ordenada pelo **caminho mais curto até as 4 clínicas migradas**, que é a entrega com data. Não por tamanho, nem por facilidade.
 
-**Estado em 2026-11-01:** 33 das 59 ações · 1.855 testes · épicos 1, 2, 3, 4, 5 e **6** fechados, mais a auditoria, a **identidade sem e-mail**, o **painel do superadmin** e a **administração da clínica**. O estoque inteiro está de pé: contagem às cegas, análise, curva ABC, NF-e idempotente e a tela `/estoque`.
+**Estado em 2026-11-01:** 40 das 59 ações · 1.934 testes · épicos 1, 2, 3, 4, 5 e **6** fechados, mais a **primeira metade do 7** (a ficha de pessoa), mais a auditoria, a **identidade sem e-mail**, o **painel do superadmin** e a **administração da clínica**. O estoque inteiro está de pé: contagem às cegas, análise, curva ABC, NF-e idempotente e a tela `/estoque`.
 
 ---
 
@@ -76,13 +76,47 @@ texto** e não a imagem do QR, e a leitura pela **câmera** não existe — só 
 leitor USB e o código digitado (D-E6 e D-E7). As duas se pagam juntas, na
 primeira clínica que quiser ler pela câmera.
 
-## 3 · Épico 7 — Pessoas
+## 3 · Épico 7 — Pessoas · **primeira metade FECHADA (2026-11-01)**
 
 **16 ações + 8 indicadores.** O maior volume da fila.
 
-`salvarPessoa` e `excluirPessoa` saem no item 1; aqui vem o resto: ficha, contrato, documentos com validade, férias, banco de horas, metas mensais, conversas 1:1 e alertas. Mais **"Minhas metas"**, que o roadmap punha no épico 5 por engano meu — medido no protótipo, aquela tela lê RH e os indicadores, nada de programa.
+**Entregue nesta fatia:** `ficha` · `doc` · `excluirDoc` · `ferias` ·
+`excluirFerias` · `horas` · `config`, mais a tela **`/equipe`** com as duas abas
+que existem (Visão geral e Banco de horas).
 
-**Onde o risco está:** salário atrás de `pessoas.gerir`, e os 8 indicadores — dois deles são **percentuais**, não somas, e é onde número divergente vai aparecer na migração.
+O que a fatia resolveu, e como:
+
+- **Salário atrás de `pessoas.gerir`, em três camadas** — e a terceira é a que
+  importa: `GET /v1/auditoria` entrega o `de`/`para` de toda escrita da clínica
+  e exige `config`, então um perfil com `config` + `valores` e **sem**
+  `pessoas.gerir` leria o valor na trilha se o mapeamento
+  `salario → pessoas.gerir` não existisse em `CHAVE_DO_CAMPO`. O teste usa
+  exatamente esse perfil; feito com quem não tem `valores`, ele passaria com a
+  mutação aplicada. A LISTA não carrega salário, e é por isso que só a ficha
+  aberta é `@DadoSensivel`.
+- **Férias são aritmética, com a fronteira construída:** períodos contíguos,
+  só os completos, abatimento FIFO com soma exata, e `concederAte` **ancorado
+  na admissão**. Esta última nasceu de uma mutação que SOBREVIVEU —
+  `somarMeses(fim, 12)` passava os 25 testes e erra 29/02/2024 por um dia, o
+  que antecipa o prazo que custa férias em dobro.
+- **Banco de horas em minuto inteiro**, com `lerSaldoDeHoras` e
+  `formatarSaldoDeHoras` provados inversas exatas. O protótipo guarda hora
+  decimal e imprime `0h60` quando o saldo é `0,999`.
+- **Período de férias sobreposto é recusado** (`EXCLUDE USING gist`) —
+  divergência consciente: o protótipo concatena, e dois registros sobrepostos
+  calam o alerta mais caro da tela.
+- **O prefixo da API é `/v1/fichas`**, porque `GET /v1/equipe` já existe (a
+  lista de pessoas para os seletores) e o Fastify recusou em tempo de subida. A
+  tela continua `/equipe`.
+
+**Falta a segunda metade:** `conversa` · `meta` · `excluirMeta` ·
+`copiarMetas` · `realizado`, os **8 indicadores** e a tela **"Minhas metas"**,
+que o roadmap punha no épico 5 por engano meu — medido no protótipo, aquela
+tela lê RH e os indicadores, nada de programa.
+
+**Onde o risco está, agora:** os 8 indicadores — dois deles são
+**percentuais**, não somas, e é onde número divergente vai aparecer na
+migração.
 
 ## 4 · Épico 8 — Campanhas e painel
 

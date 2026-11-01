@@ -134,9 +134,16 @@ export const MENU: readonly ItemDeMenu[] = [
       'Item com as três unidades, lote por validade, contagem às cegas e entrada por NF-e.',
   },
   { href: '/equipe', rotulo: 'Equipe', grupo: 'Pessoas', perm: 'pessoas.gerir',
-    epico: 7,
+    epico: null,
+    /**
+     * A promessa dizia "conversas 1:1", e elas são a **segunda fatia** do
+     * épico 7 (`conversa`, `meta`, `realizado`, `copiarMetas` e os 8
+     * indicadores). Uma promessa que descreve o que a tela não tem ensina a
+     * equipe a procurar um botão que não há — foi o mesmo conserto da
+     * promessa de "convidar por e-mail" em Usuários e acessos.
+     */
     promessa:
-      'Fichas, contrato, férias, documentos com validade e conversas 1:1.',
+      'Fichas com contrato e salário, férias por período aquisitivo, documentos com validade e banco de horas.',
   },
   { href: '/minhas-metas', rotulo: 'Minhas metas', grupo: 'Pessoas', perm: null,
     epico: 7,

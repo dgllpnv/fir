@@ -340,6 +340,48 @@ A ligação `(CNPJ do emissor, código do produto) → (item, fator)`. *"A ferra
 - **O fator é cadastro, nunca número em código** (regra 9): "1 CX = 10 ampolas" é conhecimento da clínica, e é ela que o confirma na primeira nota.
 - A chave inclui o **CNPJ**: o `cProd` é único dentro do emissor, nunca entre emissores. Sem o CNPJ, o "MJ5-01" de uma distribuidora casaria com o item ligado ao "MJ5-01" de outra.
 
+### `Ficha de pessoa`
+O registro de RH de quem trabalha na clínica — **inclusive quem não usa a ferramenta**. Cargo, tipo de contrato, admissão, aniversário, **salário**, gestor direto e o `Usuário` ligado a ela.
+
+**Ela não é a `Pessoa`, e a distinção é o desenho.** `Pessoa` é quem **entra** (login, perfil, ativação — tela *Usuários e acessos*, chave `config`). A `Ficha` é quem **trabalha** (RH — tela *Equipe*, chave `pessoas.gerir`). A faxineira sem login tem ficha; o `Operador` do painel não tem nem uma nem outra. Juntá-las poria **salário e permissão na mesma tela**, com públicos diferentes — e é por isso que são duas tabelas e duas chaves.
+
+**Invariantes:**
+- **Uma ficha por `Usuário`, no máximo.** O vínculo é o que faz a meta automática saber de quem são os registros; duas fichas apontando para o mesmo login contariam o trabalho dela duas vezes. Índice único parcial, não um `if` no serviço.
+- **`salario` atrás de `pessoas.gerir`, e o SERVIDOR apaga** (regra 17). É o único campo de `CAMPOS_MONETARIOS` cuja chave **não** é `valores`: dado de RH não se libera junto com receita, e quem tem `valores` para fechar o caixa não passa a ver o salário da colega. O nome da coluna é `salario` **de propósito** — a redação casa nome de chave, e `remuneracao` atravessaria inteiro em `GET /v1/auditoria`, que entrega o `de`/`para` de toda escrita.
+- **Ler a ficha fica na trilha**, não só escrevê-la (`@DadoSensivel`): a pergunta que se faz depois é *"quem abriu o salário dela"*, e ninguém alterou nada.
+- **Desativar é um estado** (`ativo` — "desmarque quando a pessoa sair da clínica"); excluir é soft delete. O histórico dela é mantido, como o MANUAL promete (cap. 13).
+- **Nenhum número derivado é gravado:** tempo de casa, dias de férias restantes e contagem de alertas saem do cálculo, nunca de coluna.
+
+### `Período aquisitivo`
+Os **12 meses** de trabalho que dão direito a **30 dias** de férias, e os 12 meses seguintes são o prazo para concedê-las. Só existe em contrato **CLT**.
+
+**Invariantes:**
+- **Os períodos são contíguos e não se sobrepõem:** o período `k` termina no dia anterior ao início do `k+1`, e as bordas saem de `somarMeses` (regra 25) — escritas à mão, uma admissão em 29/02 produz um dia de buraco ou um dia contado duas vezes.
+- **Só período COMPLETO aparece.** Enquanto `fim >= hoje`, ele não terminou e não há nada a conceder.
+- **Os dias registrados abatem os períodos mais antigos primeiro** (FIFO). A soma dos abatimentos é **exatamente** `min(dias registrados, 30 × períodos)`, e nenhum período fica com `diasConcedidos` fora de `[0, 30]`. Property-based, como qualquer aritmética desta casa.
+- **`concederAte` é o fim do período SEGUINTE**, e passar dele custa dinheiro de verdade: *"férias concedidas fora do prazo são pagas em dobro"* (CLT art. 137). É o alerta mais caro da tela.
+- **Período de férias registrado não se sobrepõe a outro** da mesma ficha — aqui divergimos do protótipo, que apenas concatena. Dois registros sobrepostos inflam o total abatido, `diasRestantes` encolhe, e a clínica deixa de ser avisada da dívida que tem. Cobrado por `EXCLUDE` no banco, não por `if`.
+
+### `Banco de horas`
+O **saldo de horas do mês**, lançado pelo gestor como aparece no aplicativo oficial de ponto. A ferramenta **não registra ponto**: ela acompanha o saldo e avisa quando passa do limite (MANUAL cap. 13).
+
+**Invariantes:**
+- **Inteiro de MINUTOS, nunca hora decimal** (regra 8). O protótipo guarda `Math.round(x*100)/100` e formata com `Math.floor(a) + Math.round((a%1)*60)` — em `0,999 h` isso imprime `0h60`, que não é hora nenhuma. Minuto inteiro torna o caso impossível, e `lerSaldoDeHoras`/`formatarSaldoDeHoras` fazem a volta exata.
+- **O campo é `saldoEmMinutos`, nunca `saldo`.** `saldo` está em `CAMPOS_MONETARIOS` por causa do saldo em aberto da paciente, e a redação casa **nome de chave** sem olhar o tipo — é o mesmo conserto de `saldo` → `saldoEmEstoque` no épico 6.
+- **Um saldo por pessoa e por mês** (índice único parcial). O lançamento do mês é **corrigível** — é transcrição de outro sistema, não livro-razão —, e limpar o campo é soft delete, nunca `DELETE`.
+- **O limite de alerta é dado da clínica** (`±10 h` por padrão), e vale para `CLT` e `Estágio` — os contratos que têm jornada.
+
+### `Documento com validade`
+ASO, registro profissional (COREN, CRM), treinamento, vacinação. **O valor dele é o alerta:** uma ficha com documento vencido que não avisa é um arquivo, não uma ferramenta. Aviso **30 dias** antes; vencido é `crítico`.
+
+### `Alerta de pessoa`
+Os quatro avisos da tela Equipe — **Férias**, **Experiência**, **Documento** e **Banco de horas** —, cada um com severidade (`atencao` ou `critico`), o dia a que se refere e o **prazo e a descrição da tarefa** que o botão *Gerar tarefa* cria.
+
+**Invariantes:**
+- **Calculado no SERVIDOR**, no fuso da clínica (regras 22 e 24). O protótipo usa `today()` do navegador: o celular adiantado da recepção antecipa um vencimento e atrasa outro.
+- **Ficha inativa não alerta.** Quem saiu da clínica não tem férias a programar.
+- **O prazo da tarefa é `max(hoje, em − 7 dias)`** — nunca nasce no passado, pela mesma razão do `Contato de retorno`.
+
 ### `Dado de saúde`
 Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível** (LGPD art. 11). Base legal própria, acesso por perfil, **registro de acesso — não só de escrita** — e nunca em log. Ver `especialista-lgpd-saude`.
 
@@ -376,6 +418,10 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 | **Marcador de rotina** | O rótulo que liga uma tarefa à rotina que a criou |
 | **Perfil de acesso** | Conjunto de permissões por pilar |
 | **Pilar** | Dia a dia · Comercial · Financeiro · Processos · Pessoas · Gestão |
+| **Ficha de pessoa** | O registro de RH de quem trabalha na clínica, com ou sem login |
+| **Período aquisitivo** | Os 12 meses de CLT que dão 30 dias de férias, com 12 meses para conceder |
+| **Banco de horas** | O saldo do mês em **minutos inteiros**, transcrito do app de ponto |
+| **Alerta de pessoa** | Férias · Experiência · Documento · Banco de horas, com o prazo da tarefa |
 
 ---
 
