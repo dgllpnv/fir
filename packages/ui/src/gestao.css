@@ -1,0 +1,214 @@
+/*
+ * CAMPANHAS E PAINEL GERAL — o épico 8.
+ *
+ * Duas telas de LEITURA gerencial, e as duas obedecem às mesmas três regras
+ * do `docs/design.md`: 390 px é o caso principal, nada rola na horizontal, e
+ * algarismos tabulares em toda coluna de valor ou quantidade.
+ */
+
+/* =========================================================
+   CAMPANHAS
+   ========================================================= */
+
+/*
+ * Um bloco por campanha. `border-left` dourado e não card dentro de card —
+ * `docs/design.md` proíbe "toda informação dentro de card", e aqui já estamos
+ * dentro da tela.
+ *
+ * A campanha ENCERRADA perde o traço dourado: ela continua legível e para de
+ * disputar a atenção com a que está correndo. É a mesma leitura que a pílula
+ * de situação já dá, dita pela cor da borda.
+ */
+.campanha {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.campanha[data-situacao='encerrada'] { border-left-color: var(--line); }
+.campanha > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.campanha > header > div { display: grid; gap: 2px; min-width: 0; }
+.campanha > header b { font-size: 15px; }
+.campanha > header .muted { font-size: 12.5px; color: var(--muted); }
+
+/*
+ * A grade de números: duas colunas a 390 px, e até seis no computador.
+ * `minmax(130px, 1fr)` em vez de um número fixo de colunas — a quebra
+ * acontece pelo espaço disponível, e não por um `@media` que erra no tablet.
+ */
+.numeros-da-campanha {
+  display: grid;
+  /* `120px` e não `130px`: medido a 1440 px, com 130 só CINCO dos seis cabiam
+     e "Receita gerada" caía sozinha numa segunda linha. */
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px 14px;
+  margin: 0;
+}
+.numeros-da-campanha > div { display: grid; gap: 1px; }
+.numeros-da-campanha dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.numeros-da-campanha dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.formulario-de-campanha,
+.importar-campanha {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.formulario-de-campanha h3 { font-size: 16px; margin: 0; }
+/* A importação abre DENTRO do bloco da campanha, e por isso ocupa a linha
+   inteira da faixa de ações. */
+.importar-campanha { grid-column: 1 / -1; width: 100%; margin: 6px 0 0; }
+.campanha .acoes-de-tela { flex-wrap: wrap; }
+
+/* =========================================================
+   PAINEL GERAL
+   ========================================================= */
+
+/*
+ * OS TÍTULOS DE BLOCO do painel, com ar em cima.
+ *
+ * Medido a 390 px: sem isto, "Por responsável" nascia colado na legenda da
+ * barra e "Por tipo de contato" colado na nota da tabela anterior — a tela
+ * lia como um bloco só de 2.200 px. O `h3` global não tem margem porque na
+ * maioria das telas ele abre a seção; aqui ele SEPARA seções.
+ */
+.painel-geral h3 {
+  font-size: 17px;
+  margin: 22px 0 10px;
+}
+.painel-geral h3 + .nota { margin-top: -4px; margin-bottom: 10px; }
+
+/*
+ * DUAS COLUNAS DE KPI A 390 px, e não uma.
+ *
+ * `minmax(150px, …)` em vez do `220px` de `.kpis`: quatro cartões empilhados
+ * ocupavam 400 px de altura só para dizer quatro números de um dígito. A
+ * classe é PRÓPRIA do painel — mexer no `.kpis` global mudaria a Jornada, que
+ * tem rótulos mais longos e precisa da largura.
+ */
+.painel-geral .kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.painel-geral .kpi > b { font-size: 21px; }
+
+/*
+ * O KPI de destaque: a taxa de cumprimento de prazos é o número que a tela
+ * existe para mostrar, e ele ganha o fundo dourado suave — não um tamanho de
+ * fonte maior, que desalinharia a grade.
+ */
+.kpi.destaque {
+  background: var(--gold-soft);
+  border-color: transparent;
+}
+.kpi.destaque > span { color: var(--on-gold-soft); opacity: 0.85; }
+.kpi.destaque > b { color: var(--on-gold-soft); }
+
+/*
+ * A BARRA EMPILHADA das quatro situações. As larguras vêm dos quatro números
+ * que o servidor somou — é desenho, não conta.
+ */
+.barra.empilhada { display: flex; }
+.barra.empilhada > i { display: block; height: 100%; }
+.barra.empilhada > i.ok { background: var(--ok); }
+.barra.empilhada > i.tarde { background: var(--warn); }
+.barra.empilhada > i.ruim { background: var(--bad); }
+.barra.empilhada > i.aberta { background: var(--gold); }
+
+.legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 8px 0 20px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.legenda > span { display: flex; align-items: center; gap: 5px; }
+.legenda i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.legenda i.ok { background: var(--ok); }
+.legenda i.tarde { background: var(--warn); }
+.legenda i.ruim { background: var(--bad); }
+.legenda i.aberta { background: var(--gold); }
+
+/*
+ * AS TABELAS DO PAINEL, e a regra é a do banco de horas: abaixo de 620 px
+ * elas viram BLOCO, com o rótulo da coluna virando prefixo da linha. Seis
+ * colunas de números em 390 px seriam a recepção empurrando o dedo para
+ * descobrir que havia mais à direita.
+ */
+table.painel { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.painel th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+table.painel td {
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+table.painel th.direita,
+table.painel td.direita {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+table.painel td .muted { display: block; font-size: 11px; color: var(--muted); }
+.tabela { margin-bottom: 20px; }
+
+@media (max-width: 620px) {
+  table.painel thead { display: none; }
+  table.painel,
+  table.painel tbody,
+  table.painel tr,
+  table.painel td { display: block; width: auto; }
+  table.painel tr {
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: var(--surface);
+  }
+  table.painel td { border-bottom: 0; padding: 4px 0; text-align: left; }
+  table.painel td.direita { text-align: left; }
+  table.painel td[data-rotulo]::before {
+    content: attr(data-rotulo) ': ';
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-right: 6px;
+  }
+}

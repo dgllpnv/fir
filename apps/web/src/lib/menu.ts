@@ -99,7 +99,7 @@ export const MENU: readonly ItemDeMenu[] = [
       'Programa montado por itens, sessões da enfermagem e retorno por item.',
   },
   { href: '/campanhas', rotulo: 'Campanhas', grupo: 'Comercial', perm: 'campanhas',
-    epico: 8,
+    epico: null,
     promessa:
       'Campanha com tipo, métrica e meta, importação de lista e funil do período.',
   },
@@ -151,9 +151,15 @@ export const MENU: readonly ItemDeMenu[] = [
       'Suas metas do mês e o realizado, atualizado pelas tarefas concluídas.',
   },
   { href: '/painel', rotulo: 'Painel geral', grupo: 'Gestão', perm: 'painel',
-    epico: 8,
+    epico: null,
+    /**
+     * A promessa diz o que a tela TEM — cumprimento de prazos e pacientes no
+     * período. O MANUAL cap. 10 lista mais blocos (Top 10 pagantes,
+     * desempenho por unidade, novos pacientes por origem); eles não existem
+     * ainda, e prometê-los ensinaria a equipe a procurar o que não há.
+     */
     promessa:
-      'A leitura gerencial do período, em um lugar só.',
+      'Cumprimento de prazos da equipe e o que aconteceu com as pacientes no período escolhido.',
   },
   {
     href: '/unidades',

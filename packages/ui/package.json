@@ -11,8 +11,15 @@
     "./rotina.css": "./src/rotina.css",
     "./programas.css": "./src/programas.css",
     "./estoque.css": "./src/estoque.css",
-    "./equipe.css": "./src/equipe.css"
+    "./equipe.css": "./src/equipe.css",
+    "./gestao.css": "./src/gestao.css"
   },
-  "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
-  "devDependencies": { "typescript": "^5.7", "vitest": "^2" }
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.7",
+    "vitest": "^2"
+  }
 }
