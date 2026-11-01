@@ -66,6 +66,14 @@ export type RotaRegistrada = {
  */
 const DINHEIRO_DA_TAREFA = ['valor', 'valorAberto', 'valorOrcamento'] as const
 
+/**
+ * Os dois nomes monetários da META DE PESSOA — ver a nota no fim da lista.
+ *
+ * Uma constante, e não a dupla repetida seis vezes: a sexta é a que esquece o
+ * campo novo.
+ */
+const DINHEIRO_DA_META = ['metaEmDinheiro', 'realizadoEmDinheiro'] as const
+
 export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'GET', caminho: '/v1/auditoria', camposDeDinheiro: [...CAMPOS_MONETARIOS], curinga: true },
   // `credito` entrou com o épico 4: a lista e a ficha deixaram de calcular o
@@ -347,6 +355,44 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'DELETE', caminho: '/v1/fichas/:id/ferias/:feriasId', camposDeDinheiro: ['salario'] },
   { metodo: 'POST', caminho: '/v1/fichas/:id/documentos', camposDeDinheiro: ['salario'] },
   { metodo: 'DELETE', caminho: '/v1/fichas/:id/documentos/:docId', camposDeDinheiro: ['salario'] },
+
+  /**
+   * AS METAS DA PESSOA (épico 7, segunda fatia).
+   *
+   * **Um campo monetário só, em dois nomes:** `metaEmDinheiro` e
+   * `realizadoEmDinheiro`, preenchidos exclusivamente no indicador
+   * `orc_valor` (centavos, regra 1). Toda rota daqui devolve `MetaDePessoa`,
+   * então nenhuma pode ficar de fora — inclusive as de ESCRITA, que gravam e
+   * releem pela mesma porta para que a tela não precise de uma segunda
+   * chamada só para saber em quanto a barra ficou.
+   *
+   * **O que NÃO entra, e é o desenho inteiro:** `metaEmNumero`,
+   * `realizadoEmNumero`, `percentual` e `mediaDeAtingimento`. Nenhum é
+   * dinheiro, e registrá-los faria a recepcionista sem `valores` abrir "Minhas
+   * metas" e ler `— de —` — esconder o trabalho dela em vez do preço de
+   * alguma coisa. `percentual` é justamente o que sobra para quem não vê
+   * valor, e "84% da meta" não revela quanto é a meta.
+   *
+   * **`GET /v1/minhas-metas/:mes` está aqui por direito:** ela devolve
+   * `MetaDePessoa` inteira, e a pessoa pode ter uma meta de `orc_valor`. Ela é
+   * a rota sem `@Exige` do produto todo — e é por isso que a redação ser um
+   * ponto único, e não um `if` por endpoint, é o que a torna segura.
+   *
+   * **O prefixo é `/v1/metas-de-pessoa`, e não `/v1/metas`.** `/v1/metas/:mes`
+   * já é a meta de FATURAMENTO (`PUT`/`DELETE` acima): o mesmo caminho
+   * significando a receita da clínica num verbo e as metas da equipe em outro
+   * é a ambiguidade de `plano` que `CONTEXT.md` abre proibindo.
+   */
+  { metodo: 'GET', caminho: '/v1/metas-de-pessoa/:mes', camposDeDinheiro: DINHEIRO_DA_META },
+  { metodo: 'POST', caminho: '/v1/metas-de-pessoa/:mes', camposDeDinheiro: DINHEIRO_DA_META },
+  { metodo: 'POST', caminho: '/v1/metas-de-pessoa/:mes/copiar', camposDeDinheiro: DINHEIRO_DA_META },
+  {
+    metodo: 'PUT',
+    caminho: '/v1/metas-de-pessoa/:mes/:id/realizado',
+    camposDeDinheiro: DINHEIRO_DA_META,
+  },
+  { metodo: 'DELETE', caminho: '/v1/metas-de-pessoa/:mes/:id', camposDeDinheiro: DINHEIRO_DA_META },
+  { metodo: 'GET', caminho: '/v1/minhas-metas/:mes', camposDeDinheiro: DINHEIRO_DA_META },
 ]
 
 /**

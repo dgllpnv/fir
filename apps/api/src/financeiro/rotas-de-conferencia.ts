@@ -290,6 +290,49 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     razao: 'O limite de alerta do banco de horas, em minutos. Nenhum valor, nenhum dia.',
   },
   // ---------------------------------------------------------------------
+  // AS METAS DA PESSOA (épico 7, segunda fatia).
+  //
+  // As três AGREGAM por MÊS, e um mês contém dias de caixa aberto — então a
+  // pergunta é legítima e a resposta tem de ser escrita, não presumida.
+  //
+  // Elas ficam FORA porque o agregado delas não é o ESPERADO de nada. A
+  // conferência às cegas protege dois números: o esperado do caixa por forma
+  // (regra 6) e o esperado da contagem de estoque (regra 14). Os dois têm a
+  // mesma forma — *"o sistema acha que você vai achar X"* —, e mostrá-los
+  // antes do fechamento transforma a conferência em confirmação.
+  //
+  // O realizado de uma meta é o oposto disso: é o que foi REGISTRADO, contado
+  // sobre tarefas e recebimentos que já existem. `orc_valor` soma pagamentos
+  // de orçamento JÁ LANÇADOS; ele não antecipa nada que alguém vá contar.
+  //
+  // **E ele não vaza o esperado do caixa por outro caminho**, que é a pergunta
+  // que de fato importa aqui: o caixa é conferido por FORMA de pagamento num
+  // DIA, e a meta é uma soma por PESSOA num MÊS, sem recorte de forma e sem
+  // recorte de dia. Nenhuma das três responde "quanto o sistema espera na
+  // gaveta hoje". O valor em si é redigido pela regra 17 — sem `valores`, a
+  // meta entrega só o percentual.
+  //
+  // **Se um dia a meta ganhar recorte de DIA e de FORMA, esta é a primeira
+  // linha a revisitar.**
+  // ---------------------------------------------------------------------
+  {
+    caminho: '/v1/metas-de-pessoa/:mes',
+    razao:
+      'As metas da equipe no mês, com o REALIZADO — contado sobre registros ' +
+      'que já existem, nunca um esperado. Sem recorte de dia nem de forma de ' +
+      'pagamento, então não responde "quanto o sistema espera na gaveta".',
+  },
+  {
+    caminho: '/v1/minhas-metas/:mes',
+    razao: 'As metas da própria pessoa, a mesma forma da rota acima e o mesmo raciocínio.',
+  },
+  {
+    caminho: '/v1/conversas',
+    razao:
+      'As conversas 1:1 registradas: três blocos de texto, data e mês de ' +
+      'referência. Nenhum valor, nenhum agregado.',
+  },
+  // ---------------------------------------------------------------------
   // O ESTOQUE (épico 6).
   //
   // As três devolvem DINHEIRO — `custo` do item e do movimento de entrada —,

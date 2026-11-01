@@ -49,6 +49,18 @@ export type EntidadeSensivel =
    * "abriu a Equipe" e esconderia a pergunta útil.
    */
   | 'fichas_de_pessoa'
+  /**
+   * A CONVERSA 1:1 (épico 7, segunda fatia). Ela é **avaliação de desempenho
+   * de uma funcionária identificada** — "pontos fortes, a desenvolver e
+   * combinados" —, e a pergunta que a clínica faz depois é *"quem leu o que
+   * foi dito dela"*. Mesma classificação do salário, pela mesma razão: ninguém
+   * alterou nada, e a trigger de escrita não vê `SELECT`.
+   *
+   * A marca é `{ lista: true }`, e não `{ param }`: a tela abre as 60 últimas
+   * conversas de uma vez, e uma linha de trilha por conversa devolvida
+   * esconderia o próximo acesso a UMA no meio delas.
+   */
+  | 'conversas_1a1'
 
 /**
  * De onde sai o `entidade_id` da linha de trilha.
