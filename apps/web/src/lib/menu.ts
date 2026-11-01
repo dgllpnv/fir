@@ -153,7 +153,7 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: 'Unidades',
     grupo: 'Gestão',
     perm: 'config',
-    epico: 2,
+    epico: null,
     promessa: 'As unidades da clínica, para separar agenda, caixa e estoque por local.',
   },
   {
@@ -161,9 +161,16 @@ export const MENU: readonly ItemDeMenu[] = [
     rotulo: 'Usuários e acessos',
     grupo: 'Gestão',
     perm: 'config',
-    epico: 1,
+    epico: null,
+    /**
+     * A promessa dizia "convidar por e-mail", e **o e-mail saiu do produto
+     * inteiro** (D-10): não há coluna, não há convite, não há SMTP. A frase
+     * ficou pendurada desde antes da decisão, e uma promessa que descreve uma
+     * tela que não vai existir é pior que nenhuma — ela ensina a equipe a
+     * procurar um botão que não há.
+     */
     promessa:
-      'Convidar por e-mail, ativar e desativar pessoa, e editar os perfis de permissão.',
+      'Adicionar pessoa com senha provisória, ativar e desativar, e editar os perfis de permissão.',
   },
   {
     href: '/procedimentos',

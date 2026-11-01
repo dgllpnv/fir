@@ -57,3 +57,31 @@ export type UnidadeNaLista = z.infer<typeof UnidadeNaLista>
 
 export const ListaDeUnidades = z.object({ unidades: z.array(UnidadeNaLista) })
 export type ListaDeUnidades = z.infer<typeof ListaDeUnidades>
+
+/**
+ * Salvar unidade — o `salvarUnidade` da PO, que é a última linha ⬜ do épico 2.
+ *
+ * `ativa` e não `ativo`: é o nome da coluna da `0006` e o do `UnidadeNaLista`
+ * acima. Divergir aqui faria a tela mandar um campo que o servidor ignora.
+ *
+ * O nome é único por clínica **pelo nome NORMALIZADO** (índice
+ * `unidades_nome_unico` sobre `normalizar_nome(nome)`), não por este contrato:
+ * ler-depois-escrever perde a corrida entre duas abas, e aí a recepção fica
+ * com duas "Unidade Pituba" e metade do caixa em cada.
+ */
+export const SalvarUnidade = z
+  .object({
+    nome: z.string().trim().min(1, 'Dê um nome à unidade.').max(80),
+    endereco: z.string().trim().max(160).default(''),
+    ativa: z.boolean().default(true),
+  })
+  .strict()
+export type SalvarUnidade = z.infer<typeof SalvarUnidade>
+
+/**
+ * A edição é PARCIAL, pela mesma razão do `EditarProcedimento`: um
+ * `PATCH { ativa: false }` com o esquema de criação apagaria o endereço, sem
+ * erro nenhum, e a clínica descobriria ao imprimir a lista de contagem.
+ */
+export const EditarUnidade = SalvarUnidade.partial()
+export type EditarUnidade = z.infer<typeof EditarUnidade>

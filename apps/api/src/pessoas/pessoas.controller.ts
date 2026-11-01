@@ -1,20 +1,35 @@
-import { CriarPessoaEntrada, type PessoaCriada, type SenhaRedefinida } from '@fir/contracts'
+import {
+  CriarPessoaEntrada,
+  EditarPessoa,
+  type ListaDePerfis,
+  type ListaDePessoas,
+  type PessoaCriada,
+  type PessoaNaLista,
+  SalvarPerfis,
+  type SenhaRedefinida,
+  Uuid,
+} from '@fir/contracts'
 import {
   BadRequestException,
   Body,
   ConflictException,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Inject,
   NotFoundException,
   Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
+  Put,
   Req,
 } from '@nestjs/common'
 import { Exige } from '../autorizacao/autorizacao.guard'
 import type { RequisicaoComContexto } from '../comum/contexto'
-import { Uuid } from '@fir/contracts'
+import { primeiroErro } from '../tarefas/tarefas.controller'
+import { AcessoService } from './acesso.service'
 import {
   PerfilNaoExiste,
   PessoaNaoExiste,
@@ -23,18 +38,53 @@ import {
 } from './pessoas.service'
 
 /**
- * **O admin cria pessoa e redefine senha — e nunca vê.**
+ * **Usuários e acessos** — a tela de login, perfil e ativação da clínica.
  *
- * As duas rotas exigem `config` ("Unidades, usuários e acessos"), e o
- * servidor é quem valida: a tela é conveniência (regra 16).
+ * Toda rota exige `config` ("Unidades, usuários e acessos"), e o servidor é
+ * quem valida: a tela é conveniência (regra 16).
+ *
+ * `config` e **não** `pessoas.gerir`, porque são duas telas com públicos
+ * diferentes: "Equipe" é ficha, contrato, férias e salário — RH, onde
+ * `pessoas.gerir` vale. Aqui é quem entra e com qual perfil. Juntar as duas
+ * poria salário e permissão na mesma tela (nota lida da navegação dela, em
+ * `docs/paridade.md`).
+ *
+ * **Não há senha de ninguém em nenhuma destas respostas**, e é o ponto da D-0:
+ * na v20 o administrativo lê o PIN de cada pessoa nesta mesma tela. A única
+ * senha que trafega é a provisória recém-gerada, uma vez, para quem acabou de
+ * criá-la ou redefini-la.
  */
 @Controller('v1/pessoas')
+@Exige('config')
 export class PessoasController {
   // `@Inject` explícito: o esbuild não emite `design:paramtypes`.
-  constructor(@Inject(PessoasService) private readonly pessoas: PessoasService) {}
+  constructor(
+    @Inject(PessoasService) private readonly pessoas: PessoasService,
+    @Inject(AcessoService) private readonly acesso: AcessoService,
+  ) {}
+
+  @Get()
+  async listar(@Req() req: RequisicaoComContexto): Promise<ListaDePessoas> {
+    // `!` seguro: `SessaoGuard` é global e esta rota não é `@Publico()`.
+    const c = req.contexto!
+    return this.acesso.listar({ clinicaId: c.clinicaId, ator: c.ator })
+  }
+
+  /**
+   * Os perfis da clínica, para a aba "Perfis de acesso".
+   *
+   * `GET /v1/eu` também devolve `perfis` — de propósito, porque é de lá que
+   * toda tela monta o menu. A diferença é o momento: depois de salvar a matriz,
+   * a tela precisa da lista nova sem recarregar a sessão inteira, e um `GET`
+   * próprio é o que permite recarregar só o que mudou.
+   */
+  @Get('perfis')
+  async perfis(@Req() req: RequisicaoComContexto): Promise<ListaDePerfis> {
+    const c = req.contexto!
+    return this.acesso.perfis({ clinicaId: c.clinicaId, ator: c.ator })
+  }
 
   @Post()
-  @Exige('config')
   @HttpCode(HttpStatus.CREATED)
   async criar(
     @Body() corpo: unknown,
@@ -64,12 +114,32 @@ export class PessoasController {
   }
 
   /**
+   * Nome, função, acesso e ativação — o `pessoasOp` dela, numa rota só.
+   *
+   * **Não há `DELETE`**: desativar é um estado, nunca uma exclusão (regra 20, e
+   * a mesma decisão da ADR 0003 para paciente). O protótipo tem as duas coisas
+   * e as duas produzem o mesmo efeito observável — quem está inativo não entra,
+   * porque `login` exige `u.ativo`. Duas representações do mesmo fato divergem
+   * no dia em que alguém usa uma e não a outra.
+   */
+  @Patch(':id')
+  async editar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComContexto,
+  ): Promise<PessoaNaLista> {
+    const dados = EditarPessoa.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.acesso.editar({ clinicaId: c.clinicaId, ator: c.ator }, id, dados.data)
+  }
+
+  /**
    * Redefine a senha de outra pessoa. Corpo vazio **de propósito**: não há o
    * que escolher — nem a senha, nem o prazo. O servidor gera e devolve uma
    * vez.
    */
   @Post(':id/senha')
-  @Exige('config')
   @HttpCode(HttpStatus.OK)
   async redefinirSenha(
     @Param('id') id: string,
@@ -86,5 +156,23 @@ export class PessoasController {
       if (e instanceof PessoaNaoExiste) throw new NotFoundException('Pessoa não encontrada.')
       throw e
     }
+  }
+
+  /**
+   * A matriz de perfis, **inteira** — o `salvarPerfis` dela.
+   *
+   * `PUT` e não `PATCH`: a tela edita a matriz toda e manda a matriz toda. O
+   * perfil que sai do corpo é desativado, nunca apagado, e a recusa de "perfil
+   * em uso" vem do domínio nomeando quem — `podeRemoverPerfis`.
+   */
+  @Put('perfis')
+  async salvarPerfis(
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComContexto,
+  ): Promise<ListaDePerfis> {
+    const dados = SalvarPerfis.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.acesso.salvarPerfis({ clinicaId: c.clinicaId, ator: c.ator }, dados.data)
   }
 }

@@ -4,6 +4,7 @@ import { Controller, Get, Inject, Req } from '@nestjs/common'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { BancoService } from '../banco/banco.service'
+import { UnidadesService } from './unidades.service'
 
 /**
  * A clínica aberta e as duas listas de apoio das telas de rotina: a equipe e
@@ -14,8 +15,14 @@ import { BancoService } from '../banco/banco.service'
  * permissão aqui exigiria permissão para trabalhar.
  *
  * O que sai é MAGRO de propósito — nome, função, estado. Usuário, perfil e
- * qualquer dado de RH são da tela de Usuários (épico 1) e do épico 7, com
- * permissão própria. A RLS faz o filtro por clínica.
+ * qualquer dado de RH são da tela de Usuários (`v1/pessoas`, com `config`) e do
+ * épico 7, com permissão própria. A RLS faz o filtro por clínica.
+ *
+ * **A ESCRITA de unidade mora em `UnidadesController`**, com `@Exige('config')`.
+ * Pendurá-la aqui herdaria a ausência de `@Exige` da classe — e a recepção
+ * passaria a cadastrar unidade. É o mesmo cuidado que `busca.controller.ts`
+ * registra: num controlador sem permissão de classe, cada rota nova nasce
+ * aberta.
  */
 @Controller('v1')
 export class ClinicaController {
@@ -23,6 +30,7 @@ export class ClinicaController {
   constructor(
     @Inject(BancoService) private readonly banco: BancoService,
     @Inject(RELOGIO) private readonly relogio: Relogio,
+    @Inject(UnidadesService) private readonly unidadesService: UnidadesService,
   ) {}
 
   /**
@@ -62,11 +70,6 @@ export class ClinicaController {
   @Get('unidades')
   async unidades(@Req() req: RequisicaoComContexto): Promise<ListaDeUnidades> {
     const c = req.contexto!
-    return this.banco.naClinica(c.clinicaId, c.ator, async (cx) => {
-      const r = await cx.query<{ id: string; nome: string; endereco: string; ativa: boolean }>(
-        'SELECT id, nome, endereco, ativa FROM unidades ORDER BY ativa DESC, nome',
-      )
-      return { unidades: r.rows }
-    })
+    return this.unidadesService.listar({ clinicaId: c.clinicaId, ator: c.ator })
   }
 }

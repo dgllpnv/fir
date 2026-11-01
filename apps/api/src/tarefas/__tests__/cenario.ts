@@ -182,10 +182,18 @@ export async function montarCenario(
   )
 
   const hash = await hashDeSenha(SENHA)
+  /**
+   * `desativada_em` acompanha `ativo`, e o banco cobra o par pelo CHECK
+   * `pessoa_desativada_tem_instante` (migration 0014). Um fixture que insere
+   * `ativo = false` sem o instante é recusado — de propósito: "desde quando ela
+   * está fora" é a primeira pergunta que a clínica faz, e uma linha sem
+   * resposta não deveria existir nem em teste.
+   */
   const pessoa = async (nome: string, perfil: string, ativo = true): Promise<string> =>
     umId(
-      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id, ativo)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id, ativo, desativada_em)
+       VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $6::boolean THEN NULL ELSE now() END)
+       RETURNING id`,
       [clinica, nome, nome.toLowerCase(), hash, perfil, ativo],
     )
 
