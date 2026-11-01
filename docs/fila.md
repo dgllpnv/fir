@@ -2,7 +2,7 @@
 
 Ordenada pelo **caminho mais curto até as 4 clínicas migradas**, que é a entrega com data. Não por tamanho, nem por facilidade.
 
-**Estado em 2026-10-28:** 23 das 59 ações · 1.631 testes · épicos 2, 3, 4 e 5, a auditoria, a **identidade sem e-mail** e o **painel do superadmin** fechados.
+**Estado em 2026-11-01:** 29 das 59 ações · 1.759 testes · épicos 1, 2, 3, 4 e 5, a auditoria, a **identidade sem e-mail**, o **painel do superadmin** e a **administração da clínica** fechados. O épico 6 começou: as 4 primeiras ações do estoque e o seam `BaixaDeInsumos` **ligado**.
 
 ---
 
@@ -19,24 +19,43 @@ substitui no que toca identidade.
 - troca obrigatória no primeiro acesso, por guard global;
 - o **superadmin** existe: cria a clínica e a administradora dela, alcança qualquer clínica, e **não faz nada sem deixar rastro na trilha que a clínica lê**.
 
-**O que falta deste item:** as Tasks 1, 6, 8 e 9 daquele plano — invariantes
-de pessoa no domínio (`podeDesativar`, `podeTrocarPerfil`, última admin),
-listar/ativar/desativar/trocar perfil, perfis e unidades, e a tela **Usuários
-e acessos**. Sem a tela, criar pessoa e redefinir senha só dá por HTTP.
+**FECHADO em 2026-11-01.** As Tasks 1, 6, 8 e 9 saíram: as invariantes de pessoa
+no domínio (`podeDesativar`, `podeTrocarAcesso`, `podeRemoverPerfis` — **uma
+função para os dois caminhos**), listar/ativar/desativar/trocar perfil, os
+perfis com soft delete, as unidades, e as telas **Usuários e acessos** e
+**Unidades**.
 
-Entrega, ao fechar: `excluirPessoa` · `pessoasOp` · `salvarPerfis` ·
-`salvarUnidade`, mais as telas **Usuários e acessos** e **Unidades**.
+O que a tela de usuários **não** tem, de propósito: campo de PIN (a senha é
+gerada no servidor e aparece uma vez — defeito da D-0 corrigido), botão de
+excluir pessoa (desativar é um estado, regra 20), e edição de `usuario` (ela o
+decorou e o dita por telefone).
+
+Entregou: `excluirPessoa` · `salvarPerfis` · `salvarUnidade`, e `pessoasOp` na
+parte de acesso — a de RH fica no épico 7.
 
 > A **P-9 (SMTP)** deixou de bloquear **qualquer coisa**: nenhuma linha do
 > produto depende de e-mail.
 
-## 2 · Épico 6 — Estoque
+## 2 · Épico 6 — Estoque · **4 de 8**
 
-**8 ações.** O módulo mais intrincado, e o que a implantação de 30 dias mais exige da clínica.
+**Pronto:** `salvarLocalEstoque` · `salvarItemEstoque` · `importarItensEstoque`
+· `movEstoque`. Com eles vieram o domínio puro (`packages/domain/estoque.ts`:
+as três unidades, a sobra de frasco, o saldo derivado, o FIFO), as três tabelas
+com RLS e trilha, e o **seam `BaixaDeInsumos` LIGADO** — `BaixaInerte` apagada,
+as asserções do épico 5 portadas para `estoque/baixa.test.ts` contra Postgres
+de verdade. *Concluir → reabrir → concluir → reabrir devolve saldo **e lote** ao
+ponto inicial*, provado para seis doses nas fronteiras do fator × 1 a 3 voltas.
 
-Vem antes do 7 por duas razões concretas: o **seam `BaixaDeInsumos` já existe inerte**, com o invariante do épico 6 escrito como teste — deixá-lo desligado mais tempo é risco acumulado; e o indicador `contagens_prazo` do épico 7 **depende de contagem de estoque existir**.
+**Falta:** `criarContagem` · `salvarContagem` · `ligarCodigoItem` ·
+`entradaNota`, mais a **tela `/estoque`** inteira (o menu ainda diz épico 6).
 
-O que o plano terá de resolver: as três unidades do item, FIFO de validade, contagem às cegas (mesma regra 6 do caixa), análise com a diferença **relatada e nunca corrigida**, GS1/EAN, XML de NF-e, e a reversão — concluir → reabrir → concluir → reabrir tem de devolver saldo **e lote** ao ponto inicial.
+O que a próxima fatia tem de resolver: a **contagem às cegas** — o esperado não
+atravessa para o cliente antes do fechamento, mesma regra 6 do caixa, e a rota
+dela entra em `ROTAS_DE_CONFERENCIA` (as três de leitura do estoque estão
+**fora** dela por não serem agregado de dia nenhum, com a razão escrita); a
+**análise** com a diferença **relatada e nunca corrigida**; a curva ABC do
+`altoValor` quando `alto_valor = `; GS1/EAN; e o XML de NF-e, idempotente pela
+chave de acesso.
 
 ## 3 · Épico 7 — Pessoas
 

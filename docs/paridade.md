@@ -35,7 +35,7 @@ Legenda de estado: ⬜ não começou · 🟡 em andamento · ✅ pronto e testad
 | `salvarPaciente` | v20 | ✅ | `POST /v1/pacientes` e `PATCH /v1/pacientes/:id` |
 | `excluirPaciente` | v20 | ✅ | **Virou desativar** (`DELETE /v1/pacientes/:id` = soft delete), e **as tarefas ficam**. Os dois legados apagam paciente, tarefas e adesões; a regra 20 vence os dois. Ver [ADR 0003](adr/0003-paciente-desativado-nao-apaga-tarefa.md) |
 | `importarPacientes` | v20 | ✅ | `POST /v1/pacientes/importar`, idempotente — a chave de nome sai do Postgres, não de uma cópia em TypeScript (regra 26) |
-| `salvarUnidade` | v20 | ⬜ | **Fica no plano de admin-da-clínica**, não no épico 2. A tabela `unidades` já nasceu completa na migration `0006`, com RLS e trilha; falta a rota. Toda tela do épico 2 já a lê por `GET /v1/unidades` |
+| `salvarUnidade` | v20 | ✅ | `POST /v1/unidades` e `PATCH /v1/unidades/:id`, em `UnidadesController` **próprio** com `@Exige('config')` na classe — pendurá-las em `ClinicaController` herdaria a ausência de `@Exige` dele (as listas de apoio são de todos) e a recepção passaria a cadastrar unidade. A LEITURA (`GET /v1/unidades`) continua sem permissão: escolher a unidade de um atendimento é parte de atender. O nome é único pelo nome NORMALIZADO, **pelo índice** — ler-depois-escrever perde a corrida entre duas abas, e aí a recepção fica com duas "Unidade Pituba" e metade do caixa em cada. Mais a tela `/unidades` |
 
 ## Épico 3 — Jornada do paciente
 
@@ -67,13 +67,26 @@ Legenda de estado: ⬜ não começou · 🟡 em andamento · ✅ pronto e testad
 
 ## Épico 6 — Estoque
 
+**O seam `BaixaDeInsumos` está LIGADO.** Ele nasceu inerte no épico 5, com o
+invariante escrito como teste antes de o estoque existir; agora
+`estoque/baixa-relacional.ts` o implementa, `BaixaInerte` foi **apagada** (e não
+deixada como provider alternativo, que é onde a próxima pessoa pluga sem
+perceber — lição do `MontadorIndisponivel`), e as asserções daquele arquivo
+foram portadas para `estoque/baixa.test.ts`, **contra Postgres de verdade**.
+
+Duas coisas que a referência em memória não podia provar e agora estão provadas:
+o banco **recusa** o `DELETE` de movimento, e a idempotência de `desfazer` mora
+no **esquema** (`UNIQUE (compensa_id)`) — não num `Set` em processo, que a
+corrida entre duas abas vence. A trigger `compensacao_espelha_a_origem` cobra
+item, tipo, **lote** e quantidade oposta, porque `CHECK` não vê outra linha.
+
 | Ação | v20 | Estado | Nota |
 |---|---|---|---|
-| `salvarItemEstoque` | — | ⬜ | As três unidades do item |
-| `importarItensEstoque` | — | ⬜ | |
-| `salvarLocalEstoque` | — | ⬜ | |
-| `movEstoque` | — | ⬜ | **Append-only** (regra 12). Correção é movimento novo, nunca edição |
-| `criarContagem` | — | ⬜ | Contagem às cegas |
+| `salvarItemEstoque` | — | ✅ | `POST /v1/estoque` e `PATCH /v1/estoque/:id`. **As três unidades são colunas**, e cada conversão viaja inteira ou não viaja: `CHECK compra_declarada_por_inteiro` no banco e união discriminada no contrato. O protótipo aceita `unidCompra: caixa` sem fator, grava, e descarta na leitura — a clínica cadastra "caixa", não vê erro, e a entrada em caixas não aparece como opção. A **contagem inicial** é um MOVIMENTO de tipo `contagem`, nunca um campo: saldo é derivado (regra 11), e não há coluna `saldo` em `itens_de_estoque` |
+| `importarItensEstoque` | — | ✅ | `POST /v1/estoque/importar`. **Idempotente três vezes** (regra 26) por `ON CONFLICT` nos dois índices únicos parciais da `0015` — código normalizado e nome normalizado —, nunca por um `SELECT` antes do `INSERT`. E **completa, nunca sobrescreve** (regra 27): o que a clínica digitou permanece, o vazio é preenchido. O `WHERE` do `DO UPDATE` é o que faz "nada a completar" ser distinguível de "completei", senão a terceira reimportação diria que mexeu em 300 itens |
+| `salvarLocalEstoque` | — | ✅ | `POST` e `PATCH /v1/estoque/locais`. `NULLS NOT DISTINCT` no índice de nome: "sem unidade" é **um** balde que deduplica, como no protótipo (`(l.unidadeId||"") === (x.unidadeId||"")`) — com o padrão do Postgres, duas "Geladeira" sem unidade passariam, e a clínica de um endereço só é justamente a que teria duas |
+| `movEstoque` | — | ✅ | `POST /v1/estoque/movimentos`, **append-only nas duas camadas** (regra 12): `REVOKE UPDATE/DELETE` para `fir_app` e trigger que alcança o DONO. **União discriminada por tipo** — no protótipo é um objeto solto com uma pilha de `if`, e `custo` num consumo é descartado em silêncio. O **sinal vem do tipo**; no ajuste vem de `sentido: faltou | sobrou`, porque `Number(m.sinal)===1 ? 1 : -1` faz um corpo sem `sinal` **tirar** do estoque. Consumo gera a **sobra** pelo mesmo `baixaDoItem` da baixa automática. Data futura é recusada pelo dia do SERVIDOR no fuso da clínica |
+| `criarContagem` | — | ⬜ | Contagem às cegas. **O esperado não atravessa antes do fechamento** (regra 14) — e a rota dela entra em `ROTAS_DE_CONFERENCIA`, não em `ROTAS_FORA_DA_CONFERENCIA`, onde as três rotas de leitura do estoque estão por não serem agregado de dia nenhum |
 | `salvarContagem` | — | ⬜ | |
 | `ligarCodigoItem` | — | ⬜ | GS1/EAN |
 | `entradaNota` | — | ⬜ | XML de NF-e |
@@ -82,10 +95,10 @@ Legenda de estado: ⬜ não começou · 🟡 em andamento · ✅ pronto e testad
 
 | Ação | v20 | Estado | Nota |
 |---|---|---|---|
-| `salvarPessoa` | v20 | 🟡 | **Parcial.** `POST /v1/pessoas` cria a pessoa já ativa, com senha provisória gerada no servidor e devolvida **uma vez** — o admin redefine e **nunca vê** (corrige o defeito da D-0: na v20 ele vê o PIN). `POST /v1/pessoas/:id/senha` redefine e derruba as sessões. **Falta a ficha** (contrato, documentos, férias, horas) e o salário atrás de `pessoas.gerir` — épico 7 |
-| `excluirPessoa` | v20 | ⬜ | |
-| `pessoasOp` | — | ⬜ | Ativar, desativar, operações em lote |
-| `salvarPerfis` | — | ⬜ | Perfis de permissão da clínica |
+| `salvarPessoa` | v20 | 🟡 | **Parcial, e a parte de ACESSO está fechada.** `POST /v1/pessoas` cria a pessoa já ativa, com senha provisória gerada no servidor e devolvida **uma vez** — o admin redefine e **nunca vê** (corrige o defeito da D-0: na v20 ele vê o PIN). `GET /v1/pessoas` lista, `PATCH /v1/pessoas/:id` muda nome, função, acesso e ativação, `POST /v1/pessoas/:id/senha` redefine e derruba as sessões. Tela `/usuarios`, com as duas abas dela. **Falta a ficha** (contrato, documentos, férias, horas) e o salário atrás de `pessoas.gerir` — épico 7 |
+| `excluirPessoa` | v20 | ✅ | **Virou desativar**, pelo `PATCH /v1/pessoas/:id` com `{ ativo: false }` — regra 20, e a mesma decisão da [ADR 0003](adr/0003-paciente-desativado-nao-apaga-tarefa.md) para paciente. Não há `DELETE`: o protótipo oferece "inativar" **e** "excluir de vez", e as duas produzem o mesmo efeito observável (quem está inativo não entra — `login` exige `u.ativo`), com uma diferença só: a segunda apaga a linha e deixa as tarefas antigas apontando para um id inexistente, que ele contorna copiando o NOME para dentro de cada tarefa. Desativar **derruba as sessões vivas** e **revoga o cookie**, para que "tirei o acesso dela" seja verdade no instante do toque |
+| `pessoasOp` | — | 🟡 | **A parte de ACESSO está pronta** no `PATCH /v1/pessoas/:id`: ativar, desativar e trocar perfil. As invariantes moram em `packages/domain/pessoa.ts` — `podeDesativar`, `podeTrocarAcesso`, `podeRemoverPerfis` —, **uma função para os dois caminhos**, e é aí que o protótipo se perde: a regra "a clínica não fica sem administrativo ativo" existe no `excluirPessoa` dele e **não** no `salvarPessoa`, que é o caminho pelo qual a tela desmarca "Ativa". A última administradora desmarca a própria caixa, sai, e ninguém da clínica abre Configurações de novo. Falta o resto do `pessosOp` — ficha, férias, documentos, metas, horas e 1:1 (épico 7) |
+| `salvarPerfis` | — | ✅ | `GET` e `PUT /v1/pessoas/perfis`. `PUT` porque a tela edita a matriz toda e manda a matriz toda. Perfil que sai do corpo é **desativado, nunca apagado** (regra 20): `pessoas.perfil_id` de uma pessoa INATIVA referencia a linha, e um `DELETE` chegaria à tela como erro de constraint sobre um perfil que ninguém usa mais. Chave de permissão inválida é **400** — o protótipo a descarta em silêncio (`.filter(k => PERMS.some(…))`), e aí o perfil "salva com sucesso" sem ela |
 | `ficha` | — | ⬜ | Ficha e contrato |
 | `doc` | — | ⬜ | Documento com validade |
 | `excluirDoc` | — | ⬜ | |

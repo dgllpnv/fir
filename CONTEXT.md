@@ -61,6 +61,28 @@ O tenant. **Toda tabela de negócio tem `clinica_id NOT NULL` com RLS.** Tem `at
 
 Perfis padrão de uma clínica nova: Supervisão/gestão · Recepção · Comercial · Enfermagem · Financeiro.
 
+**A clínica nunca fica sem administradora ativa.** É **uma** função do domínio
+(`podeDesativar` e `podeTrocarAcesso`, em `packages/domain/pessoa.ts`) para os
+**dois** caminhos que podem violá-la — desativar e rebaixar. No protótipo a
+regra existe no `excluirPessoa` e **não** no `salvarPessoa`, que é justamente o
+caminho pelo qual a tela desmarca "Ativa"; e `login` exige `u.ativo`. A última
+administradora desmarca a própria caixa, sai, e ninguém da clínica abre
+Configurações de novo — a única saída é o superadmin.
+
+**Desativar pessoa é um estado, nunca uma exclusão** (regra 20, e a mesma
+decisão da ADR 0003 para paciente): não há `DELETE`. O protótipo oferece as duas
+coisas, e elas produzem o mesmo efeito observável com uma diferença só — a
+segunda apaga a linha e deixa as tarefas antigas apontando para um id
+inexistente, que ele contorna copiando o nome para dentro de cada tarefa.
+**Desativar derruba as sessões vivas**: "tirei o acesso dela" tem de ser verdade
+no instante do toque, senão a clínica que demitiu alguém às 14h descobre às 18h
+que ela esteve na ferramenta a tarde inteira.
+
+**Perfil excluído é soft delete.** Uma pessoa inativa continua apontando para
+ele, e um `DELETE` chegaria à tela como erro de constraint sobre um perfil que
+ninguém mais usa. Ele some das escolhas, continua legível no histórico, e a
+chave estável dele volta a ser usável (o índice único é parcial).
+
 ### `Operador` — o superadmin
 
 **Ele NÃO é uma `Pessoa`.** Tabela própria (`operadores`, **sem `clinica_id`**), cookie próprio (`__Host-fir-painel`, 8 h), prefixo de rota próprio (`/v1/superadmin`). Um booleano `superadmin` em `pessoas` já teria perdido o modelo: a mesma sessão passaria a poder sair do próprio tenant, e a RLS que sustenta o produto dependeria de um `if` (D-5, restrição 1).
@@ -234,10 +256,32 @@ Três unidades, e as conversões vivem **no cadastro**:
 
 `medida` é a unidade de estoque, e **saldo é sempre em `medida`**.
 
+**Invariantes:**
+- **Cada conversão viaja inteira ou não viaja.** "Caixa" sem dizer quantas ampolas vêm nela não é conversão: é um rótulo que a tela mostra e que nenhuma conta usa. O protótipo aceita o par meio preenchido e o descarta na leitura, então a clínica cadastra "caixa", não vê erro, e a entrada em caixas simplesmente não aparece como opção.
+- **Unidade de compra ou de uso igual à `medida` é recusada.** A conversão nunca seria aplicada (a medida casa primeiro), e o número gravado passaria a depender da ordem dos `if`.
+- **Converter unidade que o item não declarou é ERRO**, nunca uma conversão em silêncio (regra 10) — o silêncio aqui é a dose mil vezes maior.
+- **O mínimo nulo é "este item não tem mínimo", e não "o mínimo é zero".** Tratá-los igual faz nenhum item ficar abaixo dele, e a tarefa de reposição nunca nasce.
+- **O campo de quantidade na API é `saldoEmEstoque`, nunca `saldo`.** `saldo` está em `CAMPOS_MONETARIOS` por causa do saldo em aberto da paciente, e a redação de valores casa **nome de chave** sem olhar o tipo — chamado `saldo`, o número era apagado para quem não tem `valores`, e a tela do estoque da enfermagem mostrava o catálogo inteiro **sem número nenhum**. É o mesmo conserto de `resultado` → `resultadoDoMes`: nome genérico em dinheiro é nome que colide.
+
+### `Local de estoque`
+Onde o item fica **na clínica**: sala de estoque, sala de enfermagem, geladeira, sala da doutora. Cada item fica em **um** local, e a lista de contagem sai agrupada por ele — como um roteiro de quem vai contar.
+
+**Invariantes:**
+- O nome é único **por unidade de atendimento**, pelo nome normalizado. "Sem unidade" é **um** balde que deduplica, não a ausência de balde: a clínica de um endereço só é justamente a que teria duas "Geladeira".
+- Desativar é um **estado**; excluir é soft delete. O item aponta para o local, e o movimento antigo foi feito num item que morava ali.
+
 ### `Movimento` de estoque
 `contagem` (=, ponto de partida) · `entrada` (+) · `consumo` (−, uso em paciente) · `descarte` (−) · `interno` (−) · `ajuste` (±, só gestão, motivo obrigatório).
 
-**Invariantes:** append-only · desfazer é movimento compensatório ligado à origem (`tarefaId`), nunca `DELETE` · lote por FIFO de validade · item que não aproveita sobra gera **dois** movimentos (consumo da dose + descarte da sobra) somando a unidade inteira.
+**Invariantes:**
+- **Append-only**, em duas camadas: `REVOKE UPDATE/DELETE` para o papel da aplicação e trigger que alcança o DONO. Sozinho, o `REVOKE` é teatro — `fir_migrate` tem BYPASSRLS.
+- **Desfazer é movimento compensatório ligado à origem**, por `compensa_id` (a linha revertida) **e** por `tarefaId`, nunca `DELETE`. A compensação tem o **mesmo** item, o **mesmo** tipo, o **mesmo lote** e a quantidade oposta — cobrado por trigger, porque `CHECK` não vê outra linha. Saldo certo com lote errado é a dose do frasco vencido na próxima paciente.
+- **Um movimento é compensado no máximo uma vez** (`UNIQUE (compensa_id)`). É isto, e não um `if` no serviço, que torna `desfazer` idempotente: reabrir duas vezes não devolve a dose duas vezes, e duas abas correndo têm a segunda recusada pelo banco.
+- **A quantidade é sempre em `medida`, assinada, em milésimos.** A nota chega em caixas e a dose em mg; as duas são convertidas na BORDA pelos fatores do cadastro. Uma coluna `unidade` por movimento seria a segunda representação do mesmo número.
+- **O sinal vem do tipo**, por `CHECK`. `ajuste` é o único dos dois sentidos, e carrega o sinal no próprio valor. O legado guarda `qtd` positiva mais uma coluna `sinal` usada só pelo ajuste, e deriva o resto de um `if` encadeado — três lugares para a mesma pergunta.
+- **A ordem é `(dia, em, sequencia)`**, e a `sequencia` monotônica não é luxo: `now()` em Postgres é o instante da TRANSAÇÃO, então toda linha escrita junta compartilha `em` exatamente. Sem o terceiro critério, uma contagem e uma entrada do mesmo instante ordenam de forma arbitrária e o saldo muda entre duas leituras do mesmo dado.
+- **Lote por FIFO de validade**, e item que não aproveita sobra gera **dois** movimentos (consumo da dose + descarte da sobra) somando a unidade inteira. A sobra exige unidade de **uso** declarada: "sobra de frasco aberto" só existe onde há frasco de que se tira dose — numa seringa, arredondar para cima descartaria meia seringa que ninguém abriu.
+- **O saldo não é clampado em zero**, e aqui divergimos do protótipo (`Math.max(0, …)`). Saldo negativo significa mais saída registrada do que havia — lançamento duplicado, contagem errada, consumo sem entrada. Mostrar zero esconde o incidente exatamente onde ele seria visto, e é o mesmo erro que o clamp do `Saldo em aberto` cometia antes do crédito.
 
 ### `Contagem`
 Contagem **às cegas**: a quantidade esperada **não atravessa para o cliente** antes do fechamento. É invariante de transporte, não de tela.
@@ -266,6 +310,8 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 | **Venda a prazo** | Recebimento de `valor = 0` com `valor_aberto > 0`: o programa fechou, ela paga depois |
 | **Dinheiro que entrou** | A pergunta "quanto entrou", que exclui a venda a prazo. Um filtro, quatro consultas |
 | **Unidade de estoque / compra / uso** | Como se conta / como se compra / como se aplica |
+| **Local de estoque** | Onde o item fica na clínica. A lista de contagem sai agrupada por ele |
+| **Compensação** | O movimento que reverte outro, ligado a ele por `compensa_id`. Desfazer nunca é `DELETE` |
 | **Contagem às cegas** | Contagem sem mostrar a quantidade esperada |
 | **Caixa às cegas** | Conferência do caixa sem mostrar o valor registrado |
 | **Diferença** | Contagem final − saldo esperado. Negativo = falta sem registro |

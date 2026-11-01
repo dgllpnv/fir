@@ -26,6 +26,32 @@ dela corre sozinho.
 
 ---
 
+## Agora — e é nossa
+
+### D-M · `migrar.ts` não tem checksum: editar migration aplicada passa em silêncio
+
+O migrador registra o **NOME** do arquivo em `migrations_aplicadas`, não o conteúdo.
+Então editar uma migration já aplicada **não produz erro nenhum**: o banco de quem já a
+rodou fica diferente do arquivo, e nada avisa. O arquivo e o esquema divergem, e a
+divergência só aparece no dia em que alguém zera o banco local — ou, pior, num ambiente
+novo que recebe o esquema "certo" enquanto o antigo continua com o errado.
+
+**Isto não é hipótese: aconteceu nesta sessão.** As chaves estrangeiras do estoque foram
+escritas no fim da `0015` depois de ela já estar aplicada no banco de desenvolvimento.
+`pnpm db:migrate` respondeu *"banco já está na versão mais recente"* — exatamente o
+sintoma de nada. Elas foram movidas para a `0016` antes de qualquer commit, e o
+cabeçalho dela registra o episódio.
+
+**O conserto** é uma coluna `conteudo_hash` em `migrations_aplicadas` e uma recusa alta
+quando o hash do arquivo não bate com o gravado. Custa pouco; o que ele compra é que a
+disciplina pare de ser a **única** defesa.
+
+**Gatilho:** a primeira clínica em produção. Depois dela, um arquivo editado em silêncio
+deixa de ser incômodo de desenvolvimento e passa a ser esquema de produção que ninguém
+sabe qual é. **Sintoma se esquecer:** nenhum, até doer.
+
+---
+
 ## Antes do primeiro deploy na VPS
 
 ### D1 · `PROXY_SALTOS_CONFIAVEIS` não tem onde ser configurado
