@@ -373,6 +373,13 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   // de quem está com a prancheta na mão, e "Salvar e continuar depois" é o
   // MANUAL. O livro-razão continua sendo `movimentos_de_estoque`, append-only.
   'contado_na_contagem',
+  // O épico 7, segunda fatia (0019): metas da pessoa e conversas 1:1.
+  // As duas são MUTÁVEIS: a meta do mês se ajusta enquanto o mês corre, e a
+  // anotação de uma 1:1 se corrige — travá-las como livro-razão obrigaria a
+  // clínica a criar linha nova para arrumar um número digitado errado, e a
+  // trilha já guarda de → para.
+  'conversas_1a1',
+  'metas_de_pessoa',
   'contagens_de_estoque',
   'contas_a_pagar',
   'documentos_da_pessoa',
