@@ -147,3 +147,147 @@ table.horas .cargo { font-size: 11px; color: var(--muted); }
   margin: 0 0 12px;
 }
 .nav-de-mes b { font-variant-numeric: tabular-nums; }
+
+/* =========================================================
+   AS METAS DO MÊS E AS CONVERSAS 1:1 — a segunda fatia do épico 7.
+   ========================================================= */
+
+/*
+ * O BLOCO DE UMA PESSOA: nome e cargo à esquerda, a média à direita.
+ *
+ * `border-left` dourado e não card dentro de card: `docs/design.md` proíbe
+ * "toda informação dentro de card", e aqui já estamos dentro da tela. O traço
+ * separa as pessoas sem empilhar molduras.
+ */
+.bloco-de-metas {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.bloco-de-metas > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.bloco-de-metas > header > div { display: grid; gap: 2px; }
+.bloco-de-metas > header b { font-size: 15px; }
+.bloco-de-metas > header .muted { font-size: 12.5px; color: var(--muted); }
+.bloco-de-metas > header .num { font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.lista-de-metas { display: grid; }
+
+/* ---------- um cartão de meta ---------- */
+
+/*
+ * A LINHA DA META: nome em cima, o realizado e a pílula à direita, a barra
+ * embaixo. Sem moldura própria — o separador é a linha fina, como na
+ * `.mini-lista`.
+ */
+.meta-de-pessoa {
+  display: grid;
+  gap: 7px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.meta-de-pessoa:last-child { border-bottom: 0; }
+.meta-de-pessoa-topo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.meta-de-pessoa-topo > div { display: grid; gap: 2px; min-width: 0; }
+.meta-de-pessoa-topo b { font-size: 13.5px; font-weight: 600; }
+.meta-de-pessoa-topo .muted { font-size: 12px; color: var(--muted); }
+.meta-de-pessoa-valor { display: flex; align-items: center; gap: 8px; }
+/* ALGARISMOS TABULARES em toda coluna de valor ou quantidade (docs/design.md).
+   Aqui é o realizado, e ele muda de largura a cada recarga sem isto. */
+.meta-de-pessoa-valor > b.num {
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+/*
+ * A COR DA BARRA VEM DA FAIXA, e a faixa vem do percentual que o SERVIDOR
+ * calculou. Cor chapada: `docs/design.md` só permite gradiente que codifique
+ * dado, e aqui o dado já está no comprimento.
+ */
+.meta-de-pessoa[data-faixa='ok'] .barra > i { background: var(--ok); }
+.meta-de-pessoa[data-faixa='baixo'] .barra > i { background: var(--warn); }
+.meta-de-pessoa[data-faixa='sem-dado'] .barra > i { background: var(--line); }
+
+/* A pílula dourada: a faixa do meio (70–99%). Mesmo desenho das outras três
+   de `.pill`, com a cor do token em vez de um hex escrito aqui. */
+.pill.dourado { color: var(--gold-ink); border-color: var(--gold); }
+
+/*
+ * A LINHA DE AÇÕES: lançar à esquerda, "Remover" encostado à direita.
+ *
+ * `margin-left: auto` no Remover e não `justify-content: space-between`:
+ * medido a 390 px, a meta AUTOMÁTICA só tem o Remover, e com `space-between`
+ * ele ia parar à esquerda, debaixo do nome — lido como se fosse o rótulo da
+ * barra. Encostado à direita ele fica onde a mão já está e some do caminho da
+ * leitura.
+ */
+.meta-de-pessoa-acoes { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.meta-de-pessoa-acoes > .link.perigo { margin-left: auto; }
+.meta-de-pessoa-lancar { display: flex; align-items: flex-end; gap: 8px; }
+.meta-de-pessoa-lancar .campo { gap: 3px; }
+.meta-de-pessoa-lancar input { max-width: 110px; text-align: right; }
+
+/* O rótulo curto acima de um campo ou de um bloco de texto. */
+.rotulo-curto {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* ---------- o formulário de meta nova ---------- */
+
+.nova-meta {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+@media (min-width: 620px) {
+  .nova-meta { grid-template-columns: 1fr 1fr; align-items: end; }
+  .nova-meta > .acoes-de-tela { grid-column: 1 / -1; }
+}
+
+/* ---------- a conversa registrada ---------- */
+
+.conversa-registrada {
+  display: grid;
+  gap: 8px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+.conversa-registrada:last-child { border-bottom: 0; }
+.conversa-registrada > header > div { display: grid; gap: 2px; }
+.conversa-registrada > header b { font-size: 14px; }
+.conversa-registrada > header .muted { font-size: 12px; color: var(--muted); }
+/*
+ * NOME EM CIMA, CONTEXTO EMBAIXO — e não os dois colados.
+ *
+ * Medido a 390 px: sem isto a lista de pendentes da 1:1 saía
+ * "Camila Rochacom Dra. Helena", porque `<b>` e `<span>` são os dois inline e
+ * não há espaço entre eles no JSX. Grid em vez de um `{' '}` no componente:
+ * um espaço em JSX é invisível na revisão e some no primeiro formatador.
+ */
+.mini-lista li > div { display: grid; gap: 2px; min-width: 0; }
+.mini-lista li > div > .muted { font-size: 12px; color: var(--muted); }
+.mini-lista li > .link { margin-left: auto; }
+
+.bloco-da-conversa { display: grid; gap: 3px; }
+.bloco-da-conversa ul { margin: 0; padding-left: 18px; font-size: 13.5px; line-height: 1.5; }

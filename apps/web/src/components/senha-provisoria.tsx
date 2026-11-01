@@ -1,5 +1,6 @@
 'use client'
 
+import { comoChamar } from '@fir/domain'
 import { useState } from 'react'
 
 /**
@@ -86,7 +87,7 @@ export function SenhaProvisoria({
       </div>
 
       <p className="nota" style={{ margin: 0 }}>
-        Vale até <b>{formatarPrazo(expiraEm)}</b>, e <b>{nome.split(' ')[0]}</b> é obrigada a
+        Vale até <b>{formatarPrazo(expiraEm)}</b>, e <b>{comoChamar(nome)}</b> é obrigada a
         trocá-la no primeiro acesso. Papel no balcão que funciona para sempre é o PIN com outro
         nome.
       </p>

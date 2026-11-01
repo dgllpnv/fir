@@ -185,3 +185,45 @@ export function podeRemoverPerfis(
     ),
   )
 }
+
+// ---------------------------------------------------------------------------
+// COMO CHAMAR A PESSOA
+// ---------------------------------------------------------------------------
+
+/**
+ * **O nome pelo qual a equipe chama a pessoa** — "Helena", "Dra. Helena".
+ *
+ * É o `primeiro()` do protótipo, e ele tem uma regra que `split(' ')[0]` não
+ * tem: **título vem junto**. `"Dra. Helena Prado"` → `"Dra. Helena"`, não
+ * `"Dra."`.
+ *
+ * **Medido no navegador, e foi assim que o defeito apareceu:** a lista de
+ * pendentes da 1:1 mostrava *"Camila Rocha · com Dra."*, que não identifica
+ * ninguém numa clínica com duas doutoras. A tela de conversas, a de senha
+ * provisória, a faixa de aniversariantes e o toast de tarefa criada tinham
+ * cada uma o seu `split(' ')[0]` — **cinco cópias da mesma regra, e as cinco
+ * erradas do mesmo jeito**. É exatamente o que o `CLAUDE.md` descreve: a mesma
+ * regra escrita em três lugares, e elas já divergiram.
+ *
+ * Mora no DOMÍNIO porque servidor e tela precisam dela: o servidor a usa em
+ * `por` e `gestor` das conversas, a tela em todo lugar que fala com a pessoa
+ * pelo nome. Uma função, como `temPerm`.
+ *
+ * Nome vazio devolve string vazia — quem chama decide o que pôr no lugar.
+ */
+const TITULOS: readonly string[] = ['dr.', 'dra.', 'sr.', 'sra.']
+
+export function comoChamar(nome: string | null | undefined): string {
+  const partes = String(nome ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter((p) => p !== '')
+  const primeiro = partes[0]
+  if (primeiro === undefined) return ''
+  // O título sozinho não é um nome: ele só vale acompanhado do que vem
+  // depois. `"Dra."` (e nada mais) devolve `"Dra."`, porque é tudo o que há.
+  if (TITULOS.includes(primeiro.toLowerCase()) && partes[1] !== undefined) {
+    return `${primeiro} ${partes[1]}`
+  }
+  return primeiro
+}

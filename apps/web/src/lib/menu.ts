@@ -136,17 +136,17 @@ export const MENU: readonly ItemDeMenu[] = [
   { href: '/equipe', rotulo: 'Equipe', grupo: 'Pessoas', perm: 'pessoas.gerir',
     epico: null,
     /**
-     * A promessa dizia "conversas 1:1", e elas são a **segunda fatia** do
-     * épico 7 (`conversa`, `meta`, `realizado`, `copiarMetas` e os 8
-     * indicadores). Uma promessa que descreve o que a tela não tem ensina a
-     * equipe a procurar um botão que não há — foi o mesmo conserto da
-     * promessa de "convidar por e-mail" em Usuários e acessos.
+     * A promessa voltou a mencionar metas e 1:1 porque as DUAS abas existem
+     * agora — e a história vale ficar: enquanto não existiam, a frase foi
+     * cortada, porque uma promessa que descreve o que a tela não tem ensina a
+     * equipe a procurar um botão que não há (o mesmo conserto da promessa de
+     * "convidar por e-mail" em Usuários e acessos).
      */
     promessa:
-      'Fichas com contrato e salário, férias por período aquisitivo, documentos com validade e banco de horas.',
+      'Fichas com contrato e salário, férias, documentos, metas do mês com os 8 indicadores, conversas 1:1 e banco de horas.',
   },
   { href: '/minhas-metas', rotulo: 'Minhas metas', grupo: 'Pessoas', perm: null,
-    epico: 7,
+    epico: null,
     promessa:
       'Suas metas do mês e o realizado, atualizado pelas tarefas concluídas.',
   },

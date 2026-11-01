@@ -18,6 +18,7 @@ import {
   INDICADOR_MANUAL,
   MAX_METAS_POR_PESSOA_NO_MES,
   atingimentoDaMeta,
+  comoChamar,
   diaCivil,
   mediaDeAtingimento,
   nomeDoIndicador,
@@ -565,7 +566,7 @@ export class MetasService {
       nome: l.nome,
       data: l.data,
       mes: l.mes,
-      por: primeiroNome(l.por),
+      por: comoChamar(l.por),
       // O servidor quebra em linhas — a tela não faz `split`.
       fortes: emLinhas(l.fortes),
       desenvolver: emLinhas(l.desenvolver),
@@ -604,7 +605,7 @@ export class MetasService {
       pendentes: pendentes.map((p) => ({
         fichaId: p.id,
         nome: p.nome,
-        gestor: primeiroNome(p.gestor),
+        gestor: comoChamar(p.gestor),
       })),
       temRotina: Number(rotina.rows[0]!.n) > 0,
     }
@@ -699,10 +700,6 @@ const emLinhas = (texto: string): string[] =>
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l !== '')
-
-/** "com Helena" — é o `primeiro()` dela. */
-const primeiroNome = (nome: string | null): string =>
-  nome === null ? '' : (nome.trim().split(/\s+/)[0] ?? '')
 
 /** Reexportado para o controlador não precisar de `diaCivil` direto. */
 export { diaCivil }

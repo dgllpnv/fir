@@ -1,6 +1,7 @@
 'use client'
 
 import type { Escopo, HojeComProgramas, TarefaNaLista } from '@fir/contracts'
+import { comoChamar } from '@fir/domain'
 import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useAcoesDeTarefa } from '@/lib/acoes-de-tarefa'
@@ -108,7 +109,7 @@ export function TelaHoje({
                   })}`}
                 >
                   Criar tarefa
-                  {dados.aniversariantes.length > 1 ? ` · ${p.nome.split(' ')[0]}` : ''}
+                  {dados.aniversariantes.length > 1 ? ` · ${comoChamar(p.nome)}` : ''}
                 </a>
               ))}
               {dados.aniversariantes.length === 1 &&

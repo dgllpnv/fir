@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MOTIVO_PESSOA,
+  comoChamar,
   podeDesativar,
   podeRemoverPerfis,
   podeTrocarAcesso,
@@ -161,5 +162,48 @@ describe('podeRemoverPerfis', () => {
     // E o filtro continua recusando pelo outro lado: nenhum id batido,
     // nenhum preso — é o que distingue 'ninguém usa' de 'a lista veio vazia'.
     expect(ehOk(podeRemoverPerfis([], [admin('a'), equipe('b', 'pf_rec')], () => '?'))).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// COMO CHAMAR A PESSOA
+// ---------------------------------------------------------------------------
+
+describe('comoChamar — o nome pelo qual a equipe chama a pessoa', () => {
+  /**
+   * **O CASO QUE MEDIU O DEFEITO**, num navegador de verdade: a lista de
+   * pendentes da 1:1 mostrava *"Camila Rocha · com Dra."*. Cinco lugares do
+   * produto faziam `split(' ')[0]`, e os cinco erravam igual.
+   *
+   * O protótipo acerta (`n.startsWith("Dra.") ? n.split(" ").slice(0,2) : …`),
+   * e ele é o parâmetro.
+   */
+  it('traz o TÍTULO junto — "Dra. Helena", nunca "Dra."', () => {
+    expect(comoChamar('Dra. Helena Prado')).toBe('Dra. Helena')
+    expect(comoChamar('Dr. Paulo Figueiredo')).toBe('Dr. Paulo')
+    expect(comoChamar('dra. helena prado')).toBe('dra. helena')
+  })
+
+  it('sem título, é o primeiro nome', () => {
+    expect(comoChamar('Juliana Santos')).toBe('Juliana')
+    expect(comoChamar('Camila')).toBe('Camila')
+  })
+
+  /**
+   * O título SOZINHO devolve o título: é tudo o que há. Devolver string vazia
+   * aqui faria a frase virar "conversa com ", e um nome mal cadastrado passa a
+   * parecer um defeito da ferramenta.
+   */
+  it('título sozinho devolve o título, e nome vazio devolve vazio', () => {
+    expect(comoChamar('Dra.')).toBe('Dra.')
+    expect(comoChamar('')).toBe('')
+    expect(comoChamar('   ')).toBe('')
+    expect(comoChamar(null)).toBe('')
+    expect(comoChamar(undefined)).toBe('')
+  })
+
+  it('espaço a mais não vira nome vazio', () => {
+    expect(comoChamar('  Dra.   Helena   Prado ')).toBe('Dra. Helena')
+    expect(comoChamar(' Juliana  Santos')).toBe('Juliana')
   })
 })

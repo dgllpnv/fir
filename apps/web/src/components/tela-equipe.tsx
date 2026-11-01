@@ -1,10 +1,13 @@
 'use client'
 
 import type { Equipe, FichaNaLista } from '@fir/contracts'
+import { comoChamar } from '@fir/domain'
 import { useState } from 'react'
 import { useDados } from '@/lib/dados'
 import { diaCurto, plural, tempoDeCasa } from '@/lib/formato'
 import { AbaBancoDeHoras } from './equipe/aba-banco-de-horas'
+import { AbaConversas } from './equipe/aba-conversas'
+import { AbaMetas } from './equipe/aba-metas'
 import { Alertas } from './equipe/alertas'
 import { FichaDePessoa } from './equipe/ficha-de-pessoa'
 import { Carregando, Erro, Toast, Vazio } from './estados'
@@ -26,17 +29,32 @@ import { Carregando, Erro, Toast, Vazio } from './estados'
  *     ficha o recebe do servidor já redigido quando for o caso (regra 17). Não
  *     há `if` de permissão sobre dinheiro em lugar nenhum deste diretório.
  *
- *  3. **Não tem Metas nem Conversas 1:1.** São a segunda fatia do épico 7 —
- *     `meta`, `realizado`, `copiarMetas`, `conversa` e os 8 indicadores. A aba
- *     não aparece vazia de propósito: `docs/design.md` manda a tela sem
- *     conteúdo sumir, não existir pela metade.
+ *  3. **Não conta meta nem quebra texto de 1:1.** O realizado dos oito
+ *     indicadores são quatro consultas no servidor, o percentual e a média
+ *     saem do domínio, e os três blocos da conversa chegam já em lista. O
+ *     protótipo faz os três no navegador.
  * ────────────────────────────────────────────────────────────────────────────
  *
  * **390 px:** a lista é uma linha por pessoa (nome, cargo e alertas); o resto
- * abre na ficha. A tabela do banco de horas vira bloco abaixo de 620 px.
+ * abre na ficha. A tabela do banco de horas vira bloco abaixo de 620 px. As
+ * quatro abas são `chips` que quebram em duas linhas — nada rola na horizontal.
  */
 
-type Aba = 'geral' | 'horas'
+type Aba = 'geral' | 'metas' | 'conversas' | 'horas'
+
+/**
+ * As quatro abas, na ordem da tela dela: quem é a equipe · o que cada uma
+ * combinou bater · o que foi conversado · e o ponto.
+ *
+ * Derivadas de uma lista, e não quatro botões escritos à mão: o quinto
+ * botão é o que nasce com `aria-pressed` fixo em `false`.
+ */
+const ABAS: readonly (readonly [Aba, string])[] = [
+  ['geral', 'Visão geral'],
+  ['metas', 'Metas do mês'],
+  ['conversas', 'Conversas 1:1'],
+  ['horas', 'Banco de horas'],
+]
 
 /** Qual ficha está aberta: nenhuma, uma existente, ou a nova. */
 type Aberta =
@@ -91,12 +109,16 @@ export function TelaEquipe({ hoje }: { hoje: string }) {
       </div>
 
       <div className="chips" role="group" aria-label="Visão da equipe">
-        <button type="button" aria-pressed={aba === 'geral'} onClick={() => setAba('geral')}>
-          Visão geral
-        </button>
-        <button type="button" aria-pressed={aba === 'horas'} onClick={() => setAba('horas')}>
-          Banco de horas
-        </button>
+        {ABAS.map(([chave, rotulo]) => (
+          <button
+            key={chave}
+            type="button"
+            aria-pressed={aba === chave}
+            onClick={() => setAba(chave)}
+          >
+            {rotulo}
+          </button>
+        ))}
       </div>
 
       {/*
@@ -109,6 +131,10 @@ export function TelaEquipe({ hoje }: { hoje: string }) {
       */}
       {aba === 'geral' ? (
         <VisaoGeral key={versao} abrir={(a) => setAberta(a)} avisar={setRecado} />
+      ) : aba === 'metas' ? (
+        <AbaMetas hoje={hoje} avisar={setRecado} />
+      ) : aba === 'conversas' ? (
+        <AbaConversas hoje={hoje} avisar={setRecado} />
       ) : (
         <AbaBancoDeHoras hoje={hoje} avisar={setRecado} />
       )}
@@ -160,7 +186,7 @@ function VisaoGeral({
             <div className="eyebrow">Aniversariantes da equipe neste mês</div>
             <b style={{ fontVariantNumeric: 'tabular-nums' }}>
               {d.aniversariantesDoMes
-                .map((a) => `${a.nome.split(' ')[0]} (${diaCurto(a.aniversario)})`)
+                .map((a) => `${comoChamar(a.nome)} (${diaCurto(a.aniversario)})`)
                 .join(', ')}
             </b>
           </div>
