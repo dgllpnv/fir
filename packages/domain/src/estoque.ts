@@ -229,7 +229,34 @@ export type MovimentoDeEstoque = {
   readonly lote: string | null
   /** O movimento que esta linha reverte. Nulo em tudo que não é compensação. */
   readonly compensaId?: string | null
+  /**
+   * A CONTAGEM a que esta linha pertence — e é ela que torna a contagem de um
+   * item com três lotes **uma** contagem, e não três.
+   *
+   * O protótipo guarda `validades: [{v, q}]` dentro de um movimento só. Aqui o
+   * array é impossível: há uma coluna `lote` por linha (e isso é deliberado —
+   * `CONTEXT.md` diz que o saldo por lote tem de corresponder a movimento
+   * nenhum inventado). Então a prateleira com 2 frascos de junho e 1 de
+   * setembro produz **duas linhas** de `contagem`, amarradas por `contagemId`.
+   *
+   * **Sem o grupo, o saldo leria só a ÚLTIMA linha** — o item com três lotes
+   * contados mostraria o saldo do último, e os outros dois frascos
+   * desapareceriam do estoque sem nenhum erro na tela.
+   *
+   * `null`/ausente = a contagem SOLTA de `movEstoque`, que é um ponto de
+   * partida sozinha.
+   */
+  readonly contagemId?: string | null
 }
+
+/**
+ * A chave do GRUPO de contagem a que um movimento pertence.
+ *
+ * A contagem solta é o seu próprio grupo: assim o resto do arquivo não precisa
+ * distinguir os dois casos, e a contagem de `movEstoque` continua reiniciando
+ * o saldo como sempre reiniciou.
+ */
+export const chaveDaContagem = (m: MovimentoDeEstoque): string => m.contagemId ?? m.id
 
 /**
  * A ORDEM CANÔNICA: `(dia, em, sequencia)`.
@@ -239,22 +266,43 @@ export type MovimentoDeEstoque = {
  * depois. `sequencia` por último para que a ordem seja **total**: ver a nota em
  * `MovimentoDeEstoque.sequencia`.
  */
-const ordem = (a: MovimentoDeEstoque, b: MovimentoDeEstoque): number =>
+export const ordemDeMovimento = (a: MovimentoDeEstoque, b: MovimentoDeEstoque): number =>
   a.dia.localeCompare(b.dia) ||
   a.em.localeCompare(b.em) ||
   (a.sequencia < b.sequencia ? -1 : a.sequencia > b.sequencia ? 1 : 0)
 
-/** Os movimentos a partir da última contagem (inclusive), já ordenados. */
+/**
+ * Os movimentos a partir da última contagem (inclusive), já ordenados.
+ *
+ * `contagem` é o GRUPO inteiro — todas as linhas da mesma contagem, uma por
+ * lote. `depois` é o que veio depois da última delas, sem elas.
+ */
 function desdeAUltimaContagem(movs: readonly MovimentoDeEstoque[]): {
-  readonly contagem: MovimentoDeEstoque | null
+  readonly contagem: readonly MovimentoDeEstoque[]
   readonly depois: readonly MovimentoDeEstoque[]
 } {
-  const ordenados = [...movs].sort(ordem)
+  const ordenados = [...movs].sort(ordemDeMovimento)
   let corte = -1
   for (const [i, m] of ordenados.entries()) if (m.tipo === 'contagem') corte = i
-  if (corte === -1) return { contagem: null, depois: ordenados }
-  return { contagem: ordenados[corte]!, depois: ordenados.slice(corte + 1) }
+  if (corte === -1) return { contagem: [], depois: ordenados }
+
+  const grupo = chaveDaContagem(ordenados[corte]!)
+  const daContagem = (m: MovimentoDeEstoque) =>
+    m.tipo === 'contagem' && chaveDaContagem(m) === grupo
+  // O fim do grupo, e não o índice da última linha: as linhas de uma contagem
+  // nascem na mesma transação e são contíguas, mas depender disso seria
+  // depender de `now()` nunca empatar entre transações.
+  let fim = corte
+  for (const [i, m] of ordenados.entries()) if (daContagem(m) && i > fim) fim = i
+
+  return {
+    contagem: ordenados.filter(daContagem),
+    depois: ordenados.slice(fim + 1).filter((m) => !daContagem(m)),
+  }
 }
+
+const somaDe = (movs: readonly MovimentoDeEstoque[]): bigint =>
+  movs.reduce((s, m) => s + m.milesimos, 0n)
 
 export type SaldoDoItem = {
   readonly saldo: Quantidade
@@ -286,9 +334,8 @@ export function saldoEmMedida(
   medida: string,
 ): SaldoDoItem {
   const { contagem, depois } = desdeAUltimaContagem(movs)
-  const inicial = contagem?.milesimos ?? 0n
-  const total = depois.reduce((s, m) => s + m.milesimos, inicial)
-  return { saldo: Quantidade.deMilesimos(total, medida), semContagem: contagem === null }
+  const total = somaDe(contagem) + somaDe(depois)
+  return { saldo: Quantidade.deMilesimos(total, medida), semContagem: contagem.length === 0 }
 }
 
 export type LoteComSaldo = { readonly lote: string; readonly saldo: Quantidade }
@@ -319,7 +366,7 @@ export function lotesComSaldo(
     porLote.set(lote, (porLote.get(lote) ?? 0n) + q)
   }
 
-  if (contagem !== null) somar(contagem.lote, contagem.milesimos)
+  for (const m of contagem) somar(m.lote, m.milesimos)
   for (const m of depois) somar(m.lote, m.milesimos)
 
   return [...porLote.entries()]

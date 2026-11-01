@@ -1,0 +1,251 @@
+/*
+ * A TELA ESTOQUE — itens, contagem às cegas e análise.
+ *
+ * ---------------------------------------------------------------------------
+ * 390 PX É O CASO PRINCIPAL, e aqui ele é mais que preferência
+ *
+ * Quem conta o estoque está **de pé, na frente da geladeira, com o celular na
+ * mão** — não sentado no balcão. Então: nenhuma lista rola na horizontal, o
+ * campo de quantidade é grande o bastante para o dedo, e as tabelas de
+ * comparação viram BLOCOS abaixo de 560 px, com os rótulos repetidos. É o
+ * mesmo tratamento da conferência do caixa, e pela mesma razão.
+ *
+ * ALGARISMOS TABULARES em toda coluna de quantidade: uma lista de saldos com
+ * dígitos de larguras diferentes não se compara de relance, e comparar de
+ * relance é o que a pessoa faz ao passar os olhos na prateleira.
+ * ---------------------------------------------------------------------------
+ */
+
+/* ---------- avisos e apoio de formulário ---------- */
+
+.erro {
+  margin: 0;
+  font-size: 13px;
+  color: var(--bad);
+  font-weight: 500;
+}
+
+.muted { color: var(--muted); }
+
+/* O campo raro fica RECOLHIDO (design.md): as três unidades de um item são
+   cadastro de uma vez só, e a maioria dos itens tem uma. */
+.recolhido {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  background: var(--paper-2, transparent);
+}
+.recolhido > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+.recolhido > summary::-webkit-details-marker { display: none; }
+.recolhido > summary::before { content: '▸ '; color: var(--gold-ink); }
+.recolhido[open] > summary::before { content: '▾ '; }
+
+/* ---------- a linha do item, com o detalhe que abre ---------- */
+
+.item-de-estoque { border-bottom: 1px solid var(--line); }
+.item-de-estoque > .linha { border-bottom: 0; width: 100%; text-align: left; background: none; }
+.item-de-estoque > .linha .valor {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+}
+.item-de-estoque > .linha .valor b {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.item-de-estoque > .linha .valor small {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.item-de-estoque .selos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.item-de-estoque[data-aberto='sim'] { background: var(--gold-soft); }
+
+.detalhe-do-item {
+  padding: 4px 6px 14px;
+  display: grid;
+  gap: 10px;
+}
+.detalhe-do-item .nota { margin: 2px 0; }
+
+.lotes { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.lotes li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.lotes li .num { color: var(--muted); font-variant-numeric: tabular-nums; }
+.lotes li b { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* ---------- a lista de contagem (às cegas) ---------- */
+
+.lista-de-contagem { display: grid; gap: 0; }
+
+.cabeca-de-local {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--gold-ink);
+  padding: 14px 0 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.item-para-contar {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.item-para-contar .info { display: grid; gap: 1px; }
+.item-para-contar .info small { font-size: 12px; color: var(--muted); }
+
+.campos-de-contagem { display: grid; gap: 6px; }
+.linha-de-lote {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+/* O campo de quantidade é GRANDE: a mão está ocupada, e o alvo de toque de um
+   `input` de 32 px num corredor de geladeira é a origem do número errado. */
+.linha-de-lote input {
+  min-height: 48px;
+  font-size: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--paper);
+  color: var(--ink);
+}
+.linha-de-lote input.num { font-variant-numeric: tabular-nums; text-align: right; }
+
+@media (min-width: 560px) {
+  .item-para-contar {
+    grid-template-columns: 1fr 320px;
+    align-items: center;
+  }
+}
+
+/* ---------- a comparação, depois do fechamento ---------- */
+
+table.conferencia-de-contagem td small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+table.conferencia-de-contagem td.direita { font-variant-numeric: tabular-nums; }
+
+/*
+ * Sete colunas não cabem em 390 px, e rolar para o lado com o telefone
+ * tocando é pior que reorganizar. Abaixo de 560 px cada item vira um BLOCO,
+ * com os rótulos repetidos — a mesma informação, lida de cima para baixo.
+ * Mesmo tratamento de `table.conferencia` (o caixa).
+ */
+@media (max-width: 559px) {
+  table.conferencia-de-contagem thead { display: none; }
+  table.conferencia-de-contagem,
+  table.conferencia-de-contagem tbody,
+  table.conferencia-de-contagem tr,
+  table.conferencia-de-contagem td {
+    display: block;
+    width: 100%;
+  }
+  table.conferencia-de-contagem tr {
+    border-bottom: 1px solid var(--line);
+    padding: 8px 0;
+  }
+  table.conferencia-de-contagem td { border: 0; padding: 3px 0; }
+  table.conferencia-de-contagem td:first-child { font-weight: 600; padding-bottom: 5px; }
+  table.conferencia-de-contagem td:not(:first-child) {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    text-align: left;
+    font-size: 13px;
+  }
+  table.conferencia-de-contagem td:not(:first-child)::before {
+    content: attr(data-rotulo);
+    color: var(--muted);
+  }
+}
+
+/* ---------- a nota fiscal ---------- */
+
+.linha-da-nota {
+  display: grid;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.linha-da-nota .info { display: grid; gap: 2px; }
+.linha-da-nota .info small { font-size: 12px; color: var(--muted); }
+.linha-da-nota .info .pill { justify-self: start; }
+.controles-da-linha { display: grid; gap: 8px; }
+
+.linha-da-nota-digitada {
+  display: grid;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+@media (min-width: 720px) {
+  .controles-da-linha { grid-template-columns: 2fr 1fr; align-items: end; }
+  .linha-da-nota-digitada { grid-template-columns: 2fr 1fr 1fr 1fr 1fr; align-items: end; }
+}
+
+/* ---------- etiquetas ---------- */
+
+.escolha-de-etiquetas {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 8px 10px;
+}
+
+/*
+ * A FOLHA DE ETIQUETAS só existe na impressão.
+ *
+ * Na tela ela seria uma segunda lista dos mesmos itens — papel de parede. No
+ * papel, ela é o que se corta e se cola na prateleira.
+ */
+.folha-de-etiquetas { display: none; }
+
+@media print {
+  .folha-de-etiquetas {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6mm;
+  }
+  .etiqueta {
+    border: 1px solid #000;
+    border-radius: 2mm;
+    padding: 3mm;
+    display: grid;
+    gap: 1mm;
+    break-inside: avoid;
+  }
+  .etiqueta b { font-size: 11pt; }
+  .etiqueta span { font-size: 8pt; }
+  .etiqueta code { font-size: 8pt; word-break: break-all; }
+  .etiqueta small { font-size: 7pt; }
+  /* Some tudo que não é etiqueta: a folha sai só com o que se cola. */
+  .escolha-de-etiquetas,
+  .indicadores,
+  .chips,
+  .linhas,
+  .lista-de-contagem,
+  .botoes { display: none !important; }
+}

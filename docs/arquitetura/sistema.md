@@ -33,7 +33,15 @@ A lista curta e definitiva. O ponto de partida está em `CLAUDE.md` §5:
 2. `packages/domain` puro — `Dinheiro`, `Quantidade`, jornada, programa, saldo, análise, `temPerm`
 3. Repositórios sobre Postgres real (Testcontainers) — RLS, idempotência, transação
 4. `AgendaProvider`
-5. `LeitorDeNota`
+5. `LeitorDeNota` — **implementado** no épico 6, segunda fatia. Do XML da NF-e para linhas com
+   quantidade inteira em milésimos e dinheiro inteiro em centavos. **Ele não toca o banco**, e é
+   por isso que ele é um seam: o que entra é texto, o que sai são linhas, e o CASAMENTO com o
+   catálogo é de quem tem o catálogo (`notas.service.ts`). Testável com um arquivo e nada mais.
+   Em `apps/api/src/estoque/leitor-de-nota.ts`, com `LeitorDeNotaXml` ao lado e o leitor de XML
+   mínimo em `xml.ts` — **sem processamento de DOCTYPE**, o que faz a classe XXE não existir:
+   o arquivo chega de um fornecedor, por e-mail, e é carregado por quem está no balcão.
+   O protótipo o lê no NAVEGADOR (`DOMParser`); aqui é no servidor por duas razões, e as duas
+   são regras: o casamento depende dos vínculos salvos, e o custo unitário é dinheiro (regra 17).
 6. `Migrador`
 7. `MontadorDePrograma` — **implementado** (declarado no épico 3, escrito no 5). A porta por
    onde um programa nasce, e ela é **uma só para as duas entradas**: `POST /v1/programas`
@@ -43,7 +51,9 @@ A lista curta e definitiva. O ponto de partida está em `CLAUDE.md` §5:
    (a classe abstrata) com `MontadorRelacional` ao lado. O `MontadorIndisponivel` que devolvia
    501 foi **apagado**, não deixado ligado: provider alternativo que ninguém usa é onde a
    próxima pessoa pluga sem perceber.
-8. `BaixaDeInsumos` — **declarado e inerte** (nasce aqui, implementado no épico 6). A porta por
+8. `BaixaDeInsumos` — **declarado no épico 3, implementado no 6** (`BaixaRelacional`, em
+   `apps/api/src/estoque/baixa-relacional.ts`, provido pelo `EstoqueModule` e exportado para o
+   `ProgramasModule`). A porta por
    onde o estoque entra quando uma sessão é concluída, e por onde ele volta quando ela é
    reaberta. Mesma forma do seam acima: **recebe a transação já aberta**, porque concluir a
    sessão e dar baixa na dose vivem ou morrem juntas — a enfermagem precisa saber que o frasco

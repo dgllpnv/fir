@@ -94,6 +94,7 @@ type LinhaDeMovimento = {
   em: Date
   lote: string | null
   compensa_id: string | null
+  contagem_id: string | null
 }
 
 /**
@@ -115,7 +116,7 @@ export async function movimentosDoItem(
   const r = await tx.query<LinhaDeMovimento>(
     `SELECT id, tipo, milesimos::text AS milesimos, sequencia::text AS sequencia,
             to_char(dia, 'YYYY-MM-DD') AS dia, em,
-            to_char(lote, 'YYYY-MM-DD') AS lote, compensa_id
+            to_char(lote, 'YYYY-MM-DD') AS lote, compensa_id, contagem_id
        FROM movimentos_de_estoque
       WHERE item_id = $1
       ORDER BY dia, em, sequencia`,
@@ -130,6 +131,7 @@ export async function movimentosDoItem(
     em: l.em.toISOString(),
     lote: l.lote,
     compensaId: l.compensa_id,
+    contagemId: l.contagem_id,
   }))
 }
 
@@ -143,7 +145,7 @@ export async function movimentosDosItens(
   const r = await tx.query<LinhaDeMovimento & { item_id: string }>(
     `SELECT item_id, id, tipo, milesimos::text AS milesimos, sequencia::text AS sequencia,
             to_char(dia, 'YYYY-MM-DD') AS dia, em,
-            to_char(lote, 'YYYY-MM-DD') AS lote, compensa_id
+            to_char(lote, 'YYYY-MM-DD') AS lote, compensa_id, contagem_id
        FROM movimentos_de_estoque
       WHERE item_id = ANY($1::uuid[])
       ORDER BY dia, em, sequencia`,
@@ -159,6 +161,7 @@ export async function movimentosDosItens(
       em: l.em.toISOString(),
       lote: l.lote,
       compensaId: l.compensa_id,
+      contagemId: l.contagem_id,
     }
     const lista = fora.get(l.item_id)
     if (lista === undefined) fora.set(l.item_id, [m])
@@ -210,6 +213,15 @@ export type MovimentoParaGravar = {
   readonly itemChave?: string | null
   readonly compensaId?: string | null
   readonly compensaMotivo?: string
+  /**
+   * O GRUPO de contagem: uma linha por lote contado, todas da mesma contagem.
+   *
+   * Só em `tipo = 'contagem'` (a 0017 cobra com um `CHECK`). Sem ele, o saldo
+   * leria só a última linha e os outros lotes desapareceriam da prateleira.
+   */
+  readonly contagemId?: string | null
+  /** A NOTA que trouxe esta entrada. Só em `tipo = 'entrada'`. */
+  readonly notaId?: string | null
   readonly criadoPor: PessoaId
 }
 
@@ -231,8 +243,8 @@ export async function gravarMovimento(
        (clinica_id, item_id, tipo, milesimos, dia, lote, custo, motivo, obs,
         paciente_id, procedimento_id, aplicado_por_id,
         tarefa_id, programa_id, item_chave,
-        compensa_id, compensa_motivo, criado_por)
-     VALUES ($1,$2,$3,$4,$5::date,$6::date,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        compensa_id, compensa_motivo, contagem_id, nota_id, criado_por)
+     VALUES ($1,$2,$3,$4,$5::date,$6::date,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
      RETURNING id`,
     [
       m.clinicaId,
@@ -252,6 +264,8 @@ export async function gravarMovimento(
       m.itemChave ?? null,
       m.compensaId ?? null,
       m.compensaMotivo ?? '',
+      m.contagemId ?? null,
+      m.notaId ?? null,
       m.criadoPor,
     ],
   )

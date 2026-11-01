@@ -5,10 +5,13 @@ import type {
   SalvarItemEstoque,
 } from '@fir/contracts'
 import {
+  type ClasseAbc,
   type ItemComUnidades,
+  curvaABC,
   deMedidaParaExibicao,
+  ehAltoValor,
   ehOk,
-  loteSugerido,
+  lotesComSaldo,
   saldoEmMedida,
 } from '@fir/domain'
 import {
@@ -42,7 +45,25 @@ import { gravarMovimento, movimentosDosItens, quantidadeNaSaida } from './movime
  * ────────────────────────────────────────────────────────────────────────────
  */
 
-type Contexto = { readonly clinicaId: ClinicaId; readonly ator: PessoaId }
+/**
+ * `clinicaCodigo` vem do CONTEXTO, e isto não é conveniência.
+ *
+ * A primeira escrita deste arquivo lia o código com
+ * `SELECT codigo FROM clinicas LIMIT 1`, contando com a RLS para restringir —
+ * e **`clinicas` não tem RLS**: ela é a tabela de tenants, não tem
+ * `clinica_id`, e a policy por clínica não se aplica a ela. O `LIMIT 1`
+ * devolvia a PRIMEIRA clínica do banco, então a etiqueta QR de um item saía
+ * com o código de outra clínica — e a câmera não acharia o item. Pego por
+ * `estoque.e2e.test.ts`, que esperava `est-…` e recebeu `demo`.
+ *
+ * O guard já leu a clínica da sessão (ver `contexto.ts`): o valor certo está
+ * ali, provado pelo cookie, e não custa consulta nenhuma.
+ */
+type Contexto = {
+  readonly clinicaId: ClinicaId
+  readonly ator: PessoaId
+  readonly clinicaCodigo: string
+}
 
 type LinhaDeItem = {
   id: string
@@ -61,8 +82,10 @@ type LinhaDeItem = {
   minimo: string | null
   custo: string | null
   local_id: string | null
+  local: string | null
   unidade_id: string | null
   responsavel_id: string | null
+  gtin: string
   ativo: boolean
 }
 
@@ -72,7 +95,9 @@ const COLUNAS = `
   unid_uso, fator_uso::text AS fator_uso,
   aproveita_sobra, controla_validade, alta_rotatividade, alto_valor,
   minimo::text AS minimo, custo::text AS custo,
-  local_id, unidade_id, responsavel_id, ativo`
+  local_id,
+  (SELECT l.nome FROM locais_de_estoque l WHERE l.id = local_id) AS local,
+  unidade_id, responsavel_id, gtin, ativo`
 
 const SELECT_ITEM = `SELECT ${COLUNAS} FROM itens_de_estoque WHERE excluido_em IS NULL`
 
@@ -105,12 +130,39 @@ export class ItensService {
    */
   async listar(ctx: Contexto): Promise<ListaDeItens> {
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const r = await c.query<LinhaDeItem>(`${SELECT_ITEM} ORDER BY ativo DESC, nome`)
-      const movs = await movimentosDosItens(
-        c,
-        r.rows.map((l) => l.id),
+      const cat = await catalogo(c, ctx.clinicaCodigo)
+      return { itens: cat.linhas.map((l) => paraSaida(l, cat)) }
+    })
+  }
+
+  /**
+   * `ligarCodigoItem` — o código de barras da caixa, ligado ao item.
+   *
+   * "Escolha o item uma vez: nas próximas leituras a ferramenta reconhece
+   * sozinha" (MANUAL cap. 12). O código é normalizado para **14 dígitos** com
+   * zeros à esquerda: EAN-13 e GTIN-14 do mesmo produto são o mesmo código, e
+   * guardá-los sem normalizar faria a leitura do DataMatrix não achar o item
+   * cadastrado pelo EAN. O protótipo compara com `padStart(14, '0')` dos dois
+   * lados; aqui a forma canônica é GRAVADA, uma vez.
+   */
+  async ligarCodigo(ctx: Contexto, id: string, gtin: string): Promise<ItemNaLista> {
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      const canonico = gtin.padStart(14, '0')
+      await linhaPorId(c, id)
+      const outro = await c.query<{ nome: string }>(
+        `SELECT nome FROM itens_de_estoque
+          WHERE gtin = $1 AND id <> $2 AND excluido_em IS NULL`,
+        [canonico, id],
       )
-      return { itens: r.rows.map((l) => paraSaida(l, movs.get(l.id) ?? [])) }
+      // A frase do protótipo, e ela é útil: dizer QUAL item já tem o código é
+      // o que permite à pessoa descobrir que leu a caixa errada.
+      if (outro.rows[0] !== undefined) {
+        throw new ConflictException(
+          `Este código já está ligado a "${outro.rows[0].nome}".`,
+        )
+      }
+      await c.query('UPDATE itens_de_estoque SET gtin = $2 WHERE id = $1', [id, canonico])
+      return umPorId(c, id, ctx.clinicaCodigo)
     })
   }
 
@@ -147,7 +199,7 @@ export class ItensService {
         })
       }
 
-      return umPorId(c, id)
+      return umPorId(c, id, ctx.clinicaCodigo)
     })
   }
 
@@ -163,7 +215,7 @@ export class ItensService {
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const atual = await linhaPorId(c, id)
       await this.gravar(c, ctx, mesclar(atual, d), id)
-      return umPorId(c, id)
+      return umPorId(c, id, ctx.clinicaCodigo)
     })
   }
 
@@ -227,6 +279,8 @@ export class ItensService {
       d.responsavelId ?? null,
       d.ativo,
     ]
+    // `gtin` NÃO entra: ele é gravado por `ligarCodigoItem`, e incluí-lo aqui
+    // faria um `PATCH { nome }` apagar o código que a leitura da caixa ligou.
 
     try {
       if (id === null) {
@@ -272,16 +326,70 @@ async function linhaPorId(c: pg.PoolClient, id: string): Promise<LinhaDeItem> {
   return l
 }
 
-async function umPorId(c: pg.PoolClient, id: string): Promise<ItemNaLista> {
-  const l = await linhaPorId(c, id)
-  const movs = await movimentosDosItens(c, [id])
-  return paraSaida(l, movs.get(id) ?? [])
+/**
+ * O CATÁLOGO INTEIRO: linhas, movimentos e a curva ABC, lidos **uma vez**.
+ *
+ * Existe como uma função só porque a curva é relativa por definição — "este
+ * item está entre os 80% do valor em estoque" só existe contra os outros. Dois
+ * caminhos calculando-a (a lista e a resposta de uma escrita) seriam duas
+ * respostas para a mesma pergunta, e a segunda é a que ficaria errada: medido
+ * na primeira escrita deste arquivo, `umPorId` devolvia `'C'` para um item que
+ * a lista mostrava como `'A'`, e a tela pintava e despintava o selo "Alto
+ * valor" conforme a pessoa salvasse ou recarregasse.
+ *
+ * Calculada na TELA, ela seria calculada sobre uma lista de `custo: null` para
+ * quem não tem `valores` (regra 17) — e o filtro "Só alto valor" da enfermagem
+ * devolveria o catálogo todo.
+ */
+type Catalogo = {
+  readonly linhas: readonly LinhaDeItem[]
+  readonly movs: Map<string, Parameters<typeof saldoEmMedida>[0]>
+  readonly abc: Map<string, ClasseAbc>
+  readonly codigoDaClinica: string
 }
 
-function paraSaida(
-  l: LinhaDeItem,
-  movs: Parameters<typeof saldoEmMedida>[0],
-): ItemNaLista {
+async function catalogo(c: pg.PoolClient, clinicaCodigo: string): Promise<Catalogo> {
+  const r = await c.query<LinhaDeItem>(`${SELECT_ITEM} ORDER BY ativo DESC, nome`)
+  // Os movimentos de todos os itens numa consulta só: um `SELECT` por item
+  // seria N+1 numa tela que a enfermagem abre várias vezes por dia.
+  const movs = await movimentosDosItens(
+    c,
+    r.rows.map((l) => l.id),
+  )
+  return {
+    linhas: r.rows,
+    movs,
+    // Só os ATIVOS entram na curva, como no protótipo (`i.ativo !== false`): um
+    // item desativado com estoque parado puxaria o denominador e rebaixaria
+    // itens que a clínica usa toda semana. Quem não entrou sai como `'C'`.
+    abc: curvaABC(
+      r.rows
+        .filter((l) => l.ativo)
+        .map((l) => ({
+          id: l.id,
+          valor:
+            saldoEmMedida(movs.get(l.id) ?? [], l.medida).saldo.milesimos *
+            BigInt(l.custo ?? '0'),
+        })),
+    ),
+    codigoDaClinica: clinicaCodigo,
+  }
+}
+
+async function umPorId(
+  c: pg.PoolClient,
+  id: string,
+  clinicaCodigo: string,
+): Promise<ItemNaLista> {
+  const cat = await catalogo(c, clinicaCodigo)
+  const l = cat.linhas.find((x) => x.id === id)
+  if (l === undefined) throw new NotFoundException('Item de estoque não encontrado.')
+  return paraSaida(l, cat)
+}
+
+function paraSaida(l: LinhaDeItem, cat: Catalogo): ItemNaLista {
+  const movs = cat.movs.get(l.id) ?? []
+  const classe = cat.abc.get(l.id) ?? 'C'
   const u = unidadesDe(l)
   const { saldo, semContagem } = saldoEmMedida(movs, l.medida)
   const minimo = l.minimo === null ? null : BigInt(l.minimo)
@@ -296,6 +404,10 @@ function paraSaida(
    * exibição some.
    */
   const emUso = deMedidaParaExibicao(saldo, u, 'uso')
+  // Os lotes com saldo, em ordem de validade — o FIFO inteiro (regra 15). A
+  // ficha do item os mostra, e `loteSugerido` é o primeiro deles: uma segunda
+  // consulta para "qual vence antes" seria a segunda implementação do FIFO.
+  const lotes = lotesComSaldo(movs, l.medida)
 
   return {
     id: l.id,
@@ -312,6 +424,7 @@ function paraSaida(
     minimo: l.minimo,
     custo: l.custo,
     localId: l.local_id,
+    local: l.local,
     unidadeId: l.unidade_id,
     responsavelId: l.responsavel_id,
     ativo: l.ativo,
@@ -325,7 +438,21 @@ function paraSaida(
      * que acerta por acidente e perde o item cujo mínimo legítimo é zero.
      */
     abaixoDoMinimo: minimo !== null && saldo.milesimos < minimo,
-    loteSugerido: loteSugerido(movs, l.medida),
+    loteSugerido: lotes[0]?.lote ?? null,
+    lotes: lotes.map((x) => ({ lote: x.lote, quantidade: quantidadeNaSaida(x.saldo) })),
+    gtin: l.gtin,
+    /**
+     * A ETIQUETA QR, montada no SERVIDOR.
+     *
+     * `FRMEST:<código da clínica>:<id>` — o mesmo formato do protótipo
+     * (`codigoQrItem`). Montado no navegador, imprimir no desktop e ler no
+     * celular dependeria de duas implementações concordarem, e a que não
+     * concordasse imprimiria etiqueta que a câmera não reconhece — numa folha
+     * já colada na geladeira.
+     */
+    codigoQr: `FRMEST:${cat.codigoDaClinica}:${l.id}`,
+    curvaAbc: classe,
+    ehAltoValor: ehAltoValor(l.alto_valor as '' | 'sim' | 'nao', classe),
   }
 }
 

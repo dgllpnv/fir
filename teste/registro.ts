@@ -290,6 +290,26 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
    * já o cobre.
    */
   { metodo: 'POST', caminho: '/v1/estoque/importar', camposDeDinheiro: ['custo'] },
+  // A segunda fatia do épico 6. `valorDaFalta` é o que a diferença da contagem
+  // VALE ao custo cadastrado; ele viaja ao lado de `itensComFalta`, que não é
+  // dinheiro e é o indicador que a equipe sem `valores` lê.
+  //
+  // `POST /v1/estoque/:id/codigo` devolve `ItemNaLista`, com `custo` — a mesma
+  // forma das outras rotas de item.
+  { metodo: 'POST', caminho: '/v1/estoque/:id/codigo', camposDeDinheiro: ['custo'] },
+  { metodo: 'GET', caminho: '/v1/estoque/contagens/:id', camposDeDinheiro: ['valorDaFalta'] },
+  { metodo: 'POST', caminho: '/v1/estoque/contagens', camposDeDinheiro: ['valorDaFalta'] },
+  { metodo: 'PUT', caminho: '/v1/estoque/contagens/:id', camposDeDinheiro: ['valorDaFalta'] },
+  { metodo: 'GET', caminho: '/v1/estoque/analise', camposDeDinheiro: ['valorDaFalta'] },
+  // `valorUnitario` é o `vUnCom` da NF-e, por unidade da nota. A leitura do XML
+  // acontece no SERVIDOR justamente para que ele atravesse redigido — lido no
+  // navegador, chegaria inteiro a quem não tem `valores`.
+  { metodo: 'POST', caminho: '/v1/estoque/notas/ler', camposDeDinheiro: ['valorUnitario'] },
+  {
+    metodo: 'POST',
+    caminho: '/v1/estoque/notas',
+    camposDeDinheiro: ['custo', 'custoDaNota'],
+  },
   /** Locais não têm dinheiro, e por isso NÃO estão aqui. */
 ]
 
@@ -306,18 +326,26 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'caixas_do_dia',
   'cobrancas',
   'configuracao_financeira',
+  // O épico 6, segunda fatia (0017): a contagem às cegas e a nota de entrada.
+  // `contado_na_contagem` é a ÚNICA tabela mutável do módulo — ela é o rascunho
+  // de quem está com a prancheta na mão, e "Salvar e continuar depois" é o
+  // MANUAL. O livro-razão continua sendo `movimentos_de_estoque`, append-only.
+  'contado_na_contagem',
+  'contagens_de_estoque',
   'contas_a_pagar',
   // O épico 5 (0010): o catálogo, o programa e os dois filhos deles.
   'insumos_do_procedimento',
   // O épico 6 (0015): o estoque. `movimentos_de_estoque` é APPEND-ONLY, e por
   // isso `fir_app` tem só SELECT e INSERT nela — mas a proteção por clínica é
   // a policy, exatamente como em qualquer outra tabela desta lista.
+  'itens_da_contagem',
   'itens_de_estoque',
   'itens_do_programa',
   'locais_de_estoque',
   'metas_do_mes',
   'movimentos_de_estoque',
   'motivos_de_perda',
+  'notas_de_entrada',
   'pacientes',
   'procedimentos',
   'programas',
@@ -328,6 +356,7 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'tarefas',
   'tentativas_login',
   'unidades',
+  'vinculos_de_nota',
 ]
 
 /**

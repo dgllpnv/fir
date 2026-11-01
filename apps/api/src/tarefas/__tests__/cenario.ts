@@ -19,7 +19,11 @@ import pg from 'pg'
 import request from 'supertest'
 import { AppModule } from '../../app.module'
 import { hashDeSenha } from '../../autenticacao/senha'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarMovimentosDeEstoqueDeTeste,
+  declararAtorSistema,
+} from '../../banco/limpeza-de-teste'
 import { RELOGIO } from '../../comum/relogio'
 import { registrarCookie } from '../../main'
 
@@ -119,7 +123,13 @@ export async function montarCenario(
                    -- encerra e exclui programa. É o principal mais FORTE, e
                    -- por isso é com ela que se prova o que vale mesmo para
                    -- quem pode tudo.
-                   'programas','programas.gerir','config'])
+                   'programas','programas.gerir','config',
+                   -- O épico 6, segunda fatia: a CONTAGEM ÀS CEGAS entra em
+                   -- ROTAS_DE_CONFERENCIA, e a varredura a chama com ela.
+                   -- É o mesmo raciocínio do financeiro: quem pode tudo
+                   -- continua contando às cegas, e um teste de regra 14 feito
+                   -- com perfil fraco provaria a redação, não a cegueira.
+                   'estoque','estoque.gerir'])
      RETURNING id`,
     [clinica],
   )
@@ -362,6 +372,36 @@ export async function limparProgramas(c: Cenario): Promise<void> {
     [clinicas],
   )
   for (const tabela of ['itens_do_programa', 'recebimentos', 'tarefas', 'programas']) {
+    await c.migrate.query(`DELETE FROM ${tabela} WHERE clinica_id = ANY($1::uuid[])`, [clinicas])
+  }
+}
+
+/**
+ * Apaga o que o épico 6 escreve, **na ordem que as chaves permitem**.
+ *
+ * `contagens_de_estoque` aponta para `tarefas`, então ela sai ANTES — e é por
+ * isso que esta função é chamada antes de `limparTarefas`, nunca depois.
+ *
+ * `movimentos_de_estoque` é append-only nas duas camadas e sai por
+ * `apagarMovimentosDeEstoqueDeTeste`, que desliga a trigger numa transação.
+ * **Precisar dela é a prova de que a trigger funciona.**
+ */
+export async function limparEstoque(c: Cenario): Promise<void> {
+  const clinicas = [c.clinica, c.outraClinica]
+  // O MOVIMENTO primeiro: ele aponta para `contagens_de_estoque` (o grupo) e
+  // para `notas_de_entrada`, e as duas vêm depois.
+  for (const clinica of clinicas) {
+    await apagarMovimentosDeEstoqueDeTeste(c.migrate, clinica)
+  }
+  for (const tabela of [
+    'contado_na_contagem',
+    'itens_da_contagem',
+    'contagens_de_estoque',
+    'vinculos_de_nota',
+    'notas_de_entrada',
+    'itens_de_estoque',
+    'locais_de_estoque',
+  ]) {
     await c.migrate.query(`DELETE FROM ${tabela} WHERE clinica_id = ANY($1::uuid[])`, [clinicas])
   }
 }

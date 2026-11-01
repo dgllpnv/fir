@@ -9,7 +9,8 @@
     "./tokens.css": "./src/tokens.css",
     "./shell.css": "./src/shell.css",
     "./rotina.css": "./src/rotina.css",
-    "./programas.css": "./src/programas.css"
+    "./programas.css": "./src/programas.css",
+    "./estoque.css": "./src/estoque.css"
   },
   "scripts": { "typecheck": "tsc --noEmit", "test": "vitest run" },
   "devDependencies": { "typescript": "^5.7", "vitest": "^2" }

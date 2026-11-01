@@ -2,7 +2,7 @@
 
 Ordenada pelo **caminho mais curto até as 4 clínicas migradas**, que é a entrega com data. Não por tamanho, nem por facilidade.
 
-**Estado em 2026-11-01:** 29 das 59 ações · 1.759 testes · épicos 1, 2, 3, 4 e 5, a auditoria, a **identidade sem e-mail**, o **painel do superadmin** e a **administração da clínica** fechados. O épico 6 começou: as 4 primeiras ações do estoque e o seam `BaixaDeInsumos` **ligado**.
+**Estado em 2026-11-01:** 33 das 59 ações · 1.855 testes · épicos 1, 2, 3, 4, 5 e **6** fechados, mais a auditoria, a **identidade sem e-mail**, o **painel do superadmin** e a **administração da clínica**. O estoque inteiro está de pé: contagem às cegas, análise, curva ABC, NF-e idempotente e a tela `/estoque`.
 
 ---
 
@@ -36,26 +36,45 @@ parte de acesso — a de RH fica no épico 7.
 > A **P-9 (SMTP)** deixou de bloquear **qualquer coisa**: nenhuma linha do
 > produto depende de e-mail.
 
-## 2 · Épico 6 — Estoque · **4 de 8**
+## 2 · ~~Épico 6 — Estoque~~ · **8 de 8, FECHADO**
 
-**Pronto:** `salvarLocalEstoque` · `salvarItemEstoque` · `importarItensEstoque`
-· `movEstoque`. Com eles vieram o domínio puro (`packages/domain/estoque.ts`:
-as três unidades, a sobra de frasco, o saldo derivado, o FIFO), as três tabelas
-com RLS e trilha, e o **seam `BaixaDeInsumos` LIGADO** — `BaixaInerte` apagada,
-as asserções do épico 5 portadas para `estoque/baixa.test.ts` contra Postgres
-de verdade. *Concluir → reabrir → concluir → reabrir devolve saldo **e lote** ao
-ponto inicial*, provado para seis doses nas fronteiras do fator × 1 a 3 voltas.
+**As oito ações:** `salvarLocalEstoque` · `salvarItemEstoque` ·
+`importarItensEstoque` · `movEstoque` (primeira fatia) · `criarContagem` ·
+`salvarContagem` · `ligarCodigoItem` · `entradaNota` (segunda fatia). Mais a
+tela `/estoque` com as três abas — Itens, Contagens e Análise — e o menu
+apontando para ela.
 
-**Falta:** `criarContagem` · `salvarContagem` · `ligarCodigoItem` ·
-`entradaNota`, mais a **tela `/estoque`** inteira (o menu ainda diz épico 6).
+**O que a segunda fatia resolveu, e como:**
 
-O que a próxima fatia tem de resolver: a **contagem às cegas** — o esperado não
-atravessa para o cliente antes do fechamento, mesma regra 6 do caixa, e a rota
-dela entra em `ROTAS_DE_CONFERENCIA` (as três de leitura do estoque estão
-**fora** dela por não serem agregado de dia nenhum, com a razão escrita); a
-**análise** com a diferença **relatada e nunca corrigida**; a curva ABC do
-`altoValor` quando `alto_valor = `; GS1/EAN; e o XML de NF-e, idempotente pela
-chave de acesso.
+- **A contagem às cegas (regra 14)** é invariante de **contrato**, não de tela:
+  enquanto aberta, a resposta é `ContagemAberta`, que não tem
+  `esperadoEmEstoque`, `anteriorEmEstoque` nem `diferencaEmEstoque` — e também
+  não traz os lotes conhecidos do item. As duas rotas de leitura entraram em
+  **`ROTAS_DE_CONFERENCIA`** (as três de ITEM continuam fora, com a razão
+  escrita), e a varredura ganhou dois dentes novos: `chavesProibidas` pega o
+  campo reintroduzido, `numerosProibidos` pega o campo **renomeado**. As duas
+  mutações foram medidas — a primeira morre pela chave, a segunda pelo número.
+- **A diferença é relatada, nunca corrigida (regra 13):** concluir uma contagem
+  grava os movimentos de `contagem` e **mais nada**. O teste conta
+  `tipo = 'ajuste'` depois do fechamento e exige zero.
+- **A contagem de um item com validade é um GRUPO de movimentos**, uma linha por
+  lote, amarradas por `movimentos_de_estoque.contagem_id`. Sem o grupo, o saldo
+  leria só a última linha e os outros frascos desapareceriam da prateleira sem
+  erro na tela.
+- **A NF-e é idempotente por DUAS chaves de esquema:** a chave de acesso e, para
+  a nota digitada, emissor + número. Três importações devolvem os **mesmos
+  movimentos, com os mesmos ids**. O protótipo responde erro e não dedupa a nota
+  digitada.
+- **O seam `LeitorDeNota` foi implementado** — do XML para linhas inteiras, sem
+  tocar o banco, com um leitor de XML **sem DOCTYPE** (a classe XXE não existe).
+- **A curva ABC é do servidor**, sobre o catálogo inteiro: ela depende do custo
+  de todos os itens, e custo é redigido sem `valores` — calculada na tela, o
+  filtro "alto valor" da enfermagem devolveria o catálogo todo.
+
+**O que ficou como dívida, com gatilho:** a etiqueta imprime o **código em
+texto** e não a imagem do QR, e a leitura pela **câmera** não existe — só o
+leitor USB e o código digitado (D-E6 e D-E7). As duas se pagam juntas, na
+primeira clínica que quiser ler pela câmera.
 
 ## 3 · Épico 7 — Pessoas
 

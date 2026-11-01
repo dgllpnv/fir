@@ -284,14 +284,61 @@ Onde o item fica **na clínica**: sala de estoque, sala de enfermagem, geladeira
 - **O saldo não é clampado em zero**, e aqui divergimos do protótipo (`Math.max(0, …)`). Saldo negativo significa mais saída registrada do que havia — lançamento duplicado, contagem errada, consumo sem entrada. Mostrar zero esconde o incidente exatamente onde ele seria visto, e é o mesmo erro que o clamp do `Saldo em aberto` cometia antes do crédito.
 
 ### `Contagem`
+A lista do que contar, gerada por um filtro, com um responsável e um prazo — e ela **vira uma `Tarefa`** para quem vai contar. É isso que a põe na rotina em vez de numa aba que ninguém abre.
+
 Contagem **às cegas**: a quantidade esperada **não atravessa para o cliente** antes do fechamento. É invariante de transporte, não de tela.
+
+**Invariantes:**
+- **O esperado não existe na resposta da contagem aberta** — não é `null`, não é redigido: o contrato `ContagemAberta` não tem o campo (regra 14). E ela também **não traz os lotes conhecidos do item**: pré-preencher as validades conta à pessoa o que o sistema espera achar na prateleira, que é o esperado por outro caminho.
+- **O filtro é resolvido no SERVIDOR**, nunca na tela. `altoValor` depende da `Curva ABC`, que depende do custo de todos os itens — e custo é redigido para quem não tem `valores` (regra 17). Resolvido no cliente, o filtro da enfermagem receberia uma lista de `custo: null` e devolveria o catálogo inteiro.
+- **A contagem de um item com validade é um GRUPO de movimentos**, uma linha por lote, amarradas por `movimentos_de_estoque.contagem_id`. A prateleira com 2 frascos de junho e 1 de setembro é **uma** contagem, não três. Sem o grupo, o saldo leria só a última linha e os outros frascos desapareceriam sem erro na tela.
+- **O rascunho é mutável; o livro-razão não.** "Salvar e continuar depois" grava em `contado_na_contagem` e **não gera movimento nenhum**. O movimento nasce no fechamento, e aí é append-only.
+- **Concluir duas vezes é recusado.** A segunda chamada não reescreve o saldo.
+- **O mês da validade digitada vira o ÚLTIMO DIA do mês**, não o dia 1º. A caixa imprime "06/2027", e isso quer dizer "até o fim de junho" — é a mesma regra do `DD = 00` do GS1. O protótipo grava o dia 1º e antecipa a validade em 29 dias.
+
+### `Tarefa de reposição`
+A `Tarefa` que nasce sozinha ao fechar a contagem, para o item que ficou **abaixo do mínimo**: *"Repor estoque: Tirzepatida 5 mg (tem 2 ampola, mínimo 4 ampola)"*, com prazo de dois dias e o responsável do item.
+
+**Invariante:** no máximo **uma viva por item**, garantida pelo índice `tarefa_de_reposicao_viva` — não por um `if` no serviço. Duas contagens concluídas ao mesmo tempo criariam duas tarefas para o mesmo item, e a segunda só apareceria na lista de quem compra.
 
 ### `Análise` de estoque
 ```
 inicial + entradas − saídas = esperado
 diferença = contagem final − esperado
 ```
-**A diferença é relatada, nunca corrigida.** Ela é o produto inteiro do módulo: é ela que mostra à clínica que há saída sem registro.
+**A diferença é relatada, nunca corrigida.** Ela é o produto inteiro do módulo: é ela que mostra à clínica que há saída sem registro. Não existe rota que "acerte" o estoque pela diferença: corrigir é um `ajuste` com motivo e `estoque.gerir`, e ele aparece **como ajuste** na análise seguinte.
+
+**Invariantes:**
+- **As duas bordas são CONTAGENS, não datas.** O esperado precisa de um ponto de partida que alguém **viu na prateleira**; com bordas de data, o "inicial" seria um saldo derivado, e comparar um derivado com um contado mede o acumulado desde a última contagem, não o período pedido. Sem duas contagens, a resposta é *"sem contagens no período"* — nunca uma diferença que não significa nada.
+- **A contagem do meio é ignorada**, e isso é deliberado: ela é outra **medição**, nunca uma correção. Tomá-la como ponto de partida esconderia a parte da perda que ela já tinha acusado.
+- **A inicial é a última contagem ANTES de `de`** (ou a primeira dentro da janela). O protótipo usa `<=` e, com duas contagens no primeiro dia do período — o caso do primeiro dia de uso —, escolhe a segunda como partida e devolve "sem contagens".
+- **O esperado de uma contagem FECHADA pode atravessar**, e isso não contradiz a regra 14: ela proíbe o esperado antes do fechamento, e uma contagem fechada não pode mais ser influenciada. Mesma classificação de "Últimos fechamentos" no caixa.
+
+### `Curva ABC`
+A classificação de Pareto do estoque por **valor** (`saldo × custo`): **A** até 80% do valor acumulado, **B** até 95%, **C** o resto. É ela que decide "alto valor" quando a clínica não forçou (`altoValor = ''` no cadastro).
+
+**Invariantes:**
+- **O acumulado é o de ANTES do item.** Com o acumulado depois, o item que sozinho vale 90% do estoque cairia em C — e "alto valor" deixaria de fora justamente o frasco mais caro da geladeira.
+- **Valor não-positivo é C e não entra no total.** Aqui divergimos do protótipo, que clampa o saldo em zero: somar um valor negativo ao total encolheria o denominador, e um item com lançamento duplicado promoveria todos os outros a "alto valor".
+- **Calculada no servidor, sobre o catálogo inteiro.** Ela é relativa por definição; item a item seria sempre `A`. E o que atravessa é a **letra**, não o custo — é isso que faz o filtro "alto valor" funcionar para quem conta a prateleira sem ver preço.
+- **Só os itens ATIVOS entram.** Um item desativado com estoque parado puxaria o denominador e rebaixaria itens que a clínica usa toda semana.
+
+### `Nota de entrada`
+A NF-e lançada no estoque. Traz fornecedor, número, data, e uma linha por produto — e, nos medicamentos, **uma linha por lote** (o bloco `rastro` do XML).
+
+**Invariantes:**
+- **A ingestão é IDEMPOTENTE (regra 26), por DUAS chaves de esquema:** a **chave de acesso** da NF-e (44 dígitos) e, para a nota digitada à mão, o par **emissor + número**. Reimportar o mesmo XML três vezes devolve os **mesmos movimentos, com os mesmos ids**, e `jaRegistrada: true`. O protótipo responde erro; devolver o resultado é o que faz a terceira importação parecer com a primeira — quem apertou duas vezes precisa saber se o estoque entrou.
+- **O protótipo não dedupa a nota digitada**, e lançá-la duas vezes dobra o estoque de um item caro sem nenhum aviso. É o erro da receita dobrada (regra 3) do outro lado do balcão.
+- **O XML é lido no SERVIDOR**, pelo seam `LeitorDeNota`: o casamento com o catálogo depende dos vínculos salvos, e o custo unitário é dinheiro — lido no navegador, chegaria inteiro a quem não tem `valores`.
+- **O casamento SUGERE, nunca decide** (regra 27): vínculo salvo → código igual → nome muito parecido → sugestão para conferir → nada. A tela diz *qual* dos cinco, e a diferença entre "nome parecido" e "sugestão: confira" é a diferença entre a pessoa conferir e não conferir.
+- **Nenhum ponto flutuante atravessa.** `qCom: "3.0000"` vira `3000` milésimos e `vUnCom: "1520.00"` vira `152000` centavos, lidos **do texto dos dígitos**. Uma quarta casa decimal diferente de zero na quantidade é **erro**, nunca arredondamento.
+
+### `Vínculo de nota`
+A ligação `(CNPJ do emissor, código do produto) → (item, fator)`. *"A ferramenta guarda essa ligação para as próximas notas desse fornecedor"* (MANUAL cap. 12).
+
+**Invariantes:**
+- **O fator é cadastro, nunca número em código** (regra 9): "1 CX = 10 ampolas" é conhecimento da clínica, e é ela que o confirma na primeira nota.
+- A chave inclui o **CNPJ**: o `cProd` é único dentro do emissor, nunca entre emissores. Sem o CNPJ, o "MJ5-01" de uma distribuidora casaria com o item ligado ao "MJ5-01" de outra.
 
 ### `Dado de saúde`
 Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível** (LGPD art. 11). Base legal própria, acesso por perfil, **registro de acesso — não só de escrita** — e nunca em log. Ver `especialista-lgpd-saude`.
@@ -313,6 +360,10 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 | **Local de estoque** | Onde o item fica na clínica. A lista de contagem sai agrupada por ele |
 | **Compensação** | O movimento que reverte outro, ligado a ele por `compensa_id`. Desfazer nunca é `DELETE` |
 | **Contagem às cegas** | Contagem sem mostrar a quantidade esperada |
+| **Curva ABC** | A classificação do estoque por valor: A até 80%, B até 95%, C o resto |
+| **Tarefa de reposição** | A tarefa que nasce ao fechar a contagem, para o item abaixo do mínimo |
+| **Nota de entrada** | A NF-e lançada no estoque. Idempotente pela chave de acesso |
+| **Vínculo de nota** | `(CNPJ, código do produto) → (item, fator)`, aprendido na primeira nota |
 | **Caixa às cegas** | Conferência do caixa sem mostrar o valor registrado |
 | **Diferença** | Contagem final − saldo esperado. Negativo = falta sem registro |
 | **Perda não explicada** | Diferença negativa recorrente num item |

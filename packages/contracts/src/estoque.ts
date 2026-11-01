@@ -209,6 +209,8 @@ export const ItemNaLista = z.object({
   /** Redigido pelo nome `custo` para quem não tem `valores`. */
   custo: centavosNaSaida,
   localId: Uuid.nullable(),
+  /** O NOME do local, para a lista mostrar "Geladeira" sem uma segunda busca. */
+  local: z.string().nullable(),
   unidadeId: Uuid.nullable(),
   responsavelId: Uuid.nullable(),
   ativo: z.boolean(),
@@ -243,6 +245,41 @@ export const ItemNaLista = z.object({
   abaixoDoMinimo: z.boolean(),
   /** O lote que vence primeiro com saldo — FIFO (regra 15). */
   loteSugerido: DiaCivil.nullable(),
+  /** Todos os lotes com saldo, em ordem de validade. A ficha do item os mostra. */
+  lotes: z.array(z.object({ lote: DiaCivil, quantidade: QuantidadeNaSaida })),
+
+  /**
+   * O código de barras da caixa do medicamento, **em 14 dígitos**, ou vazio.
+   *
+   * A forma canônica é gravada pelo servidor: EAN-13 e GTIN-14 do mesmo
+   * produto são o mesmo código, e guardá-los sem normalizar faria a leitura do
+   * DataMatrix não achar o item cadastrado pelo EAN.
+   */
+  gtin: z.string(),
+  /**
+   * O conteúdo da ETIQUETA QR deste item, montado pelo SERVIDOR.
+   *
+   * `FRMEST:<código da clínica>:<id>`. O formato mora num lugar só: com a
+   * etiqueta montada no navegador, imprimir no desktop e ler no celular
+   * dependeria de duas implementações concordarem — e a que não concordasse
+   * imprimiria etiqueta que a câmera não reconhece, numa folha já colada na
+   * geladeira.
+   */
+  codigoQr: z.string(),
+
+  /**
+   * A CURVA ABC: `A` até 80% do valor em estoque, `B` até 95%, `C` o resto.
+   *
+   * Calculada no SERVIDOR porque depende do CUSTO de todos os itens, e custo é
+   * redigido sem `valores` (regra 17) — no navegador, a curva da enfermagem
+   * seria calculada sobre uma lista de `null`.
+   *
+   * A letra não é dinheiro: é um ranking relativo, e é ela que faz o filtro
+   * "Só alto valor" funcionar para quem conta a prateleira sem ver preço.
+   */
+  curvaAbc: z.enum(['A', 'B', 'C']),
+  /** `altoValor` do cadastro manda; vazio, decide a curva. */
+  ehAltoValor: z.boolean(),
 })
 export type ItemNaLista = z.infer<typeof ItemNaLista>
 
@@ -450,3 +487,573 @@ export type MovimentoNaLista = z.infer<typeof MovimentoNaLista>
 
 export const ListaDeMovimentos = z.object({ movimentos: z.array(MovimentoNaLista) })
 export type ListaDeMovimentos = z.infer<typeof ListaDeMovimentos>
+
+/* ======================================================================
+ * CONTAGEM — `criarContagem` e `salvarContagem`
+ *
+ * ────────────────────────────────────────────────────────────────────────
+ * A REGRA 14, E ELA É DE TRANSPORTE
+ *
+ * A contagem é **ÀS CEGAS**: a quantidade esperada **não atravessa para o
+ * cliente antes do fechamento**. Como no caixa (regra 6), isso não é uma
+ * propriedade da tela — é uma propriedade do CONTRATO: enquanto a contagem
+ * está aberta o servidor devolve `ContagemAberta`, que **não tem** os campos
+ * `esperadoEmEstoque`, `diferencaEmEstoque` nem `anteriorEmEstoque`. Eles não
+ * são `null`, não são redigidos: não existem, e por isso não há como montar a
+ * resposta com o número dentro.
+ *
+ * `/v1/estoque/contagens` e `/v1/estoque/contagens/:id` entram em
+ * `ROTAS_DE_CONFERENCIA`, e a varredura de `transporte-as-cegas.test.ts` cobra
+ * as duas coisas: que a CHAVE não existe e que o NÚMERO não aparece sob nome
+ * nenhum.
+ *
+ * ────────────────────────────────────────────────────────────────────────
+ * POR QUE OS NOMES TERMINAM EM `EmEstoque`
+ *
+ * `esperado`, `contado` e `diferenca` estão em `CAMPOS_MONETARIOS` — por causa
+ * do CAIXA, onde os três são dinheiro. O `RedacaoInterceptor` casa **nome de
+ * chave** e não olha o tipo do valor: chamados assim, estes números seriam
+ * apagados para quem não tem `valores`, e a contagem da enfermagem sairia sem
+ * número nenhum. É exatamente o defeito que `saldo` → `saldoEmEstoque` já
+ * registrou neste arquivo, e a mesma correção.
+ * ====================================================================== */
+
+/**
+ * COMO a lista é montada — e **o servidor é quem resolve o filtro em itens**.
+ *
+ * O protótipo manda a lista de ids pronta, calculada no navegador. Aqui não:
+ * `altoValor` depende da **curva ABC**, que depende do CUSTO de cada item — e
+ * custo é redigido para quem não tem `valores` (regra 17). Resolvido no
+ * cliente, o filtro "alto valor" da enfermagem devolveria o catálogo inteiro,
+ * porque todos os custos chegariam `null` e a curva não existiria.
+ */
+export const FILTROS_DE_CONTAGEM = [
+  'todos',
+  'rotatividade',
+  'altoValor',
+  'categoria',
+  /** Os itens que nunca foram contados — o botão "Gerar contagem inicial". */
+  'semContagem',
+] as const
+export type FiltroDeContagem = (typeof FILTROS_DE_CONTAGEM)[number]
+
+export const REPETICOES_DE_CONTAGEM = ['', 'quinzenal', 'mensal'] as const
+
+export const CriarContagem = z
+  .object({
+    filtro: z.enum(FILTROS_DE_CONTAGEM).default('todos'),
+    /** Obrigatória quando o filtro é `categoria`, e proibida nos outros. */
+    categoria: z.string().trim().max(40).default(''),
+    localId: Uuid.nullish(),
+    unidadeId: Uuid.nullish(),
+    /** Quem vai contar. A lista vira uma TAREFA para esta pessoa. */
+    responsavelId: Uuid,
+    /** "Contar até" — dia civil no fuso da clínica. */
+    prazo: DiaCivil,
+    /** Com repetição, concluir uma contagem já cria a próxima. */
+    repetir: z.enum(REPETICOES_DE_CONTAGEM).default(''),
+    /** Vazio = o servidor monta o nome a partir do filtro, do local e da unidade. */
+    nome: z.string().trim().max(100).default(''),
+  })
+  .strict()
+export type CriarContagem = z.infer<typeof CriarContagem>
+
+/**
+ * O que foi contado num item: **uma linha por LOTE**.
+ *
+ * Sempre um array, mesmo no item que não controla validade — ele manda UMA
+ * linha com `lote: null`. Um campo `quantidade` solto ao lado do array seria a
+ * segunda representação do mesmo número, e a soma dos lotes passaria a
+ * depender de qual dos dois cada tela preencheu.
+ */
+export const ContadoPorLote = z
+  .object({
+    /** A validade do lote. `null` no item sem validade, ou quando contou zero. */
+    lote: DiaCivil.nullish(),
+    /** Milésimos de `medida`. Pode ser ZERO: a prateleira estava vazia. */
+    quantidade: quantidadeNaoNegativa,
+  })
+  .strict()
+export type ContadoPorLote = z.infer<typeof ContadoPorLote>
+
+export const SalvarContagem = z
+  .object({
+    /**
+     * **`PUT` é substituição do rascunho DESTE item**, e `lotes: []` o APAGA.
+     *
+     * Três estados, e eles são diferentes:
+     *
+     *  - item **ausente** do corpo → o rascunho dele fica como estava. É o que
+     *    permite salvar um local por vez sem reenviar a lista inteira.
+     *  - `lotes: []` → **apaga** o rascunho: a pessoa tinha anotado e limpou.
+     *    Sem este estado, limpar o campo e tocar em Concluir usaria o número
+     *    velho — ela erraria, corrigiria para vazio, e a contagem fecharia com
+     *    o erro. Medido no desenho: a tela só mandava os itens COM quantidade.
+     *  - `lotes: [{ quantidade: '0' }]` → **contou zero**: a prateleira está
+     *    vazia. É uma informação, e é diferente de "ainda não contei".
+     *
+     * A tela manda **todos** os itens da lista, e por isso o `PUT` é
+     * idempotente: o mesmo corpo duas vezes deixa a contagem no mesmo estado.
+     */
+    itens: z
+      .array(
+        z.object({ itemId: Uuid, lotes: z.array(ContadoPorLote).max(60) }).strict(),
+      )
+      .max(2000),
+    /** `false` = "Salvar e continuar depois". O rascunho não gera movimento. */
+    concluir: z.boolean().default(false),
+    /** Criar tarefa de reposição para quem ficar abaixo do mínimo. */
+    reposicao: z.boolean().default(true),
+  })
+  .strict()
+export type SalvarContagem = z.infer<typeof SalvarContagem>
+
+const cabecalhoDaContagem = {
+  id: Uuid,
+  nome: z.string(),
+  filtro: z.enum(FILTROS_DE_CONTAGEM),
+  categoria: z.string(),
+  localId: Uuid.nullable(),
+  local: z.string().nullable(),
+  unidadeId: Uuid.nullable(),
+  responsavelId: Uuid,
+  responsavel: z.string(),
+  prazo: DiaCivil,
+  repetir: z.enum(REPETICOES_DE_CONTAGEM),
+  /** A tarefa que levou a lista para quem conta. */
+  tarefaId: Uuid.nullable(),
+  criadaEm: z.string(),
+}
+
+const itemDaLista = {
+  itemId: Uuid,
+  nome: z.string(),
+  categoria: z.string(),
+  medida: z.string(),
+  controlaValidade: z.boolean(),
+  localId: Uuid.nullable(),
+  /** O nome do local, para a lista sair agrupada — o roteiro de quem conta. */
+  local: z.string().nullable(),
+}
+
+/**
+ * A contagem ABERTA — e o que ela **não** tem é o ponto inteiro.
+ *
+ * Sem `esperadoEmEstoque`, sem `anteriorEmEstoque`, sem `diferencaEmEstoque`,
+ * e **sem os lotes conhecidos do item**: pré-preencher as validades contaria
+ * à pessoa o que o sistema espera encontrar na prateleira, que é o esperado
+ * por outro caminho. Quem conta lê o rótulo da caixa.
+ *
+ * `contadoEmEstoque` existe e não viola nada: é o RASCUNHO, o que a própria
+ * pessoa digitou. Não mostrá-lo faria "Salvar e continuar depois" perder o
+ * trabalho de quem parou no meio.
+ */
+export const ItemDaContagemAberta = z
+  .object({
+    ...itemDaLista,
+    /** O que já foi anotado, somando os lotes. `null` = ainda não contado. */
+    contadoEmEstoque: QuantidadeNaSaida.nullable(),
+    /** O rascunho por lote, como a pessoa o deixou. */
+    lotes: z.array(
+      z.object({ lote: DiaCivil.nullable(), quantidade: QuantidadeNaSaida }),
+    ),
+  })
+  .strict()
+export type ItemDaContagemAberta = z.infer<typeof ItemDaContagemAberta>
+
+export const ContagemAberta = z
+  .object({
+    ...cabecalhoDaContagem,
+    concluida: z.literal(false),
+    /** Calculada no SERVIDOR, contra o hoje da clínica (regra 24). */
+    atrasada: z.boolean(),
+    itens: z.array(ItemDaContagemAberta),
+    quantidadeDeItens: z.number().int(),
+    /** Quantos já têm quantidade anotada — o "3 de 12 contados" da lista. */
+    anotados: z.number().int(),
+  })
+  .strict()
+export type ContagemAberta = z.infer<typeof ContagemAberta>
+
+/**
+ * A contagem CONCLUÍDA — agora sim a comparação, que é o que a clínica veio
+ * ver.
+ *
+ * **A diferença é RELATADA, nunca corrigida** (regra 13). Não existe nesta API
+ * nenhuma rota que "acerte" o estoque pela diferença: corrigir é um `ajuste`
+ * com motivo e `estoque.gerir`, e ele aparece como ajuste na análise seguinte.
+ */
+export const ItemDaContagemConcluida = z
+  .object({
+    ...itemDaLista,
+    /** A contagem ANTERIOR, o ponto de partida. `null` = inventário inicial. */
+    anteriorEmEstoque: QuantidadeNaSaida.nullable(),
+    anteriorEm: DiaCivil.nullable(),
+    entradasEmEstoque: QuantidadeNaSaida,
+    /** Consumo + descarte + uso interno, em módulo. */
+    saidasEmEstoque: QuantidadeNaSaida,
+    /** Assinado: o ajuste é o único movimento dos dois sentidos. */
+    ajustesEmEstoque: QuantidadeNaSaida,
+    /** `null` na primeira contagem do item: não havia de onde esperar. */
+    esperadoEmEstoque: QuantidadeNaSaida.nullable(),
+    /** `null` = o item ficou sem quantidade; ele não virou movimento. */
+    contadoEmEstoque: QuantidadeNaSaida.nullable(),
+    diferencaEmEstoque: QuantidadeNaSaida.nullable(),
+    /** `true` quando há mínimo declarado e o contado ficou abaixo dele. */
+    abaixoDoMinimo: z.boolean(),
+  })
+  .strict()
+export type ItemDaContagemConcluida = z.infer<typeof ItemDaContagemConcluida>
+
+export const ContagemConcluida = z
+  .object({
+    ...cabecalhoDaContagem,
+    concluida: z.literal(true),
+    concluidaEm: DiaCivil,
+    itens: z.array(ItemDaContagemConcluida),
+    quantidadeDeItens: z.number().int(),
+    anotados: z.number().int(),
+    /**
+     * Quantos itens ficaram ABAIXO do esperado. Não é monetário, e por isso é
+     * o indicador que a equipe sem `valores` lê — a mesma ideia do `conferido`
+     * do caixa.
+     */
+    itensComFalta: z.number().int(),
+    /** O que a falta vale, ao custo cadastrado. Redigido sem `valores`. */
+    valorDaFalta: centavosNaSaida,
+  })
+  .strict()
+export type ContagemConcluida = z.infer<typeof ContagemConcluida>
+
+export const ConferenciaDeContagem = z.discriminatedUnion('concluida', [
+  ContagemAberta,
+  ContagemConcluida,
+])
+export type ConferenciaDeContagem = z.infer<typeof ConferenciaDeContagem>
+
+export const ContagemNaLista = z
+  .object({
+    id: Uuid,
+    nome: z.string(),
+    responsavel: z.string(),
+    prazo: DiaCivil,
+    repetir: z.enum(REPETICOES_DE_CONTAGEM),
+    concluida: z.boolean(),
+    concluidaEm: DiaCivil.nullable(),
+    atrasada: z.boolean(),
+    quantidadeDeItens: z.number().int(),
+    anotados: z.number().int(),
+  })
+  .strict()
+export type ContagemNaLista = z.infer<typeof ContagemNaLista>
+
+export const ListaDeContagens = z.object({ contagens: z.array(ContagemNaLista) }).strict()
+export type ListaDeContagens = z.infer<typeof ListaDeContagens>
+
+/**
+ * O resultado de criar ou salvar: a contagem, mais o que a AÇÃO produziu.
+ *
+ * `proximaEm` e `reposicoes` não são campos da contagem — são consequências do
+ * fechamento, e guardá-los na entidade seria gravar o que já está em
+ * `tarefas` e em `contagens_de_estoque`.
+ */
+export const ResultadoDaContagem = z
+  .object({
+    contagem: ConferenciaDeContagem,
+    /** A próxima da rotina, quando `repetir` está ligado. */
+    proximaEm: DiaCivil.nullable(),
+    proximaId: Uuid.nullable(),
+    /** Quantas tarefas de reposição NASCERAM — zero no segundo toque. */
+    reposicoes: z.number().int(),
+  })
+  .strict()
+export type ResultadoDaContagem = z.infer<typeof ResultadoDaContagem>
+
+/* ======================================================================
+ * ANÁLISE DO ESTOQUE — o período entre duas contagens
+ * ====================================================================== */
+
+export const ItemNaAnalise = z
+  .object({
+    ...itemDaLista,
+    /** `null` = o item não tem duas contagens no período: nada a comparar. */
+    deDia: DiaCivil.nullable(),
+    ateDia: DiaCivil.nullable(),
+    inicialEmEstoque: QuantidadeNaSaida.nullable(),
+    entradasEmEstoque: QuantidadeNaSaida.nullable(),
+    saidasEmEstoque: QuantidadeNaSaida.nullable(),
+    ajustesEmEstoque: QuantidadeNaSaida.nullable(),
+    esperadoEmEstoque: QuantidadeNaSaida.nullable(),
+    finalEmEstoque: QuantidadeNaSaida.nullable(),
+    diferencaEmEstoque: QuantidadeNaSaida.nullable(),
+    /** O que a falta vale ao custo cadastrado. Redigido sem `valores`. */
+    valorDaFalta: centavosNaSaida,
+  })
+  .strict()
+export type ItemNaAnalise = z.infer<typeof ItemNaAnalise>
+
+export const AnaliseDoEstoque = z
+  .object({
+    de: DiaCivil,
+    ate: DiaCivil,
+    itens: z.array(ItemNaAnalise),
+    /** Itens abaixo do esperado no período. Sobrevive à redação. */
+    itensComFalta: z.number().int(),
+    valorDaFalta: centavosNaSaida,
+    /** Itens sem as duas contagens — a análise não os alcança, e isso se diz. */
+    itensSemContagens: z.number().int(),
+  })
+  .strict()
+export type AnaliseDoEstoque = z.infer<typeof AnaliseDoEstoque>
+
+/**
+ * O filtro da análise. Janela **semiaberta `[de, ate)`**? Não: aqui as duas
+ * bordas são CONTAGENS, e uma contagem é um ponto, não um intervalo.
+ *
+ * A borda é inclusiva nos dois lados de propósito — "a contagem do dia 1º" e
+ * "a contagem do dia 30" são as duas que a clínica quer comparar, e excluir a
+ * de cima faria a análise do mês terminar na contagem do mês anterior.
+ */
+export const ConsultaDaAnalise = z
+  .object({ de: DiaCivil.optional(), ate: DiaCivil.optional() })
+  .strict()
+export type ConsultaDaAnalise = z.infer<typeof ConsultaDaAnalise>
+
+/* ======================================================================
+ * CÓDIGO DO ITEM — `ligarCodigoItem`
+ * ====================================================================== */
+
+/**
+ * Liga o código de barras da caixa do medicamento (GS1/EAN) ao item.
+ *
+ * "Escolha o item uma vez: nas próximas leituras a ferramenta reconhece
+ * sozinha" (MANUAL cap. 12).
+ *
+ * **8 a 14 dígitos, e o servidor normaliza para 14** com zeros à esquerda —
+ * EAN-13 e GTIN-14 do mesmo produto são o mesmo código, e guardá-los sem
+ * normalizar faria a leitura do DataMatrix não achar o item cadastrado pelo
+ * EAN. O protótipo compara com `padStart(14, '0')` dos dois lados; aqui a
+ * forma canônica é gravada uma vez, no servidor.
+ */
+export const LigarCodigoItem = z
+  .object({
+    gtin: z
+      .string()
+      .trim()
+      .regex(/^\d{8,14}$/, 'O código precisa ter de 8 a 14 dígitos.'),
+  })
+  .strict()
+export type LigarCodigoItem = z.infer<typeof LigarCodigoItem>
+
+/* ======================================================================
+ * ENTRADA PELA NOTA — `entradaNota`
+ * ====================================================================== */
+
+/**
+ * O XML da NF-e, lido no **servidor** — o seam `LeitorDeNota`.
+ *
+ * O protótipo lê o XML no navegador com `DOMParser` e casa os produtos com os
+ * itens lá também. Duas razões para o servidor:
+ *
+ *  1. **O casamento depende de dado do servidor** — os vínculos salvos de
+ *     `(CNPJ, código do produto)` e o catálogo inteiro. Feito no cliente, ele
+ *     seria a segunda implementação da mesma regra.
+ *  2. **O custo unitário da nota é dinheiro**, e ele atravessa redigido
+ *     (regra 17). Lido no navegador, chegaria inteiro a quem não tem
+ *     `valores`.
+ */
+export const LerNotaFiscal = z
+  .object({
+    /**
+     * O limite é **900 KB**, e ele não é arbitrário: o `bodyLimit` padrão do
+     * Fastify é **1 MB**, e um limite de contrato maior que o do servidor é uma
+     * promessa que o servidor quebra — a nota de 2 MB levaria 413 antes de
+     * chegar ao Zod, e a mensagem que a recepção leria não diria nada sobre
+     * tamanho de arquivo.
+     *
+     * Uma NF-e de distribuidora de medicamento tem dezenas de quilobytes. 900 KB
+     * é folga de uma ordem de grandeza, abaixo do teto de verdade.
+     */
+    xml: z.string().min(1, 'Envie o XML da nota.').max(900_000, 'O arquivo é grande demais para uma NF-e.'),
+  })
+  .strict()
+export type LerNotaFiscal = z.infer<typeof LerNotaFiscal>
+
+export const CabecalhoDaNota = z
+  .object({
+    /** A chave de acesso da NF-e: 44 dígitos. `null` na nota digitada. */
+    chave: z.string().nullable(),
+    numero: z.string(),
+    fornecedor: z.string(),
+    cnpj: z.string(),
+    dia: DiaCivil,
+  })
+  .strict()
+export type CabecalhoDaNota = z.infer<typeof CabecalhoDaNota>
+
+/** Como o servidor casou o produto da nota com o item do estoque. */
+export const CASAMENTOS_DA_NOTA = [
+  /** Vínculo salvo de `(CNPJ, código)` — a nota anterior ensinou. */
+  'vinculo',
+  /** O código do produto é igual ao código cadastrado no item. */
+  'codigo',
+  /** O nome é muito parecido com o do item. */
+  'nome',
+  /** Parecido o bastante para sugerir, não para confiar. Confira. */
+  'sugestao',
+  /** Nenhum item corresponde — provavelmente não é item de estoque (frete). */
+  'sem',
+] as const
+
+export const LinhaDaNotaLida = z
+  .object({
+    /** `cProd` — o código do produto no fornecedor. */
+    codigo: z.string(),
+    /** `xProd` — a descrição como o fornecedor a escreve. */
+    descricao: z.string(),
+    /** `uCom` — a unidade da nota: CX, UN, FR. */
+    unidadeDaNota: z.string(),
+    /** `qCom`, em milésimos. O front não multiplica quantidade (regra 8). */
+    quantidadeNaNota: z.string().regex(/^\d+$/),
+    /** `vUnCom` em CENTAVOS, por unidade da NOTA. Redigido sem `valores`. */
+    valorUnitario: centavosNaSaida,
+    /** `nLote` — o lote do fabricante, como texto. Informativo. */
+    loteDoFabricante: z.string(),
+    /** `dVal` — a validade, que é o LOTE do nosso modelo. */
+    validade: DiaCivil.nullable(),
+    /** A sugestão do servidor. `null` = nenhum item corresponde. */
+    itemId: Uuid.nullable(),
+    casamento: z.enum(CASAMENTOS_DA_NOTA),
+    /**
+     * Quantas `medida` vêm em 1 unidade da NOTA, em milésimos.
+     *
+     * Vem do vínculo salvo, ou do `fatorCompra` do item quando a unidade da
+     * nota é a de compra, ou `1000` (uma por uma) quando não há de onde tirar.
+     * A tela mostra "1 CX = N ampolas" e deixa confirmar — e o que a clínica
+     * confirmar é GRAVADO no vínculo, nunca em código (regra 9).
+     */
+    fator: z.string().regex(/^\d+$/),
+  })
+  .strict()
+export type LinhaDaNotaLida = z.infer<typeof LinhaDaNotaLida>
+
+export const NotaLida = z
+  .object({
+    nota: CabecalhoDaNota,
+    linhas: z.array(LinhaDaNotaLida),
+    /**
+     * `true` = esta nota **já foi registrada** (regra 26).
+     *
+     * A tela avisa antes de a pessoa conferir trinta linhas para descobrir no
+     * fim que nada seria criado.
+     */
+    jaRegistrada: z.boolean(),
+  })
+  .strict()
+export type NotaLida = z.infer<typeof NotaLida>
+
+/**
+ * A linha a registrar, e a **união declara de onde vem a conversão**.
+ *
+ * As duas conversões são cadastro, nunca número em código (regra 9):
+ *
+ *  - `cadastro` — a unidade é uma das três do ITEM (`medida`, compra ou uso),
+ *    e quem converte é `paraMedida`. É o caminho da nota digitada à mão.
+ *  - `nota` — a unidade é a da NOTA (`CX`), com o fator que a clínica
+ *    confirmou. O fator é **gravado no vínculo** `(CNPJ, código)`, que é o
+ *    cadastro do produto daquele fornecedor: a próxima nota já chega casada e
+ *    convertida.
+ *
+ * Um campo `fator` opcional no mesmo ramo seria o pior dos dois: a mesma rota
+ * com duas fontes de conversão, e a escolha entre elas decidida por um
+ * `if (fator != null)` que ninguém vê.
+ */
+export const LinhaDaEntradaPelaNota = z.discriminatedUnion('como', [
+  z
+    .object({
+      como: z.literal('cadastro'),
+      itemId: Uuid,
+      ...QuantidadeComUnidade.shape,
+      /** A validade do que chegou. Obrigatória quando o item controla. */
+      lote: DiaCivil.nullish(),
+      /** CENTAVOS por `medida`. Exige `estoque.gerir`. */
+      custo: dinheiroEmTexto.nullish(),
+    })
+    .strict(),
+  z
+    .object({
+      como: z.literal('nota'),
+      itemId: Uuid,
+      /** A quantidade NA NOTA, em milésimos da unidade da nota. */
+      quantidade: quantidadePositiva,
+      unidadeDaNota: unidade,
+      /** Quantas `medida` em 1 unidade da nota, em milésimos. */
+      fator: quantidadePositiva,
+      /** O `cProd`, que é a chave do vínculo. Vazio = não guarda vínculo. */
+      codigo: z.string().trim().max(60).default(''),
+      descricao: z.string().trim().max(80).default(''),
+      lote: DiaCivil.nullish(),
+      /** CENTAVOS por unidade da NOTA — o servidor divide pelo fator. */
+      custoDaNota: dinheiroEmTexto.nullish(),
+    })
+    .strict(),
+])
+export type LinhaDaEntradaPelaNota = z.infer<typeof LinhaDaEntradaPelaNota>
+
+export const RegistrarEntradaPelaNota = z
+  .object({
+    nota: z
+      .object({
+        /** A chave de acesso: 44 dígitos. É a chave de idempotência (regra 26). */
+        chave: z
+          .string()
+          .trim()
+          .regex(/^\d{44}$/, 'A chave de acesso da NF-e tem 44 dígitos.')
+          .nullish(),
+        numero: z.string().trim().max(20).default(''),
+        fornecedor: z.string().trim().max(80).default(''),
+        cnpj: z
+          .string()
+          .trim()
+          .regex(/^\d{0,14}$/, 'O CNPJ tem 14 dígitos.')
+          .default(''),
+        /** O dia da nota — e o dia dos movimentos de entrada. */
+        dia: DiaCivil,
+      })
+      .strict(),
+    linhas: z
+      .array(LinhaDaEntradaPelaNota)
+      .min(1, 'Ligue ao menos um item da nota ao estoque.')
+      .max(200),
+  })
+  .strict()
+export type RegistrarEntradaPelaNota = z.infer<typeof RegistrarEntradaPelaNota>
+
+export const ResultadoDaEntradaPelaNota = z
+  .object({
+    notaId: Uuid,
+    /**
+     * `true` = a nota **já estava registrada**, e nada novo foi criado.
+     *
+     * **Divergimos do protótipo aqui, de propósito.** Ele responde
+     * `fail("Esta nota já foi registrada.")` — um erro. Uma escrita externa
+     * idempotente devolve o MESMO resultado (regra 26): a segunda e a terceira
+     * importação do mesmo XML devolvem os mesmos movimentos, com os mesmos
+     * ids, e `jaRegistrada: true`. A tela diz "esta nota já estava lançada" e
+     * mostra o que ela criou — em vez de um vermelho que não diz se o estoque
+     * entrou ou não.
+     */
+    jaRegistrada: z.boolean(),
+    movimentos: z.array(MovimentoNaLista),
+    /**
+     * Itens cujo custo subiu 10% ou mais nesta nota — o aviso do protótipo.
+     *
+     * Só nomes, nunca o valor: o aviso serve para a gestão conferir o preço, e
+     * o número está na ficha do item, onde a redação o alcança.
+     */
+    custoSubiu: z.array(z.string()),
+    /** Quantos vínculos `(CNPJ, código)` foram gravados ou atualizados. */
+    vinculosGravados: z.number().int(),
+  })
+  .strict()
+export type ResultadoDaEntradaPelaNota = z.infer<typeof ResultadoDaEntradaPelaNota>

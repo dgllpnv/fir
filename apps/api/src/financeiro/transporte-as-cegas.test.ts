@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import request from 'supertest'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   type Cenario,
   desmontarCenario,
   HOJE,
+  limparEstoque,
   limparFinanceiro,
   limparTarefas,
   montarCenario,
@@ -131,9 +133,75 @@ afterAll(async () => {
   await desmontarCenario(c)
 })
 
+/**
+ * A CONTAGEM ABERTA da varredura — e os números que ela persegue.
+ *
+ * 10 ampolas contadas no inventário, 4 que entraram e 1 que saiu: o esperado é
+ * **13**, e `13000` **não existe** em nenhuma resposta legítima da contagem
+ * aberta. Os três movimentos individuais valem 10000, 4000 e 1000, e a resposta
+ * da contagem não traz movimento nenhum — então 13000 só pode aparecer se o
+ * servidor tiver somado para quem vai contar.
+ *
+ * É a mesma construção do `57000` do caixa, e pela mesma razão: com um cenário
+ * em que o esperado coincide com um número que já está na resposta, um campo
+ * renomeado atravessa sem produzir número novo e a varredura passa verde.
+ *
+ * Devolve o id da contagem, que a varredura põe no lugar de `:contagem`.
+ */
+const montarContagemAberta = async (): Promise<string> => {
+  const item = await postar(
+    c,
+    '/v1/estoque',
+    {
+      nome: 'Tirzepatida da varredura',
+      medida: 'ampola',
+      inicial: { quantidade: '10000' },
+    },
+    'beatriz',
+  )
+  expect(item.statusCode, 'o item da fixture não foi criado').toBe(201)
+  const itemId = item.body.id as string
+
+  const entrada = await postar(
+    c,
+    '/v1/estoque/movimentos',
+    { itemId, tipo: 'entrada', quantidade: '4000', unidade: 'ampola', dia: HOJE },
+    'beatriz',
+  )
+  expect(entrada.statusCode).toBe(201)
+
+  const consumo = await postar(
+    c,
+    '/v1/estoque/movimentos',
+    {
+      itemId,
+      tipo: 'consumo',
+      quantidade: '1000',
+      unidade: 'ampola',
+      dia: HOJE,
+      pacienteId: c.pacientes['ana'],
+    },
+    'beatriz',
+  )
+  expect(consumo.statusCode).toBe(201)
+
+  const contagem = await postar(
+    c,
+    '/v1/estoque/contagens',
+    { filtro: 'todos', responsavelId: c.pessoas['beatriz'], prazo: HOJE },
+    'beatriz',
+  )
+  expect(contagem.statusCode, 'a contagem da fixture não foi criada').toBe(201)
+  return contagem.body.contagem.id as string
+}
+
+let contagemAberta: string
+
 beforeEach(async () => {
+  await limparEstoque(c)
   await limparTarefas(c)
   await limparFinanceiro(c)
+  contagemAberta = await montarContagemAberta()
   // Um recebimento de OUTRO dia do mesmo mês, para que o total do MÊS não
   // coincida com o total do DIA. Sem ele, `GET /v1/visao-do-mes` devolveria
   // legitimamente `recebido: '87000'` — o mês — e o teste o acusaria de
@@ -151,7 +219,10 @@ describe('o esperado não atravessa antes do fechamento', () => {
     for (const rota of ROTAS_DE_CONFERENCIA) {
       // `:dia` e `:mes` — e o `:mes` é o do dia sob teste, que é justamente o
       // mês EM CURSO: é lá que a Visão do mês esbarraria na regra 6.
-      const caminho = rota.caminho.replace(':dia', HOJE).replace(':mes', HOJE.slice(0, 7))
+      const caminho = rota.caminho
+        .replace(':dia', HOJE)
+        .replace(':mes', HOJE.slice(0, 7))
+        .replace(rota.parametro === 'contagem' ? ':id' : ':nada', contagemAberta)
       const [base, consulta] = caminho.split('?')
       const parametros = Object.fromEntries(new URLSearchParams(consulta ?? '').entries())
       const r = await pegar(c, base!, parametros, 'beatriz')
@@ -160,9 +231,22 @@ describe('o esperado não atravessa antes do fechamento', () => {
       // 1. A CHAVE não existe. `null` não serviria: um campo redigido conta
       //    ao cliente que existe um número ali, e o próximo refactor o
       //    "conserta".
+      //
+      //    `chavesProibidas` acrescenta as DESTA rota, e existe porque a lista
+      //    global é a do CAIXA: o esperado da CONTAGEM chama-se
+      //    `esperadoEmEstoque` (o nome `esperado` está em `CAMPOS_MONETARIOS` e
+      //    a redação o apagaria), então nenhuma chave global o alcançaria.
       const permitidas = new Set((rota.chavesPermitidas ?? []).map((x) => x.chave))
       const chaves = chavesProfundas(r.body)
-      for (const proibida of ['esperado', 'porForma', 'diferenca', 'conferido', 'contado']) {
+      const proibidas = [
+        'esperado',
+        'porForma',
+        'diferenca',
+        'conferido',
+        'contado',
+        ...(rota.chavesProibidas ?? []),
+      ]
+      for (const proibida of proibidas) {
         if (permitidas.has(proibida)) continue
         expect([...chaves], `${caminho} devolve a chave \`${proibida}\``).not.toContain(proibida)
       }
@@ -170,10 +254,56 @@ describe('o esperado não atravessa antes do fechamento', () => {
       // 2. E o NÚMERO não aparece no corpo, sob nome nenhum. É ESTA asserção
       //    que pega o campo renomeado — `total`, `resumo`, `previsto`,
       //    `_debug`, ou um agregado "por forma" com outra etiqueta.
-      for (const n of A_SOMA) {
-        expect(r.text, `${caminho} contém a soma do dia (${n})`).not.toContain(n)
+      //
+      //    `A_SOMA` é dinheiro em centavos e não alcança a contagem, cujo
+      //    esperado é QUANTIDADE em milésimos: `numerosProibidos` declara os
+      //    da rota.
+      for (const n of [...A_SOMA, ...(rota.numerosProibidos ?? [])]) {
+        expect(r.text, `${caminho} contém um número que o servidor somou (${n})`).not.toContain(n)
       }
     }
+  })
+
+  it('A VARREDURA DA CONTAGEM TEM DENTES: a lista de itens ESTÁ lá, e o esperado não', async () => {
+    // Sem esta asserção, uma contagem que devolvesse `{}` — ou um 500 —
+    // passaria no teste acima e a regra 14 estaria "provada" por ausência de
+    // resposta. O que a pessoa precisa para contar (o item, o local, a medida)
+    // fica; o que não pode chegar é quanto o sistema espera achar.
+    const r = await pegar(c, `/v1/estoque/contagens/${contagemAberta}`, {}, 'beatriz')
+    expect(r.statusCode).toBe(200)
+    expect(r.body.concluida).toBe(false)
+    expect(r.body.itens).toHaveLength(1)
+    expect(r.body.itens[0].nome).toBe('Tirzepatida da varredura')
+    expect(r.body.itens[0].medida).toBe('ampola')
+    // E o campo não existe nem como `null`: um `esperadoEmEstoque: null` conta
+    // ao cliente que existe um número ali, e o próximo refactor o "conserta".
+    expect(Object.keys(r.body.itens[0])).not.toContain('esperadoEmEstoque')
+  })
+
+  it('DEPOIS DE CONCLUÍDA, o esperado aparece — senão a contagem não mediria nada', async () => {
+    // O outro lado da regra 14, e ele é obrigatório: uma implementação que
+    // nunca entrega o esperado passaria em todas as asserções acima e não
+    // serviria para nada. A diferença é RELATADA (regra 13), e é ela o produto
+    // do módulo.
+    const itens = await pegar(c, `/v1/estoque/contagens/${contagemAberta}`, {}, 'beatriz')
+    const itemId = itens.body.itens[0].itemId as string
+
+    const salvo = await request(c.app.getHttpServer())
+      .put(`/v1/estoque/contagens/${contagemAberta}`)
+      .set('Cookie', c.cookies['beatriz']!)
+      .send({
+        itens: [{ itemId, lotes: [{ lote: null, quantidade: '12000' }] }],
+        concluir: true,
+        reposicao: false,
+      })
+    expect(salvo.statusCode).toBe(200)
+    expect(salvo.body.contagem.concluida).toBe(true)
+    const item = salvo.body.contagem.itens[0]
+    // 10 + 4 − 1 = 13 esperado, 12 contado: faltou 1 ampola.
+    expect(item.esperadoEmEstoque.milesimos).toBe('13000')
+    expect(item.contadoEmEstoque.milesimos).toBe('12000')
+    expect(item.diferencaEmEstoque.milesimos).toBe('-1000')
+    expect(salvo.body.contagem.itensComFalta).toBe(1)
   })
 
   it('A VARREDURA TEM DENTES: a lista individual ESTÁ lá, e é por isso que a soma some', async () => {

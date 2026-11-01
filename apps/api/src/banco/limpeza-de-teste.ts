@@ -143,6 +143,13 @@ const EM_ORDEM_DE_APAGAR = [
   'configuracao_financeira',
   'contas_a_pagar',
   'metas_do_mes',
+  // A contagem (0017). `contagens_de_estoque` aponta para `tarefas` — a tarefa
+  // que leva a lista para quem conta —, então as três vêm ANTES dela.
+  // `movimentos_de_estoque` já saiu (append-only, fora deste laço), e era ele
+  // que apontava para o grupo de contagem.
+  'contado_na_contagem',
+  'itens_da_contagem',
+  'contagens_de_estoque',
   'tarefas',
   // Depois de `tarefas`, que aponta para as três pela chave estrangeira
   // COMPOSTA `(coluna, clinica_id)`: o filho vai antes do pai.
@@ -155,6 +162,11 @@ const EM_ORDEM_DE_APAGAR = [
   // append-only, e sai por `apagarMovimentosDeEstoqueDeTeste`.
   'insumos_do_procedimento',
   'procedimentos',
+  // A nota de entrada (0017). `vinculos_de_nota` aponta para
+  // `itens_de_estoque`; `notas_de_entrada` não aponta para nada do estoque, e
+  // quem apontava para ela era o movimento, já apagado acima.
+  'vinculos_de_nota',
+  'notas_de_entrada',
   'itens_de_estoque',
   'locais_de_estoque',
   'pacientes',

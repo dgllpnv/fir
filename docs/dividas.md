@@ -103,6 +103,21 @@ O desenho certo é marcar o campo como monetário **no contrato** (`packages/con
 
 E a varredura de contratos (`teste/redacao-de-valores.test.ts`) é **cega dentro de `de`/`para`**: eles são `unknown` por desenho, e não há `shape` onde descer. Nessa rota, a redação em tempo de execução é a única camada.
 
+**Atualização (épico 6, as duas fatias): o "esconde demais" já cobrou o preço duas vezes, e o
+contorno foi RENOMEAR.** Primeiro `saldo` → `saldoEmEstoque`: o campo da quantidade em estoque
+nasceu chamado `saldo`, a redação o apagou, e a tela do estoque da enfermagem mostrava o catálogo
+inteiro **sem número nenhum**. Depois `esperado`/`contado`/`diferenca` → `esperadoEmEstoque`/
+`contadoEmEstoque`/`diferencaEmEstoque`, na contagem — os três nomes estão em
+`CAMPOS_MONETARIOS` por causa do CAIXA, onde são dinheiro.
+
+O contorno funciona e tem teste, mas ele é exatamente o que a dívida descreve: **o nome do campo
+passou a depender de uma lista global**, e quem escrever o quadragésimo não vai saber que
+`esperado` é proibido. O conserto continua sendo redigir por TIPO declarado no contrato.
+
+**O gatilho ficou mais perto:** o épico 7 traz `salario`, que é o campo mais sensível do produto
+e o único redigido por uma permissão diferente (`pessoas.gerir`). Um `salarioBruto` ou um
+`salarioLiquido` novo não está na lista, e ninguém vai lembrar.
+
 **Gatilho:** a primeira rota de negócio que devolve dinheiro. É a primeira coisa do Plano 2, antes dessa rota.
 
 ---
@@ -326,6 +341,43 @@ limite, e a limpeza é manual e lembrada.
 **Gatilho:** nenhum, e é por isso que ela já atravessou três épicos. O conserto é um `globalTeardown`
 no Vitest que varre por prefixo, ou um `beforeAll` que varre o que sobrou da rodada anterior — o
 segundo é mais barato e não depende de a rodada terminar.
+
+### D-E6 · A etiqueta do estoque imprime o CÓDIGO, não a imagem do QR
+
+A tela de etiquetas (`/estoque` → Etiquetas) imprime nome, local e o **código em texto**
+(`FRMEST:<clínica>:<item>`). Quem lê com **leitor de código de barras USB** — o que a maioria das
+clínicas já tem no balcão — está servido: o leitor digita o código no campo "Ler código" e a
+ferramenta reconhece o item.
+
+**O que falta é o desenho do QR**, e ele falta por uma razão deliberada: gerar a imagem exige um
+codificador, e nenhuma biblioteca entrou como dependência nesta fatia. O protótipo carrega
+`qrcode-generator` de um CDN — script de terceiro na página que mostra dado de saúde é decisão de
+segurança, não detalhe de implementação, e ela não foi tomada. A tentativa de instalar o pacote
+localmente também falhou: o espelho offline do `pnpm` não tem o metadado.
+
+O conteúdo do código já vem do **servidor** (`ItemNaLista.codigoQr`), então quando a imagem
+chegar ela será desenhada a partir da mesma string que a câmera vai ler — não há duas
+implementações do formato para divergir.
+
+**Gatilho:** a primeira clínica que quiser ler pela **câmera do celular** em vez do leitor USB.
+Aí a imagem deixa de ser enfeite: sem ela, não há o que a câmera aponte para. O conserto é uma
+dependência de QR empacotada no projeto (nunca um CDN) mais um `<svg>` por etiqueta.
+
+### D-E7 · A leitura pela CÂMERA não existe — só o leitor USB e o código digitado
+
+`LeitorDeCodigo` recebe o código de duas formas: passado pelo **leitor de código de barras USB**
+(ele digita no campo e dá Enter) ou **digitado à mão**. As duas funcionam em qualquer navegador, e
+a interpretação do que foi lido é do domínio, com teste — etiqueta `FRMEST:`, DataMatrix GS1 com
+lote e validade, e código de barras.
+
+**A câmera não foi escrita.** Duas razões, e nenhuma é falta de tempo: o caminho que o protótipo
+usa é um CDN (ver D-E6), e escrever o caminho nativo (`BarcodeDetector`, que hoje existe no Chrome
+do Android e não no Safari) sem poder exercitá-lo aqui produziria código de navegador que ninguém
+sabe se funciona — pior que a ausência, porque a ausência a equipe percebe no primeiro dia.
+
+**Gatilho:** a mesma da D-E6 — a clínica que for ler pela câmera em vez do leitor de balcão. As
+duas se pagam juntas, com a mesma decisão sobre empacotar codificador e decodificador no projeto
+(nunca um CDN) e um teste de navegador de verdade.
 
 ---
 

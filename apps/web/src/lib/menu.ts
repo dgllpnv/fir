@@ -129,7 +129,7 @@ export const MENU: readonly ItemDeMenu[] = [
       'A receita do mês por categoria, contra a meta.',
   },
   { href: '/estoque', rotulo: 'Estoque', grupo: 'Processos', perm: 'estoque',
-    epico: 6,
+    epico: null,
     promessa:
       'Item com as três unidades, lote por validade, contagem às cegas e entrada por NF-e.',
   },

@@ -218,6 +218,45 @@ A razão de não poder: o superadmin **cria** a clínica e o admin dela. Uma cl�
 
 ---
 
+## Decisões tomadas pela construção, e que o dono pode derrubar
+
+Não são escolhas dele — são divergências do protótipo que a engenharia tomou com
+razão escrita, no espírito do *"decida com base no comportamento do protótipo; só
+pergunte quando ele não responder"*. Ficam aqui porque **mudam quem pode o quê**
+ou **o que a equipe vê**, e porque derrubá-las é de uma linha.
+
+### E-1 · A entrada pela NOTA exige `estoque.gerir`; a entrada à mão, não · 2026-11-01
+
+O protótipo deixa qualquer perfil com acesso ao estoque lançar a nota. Aqui
+`POST /v1/estoque/notas` e `POST /v1/estoque/notas/ler` exigem `estoque.gerir`.
+
+**Por quê:** a nota **carrega custo**, e custo é dinheiro — é a mesma razão pela
+qual `movEstoque` já recusa o campo `custo` de quem não tem a chave, e pela qual
+a redação de valores existe (regra 17). O XML traz o preço unitário de cada
+produto, e quem lê a nota lê a tabela de compras da clínica.
+
+**O que NÃO muda:** lançar entrada sem custo continua sendo
+`POST /v1/estoque/movimentos`, que a enfermagem pode. A recepcionista que recebe
+a caixa continua registrando o que chegou.
+
+**Como derrubar:** tirar `@Exige('estoque.gerir')` das duas rotas e gatear o
+campo `custo` linha a linha, como `movEstoque` faz. Meia hora, com teste.
+
+### E-2 · A nota fiscal já registrada responde 200, não erro · 2026-11-01
+
+O protótipo responde `fail("Esta nota já foi registrada.")`. Aqui a segunda e a
+terceira importação do mesmo arquivo respondem **200 com os mesmos movimentos e
+`jaRegistrada: true`**.
+
+**Por quê:** é o que a regra 26 pede de uma escrita externa idempotente — e é o
+que a recepção precisa. Um vermelho não diz se o estoque entrou; a resposta com
+os movimentos diz.
+
+**Como derrubar:** trocar o retorno por `409` no mesmo ponto
+(`notas.service.ts`, o ramo `jaRegistrada`). A tela já tem a frase.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

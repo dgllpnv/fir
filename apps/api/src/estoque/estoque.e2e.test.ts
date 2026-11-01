@@ -47,6 +47,9 @@ let clinica: string
 let outraClinica: string
 let pacienteId: string
 let itemDaOutra: string
+/** Quem conta: a gestora e a enfermagem, para `responsavelId` da contagem. */
+let pessoaDaGestora: string
+let pessoaDaEnfermagem: string
 const codigo = `est-${Date.now()}`
 
 const entrar = (usuario: string, senha: string, cod = codigo) =>
@@ -127,13 +130,13 @@ beforeAll(async () => {
 
   const hash = await hashDeSenha(SENHA)
   const pessoa = async (c: string, nome: string, usuario: string, perfilId: string | null) =>
-    migrate.query(
+    migrate.query<{ id: string }>(
       `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin, perfil_id)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
       [c, nome, usuario, hash, perfilId === null, perfilId],
     )
-  await pessoa(clinica, 'Helena Prado', 'helena', pfGestora)
-  await pessoa(clinica, 'Camila Enf', 'camila', pfEnf)
+  pessoaDaGestora = (await pessoa(clinica, 'Helena Prado', 'helena', pfGestora)).rows[0]!.id
+  pessoaDaEnfermagem = (await pessoa(clinica, 'Camila Enf', 'camila', pfEnf)).rows[0]!.id
   await pessoa(outraClinica, 'Vizinha', 'vizinha', null)
 
   pacienteId = (
@@ -180,8 +183,27 @@ beforeEach(async () => {
    * e **precisar dela é a prova de que a trigger funciona**.
    */
   await apagarMovimentosDeEstoqueDeTeste(migrate, clinica)
-  await migrate.query('DELETE FROM itens_de_estoque WHERE clinica_id = $1', [clinica])
-  await migrate.query('DELETE FROM locais_de_estoque WHERE clinica_id = $1', [clinica])
+  /**
+   * A ORDEM é a das chaves estrangeiras: o movimento (acima) aponta para o
+   * grupo de contagem e para a nota; a contagem aponta para a tarefa; o
+   * vínculo e o item da contagem apontam para o item.
+   *
+   * `tarefas` entra porque `criarContagem` cria a tarefa de quem conta e a
+   * conclusão cria a de reposição — deixá-las vivas faria o segundo `it`
+   * colidir com o índice `tarefa_de_reposicao_viva` do primeiro.
+   */
+  for (const tabela of [
+    'contado_na_contagem',
+    'itens_da_contagem',
+    'contagens_de_estoque',
+    'tarefas',
+    'vinculos_de_nota',
+    'notas_de_entrada',
+    'itens_de_estoque',
+    'locais_de_estoque',
+  ]) {
+    await migrate.query(`DELETE FROM ${tabela} WHERE clinica_id = $1`, [clinica])
+  }
 })
 
 describe('salvarItemEstoque — as três unidades e a contagem inicial', () => {
@@ -782,5 +804,800 @@ describe('importarItensEstoque — idempotente (regra 26) e sem sobrescrever (re
     await importar(gestora, PLANILHA).expect(200)
     const l = await listarItens(adminDaOutra).expect(200)
     expect((l.body.itens as { nome: string }[]).map((i) => i.nome)).toEqual(['Item da Vizinha'])
+  })
+})
+
+/* ==========================================================================
+ * A CONTAGEM ÀS CEGAS — `criarContagem` e `salvarContagem`
+ * ========================================================================== */
+
+const criarContagem = (sessao: string[], corpo: Record<string, unknown>) =>
+  srv().post('/v1/estoque/contagens').set('Cookie', sessao).send(corpo)
+
+const verContagem = (sessao: string[], id: string) =>
+  srv().get(`/v1/estoque/contagens/${id}`).set('Cookie', sessao)
+
+const salvarContagem = (sessao: string[], id: string, corpo: Record<string, unknown>) =>
+  srv().put(`/v1/estoque/contagens/${id}`).set('Cookie', sessao).send(corpo)
+
+/** O id da contagem, e os itens que ela pede para contar. */
+const abrirContagem = async (
+  sessao: string[],
+  corpo: Record<string, unknown> = {},
+): Promise<{ id: string; itens: { itemId: string; nome: string }[] }> => {
+  const r = await criarContagem(sessao, {
+    filtro: 'todos',
+    responsavelId: pessoaDaGestora,
+    prazo: HOJE_NA_CLINICA,
+    ...corpo,
+  }).expect(201)
+  return { id: r.body.contagem.id, itens: r.body.contagem.itens }
+}
+
+describe('criarContagem e salvarContagem — a contagem ÀS CEGAS (regra 14)', () => {
+  let frasco: string
+
+  beforeEach(async () => {
+    const r = await criarItem(gestora, {
+      nome: 'Tirzepatida 5 mg',
+      medida: 'ampola',
+      custo: '45000',
+      minimo: '4000',
+      inicial: { quantidade: '10000' },
+    }).expect(201)
+    frasco = r.body.id
+  })
+
+  it('o ESPERADO não atravessa enquanto a contagem está ABERTA', async () => {
+    await mover(gestora, {
+      itemId: frasco, tipo: 'entrada', quantidade: '4000', unidade: 'ampola',
+      dia: HOJE_NA_CLINICA,
+    }).expect(201)
+
+    const { id } = await abrirContagem(gestora)
+    const r = await verContagem(gestora, id).expect(200)
+
+    expect(r.body.concluida).toBe(false)
+    // O que a pessoa precisa para contar está lá…
+    expect(r.body.itens[0]).toMatchObject({ itemId: frasco, nome: 'Tirzepatida 5 mg', medida: 'ampola' })
+    // …e o esperado NÃO EXISTE. Nem como `null`: um campo redigido conta ao
+    // cliente que existe um número ali, e o próximo refactor o "conserta".
+    for (const chave of ['esperadoEmEstoque', 'anteriorEmEstoque', 'diferencaEmEstoque', 'saldoEmEstoque']) {
+      expect(Object.keys(r.body.itens[0]), chave).not.toContain(chave)
+    }
+    // E o NÚMERO não aparece sob nome nenhum: 14 = 10 + 4, e ele não existe em
+    // nenhum movimento individual.
+    expect(r.text).not.toContain('14000')
+  })
+
+  it('a ENFERMAGEM conta: a lista pede `estoque`, não `estoque.gerir`', async () => {
+    // O ritual é dela — exigir `estoque.gerir` aqui mataria o produto. O que
+    // exige a chave é `movEstoque` com `tipo: contagem`, que é a gestão
+    // reescrevendo o saldo à mão, sem lista e sem cegueira.
+    const r = await criarContagem(enfermagem, {
+      filtro: 'todos',
+      responsavelId: pessoaDaEnfermagem,
+      prazo: HOJE_NA_CLINICA,
+    }).expect(201)
+    const id = r.body.contagem.id as string
+    await salvarContagem(enfermagem, id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '9000' }] }],
+      concluir: true,
+      reposicao: false,
+    }).expect(200)
+    expect(await saldoDe(enfermagem, frasco)).toBe('9000')
+  })
+
+  it('a DIFERENÇA é RELATADA e NUNCA corrigida (regra 13)', async () => {
+    await mover(gestora, {
+      itemId: frasco, tipo: 'entrada', quantidade: '4000', unidade: 'ampola',
+      dia: HOJE_NA_CLINICA,
+    }).expect(201)
+    await mover(gestora, {
+      itemId: frasco, tipo: 'consumo', quantidade: '1000', unidade: 'ampola',
+      dia: HOJE_NA_CLINICA, pacienteId,
+    }).expect(201)
+
+    const { id } = await abrirContagem(gestora)
+    const r = await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '12000' }] }],
+      concluir: true,
+      reposicao: false,
+    }).expect(200)
+
+    const item = r.body.contagem.itens[0]
+    expect(r.body.contagem.concluida).toBe(true)
+    expect(item.anteriorEmEstoque.milesimos).toBe('10000')
+    expect(item.entradasEmEstoque.milesimos).toBe('4000')
+    expect(item.saidasEmEstoque.milesimos).toBe('1000')
+    // 10 + 4 − 1 = 13 esperado, 12 contado: falta 1 ampola.
+    expect(item.esperadoEmEstoque.milesimos).toBe('13000')
+    expect(item.contadoEmEstoque.milesimos).toBe('12000')
+    expect(item.diferencaEmEstoque.milesimos).toBe('-1000')
+    expect(r.body.contagem.itensComFalta).toBe(1)
+    // 1 ampola × R$ 450,00
+    expect(r.body.contagem.valorDaFalta).toBe('45000')
+
+    // **NENHUM AJUSTE NASCEU.** É a regra 13 inteira: corrigir a diferença
+    // destruiria a única informação que justifica contar o estoque.
+    const ajustes = await migrate.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM movimentos_de_estoque
+        WHERE item_id = $1 AND tipo = 'ajuste'`,
+      [frasco],
+    )
+    expect(ajustes.rows[0]!.n).toBe('0')
+    // E o saldo passa a ser o CONTADO: a contagem é o novo ponto de partida.
+    expect(await saldoDe(gestora, frasco)).toBe('12000')
+  })
+
+  it('o item COM VALIDADE é contado por LOTE, e as linhas são UM grupo', async () => {
+    const comLote = await criarItem(gestora, {
+      nome: 'Toxina botulínica 100 UI',
+      medida: 'frasco',
+      controlaValidade: true,
+      inicial: { quantidade: '1000', lote: '2027-03-31' },
+    }).expect(201)
+    const itemId = comLote.body.id as string
+
+    const { id } = await abrirContagem(gestora)
+    const r = await salvarContagem(gestora, id, {
+      itens: [
+        {
+          itemId,
+          lotes: [
+            { lote: '2027-06-30', quantidade: '2000' },
+            { lote: '2027-09-30', quantidade: '1000' },
+          ],
+        },
+      ],
+      concluir: true,
+      reposicao: false,
+    }).expect(200)
+
+    const item = (r.body.contagem.itens as { itemId: string; contadoEmEstoque: { milesimos: string } }[])
+      .find((i) => i.itemId === itemId)!
+    // O TOTAL do grupo: 2 + 1. Sem o grupo, o saldo leria só a última linha e
+    // os outros frascos desapareceriam da prateleira sem erro na tela.
+    expect(item.contadoEmEstoque.milesimos).toBe('3000')
+    expect(await saldoDe(gestora, itemId)).toBe('3000')
+
+    // DUAS linhas de movimento, amarradas pelo MESMO `contagem_id`.
+    const movs = await migrate.query<{ lote: string; milesimos: string; contagem_id: string }>(
+      `SELECT to_char(lote, 'YYYY-MM-DD') AS lote, milesimos::text AS milesimos, contagem_id
+         FROM movimentos_de_estoque
+        WHERE item_id = $1 AND tipo = 'contagem' AND contagem_id IS NOT NULL
+        ORDER BY lote`,
+      [itemId],
+    )
+    expect(movs.rows).toHaveLength(2)
+    expect(movs.rows.map((m) => [m.lote, m.milesimos])).toEqual([
+      ['2027-06-30', '2000'],
+      ['2027-09-30', '1000'],
+    ])
+    expect(movs.rows[0]!.contagem_id).toBe(movs.rows[1]!.contagem_id)
+    expect(movs.rows[0]!.contagem_id).toBe(id)
+
+    // E o FIFO passa a ser o do que foi ACHADO: o lote de março, que ninguém
+    // encontrou, deixa de ser oferecido para a próxima dose.
+    const l = await listarItens(gestora).expect(200)
+    const naLista = (l.body.itens as { id: string; loteSugerido: string | null }[]).find(
+      (i) => i.id === itemId,
+    )!
+    expect(naLista.loteSugerido).toBe('2027-06-30')
+  })
+
+  it('a TAREFA DE REPOSIÇÃO nasce UMA VEZ por item — o índice garante', async () => {
+    const { id } = await abrirContagem(gestora)
+    const r = await salvarContagem(gestora, id, {
+      // Mínimo 4, contado 2: abaixo.
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '2000' }] }],
+      concluir: true,
+      reposicao: true,
+    }).expect(200)
+    expect(r.body.reposicoes).toBe(1)
+
+    const tarefa = await migrate.query<{ descricao: string; prazo: string }>(
+      `SELECT descricao, to_char(prazo, 'YYYY-MM-DD') AS prazo FROM tarefas
+        WHERE clinica_id = $1 AND item_de_estoque_id = $2 AND status = 'aberta'`,
+      [clinica, frasco],
+    )
+    expect(tarefa.rows).toHaveLength(1)
+    expect(tarefa.rows[0]!.descricao).toBe(
+      'Repor estoque: Tirzepatida 5 mg (tem 2 ampola, mínimo 4 ampola)',
+    )
+    // Dois dias: repor é urgente, mas não é hoje.
+    expect(tarefa.rows[0]!.prazo).toBe('2026-11-03')
+
+    // Uma SEGUNDA contagem, com o item ainda abaixo do mínimo, NÃO cria outra
+    // tarefa — e quem garante isso é `tarefa_de_reposicao_viva`, não um `if`
+    // que perde a corrida entre duas abas.
+    const outra = await abrirContagem(gestora)
+    const r2 = await salvarContagem(gestora, outra.id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '1000' }] }],
+      concluir: true,
+      reposicao: true,
+    }).expect(200)
+    expect(r2.body.reposicoes).toBe(0)
+    const depois = await migrate.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM tarefas
+        WHERE clinica_id = $1 AND item_de_estoque_id = $2 AND status = 'aberta'`,
+      [clinica, frasco],
+    )
+    expect(depois.rows[0]!.n).toBe('1')
+  })
+
+  it('a ROTINA cria a próxima, e a aritmética de mês é a regra 25', async () => {
+    const { id } = await abrirContagem(gestora, { repetir: 'mensal' })
+    const r = await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '9000' }] }],
+      concluir: true,
+      reposicao: false,
+    }).expect(200)
+    // Hoje é 01/11 na clínica; um mês depois é 01/12.
+    expect(r.body.proximaEm).toBe('2026-12-01')
+    expect(r.body.proximaId).not.toBeNull()
+
+    const lista = await srv().get('/v1/estoque/contagens').set('Cookie', gestora).expect(200)
+    const abertas = (lista.body.contagens as { concluida: boolean; prazo: string }[]).filter(
+      (x) => !x.concluida,
+    )
+    expect(abertas).toHaveLength(1)
+    expect(abertas[0]!.prazo).toBe('2026-12-01')
+
+    // E a próxima também virou TAREFA: é o que faz a contagem voltar a pedir
+    // ação sozinha, que é o produto desta ferramenta.
+    const tarefas = await migrate.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM tarefas
+        WHERE clinica_id = $1 AND prazo = '2026-12-01' AND status = 'aberta'`,
+      [clinica],
+    )
+    expect(tarefas.rows[0]!.n).toBe('1')
+  })
+
+  it('concluir DUAS VEZES é 409 — a segunda não reescreve o saldo', async () => {
+    const { id } = await abrirContagem(gestora)
+    await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '9000' }] }],
+      concluir: true,
+      reposicao: false,
+    }).expect(200)
+    await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '1000' }] }],
+      concluir: true,
+      reposicao: false,
+    }).expect(409)
+    expect(await saldoDe(gestora, frasco)).toBe('9000')
+  })
+
+  it('"Salvar e continuar depois" guarda o RASCUNHO e não gera movimento', async () => {
+    const { id } = await abrirContagem(gestora)
+    const r = await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '7000' }] }],
+      concluir: false,
+    }).expect(200)
+    expect(r.body.contagem.concluida).toBe(false)
+    expect(r.body.contagem.anotados).toBe(1)
+    expect(r.body.contagem.itens[0].contadoEmEstoque.milesimos).toBe('7000')
+    // O saldo NÃO mudou: o rascunho não é o livro-razão.
+    expect(await saldoDe(gestora, frasco)).toBe('10000')
+
+    // E salvar DE NOVO com o mesmo corpo deixa no mesmo estado — `PUT` é
+    // idempotente, e é isso que torna seguro o balcão com conexão ruim.
+    const outra = await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '7000' }] }],
+      concluir: false,
+    }).expect(200)
+    expect(outra.body.contagem.itens[0].contadoEmEstoque.milesimos).toBe('7000')
+  })
+
+  it('`lotes: []` APAGA o rascunho — limpar o campo não deixa o número velho', async () => {
+    /**
+     * **O defeito que este teste pegou, e ele era de desenho.**
+     *
+     * A primeira versão da tela mandava só os itens COM quantidade, e o
+     * contrato exigia `lotes` com ao menos uma linha. Com isso, apagar o número
+     * de um item não apagava nada no servidor: o rascunho velho ficava, e
+     * concluir fechava a contagem com o número que a pessoa tinha acabado de
+     * corrigir para vazio.
+     *
+     * `PUT` é substituição: `lotes: []` apaga, e a tela manda **todos** os
+     * itens da lista.
+     */
+    const { id } = await abrirContagem(gestora)
+    await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '7000' }] }],
+      concluir: false,
+    }).expect(200)
+
+    const limpo = await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [] }],
+      concluir: false,
+    }).expect(200)
+    expect(limpo.body.contagem.anotados).toBe(0)
+    expect(limpo.body.contagem.itens[0].contadoEmEstoque).toBeNull()
+
+    // E concluir sem nenhum item anotado é 422 — não uma contagem vazia que
+    // reescreve o saldo para zero.
+    await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [] }],
+      concluir: true,
+    }).expect(422)
+    expect(await saldoDe(gestora, frasco)).toBe('10000')
+  })
+
+  it('contar ZERO é diferente de não contar: o saldo vai a zero', async () => {
+    // "Não achei nada na prateleira" é uma informação, e é a que mais importa
+    // num item de alto valor. `lotes: []` seria "ainda não contei".
+    const { id } = await abrirContagem(gestora)
+    const r = await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '0' }] }],
+      concluir: true,
+      reposicao: false,
+    }).expect(200)
+    expect(r.body.contagem.itens[0].contadoEmEstoque.milesimos).toBe('0')
+    expect(r.body.contagem.itens[0].diferencaEmEstoque.milesimos).toBe('-10000')
+    expect(await saldoDe(gestora, frasco)).toBe('0')
+  })
+
+  it('o filtro `semContagem` acha só os itens que ninguém contou', async () => {
+    const novo = await criarItem(gestora, { nome: 'Agulha 13x4,5' }).expect(201)
+    const { itens } = await abrirContagem(gestora, { filtro: 'semContagem' })
+    expect(itens.map((i) => i.itemId)).toEqual([novo.body.id])
+  })
+
+  it('o filtro `altoValor` sai da CURVA ABC do servidor — e vale para a ENFERMAGEM', async () => {
+    // O barato: 1 unidade a R$ 1,00. O frasco do `beforeEach` vale 10 × 450.
+    await criarItem(gestora, {
+      nome: 'Gaze pacote',
+      custo: '100',
+      inicial: { quantidade: '1000' },
+    }).expect(201)
+
+    /**
+     * **A razão de o filtro ser do servidor.** A curva ABC depende do CUSTO de
+     * todos os itens, e custo é redigido para quem não tem `valores`
+     * (regra 17). Resolvido na tela, o filtro "alto valor" da enfermagem
+     * chegaria a uma lista de `custo: null` — a curva não existiria, e a lista
+     * sairia com o catálogo inteiro.
+     */
+    const { itens } = await abrirContagem(enfermagem, {
+      filtro: 'altoValor',
+      responsavelId: pessoaDaEnfermagem,
+    })
+    expect(itens.map((i) => i.nome)).toEqual(['Tirzepatida 5 mg'])
+
+    // E a letra da curva atravessa na lista, sem o custo.
+    const l = await listarItens(enfermagem).expect(200)
+    const naLista = (l.body.itens as { nome: string; curvaAbc: string; ehAltoValor: boolean; custo: null }[])
+    expect(naLista.find((i) => i.nome === 'Tirzepatida 5 mg')).toMatchObject({
+      curvaAbc: 'A',
+      ehAltoValor: true,
+      custo: null,
+    })
+    expect(naLista.find((i) => i.nome === 'Gaze pacote')).toMatchObject({
+      curvaAbc: 'C',
+      ehAltoValor: false,
+    })
+  })
+
+  it('a lista VAZIA é 422, e a categoria sem filtro de categoria é 422', async () => {
+    await criarContagem(gestora, {
+      filtro: 'categoria',
+      categoria: 'Não existe',
+      responsavelId: pessoaDaGestora,
+      prazo: HOJE_NA_CLINICA,
+    }).expect(422)
+    await criarContagem(gestora, {
+      filtro: 'todos',
+      categoria: 'Injetáveis',
+      responsavelId: pessoaDaGestora,
+      prazo: HOJE_NA_CLINICA,
+    }).expect(422)
+  })
+
+  it('o PRAZO no passado é 422, contra o hoje da CLÍNICA (regra 24)', async () => {
+    // Às 23h de São Paulo o UTC já virou: um teto calculado em UTC recusaria
+    // justamente o dia de hoje da clínica.
+    await criarContagem(gestora, {
+      filtro: 'todos',
+      responsavelId: pessoaDaGestora,
+      prazo: '2026-10-31',
+    }).expect(422)
+    await criarContagem(gestora, {
+      filtro: 'todos',
+      responsavelId: pessoaDaGestora,
+      prazo: HOJE_NA_CLINICA,
+    }).expect(201)
+  })
+
+  it('a contagem de uma clínica NÃO é vista pela outra', async () => {
+    const { id } = await abrirContagem(gestora)
+    await verContagem(adminDaOutra, id).expect(404)
+    await salvarContagem(adminDaOutra, id, { itens: [], concluir: false }).expect(404)
+  })
+
+  it('a ANÁLISE compara duas contagens e mostra a falta do período', async () => {
+    await mover(gestora, {
+      itemId: frasco, tipo: 'entrada', quantidade: '4000', unidade: 'ampola',
+      dia: HOJE_NA_CLINICA,
+    }).expect(201)
+    const { id } = await abrirContagem(gestora)
+    await salvarContagem(gestora, id, {
+      itens: [{ itemId: frasco, lotes: [{ lote: null, quantidade: '12000' }] }],
+      concluir: true,
+      reposicao: false,
+    }).expect(200)
+
+    const r = await srv()
+      .get('/v1/estoque/analise')
+      .query({ de: '2026-10-01', ate: HOJE_NA_CLINICA })
+      .set('Cookie', gestora)
+      .expect(200)
+
+    const item = (r.body.itens as { itemId: string; esperadoEmEstoque: { milesimos: string } | null; diferencaEmEstoque: { milesimos: string } | null }[])
+      .find((i) => i.itemId === frasco)!
+    expect(item.esperadoEmEstoque?.milesimos).toBe('14000')
+    expect(item.diferencaEmEstoque?.milesimos).toBe('-2000')
+    expect(r.body.itensComFalta).toBe(1)
+    // 2 ampolas × R$ 450,00
+    expect(r.body.valorDaFalta).toBe('90000')
+  })
+})
+
+/* ==========================================================================
+ * `ligarCodigoItem` — o código de barras da caixa
+ * ========================================================================== */
+
+const ligarCodigo = (sessao: string[], id: string, gtin: string) =>
+  srv().post(`/v1/estoque/${id}/codigo`).set('Cookie', sessao).send({ gtin })
+
+describe('ligarCodigoItem — GS1/EAN, normalizado para 14 dígitos', () => {
+  it('o EAN-13 é gravado em 14 dígitos, e a etiqueta QR sai do servidor', async () => {
+    const item = await criarItem(gestora, { nome: 'Tirzepatida 5 mg' }).expect(201)
+    const r = await ligarCodigo(enfermagem, item.body.id, '7891234567895').expect(201)
+    // EAN-13 e GTIN-14 do mesmo produto são o mesmo código: guardá-los sem
+    // normalizar faria a leitura do DataMatrix não achar o item cadastrado
+    // pelo EAN.
+    expect(r.body.gtin).toBe('07891234567895')
+    // E o conteúdo da etiqueta vem montado: com ele no navegador, imprimir no
+    // desktop e ler no celular dependeria de duas implementações concordarem.
+    expect(r.body.codigoQr).toBe(`FRMEST:${codigo}:${item.body.id}`)
+  })
+
+  it('o mesmo código em OUTRO item é 409, NOMEANDO o item que já o tem', async () => {
+    const a = await criarItem(gestora, { nome: 'Tirzepatida 5 mg' }).expect(201)
+    const b = await criarItem(gestora, { nome: 'Tirzepatida 10 mg' }).expect(201)
+    await ligarCodigo(gestora, a.body.id, '7891234567895').expect(201)
+    const r = await ligarCodigo(gestora, b.body.id, '07891234567895').expect(409)
+    // Dizer QUAL item já tem o código é o que permite à pessoa descobrir que
+    // leu a caixa errada.
+    expect(r.body.message).toContain('Tirzepatida 5 mg')
+  })
+
+  it('religar o MESMO código no MESMO item é idempotente', async () => {
+    const a = await criarItem(gestora, { nome: 'Tirzepatida 5 mg' }).expect(201)
+    await ligarCodigo(gestora, a.body.id, '7891234567895').expect(201)
+    const r = await ligarCodigo(gestora, a.body.id, '7891234567895').expect(201)
+    expect(r.body.gtin).toBe('07891234567895')
+  })
+
+  it('código curto demais é 400 — um "quase" não é código de barras', async () => {
+    const a = await criarItem(gestora, { nome: 'Tirzepatida 5 mg' }).expect(201)
+    await ligarCodigo(gestora, a.body.id, '1234567').expect(400)
+    await ligarCodigo(gestora, a.body.id, 'nao-e-numero').expect(400)
+  })
+
+  it('ligar código num item da OUTRA clínica é 404', async () => {
+    await ligarCodigo(gestora, itemDaOutra, '7891234567895').expect(404)
+  })
+})
+
+/* ==========================================================================
+ * `entradaNota` — a NF-e, idempotente (regra 26)
+ * ========================================================================== */
+
+const lerNota = (sessao: string[], xml: string) =>
+  srv().post('/v1/estoque/notas/ler').set('Cookie', sessao).send({ xml })
+
+const registrarNota = (sessao: string[], corpo: Record<string, unknown>) =>
+  srv().post('/v1/estoque/notas').set('Cookie', sessao).send(corpo)
+
+const CHAVE = '29261012345678000190550010000123451000123456'
+
+const XML = `<?xml version="1.0" encoding="UTF-8"?><nfeProc><NFe>
+<infNFe Id="NFe${CHAVE}">
+<ide><nNF>12345</nNF><dhEmi>2026-10-20T10:00:00-03:00</dhEmi></ide>
+<emit><CNPJ>12345678000190</CNPJ><xNome>Distribuidora Saúde Nordeste Ltda</xNome><xFant>Saúde Nordeste</xFant></emit>
+<det nItem="1"><prod><cProd>MJ5-01</cProd><xProd>TIRZEPATIDA 5MG/0,5ML SOL INJ AMP</xProd><uCom>CX</uCom><qCom>3.0000</qCom><vUnCom>1800.00</vUnCom>
+  <rastro><nLote>L2611A</nLote><qLote>2</qLote><dVal>2027-06-30</dVal></rastro>
+  <rastro><nLote>L2603C</nLote><qLote>1</qLote><dVal>2027-01-31</dVal></rastro></prod></det>
+<det nItem="2"><prod><cProd>FRETE</cProd><xProd>TAXA DE ENTREGA</xProd><uCom>UN</uCom><qCom>1.0000</qCom><vUnCom>25.00</vUnCom></prod></det>
+</infNFe></NFe></nfeProc>`
+
+describe('entradaNota — a NF-e, e a idempotência é do ESQUEMA (regra 26)', () => {
+  let frasco: string
+
+  beforeEach(async () => {
+    /**
+     * **SEM contagem inicial, de propósito.** A nota é de 20/10 e o hoje da
+     * clínica é 01/11: uma contagem de hoje seria o ponto de partida (regra
+     * 11) e as entradas de 20/10 deixariam de somar — o saldo ficaria em zero,
+     * corretamente, e o teste mediria a coisa errada. Medido: foi o que
+     * aconteceu na primeira escrita deste arquivo.
+     */
+    const r = await criarItem(gestora, {
+      ...FRASCO,
+      controlaValidade: true,
+      custo: '45000',
+    }).expect(201)
+    frasco = r.body.id
+  })
+
+  const corpoDaNota = (linhas: Record<string, unknown>[]) => ({
+    nota: {
+      chave: CHAVE,
+      numero: '12345',
+      fornecedor: 'Saúde Nordeste',
+      cnpj: '12345678000190',
+      dia: '2026-10-20',
+    },
+    linhas,
+  })
+
+  /** As duas linhas de rastro da Tirzepatida, em caixas de 4 ampolas. */
+  const duasLinhas = [
+    {
+      como: 'nota', itemId: '', quantidade: '2000', unidadeDaNota: 'CX', fator: '4000',
+      codigo: 'MJ5-01', descricao: 'TIRZEPATIDA 5MG', lote: '2027-06-30', custoDaNota: '180000',
+    },
+    {
+      como: 'nota', itemId: '', quantidade: '1000', unidadeDaNota: 'CX', fator: '4000',
+      codigo: 'MJ5-01', descricao: 'TIRZEPATIDA 5MG', lote: '2027-01-31', custoDaNota: '180000',
+    },
+  ]
+
+  it('LER o XML casa os produtos pelo NOME e deixa o frete de fora', async () => {
+    const r = await lerNota(gestora, XML).expect(200)
+    expect(r.body.nota).toMatchObject({
+      chave: CHAVE,
+      numero: '12345',
+      fornecedor: 'Saúde Nordeste',
+      cnpj: '12345678000190',
+      dia: '2026-10-20',
+    })
+    expect(r.body.jaRegistrada).toBe(false)
+    // Duas linhas de rastro + o frete.
+    expect(r.body.linhas).toHaveLength(3)
+    const tirzepatida = r.body.linhas.filter((l: { codigo: string }) => l.codigo === 'MJ5-01')
+    expect(tirzepatida).toHaveLength(2)
+    for (const l of tirzepatida) {
+      expect(l.itemId).toBe(frasco)
+      /**
+       * **`sugestao`, e não `nome` — medido, e o protótipo faz igual.**
+       *
+       * O item chama-se "Tirzepatida 5 mg"; as palavras que contam são
+       * `tirzepatida` e `mg` (o "5" tem uma letra e sai). A nota diz
+       * "TIRZEPATIDA 5MG/0,5ML SOL INJ AMP": `tirzepatida` casa, `mg` não casa
+       * com `5mg` (o casamento por prefixo exige três letras dos dois lados, e
+       * é o que impede `ml` de casar com `mg`). Uma de duas = 50%, que é
+       * "sugestão: confira".
+       *
+       * A tela diz isso à pessoa, e a diferença entre as duas frases é a
+       * diferença entre ela conferir e não conferir.
+       */
+      expect(l.casamento).toBe('sugestao')
+      /**
+       * O fator sugerido é **1 por 1**, e não as 4 ampolas da caixa.
+       *
+       * A unidade da nota é `CX` e a unidade de compra do cadastro é `caixa`:
+       * elas não casam por nome normalizado. Sugerir o `fatorCompra` aqui
+       * seria converter uma unidade pela conversão de OUTRA — a regra 10 ao
+       * contrário. A tela pede a confirmação, e o que a clínica confirmar vira
+       * vínculo.
+       */
+      expect(l.fator).toBe('1000')
+    }
+    // O frete não corresponde a item nenhum, e isso é o certo.
+    const frete = r.body.linhas.find((l: { codigo: string }) => l.codigo === 'FRETE')
+    expect(frete.itemId).toBeNull()
+    expect(frete.casamento).toBe('sem')
+  })
+
+  it('TRÊS IMPORTAÇÕES da mesma nota criam os movimentos UMA vez', async () => {
+    const corpo = corpoDaNota(duasLinhas.map((l) => ({ ...l, itemId: frasco })))
+
+    const primeira = await registrarNota(gestora, corpo).expect(201)
+    expect(primeira.body.jaRegistrada).toBe(false)
+    expect(primeira.body.movimentos).toHaveLength(2)
+    const ids = (primeira.body.movimentos as { id: string }[]).map((m) => m.id)
+    // 2 CX × 4 + 1 CX × 4 = 12 ampolas.
+    expect(await saldoDe(gestora, frasco)).toBe('12000')
+
+    for (const volta of [2, 3]) {
+      const r = await registrarNota(gestora, corpo).expect(201)
+      expect(r.body.jaRegistrada, `volta ${volta}`).toBe(true)
+      // Os MESMOS movimentos, com os MESMOS ids. Devolver o resultado — e não
+      // um 409 — é o que faz a terceira importação parecer com a primeira:
+      // quem apertou duas vezes precisa saber se o estoque entrou.
+      expect((r.body.movimentos as { id: string }[]).map((m) => m.id), `volta ${volta}`).toEqual(ids)
+      expect(await saldoDe(gestora, frasco), `volta ${volta}`).toBe('12000')
+    }
+
+    const n = await migrate.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM movimentos_de_estoque
+        WHERE item_id = $1 AND tipo = 'entrada'`,
+      [frasco],
+    )
+    expect(n.rows[0]!.n).toBe('2')
+    const notas = await migrate.query<{ n: string }>(
+      'SELECT count(*)::text AS n FROM notas_de_entrada WHERE clinica_id = $1',
+      [clinica],
+    )
+    expect(notas.rows[0]!.n).toBe('1')
+  })
+
+  it('a CHAVE DE ACESSO sozinha dedupa — sem número, sem emissor, sem nada', async () => {
+    /**
+     * **Este teste existe porque uma mutação sobreviveu.**
+     *
+     * Medido: trocar `chave: d.nota.chave` por `chave: null` no `INSERT` —
+     * ou seja, jogar fora a chave de acesso da NF-e — **passou verde** no
+     * teste das três importações. A razão é que aquela nota também tem
+     * `numero` e `cnpj`, e o segundo índice (`emissor + número`) dedupava
+     * sozinho. O teste provava "a nota não duplica", não "a chave de acesso é
+     * a chave".
+     *
+     * Aqui o número é vazio e o CNPJ também: **o único índice que pode
+     * recusar é o da chave de acesso**. Se ela for ignorada, a segunda
+     * importação cria nota nova e o estoque dobra.
+     */
+    const outraChave = CHAVE.replace('1000123456', '1000555555')
+    const corpo = {
+      nota: { chave: outraChave, numero: '', fornecedor: '', cnpj: '', dia: '2026-10-20' },
+      linhas: [
+        {
+          como: 'cadastro', itemId: frasco, quantidade: '1000', unidade: 'caixa',
+          lote: '2027-06-30',
+        },
+      ],
+    }
+    await registrarNota(gestora, corpo).expect(201)
+    expect(await saldoDe(gestora, frasco)).toBe('4000')
+
+    for (const volta of [2, 3]) {
+      const r = await registrarNota(gestora, corpo).expect(201)
+      expect(r.body.jaRegistrada, `volta ${volta}`).toBe(true)
+      expect(await saldoDe(gestora, frasco), `volta ${volta}`).toBe('4000')
+    }
+  })
+
+  it('a nota DIGITADA (sem chave) dedupa por EMISSOR + NÚMERO', async () => {
+    // O protótipo não dedupa este caminho, e lançar a nota duas vezes dobra o
+    // estoque de um item caro sem nenhum aviso.
+    const corpo = {
+      nota: { numero: '999', fornecedor: 'Distribuidora da Esquina', cnpj: '', dia: '2026-10-20' },
+      linhas: [
+        {
+          como: 'cadastro', itemId: frasco, quantidade: '2000', unidade: 'caixa',
+          lote: '2027-06-30', custo: '45000',
+        },
+      ],
+    }
+    const primeira = await registrarNota(gestora, corpo).expect(201)
+    expect(primeira.body.jaRegistrada).toBe(false)
+    // 2 caixas × 4 ampolas = 8.
+    expect(await saldoDe(gestora, frasco)).toBe('8000')
+
+    const segunda = await registrarNota(gestora, corpo).expect(201)
+    expect(segunda.body.jaRegistrada).toBe(true)
+    expect(await saldoDe(gestora, frasco)).toBe('8000')
+  })
+
+  it('o VÍNCULO é gravado, e a nota seguinte do mesmo fornecedor já chega casada', async () => {
+    await registrarNota(
+      gestora,
+      corpoDaNota(duasLinhas.map((l) => ({ ...l, itemId: frasco }))),
+    ).expect(201)
+
+    const vinculos = await migrate.query<{ codigo: string; fator: string; item_id: string }>(
+      'SELECT codigo, fator::text AS fator, item_id FROM vinculos_de_nota WHERE clinica_id = $1',
+      [clinica],
+    )
+    expect(vinculos.rows).toHaveLength(1)
+    expect(vinculos.rows[0]).toMatchObject({ codigo: 'MJ5-01', fator: '4000', item_id: frasco })
+
+    // A SEGUNDA nota do mesmo CNPJ: o casamento vem do vínculo, com o fator
+    // que a clínica confirmou — "1 CX = 10 ampolas é conhecimento da clínica,
+    // não do código".
+    const outra = XML.replace(CHAVE, CHAVE.replace('1000123456', '1000999999')).replace(
+      '<nNF>12345</nNF>',
+      '<nNF>12346</nNF>',
+    )
+    const r = await lerNota(gestora, outra).expect(200)
+    const linha = r.body.linhas.find((l: { codigo: string }) => l.codigo === 'MJ5-01')
+    expect(linha.casamento).toBe('vinculo')
+    expect(linha.fator).toBe('4000')
+    expect(linha.itemId).toBe(frasco)
+  })
+
+  it('o CUSTO que subiu 10% ou mais é avisado, por NOME e sem valor', async () => {
+    // O item nasceu com custo de R$ 450,00 por ampola. A nota traz R$ 1.800,00
+    // por caixa de 4 = R$ 450,00 por ampola… e 10% acima disso é o que avisa.
+    const r = await registrarNota(
+      gestora,
+      corpoDaNota([
+        {
+          como: 'nota', itemId: frasco, quantidade: '1000', unidadeDaNota: 'CX', fator: '4000',
+          codigo: 'MJ5-01', descricao: 'TIRZEPATIDA', lote: '2027-06-30', custoDaNota: '200000',
+        },
+      ]),
+    ).expect(201)
+    // 200000 / 4 = 50000 por ampola, contra 45000: subiu 11%.
+    // E o AVISO leva só o NOME. O número continua viajando no `custo` do
+    // movimento — que é legítimo e é redigido para quem não tem `valores` —,
+    // mas a lista de nomes não é um canal de dinheiro: ela é string, e string
+    // nenhuma redação alcança.
+    expect(r.body.custoSubiu).toEqual(['Tirzepatida 5 mg'])
+
+    const l = await listarItens(gestora).expect(200)
+    const item = (l.body.itens as { id: string; custo: string }[]).find((i) => i.id === frasco)!
+    expect(item.custo).toBe('50000')
+  })
+
+  it('o item que CONTROLA VALIDADE exige o vencimento do que chegou', async () => {
+    await registrarNota(
+      gestora,
+      corpoDaNota([
+        {
+          como: 'nota', itemId: frasco, quantidade: '1000', unidadeDaNota: 'CX', fator: '4000',
+          codigo: 'MJ5-01', descricao: 'TIRZEPATIDA', custoDaNota: '180000',
+        },
+      ]),
+    ).expect(422)
+    expect(await saldoDe(gestora, frasco)).toBe('0')
+  })
+
+  it('a unidade que o item NÃO declarou é 422, nunca uma conversão em silêncio', async () => {
+    const r = await registrarNota(
+      gestora,
+      corpoDaNota([
+        {
+          como: 'cadastro', itemId: frasco, quantidade: '1000', unidade: 'fardo',
+          lote: '2027-06-30',
+        },
+      ]),
+    ).expect(422)
+    expect(r.body.codigo).toBe('UnidadeNaoDeclarada')
+  })
+
+  it('a NOTA exige `estoque.gerir` — ela carrega CUSTO', async () => {
+    await lerNota(enfermagem, XML).expect(403)
+    await registrarNota(enfermagem, corpoDaNota([])).expect(403)
+    // E lançar entrada SEM custo continua sendo `movEstoque`, que ela pode.
+    await mover(enfermagem, {
+      itemId: frasco, tipo: 'entrada', quantidade: '1000', unidade: 'ampola',
+      dia: HOJE_NA_CLINICA, lote: '2027-06-30',
+    }).expect(201)
+  })
+
+  it('a data da nota NO FUTURO é recusada, com o dia do SERVIDOR (regra 24)', async () => {
+    await registrarNota(gestora, {
+      nota: { chave: null, numero: '777', fornecedor: 'Fornecedor', cnpj: '', dia: '2026-12-01' },
+      linhas: [
+        {
+          como: 'cadastro', itemId: frasco, quantidade: '1000', unidade: 'ampola',
+          lote: '2027-06-30',
+        },
+      ],
+    }).expect(422)
+  })
+
+  it('a nota de uma clínica NÃO alcança o item da outra', async () => {
+    await registrarNota(gestora, {
+      nota: { chave: null, numero: '888', fornecedor: 'Fornecedor', cnpj: '', dia: '2026-10-20' },
+      linhas: [
+        { como: 'cadastro', itemId: itemDaOutra, quantidade: '1000', unidade: 'un.' },
+      ],
+    }).expect(404)
   })
 })

@@ -35,7 +35,56 @@ export type RotaDeConferencia = {
    * número.
    */
   readonly chavesPermitidas?: readonly { readonly chave: string; readonly razao: string }[]
+  /**
+   * Chaves que, **nesta rota**, não podem existir — além das globais.
+   *
+   * Existe porque a lista global (`esperado`, `porForma`, `diferenca`,
+   * `conferido`, `contado`) é a do CAIXA, e o esperado da CONTAGEM não se chama
+   * assim: ele se chama `esperadoEmEstoque`, porque `esperado` está em
+   * `CAMPOS_MONETARIOS` e a redação o apagaria — a contagem da enfermagem
+   * sairia sem número nenhum (o mesmo defeito de `saldo` → `saldoEmEstoque`).
+   *
+   * Sem esta lista, a varredura cobraria da contagem a ausência de chaves que
+   * ela nunca teria, e **nenhuma** asserção de chave pegaria o campo
+   * reintroduzido com o nome certo.
+   */
+  readonly chavesProibidas?: readonly string[]
+  /**
+   * Números que não podem aparecer no corpo desta rota, **sob nome nenhum**.
+   *
+   * É esta asserção — e não a de chave — que pega o campo RENOMEADO. A global
+   * (`A_SOMA`) é a soma do caixa, em centavos; o esperado de uma contagem é uma
+   * QUANTIDADE em milésimos, e nenhum número de dinheiro a alcança.
+   *
+   * Quem monta a fixture declara aqui o que o servidor teria de ter somado para
+   * entregar o esperado — um número que não existe em lugar nenhum da resposta
+   * legítima.
+   */
+  readonly numerosProibidos?: readonly string[]
+  /**
+   * Um parâmetro de caminho que a varredura precisa preencher, e o que ele é.
+   *
+   * `:contagem` é o id da contagem ABERTA que a fixture criou. Sem isto, a rota
+   * da contagem não poderia entrar na varredura — e ficar de fora dela é
+   * exatamente o que a nota do épico 6 mandou não fazer.
+   */
+  readonly parametro?: 'contagem'
 }
+
+/**
+ * O ESPERADO da contagem da fixture, em toda forma que ele poderia atravessar.
+ *
+ * A fixture de `transporte-as-cegas.test.ts` monta um item com contagem
+ * inicial de **10 ampolas**, uma entrada de **4** e um consumo de **1**. O
+ * esperado é **13**, e `13000` é um número que **não existe** em nenhuma
+ * resposta legítima da contagem: os três movimentos individuais valem 10000,
+ * 4000 e 1000, e a resposta da contagem aberta não traz movimento nenhum.
+ *
+ * É a mesma construção do `57000` do caixa — o agregado que só pode aparecer
+ * se o servidor tiver somado por alguém. Um número que já estivesse na
+ * resposta por outro motivo não distinguiria vazamento de dado legítimo.
+ */
+const ESPERADO_DA_CONTAGEM = ['13000', '13 ampola', '13,000', '"13"'] as const
 
 export const ROTAS_DE_CONFERENCIA: readonly RotaDeConferencia[] = [
   {
@@ -85,6 +134,53 @@ export const ROTAS_DE_CONFERENCIA: readonly RotaDeConferencia[] = [
     ],
     razao:
       'O mês CORRENTE contém o dia de hoje, e o "recebido por forma" de um mês em curso é o esperado somado com outro nome — a soma do mês inclui a do dia. É a rota mais perigosa da lista, e ela exige `finmes` (logo `valores`): quem a abre já vê valor em toda tela, e mesmo assim não pode receber a gaveta de hoje somada por forma.',
+  },
+
+  // -------------------------------------------------------------------------
+  // A CONTAGEM ÀS CEGAS (regra 14) — o épico 6, segunda fatia.
+  //
+  // A regra 14 é a mesma regra 6 noutro número: a quantidade ESPERADA não
+  // atravessa para o cliente antes do fechamento da contagem. *Quem implementa
+  // só uma das duas implementou nenhuma*, e é por isso que estas duas rotas
+  // entram AQUI, e não na lista de fora — onde estão as três rotas de LEITURA
+  // de item, com a nota explicando que a classificação delas não serve para
+  // esta. O catálogo é o estado da prateleira; a contagem é o esperado de quem
+  // vai contar.
+  //
+  // `numerosProibidos` é o que pega o campo RENOMEADO: a lista global `A_SOMA`
+  // é dinheiro em centavos, e o esperado de uma contagem é quantidade em
+  // milésimos. Sem ele, trocar `esperadoEmEstoque` por `previstoEmEstoque`
+  // passaria verde.
+  // -------------------------------------------------------------------------
+  {
+    caminho: '/v1/estoque/contagens',
+    chavesProibidas: [
+      'esperadoEmEstoque',
+      'anteriorEmEstoque',
+      'diferencaEmEstoque',
+      'saldoEmEstoque',
+      'esperado',
+      'diferenca',
+    ],
+    numerosProibidos: ESPERADO_DA_CONTAGEM,
+    razao:
+      'A lista de contagens. Ela traz as ABERTAS, e o resumo de uma contagem aberta é o lugar mais fácil de vazar o esperado — um "quanto o sistema acha que tem" no cartão da lista chegaria antes de alguém abrir a contagem.',
+  },
+  {
+    caminho: '/v1/estoque/contagens/:id',
+    parametro: 'contagem',
+    chavesProibidas: [
+      'esperadoEmEstoque',
+      'anteriorEmEstoque',
+      'diferencaEmEstoque',
+      'saldoEmEstoque',
+      'loteSugerido',
+      'esperado',
+      'diferenca',
+    ],
+    numerosProibidos: ESPERADO_DA_CONTAGEM,
+    razao:
+      'A contagem em si, e é a rota do ritual. Enquanto aberta, a resposta é `ContagemAberta`, que NÃO TEM `esperadoEmEstoque`, `anteriorEmEstoque` nem `diferencaEmEstoque` — e também não tem os lotes conhecidos do item, porque pré-preencher as validades conta à pessoa o que o sistema espera achar na prateleira.',
   },
 ]
 
@@ -188,6 +284,20 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'O extrato de entradas e saídas, linha a linha. Não é esperado de nada ' +
       '— é o que foi REGISTRADO, que é justamente o lado que a conferência às ' +
       'cegas não precisa esconder. O custo de entrada é redigido sem `valores`.',
+  },
+  {
+    caminho: '/v1/estoque/analise',
+    razao:
+      'A análise do período, e ela DEVOLVE `esperadoEmEstoque` — o que é ' +
+      'correto, e não uma exceção. A regra 14 proíbe o esperado de atravessar ' +
+      'ANTES do fechamento da contagem em que alguém vai contar; uma contagem ' +
+      'FECHADA não pode mais ser influenciada. É a mesma classificação de ' +
+      '`GET /v1/caixa/ultimos`, que mostra a diferença dos dias já fechados. ' +
+      'E ela não alcança rascunho por CONSTRUÇÃO: `analiseDoPeriodo` só compara ' +
+      'grupos de movimento de `contagem`, e um rascunho aberto não gerou ' +
+      'movimento nenhum — ele mora em `contado_na_contagem`, que esta consulta ' +
+      'não lê. **No dia em que esta rota passar a ler o rascunho, ela muda de ' +
+      'lista.**',
   },
   { caminho: '/v1/motivos-de-perda', razao: 'O catálogo de motivos do funil. Nenhum valor.' },
   {

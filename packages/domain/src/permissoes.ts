@@ -149,4 +149,36 @@ export const CAMPOS_MONETARIOS = [
    * apagaria `aReceberQuantos` no dia em que alguém o criasse.
    */
   'saldoAReceber',
+
+  // ---------------------------------------------------------------------
+  // O ÉPICO 6, segunda fatia: a contagem e a nota de entrada.
+  //
+  // `custo` já estava acima e cobre o do item e o do movimento de entrada.
+  // Os três abaixo são novos, e nenhum deles reaproveita um nome existente
+  // de propósito:
+  //
+  //  * `valorDaFalta` — o que a diferença da contagem VALE, ao custo
+  //    cadastrado. É o indicador "Falta nesta contagem (valor)" do protótipo.
+  //    Não é `valor`: ele viaja ao lado de `itensComFalta`, que NÃO é dinheiro
+  //    e é justamente o que a equipe sem `valores` lê.
+  //
+  //  * `valorUnitario` — o `vUnCom` da NF-e, por unidade da nota, em centavos.
+  //
+  //  * `custoDaNota` — o custo por unidade da NOTA, de ENTRADA. Nome próprio
+  //    porque a escala é outra: `custo` é por `medida`, e um nome só para as
+  //    duas escalas seria a ambiguidade que a regra 9 fecha. Ele é campo de
+  //    entrada, e registrá-lo aqui não custa nada: a redação apaga por nome em
+  //    qualquer resposta, e não há resposta com este nome.
+  //
+  // **O que NÃO entra aqui, e é o ponto:** `esperadoEmEstoque`,
+  // `contadoEmEstoque`, `diferencaEmEstoque`, `saldoEmEstoque`. São
+  // QUANTIDADES, e `esperado`, `contado`, `diferenca` e `saldo` já estão nesta
+  // lista por causa do caixa e do saldo da paciente. Nomeá-los assim faria a
+  // redação apagar a contagem inteira para a enfermagem — é o mesmo defeito
+  // que `saldo` → `saldoEmEstoque` registrou no épico 6, medido em
+  // `estoque.e2e.test.ts`.
+  // ---------------------------------------------------------------------
+  'valorDaFalta',
+  'valorUnitario',
+  'custoDaNota',
 ] as const
