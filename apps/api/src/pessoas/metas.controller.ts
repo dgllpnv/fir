@@ -102,6 +102,10 @@ export class MetasDePessoaController {
    * que faz a leitura não deixar dúvida.
    */
   @Post(':mes/copiar')
+  // **200, e não 201.** A segunda cópia não cria nada (`copiadas: 0`,
+  // `jaExistiam: N`), e um `201 Created` sobre uma chamada idempotente que não
+  // escreveu linha nenhuma seria mentira na linha de status.
+  @HttpCode(HttpStatus.OK)
   async copiar(
     @Param('mes') mes: string,
     @Body() corpo: unknown,

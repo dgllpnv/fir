@@ -177,6 +177,12 @@ const EM_ORDEM_DE_APAGAR = [
   'banco_de_horas',
   'documentos_da_pessoa',
   'ferias_da_pessoa',
+  // A segunda fatia do pessoal (0019). As duas apontam para
+  // `fichas_de_pessoa` pela MESMA chave composta `(clinica_id, ficha_id)`, e
+  // `conversas_1a1.por_id` aponta para `pessoas` — então as duas vêm antes da
+  // ficha e muito antes de `pessoas`.
+  'conversas_1a1',
+  'metas_de_pessoa',
   'fichas_de_pessoa',
   'configuracao_de_pessoal',
   'pacientes',
