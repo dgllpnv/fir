@@ -16,6 +16,8 @@ import { RedacaoInterceptor } from './comum/redacao.interceptor'
 import { PacientesModule } from './pacientes/pacientes.module'
 import { PainelGuard } from './painel/painel.guard'
 import { PainelModule } from './painel/painel.module'
+import { CampanhasModule } from './campanhas/campanhas.module'
+import { PainelGeralModule } from './painel-geral/painel.module'
 import { PessoasModule } from './pessoas/pessoas.module'
 import { ProgramasModule } from './programas/programas.module'
 import { SaudeController } from './saude/saude.controller'
@@ -29,6 +31,11 @@ import { TarefasModule } from './tarefas/tarefas.module'
     PacientesModule,
     PessoasModule,
     PainelModule,
+    // O épico 8: as campanhas e o Painel geral da CLÍNICA.
+    // `PainelGeralModule` não tem relação com `PainelModule`, que é o do
+    // SUPERADMIN — ver a nota em `painel-geral/painel.module.ts`.
+    CampanhasModule,
+    PainelGeralModule,
     TarefasModule,
     JornadaModule,
     ClinicaModule,

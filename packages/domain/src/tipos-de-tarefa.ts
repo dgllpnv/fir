@@ -233,6 +233,18 @@ export const TIPOS_DE_RECEITA: readonly string[] = TIPOS.filter((t) => t.receita
   (t) => t.nome,
 )
 
+/**
+ * Os que CONTAM COMO ATENDIMENTO: `ehAtendimento`.
+ *
+ * Entrou com as campanhas (épico 8): *"Pacientes convertidos"* é o paciente
+ * da campanha com **consulta, procedimento ou orçamento pago concluído** — e
+ * os três são exatamente os de `atende`. Derivado da tabela como os outros
+ * três: um tipo novo entra nas duas pontas de uma vez.
+ */
+export const TIPOS_QUE_ATENDEM: readonly string[] = TIPOS.filter((t) => t.atende === true).map(
+  (t) => t.nome,
+)
+
 /** Atendimento que guarda o pagamento na própria tarefa: `aceitaPagamento`. */
 export const TIPOS_PAGAVEIS: readonly string[] = TIPOS.filter((t) => t.pagavel === true).map(
   (t) => t.nome,

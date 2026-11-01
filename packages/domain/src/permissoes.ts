@@ -204,4 +204,35 @@ export const CAMPOS_MONETARIOS = [
   // ---------------------------------------------------------------------
   'metaEmDinheiro',
   'realizadoEmDinheiro',
+
+  // ---------------------------------------------------------------------
+  // O ÉPICO 8: as CAMPANHAS e o PAINEL GERAL.
+  //
+  //  * `resultadoEmDinheiro` — o resultado da campanha quando a métrica é
+  //    `receita`. Par de `metaEmDinheiro`, que já está acima. As outras três
+  //    métricas usam `resultadoEmNumero`, que **não** entra: a Recepção tem
+  //    `campanhas` e não tem `valores` — é o perfil padrão dela —, e apagar
+  //    "38 de 40 contatos" seria esconder o trabalho em vez do preço.
+  //
+  //  * `receita` — quanto a campanha gerou, e quanto o PAINEL registrou no
+  //    período. Existe sempre, mesmo quando a meta é de contatos.
+  //
+  //  * `ticketMedio` — `receita ÷ pagamentos`, pelo `Dinheiro.media` (regra
+  //    1). É o único campo desta lista que nasce de uma DIVISÃO.
+  //
+  //  * `valorDosOrcamentosPagos` — a soma dos orçamentos fechados no período.
+  //    Nome próprio, e não `valorOrcamento`: aquele é o valor PROPOSTO (que
+  //    não é receita, regra 4) e este é o que ENTROU no fechamento. Dois
+  //    fatos, dois nomes.
+  //
+  // **O que NÃO entra:** `resultadoEmNumero`, `metaEmNumero`,
+  // `percentualDaMeta`, `taxaDeConversao`, `taxaNoPrazo`,
+  // `conversaoDeOrcamentos` e todas as contagens do painel. Nenhum é
+  // dinheiro, e os percentuais são exatamente o que sobra para quem não vê
+  // valor.
+  // ---------------------------------------------------------------------
+  'resultadoEmDinheiro',
+  'receita',
+  'ticketMedio',
+  'valorDosOrcamentosPagos',
 ] as const

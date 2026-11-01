@@ -74,6 +74,9 @@ const DINHEIRO_DA_TAREFA = ['valor', 'valorAberto', 'valorOrcamento'] as const
  */
 const DINHEIRO_DA_META = ['metaEmDinheiro', 'realizadoEmDinheiro'] as const
 
+/** Os três nomes monetários da CAMPANHA — ver a nota no fim da lista. */
+const DINHEIRO_DA_CAMPANHA = ['metaEmDinheiro', 'resultadoEmDinheiro', 'receita'] as const
+
 export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'GET', caminho: '/v1/auditoria', camposDeDinheiro: [...CAMPOS_MONETARIOS], curinga: true },
   // `credito` entrou com o épico 4: a lista e a ficha deixaram de calcular o
@@ -393,6 +396,52 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   },
   { metodo: 'DELETE', caminho: '/v1/metas-de-pessoa/:mes/:id', camposDeDinheiro: DINHEIRO_DA_META },
   { metodo: 'GET', caminho: '/v1/minhas-metas/:mes', camposDeDinheiro: DINHEIRO_DA_META },
+
+  /**
+   * AS CAMPANHAS (épico 8).
+   *
+   * **Três nomes monetários, e a lógica é a mesma das metas de pessoa:**
+   * `metaEmDinheiro` e `resultadoEmDinheiro` só existem na métrica `receita`;
+   * `receita` existe SEMPRE, porque a tela mostra quanto a campanha gerou
+   * mesmo quando a meta é de contatos.
+   *
+   * **O que NÃO entra, e é o desenho:** `metaEmNumero`, `resultadoEmNumero`,
+   * `percentualDaMeta` e `taxaDeConversao`. A recepção tem `campanhas` e NÃO
+   * tem `valores` — é literalmente o perfil padrão dela —, e apagar "38 de 40
+   * contatos" seria esconder o trabalho em vez do preço. `percentualDaMeta` é
+   * o que sobra para ela, e ele não revela a meta.
+   *
+   * As quatro rotas devolvem a MESMA forma (`Campanhas`): gravar e reler pela
+   * mesma porta, para que a tela não precise de uma segunda chamada só para
+   * saber em quanto a barra ficou. `importar` é a exceção — ela devolve só
+   * contagens, e nenhuma delas é dinheiro.
+   */
+  { metodo: 'GET', caminho: '/v1/campanhas', camposDeDinheiro: DINHEIRO_DA_CAMPANHA },
+  { metodo: 'POST', caminho: '/v1/campanhas', camposDeDinheiro: DINHEIRO_DA_CAMPANHA },
+  { metodo: 'PUT', caminho: '/v1/campanhas/:id', camposDeDinheiro: DINHEIRO_DA_CAMPANHA },
+  { metodo: 'DELETE', caminho: '/v1/campanhas/:id', camposDeDinheiro: DINHEIRO_DA_CAMPANHA },
+
+  /**
+   * O PAINEL GERAL da clínica (épico 8).
+   *
+   * `painel` → `valores` na matriz, então quem abre a tela sempre vê dinheiro
+   * — e mesmo assim os campos passam pela redação. A dependência entre chaves
+   * vive na TABELA (regra 16); registrá-los aqui é o que garante que mudá-la
+   * amanhã não vire vazamento hoje.
+   *
+   * **`ticketMedio` é campo monetário por direito**, e ele é o único derivado
+   * de uma DIVISÃO: `receita ÷ pagamentos`, pelo `Dinheiro.media` (regra 1).
+   */
+  {
+    metodo: 'GET',
+    caminho: '/v1/painel',
+    camposDeDinheiro: [
+      'receita',
+      'ticketMedio',
+      'valorDosOrcamentosPagos',
+      'valor',
+    ],
+  },
 ]
 
 /**
@@ -424,6 +473,11 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   // anotação de uma 1:1 se corrige — travá-las como livro-razão obrigaria a
   // clínica a criar linha nova para arrumar um número digitado errado, e a
   // trilha já guarda de → para.
+  // O épico 8 (0020): as campanhas. MUTÁVEL (a gestora ajusta a meta e as
+  // datas enquanto a campanha corre) e com soft delete — e, ao contrário do
+  // protótipo, excluir NÃO limpa o `campanha_id` das tarefas: o trabalho feito
+  // mantém a atribuição, e o painel do trimestre passado não muda sozinho.
+  'campanhas',
   'conversas_1a1',
   'metas_de_pessoa',
   'contagens_de_estoque',

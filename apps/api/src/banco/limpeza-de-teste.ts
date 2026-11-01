@@ -153,6 +153,11 @@ const EM_ORDEM_DE_APAGAR = [
   'tarefas',
   // Depois de `tarefas`, que aponta para as três pela chave estrangeira
   // COMPOSTA `(coluna, clinica_id)`: o filho vai antes do pai.
+  // `campanhas` entra aqui pela 0020: `tarefas.campanha_id` e
+  // `pacientes.campanha_id` a referenciam, e `pacientes` vem bem mais abaixo —
+  // por isso o `UPDATE` que solta o vínculo do paciente roda antes do laço,
+  // em `soltarCiclosDoPrograma`.
+  'campanhas',
   'motivos_de_perda',
   'programas',
   // O estoque (0015 e 0016). `insumos_do_procedimento` e `procedimentos`
@@ -234,4 +239,15 @@ async function soltarCiclosDoPrograma(cliente: pg.Client, clinicaId: string): Pr
   await cliente.query('UPDATE programas SET tarefa_de_origem_id = NULL WHERE clinica_id = $1', [
     clinicaId,
   ])
+  /**
+   * E o vínculo de CAMPANHA do paciente (0020).
+   *
+   * Não é ciclo: é ORDEM impossível. `pacientes.campanha_id` referencia
+   * `campanhas`, e `campanhas` precisa ser apagada antes de `pessoas`
+   * (`criada_por`) — mas `pacientes` vem DEPOIS de `campanhas` no laço,
+   * porque `tarefas` aponta para os dois. Soltar o vínculo aqui é a mesma
+   * solução pela mesma razão: só a fixture desmonta, e um
+   * `ON DELETE SET NULL` mudaria o comportamento de produção.
+   */
+  await cliente.query('UPDATE pacientes SET campanha_id = NULL WHERE clinica_id = $1', [clinicaId])
 }

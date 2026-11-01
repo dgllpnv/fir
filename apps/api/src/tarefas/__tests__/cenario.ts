@@ -60,8 +60,8 @@ export type Cenario = {
   readonly outraClinica: string
   /**
    * `juliana` recepção (`jornada`, SEM `valores` e SEM `receber`) ·
-   * `beatriz` supervisão (`tarefas.equipe`, `jornada`, `valores`, `receber` e
-   * TODO o financeiro) · `camila` comercial (`valores`, SEM `jornada`, SEM
+   * `beatriz` supervisão (`tarefas.equipe`, `jornada`, `valores`, `receber`,
+   * TODO o financeiro, `painel` e `campanhas.gerir`) · `camila` comercial (`valores`, SEM `jornada`, SEM
    * `caixa`, SEM `cobrancas`) · `rita` balcão (`receber` SEM `valores`) ·
    * `sonia` caixa (`caixa`, `contas`, `cobrancas`, SEM `valores` e SEM
    * `contas.gerir`) · `nara` enfermagem (`programas`, SEM `valores`, SEM
@@ -129,7 +129,13 @@ export async function montarCenario(
                    -- É o mesmo raciocínio do financeiro: quem pode tudo
                    -- continua contando às cegas, e um teste de regra 14 feito
                    -- com perfil fraco provaria a redação, não a cegueira.
-                   'estoque','estoque.gerir'])
+                   'estoque','estoque.gerir',
+                   -- O épico 8: o PAINEL GERAL entra em ROTAS_DE_CONFERENCIA
+                   -- porque agrega recebimentos por FORMA num período que
+                   -- pode conter hoje, e a janela é escolhida por quem olha.
+                   -- Pelo mesmo raciocínio do financeiro, a varredura o chama
+                   -- com o principal mais forte.
+                   'painel','campanhas','campanhas.gerir'])
      RETURNING id`,
     [clinica],
   )

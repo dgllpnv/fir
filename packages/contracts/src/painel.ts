@@ -1,218 +1,227 @@
-import { SENHA_MAX, canonizarUsuario, ehErro, validarUsuario } from '@fir/domain'
 import { z } from 'zod'
-import { Uuid } from './comum'
+import { DiaCivil, Uuid, centavosNaSaida } from './comum'
 
 /**
- * O PAINEL DO SUPERADMIN — contratos próprios, espaço de identidade próprio.
+ * **Gestão › Painel geral** (MANUAL cap. 10) — a tela da CLÍNICA.
  *
- * O operador **não é uma `pessoa`** (D-5 restrição 1, D-10): tabela sem
- * `clinica_id`, cookie `__Host-fir-painel`, rotas sob `/v1/superadmin`. Os
- * dois espaços de identidade são disjuntos, e o dia em que se cruzarem é o
- * dia em que o superadmin virou uma pessoa de alguma clínica.
+ * *"Cumprimento de prazos da equipe, receita registrada, ticket médio,
+ * contatos, orçamentos, formas de pagamento … no período escolhido."*
  *
- * Nenhum contrato daqui tem campo monetário, e isso é verificado por
- * `teste/redacao-de-valores.test.ts`: sem `req.contexto`, o
- * `RedacaoInterceptor` falha fechado e apagaria qualquer um. **No dia em que
- * o painel mostrar dinheiro, esta é a linha a revisitar** — e a resposta
- * certa será dar ao contexto do operador um `pode` próprio, nunca desligar o
- * interceptor.
+ * **Não confundir com o painel do SUPERADMIN**, que mora em `superadmin.ts`:
+ * são dois espaços de identidade disjuntos, e `CONTEXT.md` abre proibindo
+ * chamar o segundo de `painel` — `painel` é a chave de permissão desta tela
+ * aqui, e a allowlist de IP do Traefik casa o segmento `superadmin`.
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * ESTA ROTA NÃO DEVOLVE NÚMERO QUE A TELA PRECISE DIVIDIR
+ *
+ * Toda taxa (`taxaNoPrazo`, `conversaoDeOrcamentos`, o `percentual` de cada
+ * forma) vem **em percentual inteiro, pronto**, e todo total vem somado. A
+ * tela desenha. O protótipo calcula os quinze no navegador (`metricas`,
+ * `vPainel`), com `today()` do aparelho — e aí o celular adiantado da recepção
+ * conta como vencida a tarefa de amanhã.
+ *
+ * **`painel` → `valores` na matriz de permissões**, então quem abre esta tela
+ * sempre vê dinheiro. Mesmo assim os campos monetários passam pela redação: a
+ * dependência entre chaves vive na TABELA (regra 16), não numa suposição de
+ * que ela nunca vai mudar.
+ * ────────────────────────────────────────────────────────────────────────────
  */
 
+/** Os cinco de `PERIODOS`, no protótipo. */
+export const PERIODOS_DO_PAINEL = [
+  { chave: '7d', rotulo: '7 dias' },
+  { chave: '30d', rotulo: '30 dias' },
+  { chave: 'mes', rotulo: 'Este mês' },
+  { chave: 'ant', rotulo: 'Mês passado' },
+  { chave: 'per', rotulo: 'Personalizado' },
+] as const
+
+export type ChaveDePeriodo = (typeof PERIODOS_DO_PAINEL)[number]['chave']
+
+export const PeriodoDoPainel = z.enum(
+  PERIODOS_DO_PAINEL.map((p) => p.chave) as [ChaveDePeriodo, ...ChaveDePeriodo[]],
+)
+
 /**
- * Entrar no painel. **Não há clínica aqui** — o operador não pertence a
- * nenhuma, e um campo `clinica` neste corpo seria o primeiro passo para
- * tratá-lo como pessoa de uma.
+ * O pedido: a chave do período e, só em `per`, as duas bordas.
  *
- * `transform` e não `refine`, pela mesma razão de `EntrarEntrada`: o canônico
- * é o que segue adiante, inclusive para `tentativas_de_operador`, e é isso
- * que faz o limite contar as grafias como uma conta só.
+ * **As bordas dos quatro períodos fixos são resolvidas no SERVIDOR** — `7d` é
+ * `[hoje − 6, hoje]` no fuso da clínica, e `mes` é o mês civil de lá. A tela
+ * manda a CHAVE, nunca as datas calculadas, pela regra 24: data de negócio não
+ * vem do relógio do cliente.
  */
-export const EntrarNoPainelEntrada = z
+export const FiltroDoPainel = z
   .object({
-    usuario: z
-      .string()
-      .max(64)
-      .transform(canonizarUsuario)
-      .pipe(z.string().min(1, 'Informe o usuário.')),
-    senha: z.string().min(1, 'Informe a senha.').max(SENHA_MAX),
+    periodo: PeriodoDoPainel.default('30d'),
+    de: DiaCivil.optional(),
+    ate: DiaCivil.optional(),
   })
   .strict()
-export type EntrarNoPainelEntrada = z.infer<typeof EntrarNoPainelEntrada>
-
-/** O que o painel sabe sobre quem está nele. Nunca o hash, nunca o prazo. */
-export const OperadorPublico = z.object({
-  id: Uuid,
-  usuario: z.string(),
-  nome: z.string(),
-  /** A senha atual foi definida pela VPS e precisa ser trocada. */
-  senhaProvisoria: z.boolean(),
-})
-export type OperadorPublico = z.infer<typeof OperadorPublico>
-
-export const PainelEuSaida = z.object({ operador: OperadorPublico })
-export type PainelEuSaida = z.infer<typeof PainelEuSaida>
-
-/**
- * O usuário **validado pela forma**, e não só canonizado.
- *
- * Em `entrar` a forma é perdoada (quem tem uma conta antiga precisa entrar);
- * na CRIAÇÃO ela é cobrada, e a mensagem é a do domínio — a mesma que a tela
- * mostra antes do envio.
- */
-const UsuarioNovo = z
-  .string()
-  .max(64)
-  .transform(canonizarUsuario)
-  .superRefine((v, ctx) => {
-    const r = validarUsuario(v)
-    if (ehErro(r)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: r.erro.mensagem })
+  .refine((f) => f.periodo !== 'per' || (f.de !== undefined && f.ate !== undefined), {
+    path: ['de'],
+    message: 'Informe as duas datas do período personalizado.',
   })
+  .refine((f) => f.de === undefined || f.ate === undefined || f.de <= f.ate, {
+    path: ['ate'],
+    message: 'A data final não pode ser anterior à inicial.',
+  })
+export type FiltroDoPainel = z.infer<typeof FiltroDoPainel>
 
 /**
- * O código da clínica passa pela MESMA forma canônica do nome de usuário, e
- * pela mesma razão: ele é **ditado por telefone** e digitado na tela de
- * entrada todos os dias.
- */
-export const CodigoDeClinica = UsuarioNovo
-
-/**
- * Criar clínica — **uma chamada entrega a clínica funcionando**: clínica,
- * perfis padrão e a administradora com senha provisória.
+ * O CUMPRIMENTO DE PRAZOS de um conjunto de tarefas — as quatro situações.
  *
- * Tudo ou nada. Uma clínica sem admin não tem como voltar a ter uma pela
- * própria clínica — só pelo painel —, e meia criação é o estado que produz um
- * chamado.
+ * `taxaNoPrazo` divide `noPrazo` por `noPrazo + comAtraso + atrasadas`, e
+ * **não** pelo total: o que ainda não venceu não pode estar no prazo nem fora
+ * dele. É o `base` do protótipo, e trocar o denominador pelo total faz a taxa
+ * de quem planejou o mês inteiro despencar sem que nada tenha piorado.
  *
- * `.strict()`: campo a mais é 400. Em particular **não há campo de senha** —
- * nem para a clínica, nem para a admin. A provisória é gerada no servidor e
- * devolvida uma vez (D-10).
+ * `null` sem denominador — nunca `0%`, que acusaria alguém que não atrasou
+ * nada. Mesma distinção de `percentualNoPrazo`.
  */
-export const CriarClinicaEntrada = z
+export const CumprimentoDePrazos = z
   .object({
-    codigo: CodigoDeClinica,
-    nome: z.string().trim().min(2, 'Informe o nome da clínica.').max(120),
+    total: z.number().int(),
+    noPrazo: z.number().int(),
+    comAtraso: z.number().int(),
+    atrasadas: z.number().int(),
+    aVencer: z.number().int(),
+    taxaNoPrazo: z.number().int().nullable(),
+  })
+  .strict()
+export type CumprimentoDePrazos = z.infer<typeof CumprimentoDePrazos>
+
+export const LinhaPorResponsavel = CumprimentoDePrazos.extend({
+  pessoaId: Uuid,
+  nome: z.string(),
+  funcao: z.string(),
+}).strict()
+export type LinhaPorResponsavel = z.infer<typeof LinhaPorResponsavel>
+
+/**
+ * "Quem solicitou" — **pela data de CRIAÇÃO da tarefa**, não pelo prazo.
+ *
+ * São duas perguntas diferentes e dois recortes diferentes: *"quem está
+ * entregando no prazo"* olha o prazo; *"quem está pedindo trabalho"* olha
+ * quando o pedido foi feito. A nota da tela dela diz exatamente isso.
+ */
+export const LinhaPorSolicitante = z
+  .object({
+    pessoaId: Uuid,
+    nome: z.string(),
+    solicitadas: z.number().int(),
+    paraSiMesma: z.number().int(),
+    paraAEquipe: z.number().int(),
+  })
+  .strict()
+export type LinhaPorSolicitante = z.infer<typeof LinhaPorSolicitante>
+
+export const FormaNoPainel = z
+  .object({
+    forma: z.string(),
+    pagamentos: z.number().int(),
+    valor: centavosNaSaida,
+    /** A fatia da receita do período, em percentual inteiro. Do servidor. */
+    percentual: z.number().int().nullable(),
+  })
+  .strict()
+export type FormaNoPainel = z.infer<typeof FormaNoPainel>
+
+export const TipoNoPainel = z
+  .object({
+    tipo: z.string(),
+    /** Tarefas desse tipo com PRAZO no período. */
+    comPrazoNoPeriodo: z.number().int(),
+    /** Tarefas desse tipo CONCLUÍDAS no período. */
+    concluidasNoPeriodo: z.number().int(),
+    valor: centavosNaSaida,
+  })
+  .strict()
+export type TipoNoPainel = z.infer<typeof TipoNoPainel>
+
+/**
+ * PACIENTES NO PERÍODO — *"contatos e valores contam pela data em que a tarefa
+ * foi concluída"*, exatamente como a nota da tela dela.
+ */
+export const PacientesNoPainel = z
+  .object({
+    receita: centavosNaSaida,
+    pagamentos: z.number().int(),
+    /** Pacientes DISTINTOS com atendimento concluído no período. */
+    pacientesAtendidos: z.number().int(),
     /**
-     * Regra 22: o fuso é **propriedade da clínica**, nunca uma constante
-     * global. O legado fixou `America/Bahia` num `const`, e isso quebra na
-     * primeira clínica de outro estado.
-     *
-     * Validado contra a lista IANA do próprio runtime: um fuso inválido só
-     * apareceria no dia em que a primeira borda de período fosse calculada
-     * errado, e aí o erro já estaria num relatório.
+     * `receita ÷ pagamentos`, calculado pelo value object `Dinheiro` (regra
+     * 1). `null` sem pagamento nenhum — `R$ 0,00` diria que o ticket médio é
+     * zero, e ele não existe.
      */
-    fuso: z
-      .string()
-      .min(1, 'Informe o fuso da clínica.')
-      .refine(fusoEhValido, 'Fuso desconhecido. Use um nome IANA, como America/Bahia.'),
-    admin: z
+    ticketMedio: centavosNaSaida,
+    contatos: z.number().int(),
+    orcamentosPagos: z.number().int(),
+    valorDosOrcamentosPagos: centavosNaSaida,
+    orcamentosEnviados: z.number().int(),
+    /**
+     * `fechados ÷ enviados`, em percentual inteiro, **limitado a 100**.
+     *
+     * Contado por **`acao` declarada** (ADR 0004), nunca por rótulo nem por
+     * cruzamento de paciente e data. O protótipo soma aqui dois conjuntos
+     * diferentes — eventos da jornada MAIS tarefas de "Orçamento enviado"
+     * cujo paciente teve um pagamento em data posterior —, e a segunda metade
+     * conta de novo o que a primeira já contou; daí o `Math.min(100, …)` que
+     * ele precisa pôr em volta do resultado.
+     *
+     * `null` sem nenhum orçamento enviado: dividir por zero não diz nada.
+     */
+    conversaoDeOrcamentos: z.number().int().nullable(),
+
+    /**
+     * **O RECEBIDO POR FORMA, E SÓ DOS DIAS COM CAIXA JÁ FECHADO** (regra 6).
+     *
+     * Este é o campo perigoso do painel, e a razão é a mesma de
+     * `visao-do-mes`: *"o recebido por forma de um período em curso é o
+     * esperado somado com outro nome"*. A conferência às cegas protege o
+     * agregado **por forma de pagamento num dia**, e um período personalizado
+     * de `de = ate = hoje` entregaria exatamente isso.
+     *
+     * **O protótipo vaza aqui** — ele agrupa `rec` por `formaPagamento` no
+     * navegador, sem olhar caixa nenhum, e a recepcionista que vai conferir a
+     * gaveta pode abrir o Painel e ler o esperado por forma do próprio dia.
+     * Divergência consciente, e é a mesma defesa que o épico 4 já construiu.
+     *
+     * `porFormaAteODia` e `porFormaDiasSemCaixa` DECLARAM o recorte: sem eles
+     * a tabela parece o período inteiro, e a gestora compara uma soma parcial
+     * com um total sem saber.
+     */
+    porForma: z.array(FormaNoPainel),
+    /** O último dia do período cujo caixa foi fechado. `null` = nenhum. */
+    porFormaAteODia: DiaCivil.nullable(),
+    /** Dias do período com recebimento e SEM caixa fechado. */
+    porFormaDiasSemCaixa: z.number().int(),
+    porTipo: z.array(TipoNoPainel),
+  })
+  .strict()
+export type PacientesNoPainel = z.infer<typeof PacientesNoPainel>
+
+export const Painel = z
+  .object({
+    /** O dia da clínica, do SERVIDOR. É ele que separa atrasada de a vencer. */
+    hoje: DiaCivil,
+    periodo: z
       .object({
-        nome: z.string().trim().min(2, 'Informe o nome da administradora.').max(120),
-        usuario: UsuarioNovo,
-        funcao: z.string().trim().max(120).default(''),
+        chave: PeriodoDoPainel,
+        /** "Últimos 30 dias", "Outubro" — pronto, do servidor. */
+        rotulo: z.string(),
+        de: DiaCivil,
+        ate: DiaCivil,
       })
       .strict(),
+
+    prazos: CumprimentoDePrazos,
+    /** Tarefas CRIADAS no período — o segundo número do cartão do topo. */
+    criadasNoPeriodo: z.number().int(),
+    porResponsavel: z.array(LinhaPorResponsavel),
+    porSolicitante: z.array(LinhaPorSolicitante),
+
+    pacientes: PacientesNoPainel,
   })
   .strict()
-export type CriarClinicaEntrada = z.infer<typeof CriarClinicaEntrada>
-
-/**
- * `Intl.supportedValuesOf('timeZone')` não serve: ele lista os fusos
- * canônicos e **omite os apelidos** (`America/Sao_Paulo` está, mas
- * `Brazil/East` não), e recusar um apelido válido é recusar uma clínica.
- * Construir um `DateTimeFormat` aceita exatamente o que o runtime aceita —
- * que é quem vai calcular a borda do período depois.
- */
-function fusoEhValido(fuso: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: fuso })
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** O que a criação de pessoa pelo painel aceita. */
-export const CriarPessoaNoPainelEntrada = z
-  .object({
-    nome: z.string().trim().min(2, 'Informe o nome.').max(120),
-    usuario: UsuarioNovo,
-    funcao: z.string().trim().max(120).default(''),
-    /**
-     * `null` é **administradora da clínica** — e é por isto que este contrato
-     * existe separado de `CriarPessoaEntrada`: o admin da clínica cria a
-     * EQUIPE dela, e quem cria ADMIN é o superadmin (D-10, cadeia de
-     * criação). A restrição `pessoa_tem_acesso_definido` do banco diz a mesma
-     * coisa de outro jeito: admin não tem perfil, quem não é admin precisa de
-     * um.
-     */
-    perfilId: Uuid.nullable(),
-  })
-  .strict()
-export type CriarPessoaNoPainelEntrada = z.infer<typeof CriarPessoaNoPainelEntrada>
-
-/** A pessoa criada pelo painel, com a provisória que aparece UMA vez. */
-export const PessoaCriadaNoPainel = z.object({
-  id: Uuid,
-  nome: z.string(),
-  usuario: z.string(),
-  admin: z.boolean(),
-  perfilId: Uuid.nullable(),
-  senhaProvisoria: z.string(),
-  senhaProvisoriaExpiraEm: z.string(),
-})
-export type PessoaCriadaNoPainel = z.infer<typeof PessoaCriadaNoPainel>
-
-export const ClinicaCriada = z.object({
-  id: Uuid,
-  codigo: z.string(),
-  nome: z.string(),
-  fuso: z.string(),
-  admin: PessoaCriadaNoPainel,
-})
-export type ClinicaCriada = z.infer<typeof ClinicaCriada>
-
-export const ClinicaNaLista = z.object({
-  id: Uuid,
-  codigo: z.string(),
-  nome: z.string(),
-  fuso: z.string(),
-  ativa: z.boolean(),
-  criadaEm: z.string(),
-})
-export type ClinicaNaLista = z.infer<typeof ClinicaNaLista>
-
-export const ClinicasDoPainel = z.object({ itens: z.array(ClinicaNaLista) })
-export type ClinicasDoPainel = z.infer<typeof ClinicasDoPainel>
-
-/** A ficha de pessoa vista pelo painel. **Nunca** hash, nunca provisória. */
-export const PessoaNoPainel = z.object({
-  id: Uuid,
-  nome: z.string(),
-  usuario: z.string(),
-  funcao: z.string(),
-  admin: z.boolean(),
-  perfilId: Uuid.nullable(),
-  ativo: z.boolean(),
-  precisaTrocarSenha: z.boolean(),
-})
-export type PessoaNoPainel = z.infer<typeof PessoaNoPainel>
-
-export const PessoasDoPainel = z.object({ itens: z.array(PessoaNoPainel) })
-export type PessoasDoPainel = z.infer<typeof PessoasDoPainel>
-
-/**
- * O operador troca a PRÓPRIA senha — e esta rota é a saída obrigatória da
- * provisória gerada pelo break-glass da VPS.
- *
- * Sem ela, o primeiro operador nasceria com uma credencial que vence em 72 h
- * e **sem caminho para trocá-la**: o painel ficaria trancado três dias depois
- * de ser aberto. `.strict()` pela mesma razão de `TrocarSenhaEntrada`: um
- * campo `contexto` aceito aqui seria um contexto escolhido pelo cliente.
- */
-export const TrocarSenhaDoOperadorEntrada = z
-  .object({
-    atual: z.string().min(1, 'Informe a senha atual.').max(SENHA_MAX),
-    nova: z.string().min(1, 'Informe a nova senha.').max(SENHA_MAX),
-  })
-  .strict()
-export type TrocarSenhaDoOperadorEntrada = z.infer<typeof TrocarSenhaDoOperadorEntrada>
+export type Painel = z.infer<typeof Painel>

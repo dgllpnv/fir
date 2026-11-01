@@ -92,6 +92,36 @@ export class Dinheiro {
   }
 
   /**
+   * **A MÉDIA** deste valor entre `n` ocorrências — o ticket médio.
+   *
+   * Não é `ratear`, e a distinção é o desenho: `ratear` PARTE um valor em
+   * pedaços cuja soma é exatamente o todo; a média é **um valor
+   * representativo**, e somar `n` cópias dele não precisa (nem costuma) dar o
+   * total de volta. Usar `ratear(n)[0]` daria sempre a parte que recebeu o
+   * centavo do resto, ou seja, a média arredondada para CIMA — e um ticket
+   * médio sistematicamente um centavo maior é um número errado de propósito.
+   *
+   * Arredonda ao inteiro mais próximo, **meio para cima**, em aritmética
+   * exata de `bigint`: `(2a + n) / 2n` com divisão inteira. `receita /
+   * pagamentos` em ponto flutuante é a assinatura que a regra 1 barra, e é
+   * exatamente o que o protótipo faz (`brl0(receita / rec.length)`).
+   *
+   * `n = 0` LANÇA: a média de nada não é zero, é inexistente. Quem pergunta
+   * decide o que mostrar — e `R$ 0,00` num ticket médio diria que a clínica
+   * vendeu de graça.
+   */
+  media(n: number): Dinheiro {
+    if (!Number.isInteger(n) || n < 1) {
+      throw new Error(`Média precisa de pelo menos uma ocorrência, recebeu ${n}.`)
+    }
+    const d = BigInt(n)
+    const negativo = this.centavos < 0n
+    const a = negativo ? -this.centavos : this.centavos
+    const v = (2n * a + d) / (2n * d)
+    return new Dinheiro(negativo ? -v : v)
+  }
+
+  /**
    * A string sai dos DOIS `bigint`, sem passar por `Number` em nenhum ponto.
    *
    * O que havia antes: `FORMATADOR.format(Number(inteiros) + Number(decimais)

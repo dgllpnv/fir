@@ -152,6 +152,32 @@ export const ROTAS_DE_CONFERENCIA: readonly RotaDeConferencia[] = [
   // milésimos. Sem ele, trocar `esperadoEmEstoque` por `previstoEmEstoque`
   // passaria verde.
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // O PAINEL GERAL (épico 8) — e ele entra AQUI, não na lista de fora.
+  //
+  // A varredura me pegou, e a pergunta dela era a certa: o painel **agrega
+  // recebimentos por FORMA DE PAGAMENTO num período que pode conter hoje** —
+  // e um período personalizado de `de = ate = hoje` entrega exatamente o
+  // esperado da gaveta que alguém ainda vai contar. É a mesma classe de
+  // `visao-do-mes`, com uma janela que a gestora escolhe.
+  //
+  // A defesa é a mesma que o épico 4 construiu: `porForma` só soma os dias com
+  // caixa JÁ FECHADO, e `porFormaAteODia`/`porFormaDiasSemCaixa` declaram o
+  // recorte. **O protótipo vaza aqui** (`rec.forEach(t => fs[t.formaPagamento]…)`,
+  // sem olhar caixa nenhum) — divergência consciente.
+  // -------------------------------------------------------------------------
+  {
+    caminho: '/v1/painel',
+    chavesPermitidas: [
+      {
+        chave: 'porForma',
+        razao:
+          'Soma SÓ os dias do período cujo caixa já foi fechado — o `EXISTS` em `caixas_do_dia` é o corte, e `porFormaAteODia`/`porFormaDiasSemCaixa` o declaram. A asserção de NÚMERO é que prova isso, e ela continua valendo.',
+      },
+    ],
+    razao:
+      'O período do painel pode conter HOJE, e "recebido por forma" num período em curso é o esperado somado com outro nome — com a agravante de a janela ser escolhida por quem olha. Exige `painel` (logo `valores`): quem a abre já vê valor em toda tela, e mesmo assim não pode receber a gaveta de hoje somada por forma.',
+  },
   {
     caminho: '/v1/estoque/contagens',
     chavesProibidas: [
@@ -347,6 +373,28 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   // em `ROTAS_DE_CONFERENCIA`, não aqui. Esta nota existe para que quem a
   // escrever não copie a classificação destas três por parecerem vizinhas.
   // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // AS CAMPANHAS (épico 8) — fora, e a razão precisa ser escrita porque elas
+  // DEVOLVEM receita de um período que pode conter hoje.
+  //
+  // O que a conferência às cegas protege é o agregado **por FORMA DE
+  // PAGAMENTO num dia** (regra 6) — é por forma que a recepcionista confere a
+  // gaveta. A campanha devolve um total de receita por CAMPANHA, sem recorte
+  // de forma e sem recorte de dia, e o período dela é semanas. Nenhuma das
+  // quatro rotas responde "quanto o sistema espera em dinheiro, em Pix e em
+  // cartão hoje".
+  //
+  // **Se a campanha ganhar quebra por forma de pagamento, esta é a primeira
+  // linha a revisitar** — e a resposta certa será a mesma do painel: só os
+  // dias com caixa fechado.
+  // ---------------------------------------------------------------------
+  {
+    caminho: '/v1/campanhas',
+    razao:
+      'A receita de cada campanha, sem recorte de forma de pagamento e sem ' +
+      'recorte de dia. Não é o esperado de gaveta nenhuma; é redigida pela ' +
+      'regra 17 como qualquer outro valor.',
+  },
   {
     caminho: '/v1/estoque',
     razao:

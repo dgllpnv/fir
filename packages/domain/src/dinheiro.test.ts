@@ -106,3 +106,73 @@ describe('Dinheiro — aritmética', () => {
     )
   })
 })
+
+// ---------------------------------------------------------------------------
+// A MÉDIA — o ticket médio
+// ---------------------------------------------------------------------------
+
+describe('Dinheiro.media — o ticket médio, em aritmética exata', () => {
+  const c = (n: bigint) => Dinheiro.deCentavos(n)
+
+  it('arredonda ao inteiro mais próximo, MEIO PARA CIMA', () => {
+    // 10 / 4 = 2,5 → 3 (meio para cima).
+    expect(c(10n).media(4).centavos).toBe(3n)
+    // 10 / 3 = 3,33… → 3.
+    expect(c(10n).media(3).centavos).toBe(3n)
+    // 11 / 3 = 3,66… → 4.
+    expect(c(11n).media(3).centavos).toBe(4n)
+    expect(c(30000n).media(3).centavos).toBe(10000n)
+  })
+
+  /**
+   * **A DIFERENÇA QUE JUSTIFICA O MÉTODO.** `ratear(n)[0]` é sempre a parte
+   * que ficou com o centavo do resto — a média arredondada para CIMA, sempre.
+   * Um ticket médio sistematicamente um centavo maior é um número errado de
+   * propósito, e com milhares de pagamentos ele vira o argumento de uma
+   * conversa que não devia acontecer.
+   */
+  it('NÃO é `ratear(n)[0]`: 10 em 3 partes dá 4 ali e 3 aqui', () => {
+    expect(c(10n).ratear(3)[0]!.centavos).toBe(4n)
+    expect(c(10n).media(3).centavos).toBe(3n)
+  })
+
+  it('zero ocorrências LANÇA — a média de nada não é zero', () => {
+    expect(() => c(10n).media(0)).toThrow()
+    expect(() => c(10n).media(-1)).toThrow()
+    expect(() => c(10n).media(1.5)).toThrow()
+  })
+
+  it('é exata em centavos grandes, sem ponto flutuante no meio', () => {
+    // 90.071.992.547.409.919 / 7 = 12.867.427.506.772.845,57… → ...846.
+    expect(c(90_071_992_547_409_919n).media(7).centavos).toBe(12_867_427_506_772_846n)
+  })
+
+  it('negativo arredonda pela MAGNITUDE, e o sinal volta', () => {
+    expect(c(-10n).media(4).centavos).toBe(-3n)
+    expect(c(-10n).media(3).centavos).toBe(-3n)
+  })
+
+  /**
+   * A propriedade que vale para uma média: ela está entre o piso e o teto da
+   * divisão exata, e `n × media` não se afasta do total em mais de `n/2`
+   * centavos. Property-based porque é aritmética de dinheiro (regra do
+   * CLAUDE.md §7).
+   */
+  it('fica sempre entre piso e teto da divisão, e o erro é no máximo meio centavo por parte', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 0n, max: 10n ** 15n }),
+        fc.integer({ min: 1, max: 5000 }),
+        (total, n) => {
+          const m = c(total).media(n).centavos
+          const d = BigInt(n)
+          expect(m).toBeGreaterThanOrEqual(total / d)
+          expect(m).toBeLessThanOrEqual(total / d + 1n)
+          const erro = m * d - total
+          const abs = erro < 0n ? -erro : erro
+          expect(abs * 2n).toBeLessThanOrEqual(d)
+        },
+      ),
+    )
+  })
+})

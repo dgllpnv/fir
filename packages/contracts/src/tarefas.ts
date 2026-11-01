@@ -12,7 +12,12 @@ import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Hora, Uuid } from './comum'
  * do banco continua `text` justamente porque a MIGRAÇÃO das 4 clínicas
  * precisa gravar os nomes de três gerações; CRIAR pela API, não.
  */
-const NomeDeTipo = z
+/**
+ * Exportado desde o épico 8: **as campanhas validam tipo de tarefa também**,
+ * e uma segunda expressão em `campanhas.ts` é como uma delas passa a aceitar
+ * um nome que a tabela não tem. Mesma regra, um lugar.
+ */
+export const NomeDeTipo = z
   .string()
   .trim()
   .max(60)
@@ -113,7 +118,7 @@ export type Quando = z.infer<typeof Quando>
  * servidor sempre valida: se a única guarda fosse o `<select>`, um POST direto
  * criaria a segunda contagem do mesmo dinheiro.
  */
-const tipoQueNaoEhPagamento = NomeDeTipo.refine((t) => !ehPagamento(t), {
+export const tipoQueNaoEhPagamento = NomeDeTipo.refine((t) => !ehPagamento(t), {
   message: 'Pagamento não é tarefa. Use Recebimento para registrar dinheiro recebido.',
 })
 
