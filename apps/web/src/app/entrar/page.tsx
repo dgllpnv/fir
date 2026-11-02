@@ -20,6 +20,22 @@ import { clinicaGuardada, lembrarClinica, resolverClinica } from '@/lib/clinica-
  * Quem não tem o link digita o código, como antes. O seletor com a lista mora
  * no painel do superadmin, que é autenticado e atrás da allowlist de IP.
  */
+/* Olho aberto e olho cortado — SVG inline, com rótulo no botão.
+   `docs/design.md` proíbe emoji na interface e biblioteca de ícone nova. */
+const OLHO_ABERTO = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <path d="M1.8 12S5.5 5.2 12 5.2 22.2 12 22.2 12 18.5 18.8 12 18.8 1.8 12 1.8 12Z" />
+    <circle cx="12" cy="12" r="3.2" />
+  </svg>
+)
+
+const OLHO_FECHADO = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+    <path d="M1.8 12S5.5 5.2 12 5.2c1.5 0 2.9.36 4.1.92M22.2 12s-1.4 2.56-4 4.42M9.9 9.9a3.2 3.2 0 0 0 4.3 4.3" />
+    <path d="M3.2 3.2 20.8 20.8" />
+  </svg>
+)
+
 export default function Entrar() {
   const router = useRouter()
   const [clinica, setClinica] = useState('')
@@ -32,6 +48,21 @@ export default function Entrar() {
   const [doLink, setDoLink] = useState(false)
   const [usuario, setUsuario] = useState('')
   const [senha, setSenha] = useState('')
+  /**
+   * Mostrar a senha digitada.
+   *
+   * **Por que isto existe num produto que guarda dado de saúde:** a senha aqui
+   * é gerada pelo servidor — quatro palavras ditáveis por telefone, como
+   * `candeia-arrecife-pilao-37`. Digitar isso às cegas e errar uma letra
+   * consome uma das cinco tentativas por 15 minutos, e a pessoa é barrada sem
+   * ter esquecido nada. Ver o que se digitou é o que torna a senha longa
+   * usável no balcão.
+   *
+   * **Nasce escondida, e volta a esconder a cada tentativa** (ver `entrar`):
+   * no computador compartilhado da recepção, deixar a senha revelada depois
+   * de uma tentativa falha é expô-la para quem chegar em seguida.
+   */
+  const [senhaVisivel, setSenhaVisivel] = useState(false)
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
   const campoUsuario = useRef<HTMLInputElement>(null)
@@ -62,6 +93,13 @@ export default function Entrar() {
   async function enviar(e: React.FormEvent) {
     e.preventDefault()
     setErro('')
+    // Volta a esconder a cada tentativa: no computador compartilhado do
+
+    // balcão, senha revelada depois de uma falha fica exposta para quem
+
+    // chegar em seguida.
+
+    setSenhaVisivel(false)
     setEnviando(true)
     try {
       await chamar('v1/entrar', {
@@ -159,13 +197,30 @@ export default function Entrar() {
           </label>
           <label className="campo">
             Senha
-            <input
-              type="password"
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
+            <span className="campo-com-botao">
+              <input
+                type={senhaVisivel ? 'text' : 'password'}
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+              {/* `type="button"`: sem isso o navegador o trata como submit e
+                  revelar a senha TENTA ENTRAR, gastando uma das cinco
+                  tentativas. `tabIndex={-1}` mantém a ordem de tabulação
+                  senha → Entrar, que é o caminho de quem digita rápido; quem
+                  usa teclado só alcança o olho de propósito. */}
+              <button
+                type="button"
+                tabIndex={-1}
+                className="olho"
+                aria-label={senhaVisivel ? 'Esconder a senha' : 'Mostrar a senha'}
+                aria-pressed={senhaVisivel}
+                onClick={() => setSenhaVisivel((v) => !v)}
+              >
+                {senhaVisivel ? OLHO_FECHADO : OLHO_ABERTO}
+              </button>
+            </span>
           </label>
 
           {/* Uma mensagem por vez, e o espaço dela não desloca o botão quando
