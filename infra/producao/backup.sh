@@ -159,11 +159,51 @@ echo "    diarios: $(quantos "$DESTINO")/$MANTER_DIARIOS · mensais: $(quantos "
 echo "    disco: $(df -h "$DESTINO" | tail -1 | awk '{print $5" usado, "$4" livre"}')"
 
 # ---------------------------------------------------------------------------
-# O AVISO QUE NÃO DEVE PARAR DE APARECER
+# A CÓPIA FORA DA VPS
 # ---------------------------------------------------------------------------
-if [ ! -f /opt/fir/backup-remoto.conf ]; then
+# No mesmo disco, isto é cópia e não backup: se o disco morrer, os trinta
+# dumps morrem junto. A parte que falta é só a CREDENCIAL do destino, e o
+# código dela está aqui para que ligar seja escrever um arquivo de três
+# linhas — não um projeto.
+#
+#   /opt/fir/backup-remoto.conf   (modo 600)
+#     REMOTO_TIPO=ssh                        # ou: rclone
+#     REMOTO_DESTINO=user@host:/srv/fir-backups/
+#
+# O arquivo enviado JÁ ESTÁ CIFRADO (gpg AES256) e a chave não viaja com ele,
+# então o destino não precisa ser confiável — precisa ser OUTRO DISCO. É o que
+# torna um bucket de terceiro ou um host barato uma resposta aceitável aqui.
+CONF_REMOTO=/opt/fir/backup-remoto.conf
+
+if [ -f "$CONF_REMOTO" ]; then
+  # shellcheck disable=SC1090
+  . "$CONF_REMOTO"
+  : "${REMOTO_TIPO:?REMOTO_TIPO nao definido em $CONF_REMOTO}"
+  : "${REMOTO_DESTINO:?REMOTO_DESTINO nao definido em $CONF_REMOTO}"
+  echo "==> enviando para fora da VPS ($REMOTO_TIPO)"
+  case "$REMOTO_TIPO" in
+    ssh)
+      # `-p` preserva o modo 600. `BatchMode` para falhar em vez de pedir
+      # senha dentro do cron, onde ninguem responde.
+      scp -p -o BatchMode=yes "$ARQUIVO" "$REMOTO_DESTINO"
+      ;;
+    rclone)
+      rclone copy --quiet "$ARQUIVO" "$REMOTO_DESTINO"
+      ;;
+    *)
+      echo "ERRO: REMOTO_TIPO \"$REMOTO_TIPO\" desconhecido (use ssh ou rclone)." >&2
+      exit 1
+      ;;
+  esac
+  # **Falhar o script quando o envio falha, e nao so avisar.** Um backup que
+  # para de sair da VPS em silencio e exatamente o estado que se descobre no
+  # dia do incidente. O `set -e` acima ja derruba no erro do scp/rclone; esta
+  # linha existe para o caso de um `|| true` ser acrescentado aqui algum dia.
+  echo "    ok: copia fora da VPS registrada"
+else
   echo
   echo "  ATENCAO: este backup esta NO MESMO DISCO do banco."
   echo "  Se o disco morrer, ele morre junto — isso nao e backup, e copia."
-  echo "  Falta so a credencial do destino remoto: ver docs/operacao/backup.md."
+  echo "  Falta so a credencial do destino: crie $CONF_REMOTO."
+  echo "  Ver docs/operacao/backup.md."
 fi

@@ -1,0 +1,18 @@
+# O backup diario do FIR.  ->  /etc/cron.d/fir-backup
+#
+# `/etc/cron.d` e NAO o crontab do root: o root desta VPS nao tem crontab, e
+# criar um para ele misturaria o nosso agendamento com o de quem administra a
+# maquina. Um arquivo proprio e removivel sem tocar em nada alheio.
+#
+# 03:10 UTC = 00:10 em America/Bahia: depois do fechamento de caixa das
+# clinicas e antes do movimento do dia seguinte, e fora do horario em que os
+# containers dos outros negocios estao mais carregados.
+#
+# `nice -n 19` e `ionice -c3`: o pg_dump compete com a producao de OUTROS
+# negocios no mesmo disco e nos mesmos 4 vCPU. Backup e importante e nao e
+# urgente — ele pode esperar o disco.
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+
+10 3 * * * root cd /opt/fir/repo/infra/producao && nice -n 19 ionice -c3 bash backup.sh >> /var/log/fir-backup.log 2>&1
