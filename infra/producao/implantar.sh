@@ -90,9 +90,19 @@ acrescentar_segredo() {
   fi
 }
 
+# **Imprime só o NOME da chave, nunca o valor.** A primeira versão desta função
+# imprimia `$1=$2` "para o operador conferir", e a primeira execução de verdade
+# despejou a senha de `fir_painel` inteira na saída do deploy —
+# `DATABASE_URL_PAINEL` tem a senha dentro da URL. Saída de deploy vai para
+# terminal, para histórico de shell e para onde quem implanta colar o resultado.
+#
+# Quando o valor é fixo e público (`IPS_DO_PAINEL=127.0.0.1/32`), ver o valor
+# ajuda; quando é segredo, ver o valor é um incidente. A função não tem como
+# saber qual é qual, então não imprime nenhum — quem quiser conferir lê o
+# arquivo, que é modo 600.
 acrescentar_linha() {
   if ! grep -q "^$1=" "$AMBIENTE"; then
-    echo "==> acrescentando $1=$2 a $AMBIENTE"
+    echo "==> acrescentando $1 a $AMBIENTE"
     printf '%s=%s\n' "$1" "$2" >> "$AMBIENTE"
   fi
 }
@@ -224,8 +234,18 @@ echo "  ok  fir_migrate e fir_app existem"
 # `fir_migrate` não tem CREATEROLE, e uma migration com senha dentro fica no
 # repositório para sempre. Ele é idempotente e REBAIXA o papel a cada execução
 # — se alguém deu BYPASSRLS "para depurar", isto desfaz.
+#
+# `bash provisionar-painel.sh`, e **não** `./provisionar-painel.sh`: os scripts
+# desta pasta foram commitados com modo `100644`, porque quem os escreveu
+# trabalha no Windows e o `rwxr-xr-x` que o Git Bash mostra ali é emulado. Num
+# clone em Linux — que é todo deploy — `./` falha com `Permission denied`.
+#
+# O modo no índice do git foi corrigido junto desta linha, mas a invocação por
+# `bash` fica: ela não depende de um bit que um `zip`, um `rsync` sem `-p` ou um
+# checkout em outro sistema de arquivos pode perder de novo. O deploy não é o
+# lugar de descobrir isso.
 echo "==> provisionando fir_painel"
-./provisionar-painel.sh
+bash provisionar-painel.sh
 
 # ---------------------------------------------------------------------------
 # 5 · migrations
@@ -400,5 +420,5 @@ echo "FIR em https://${DOMINIO}"
 echo "Segredos em $(pwd)/$AMBIENTE — modo 600, fora do repositório."
 echo
 echo "O PRIMEIRO OPERADOR do painel ainda não existe. Crie-o com:"
-echo "  ./redefinir-superadmin.sh <usuario> \"Nome Completo\""
+echo "  bash redefinir-superadmin.sh <usuario> \"Nome Completo\""
 echo "Ele imprime a senha UMA VEZ, e por isso não está neste script."
