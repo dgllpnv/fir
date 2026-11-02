@@ -43,25 +43,32 @@ aceitação é a **comparação de contagens com o banco vivo**, tabela por tabe
 mais a contagem de tabelas com RLS ligada. Um restore que traz os dados e perde
 a política devolve um banco em que toda clínica lê a outra — e "restaurou".
 
-### Medição de 2026-11-02
+### Medição de 2026-11-02 — **com as três clínicas dentro**
+
+Medida **depois** do corte das três clínicas reais, que é quando o número vale.
 
 | | |
 |---|---|
-| Arquivo | 122.400 bytes cifrados |
-| Banco na origem | 12 MB |
-| **RTO medido (dados)** | **1 s** |
+| Arquivo | 753.532 bytes cifrados |
+| Conteúdo | 4 clínicas · 774 pacientes · 1.816 tarefas · 107 recebimentos · 6.918 linhas de auditoria |
+| **RTO medido (dados)** | **2 s** |
 | Erros do `pg_restore` | 0 |
-| Conferências | 13/13 bateram (12 tabelas + RLS: 37 tabelas com política) |
+| Conferências | 13/13 bateram |
+| RLS | **37 tabelas com política, no vivo e no restaurado** |
 
-**Este número não é o RTO de um incidente real, e não deve ser citado como
-tal**, por duas razões:
+A medição anterior, com o banco quase vazio (122.400 bytes, RTO 1 s), fica
+registrada só para comparação: ela provava o mecanismo, não o tempo.
 
-1. **O banco estava quase vazio.** As três clínicas ainda não foram migradas.
-   Com elas dentro (≈774 pacientes e ≈1.815 tarefas somadas), o ensaio
-   **precisa ser repetido e o número reescrito aqui**.
-2. **Falta o provisionamento.** O RTO de verdade é `implantar.sh` (subir
-   Postgres, papéis, migrations, api e web) **mais** esta restauração. Medir só
-   a segunda metade é relatar metade do caminho.
+**Este número ainda não é o RTO de um incidente**, e não deve ser citado como
+tal. Falta somar:
+
+1. **O provisionamento** — `implantar.sh` (Postgres, papéis, migrations, api,
+   web). Minutos, não segundos.
+2. **A reconstrução das imagens**, quando elas já tiverem sido removidas pelo
+   `prune` da VPS (ver a seção abaixo). É o item mais caro dos três.
+
+O tempo de restauração do banco é, hoje, a menor parcela do RTO — e saber
+disso é o que impede de otimizar a parte errada.
 
 ### O componente de RTO que vive fora do banco: as imagens
 

@@ -195,6 +195,46 @@ describe('toda rota do Nest está autenticada, ou é pública de propósito', ()
     ).toEqual([])
   })
 
+  /**
+   * **NENHUMA ROTA PÚBLICA LISTA CLÍNICAS.** D-12, decisão do dono de
+   * 2026-11-02, cobrada aqui porque a tentação volta.
+   *
+   * O pedido era um menu com as clínicas cadastradas na tela de entrada, no
+   * lugar do campo onde se digita o código. Isso exige uma rota que responde
+   * **antes de qualquer autenticação**, e ela custa duas coisas: publica a
+   * lista de clientes do produto, e tira **um dos dois desconhecidos** da
+   * credencial — hoje é clínica + usuário + senha, viraria usuário + senha, e
+   * usuário é adivinhável (`recepcao`, `ana`). É a mesma classe do
+   * `equipePublica` da v20, que removemos de propósito por listar a equipe
+   * antes do login.
+   *
+   * O que entrou no lugar: `/entrar?clinica=CODIGO` **pré-seleciona** a
+   * clínica (é como as quatro clínicas já entram, pelo favorito), e o seletor
+   * com a lista mora no painel do superadmin — autenticado, e atrás da
+   * allowlist de IP do escritório.
+   *
+   * O caminho é só uma heurística, e é de propósito: ela não tenta adivinhar
+   * o que a rota devolve, ela recusa a PALAVRA no caminho de uma rota pública.
+   * Quem precisar de uma rota pública com `clinica` no nome passa por esta
+   * mensagem antes, que é exatamente o ponto.
+   */
+  it('nenhuma rota pública menciona CLÍNICA no caminho — D-12', () => {
+    const publicas = rotas.filter((r) => r.publico)
+    expect(publicas.length, 'nenhuma rota pública encontrada — a varredura quebrou').toBeGreaterThan(
+      0,
+    )
+
+    const suspeitas = publicas.filter((r) => /clinica/i.test(r.caminho)).map(chave)
+    expect(
+      suspeitas,
+      `rota(s) pública(s) com "clinica" no caminho: ${suspeitas.join(', ')}. ` +
+        'D-12: nenhuma rota pública lista nem descreve clínicas. Uma rota que responde antes do ' +
+        'login publica a lista de clientes e tira um dos dois desconhecidos da credencial — é a ' +
+        'classe do `equipePublica` da v20. O seletor de clínicas mora no PAINEL do superadmin; a ' +
+        'tela de entrada recebe a clínica pelo link (?clinica=CODIGO).',
+    ).toEqual([])
+  })
+
   it('TODA rota não-pública e de CLÍNICA responde 401 sem cookie de sessão', async () => {
     const fastify = app.getHttpAdapter().getInstance()
     // Rota de painel fica fora: ela responde 404 sem cookie de painel, e o

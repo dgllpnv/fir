@@ -51,6 +51,15 @@ const novoCodigo = () => `pcl${sufixo}x${proximo++}`
 
 const http = () => request(app.getHttpServer())
 
+/** Toda chave do corpo, em qualquer profundidade. Para o teste do mínimo. */
+const chavesProfundas = (v: unknown): string[] => {
+  if (Array.isArray(v)) return v.flatMap(chavesProfundas)
+  if (v !== null && typeof v === 'object') {
+    return Object.entries(v).flatMap(([k, x]) => [k, ...chavesProfundas(x)])
+  }
+  return []
+}
+
 const criarClinica = (corpo: Record<string, unknown> = {}, cookie = painel) =>
   http()
     .post('/v1/superadmin/clinicas')
@@ -240,6 +249,73 @@ describe('GET /v1/superadmin/clinicas', () => {
     const r = await http().get('/v1/superadmin/clinicas').set('Cookie', painel).expect(200)
     expect(r.body.itens.map((c: { id: string }) => c.id)).toContain(nova.id)
     expect(JSON.stringify(r.body)).not.toMatch(/\$argon2/)
+  })
+
+  /**
+   * **O TESTE DO MÍNIMO** — é ele que impede alguém de "só acrescentar o
+   * número de pacientes" daqui a seis meses.
+   *
+   * Esta lista é a fonte do seletor de clínicas do painel. Ela diz **quais**
+   * clínicas existem, e isso é inevitável: é o painel. O que ela não pode
+   * dizer é **quanto** cada uma tem. Quantidade de pacientes, de pessoas, de
+   * tarefas, receita, data de criação — qualquer um desses transforma a lista
+   * num mapa comercial dos clientes do produto, e o painel é o lugar onde
+   * esse acréscimo pareceria inofensivo ("é só para eu ver").
+   *
+   * A lista de chaves é **literal aqui**, de propósito, e não derivada de
+   * `ClinicaNaLista`: derivada do contrato, acrescentar o campo ao contrato
+   * também acrescentaria à expectativa, e o teste passaria verde exatamente
+   * na mudança que ele existe para barrar.
+   */
+  const CHAVES_PERMITIDAS = [
+    'id', // navegar até a clínica no painel
+    'codigo', // o que o seletor mostra, e o que vai em /entrar?clinica=
+    'nome', // o que o seletor mostra
+    'fuso', // coluna da tela de clínicas (regra 22: é propriedade da clínica)
+    'ativa', // coluna da tela de clínicas (estado, nunca exclusão)
+  ] as const
+
+  /**
+   * Nomes que denunciam **tamanho**. Rede independente da lista acima: pega o
+   * campo mesmo que quem o acrescentou tenha editado `CHAVES_PERMITIDAS`
+   * junto, e pega em qualquer profundidade porque varre o JSON cru.
+   */
+  const SINAIS_DE_TAMANHO =
+    /pacientes|pessoas|usuarios|tarefas|quantidade|qtd|total|receita|faturamento|criada|criado|ultimo|acesso/i
+
+  it('devolve o MÍNIMO: nenhuma chave além das cinco, nenhum sinal de tamanho', async () => {
+    await criarClinicaOk()
+    const r = await http().get('/v1/superadmin/clinicas').set('Cookie', painel).expect(200)
+
+    const itens = r.body.itens as Record<string, unknown>[]
+    expect(itens.length, 'lista vazia — o teste não verificou nada').toBeGreaterThan(0)
+
+    const aMais = [...new Set(itens.flatMap((c) => Object.keys(c)))].filter(
+      (k) => !(CHAVES_PERMITIDAS as readonly string[]).includes(k),
+    )
+    expect(
+      aMais,
+      `chave(s) a mais na lista de clínicas do painel: ${aMais.join(', ')}. ` +
+        'Esta lista diz QUAIS clínicas existem; ela não pode dizer QUANTO cada uma tem. ' +
+        'Contagem de pacientes, de pessoas ou data de criação viram um mapa comercial dos ' +
+        'clientes. Se o campo é mesmo necessário, ele vai numa rota própria, com a razão escrita.',
+    ).toEqual([])
+
+    // E o mínimo também é um PISO: sem código e nome não há seletor.
+    for (const c of itens) {
+      expect(typeof c['codigo']).toBe('string')
+      expect(typeof c['nome']).toBe('string')
+    }
+
+    // Varredura das chaves do corpo cru, em QUALQUER profundidade: um
+    // `resumo: { pacientes: 12 }` cai aqui mesmo que `resumo` tenha sido
+    // acrescentado à lista permitida. Só as CHAVES — o nome de uma clínica de
+    // verdade pode conter qualquer palavra, e isso não é sinal de nada.
+    const suspeitas = chavesProfundas(r.body).filter((k) => SINAIS_DE_TAMANHO.test(k))
+    expect(
+      suspeitas,
+      `chave(s) de TAMANHO na lista de clínicas do painel: ${suspeitas.join(', ')}`,
+    ).toEqual([])
   })
 })
 

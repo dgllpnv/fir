@@ -60,6 +60,17 @@ export class PainelClinicasService {
     return { ...linha, id: clinicaIdDeFonteConfiavel(linha.id) }
   }
 
+  /**
+   * As clínicas, **no mínimo**: cinco colunas, e nenhuma que revele tamanho.
+   *
+   * É a fonte do seletor de clínicas do painel, e o `SELECT` é o controle —
+   * não a tela. `criada_em` saiu daqui (D-12): ela atravessava a resposta,
+   * nenhuma tela a mostrava, e data de criação é sinal de tamanho como
+   * contagem de pacientes. Ver `ClinicaNaLista` em `packages/contracts` e o
+   * teste "devolve o MÍNIMO".
+   *
+   * Acrescentar coluna aqui é acrescentar à resposta: o teste reprova.
+   */
   async listar(): Promise<ClinicaNaLista[]> {
     const r = await this.banco.nasTabelasDoPainel(SISTEMA, (c) =>
       c.query<{
@@ -68,8 +79,7 @@ export class PainelClinicasService {
         nome: string
         fuso: string
         ativa: boolean
-        criada_em: Date
-      }>('SELECT id, codigo, nome, fuso, ativa, criada_em FROM clinicas ORDER BY nome'),
+      }>('SELECT id, codigo, nome, fuso, ativa FROM clinicas ORDER BY nome'),
     )
     return r.rows.map((x) => ({
       id: x.id,
@@ -77,7 +87,6 @@ export class PainelClinicasService {
       nome: x.nome,
       fuso: x.fuso,
       ativa: x.ativa,
-      criadaEm: x.criada_em.toISOString(),
     }))
   }
 

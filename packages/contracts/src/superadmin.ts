@@ -178,13 +178,26 @@ export const ClinicaCriada = z.object({
 })
 export type ClinicaCriada = z.infer<typeof ClinicaCriada>
 
+/**
+ * A clínica na lista do painel — **cinco campos, e é um mínimo cobrado por
+ * teste** (`painel-clinicas.e2e.test.ts`, "devolve o MÍNIMO").
+ *
+ * Esta lista é a fonte do seletor de clínicas do painel. Ela diz **quais**
+ * clínicas existem, o que é inevitável — é o painel. O que ela não pode dizer
+ * é **quanto** cada uma tem: contagem de pacientes, de pessoas, receita ou
+ * data de criação a transformariam num mapa comercial dos clientes do
+ * produto, e o painel é justamente o lugar onde esse acréscimo pareceria
+ * inofensivo.
+ *
+ * `criadaEm` saiu por isso (D-12). Ela estava aqui, atravessava a resposta e
+ * **nenhuma tela a mostrava**: era sinal de tamanho sem leitor.
+ */
 export const ClinicaNaLista = z.object({
   id: Uuid,
   codigo: z.string(),
   nome: z.string(),
   fuso: z.string(),
   ativa: z.boolean(),
-  criadaEm: z.string(),
 })
 export type ClinicaNaLista = z.infer<typeof ClinicaNaLista>
 
