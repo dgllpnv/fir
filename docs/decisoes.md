@@ -257,6 +257,32 @@ os movimentos diz.
 
 ---
 
+## D-11 · A VPS fica onde está — Boston, Estados Unidos · 2026-11-02
+
+Medido por acesso direto: `srv1647618.hstgr.cloud`, Boston/Massachusetts, Hostinger (AS47583). 4 vCPU, 15 GiB, 27 containers de produção, **137 ms de ida e volta até o Brasil**.
+
+**Decisão do dono, tomada com a consequência à vista:** fica lá. A alternativa — VPS própria em São Paulo, que resolveria latência e transferência internacional de uma vez — foi apresentada e recusada.
+
+**A pendência P-2 fecha aqui.** Não some: vira obrigação de contrato.
+
+### O que isso obriga, e não é opcional
+
+Guardamos **dose, lote e procedimento por paciente** — dado sensível do art. 11. Hospedar fora do Brasil é **transferência internacional** (LGPD arts. 33–36), e os Estados Unidos **não têm decisão de adequação da ANPD**. Logo:
+
+1. **O DPA (P-3) precisa de cláusula de transferência internacional**, com garantias contratuais específicas. Sem ela, o contrato está incompleto — e é a **clínica**, como controladora, que responde perante as pacientes dela.
+2. **A avaliação de impacto registra o país e a base legal.**
+3. **A clínica precisa saber.** Uma clínica bem assessorada pergunta; melhor que a resposta já esteja escrita.
+
+Isto **não re-litiga a decisão**. É o que a torna defensável.
+
+### O que a decisão obriga do lado técnico
+
+137 ms por ida e volta significa que **o custo não é a tela, é o número de requisições do navegador**. A arquitetura já protege em parte: o Next roda **na VPS**, e a conversa dele com a API e com o Postgres é local. Quem paga os 137 ms é só o salto navegador → VPS.
+
+**Por isso a regra passa a ser:** tela de rotina resolve o que puder **no servidor**, numa resposta só. Cada `fetch` do cliente custa 137 ms, e três deles em sequência são meio segundo antes de a recepcionista ver qualquer coisa.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

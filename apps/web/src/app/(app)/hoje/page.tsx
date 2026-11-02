@@ -1,5 +1,7 @@
+import type { HojeComProgramas } from '@fir/contracts'
 import { temPerm } from '@fir/domain'
 import { TelaHoje } from '@/components/tela-hoje'
+import { buscarNoServidor } from '@/lib/busca-no-servidor'
 import { sessaoAtual } from '@/lib/sessao'
 
 /**
@@ -19,12 +21,21 @@ export default async function Hoje() {
   // `fechar` cria dinheiro, e o servidor exige `receber` além de `jornada`
   // (decisão D-7). Aqui só se decide se o BOTÃO aparece.
   const podeReceber = temPerm(quem, perfis, 'receber')
+
+  // A lista do dia vem JUNTO com o HTML, buscada de dentro da VPS.
+  // Sem isto o navegador pediria por conta própria — e em Boston são 137 ms
+  // a mais antes de a recepcionista ver qualquer tarefa (D-11). `null` aqui
+  // não quebra nada: o cliente busca sozinho e mostra carregando.
+  const CAMINHO_INICIAL = 'v1/hoje?escopo=meu'
+  const inicial = await buscarNoServidor<HojeComProgramas>(CAMINHO_INICIAL)
+
   return (
     <TelaHoje
       eu={eu.usuario.id}
       podeEquipe={podeEquipe}
       podeReceber={podeReceber}
       podeValores={temPerm(quem, perfis, 'valores')}
+      {...(inicial === null ? {} : { inicial: { caminho: CAMINHO_INICIAL, dados: inicial } })}
     />
   )
 }

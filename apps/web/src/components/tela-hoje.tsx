@@ -5,7 +5,7 @@ import { comoChamar } from '@fir/domain'
 import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useAcoesDeTarefa } from '@/lib/acoes-de-tarefa'
-import { consultaEmTexto, useDados } from '@/lib/dados'
+import { type DadoInicial, consultaEmTexto, useDados } from '@/lib/dados'
 import { formatarDinheiro } from '@fir/ui'
 import { centavos as centavosDoTexto } from '@/lib/financeiro'
 import { diaEmTexto, linkDeWhatsApp, plural, rotuloDoDia } from '@/lib/formato'
@@ -33,18 +33,21 @@ export function TelaHoje({
   podeEquipe,
   podeReceber,
   podeValores,
+  inicial,
 }: {
   eu: string
   podeEquipe: boolean
   podeReceber: boolean
   /** Repassado ao montador do orçamento, dentro do cartão da jornada. */
   podeValores: boolean
+  /** O que o servidor já trouxe para o caminho padrão. Ver `DadoInicial`. */
+  inicial?: DadoInicial<HojeComProgramas>
 }) {
   const [dia, setDia] = useState<string | null>(null)
   const [escopo, setEscopo] = useState<Escopo>('meu')
 
   const caminho = `v1/hoje${consultaEmTexto({ dia: dia ?? undefined, escopo })}`
-  const { dados, carregando, erro, recarregar } = useDados<HojeComProgramas>(caminho)
+  const { dados, carregando, erro, recarregar } = useDados<HojeComProgramas>(caminho, inicial)
 
   // Concluir, cancelar, reabrir e editar são as MESMAS quatro ações da tela
   // Tarefas, e moram num lugar só. Ver `lib/acoes-de-tarefa.ts`.
