@@ -153,13 +153,15 @@ export const MENU: readonly ItemDeMenu[] = [
   { href: '/painel', rotulo: 'Painel geral', grupo: 'Gestão', perm: 'painel',
     epico: null,
     /**
-     * A promessa diz o que a tela TEM — cumprimento de prazos e pacientes no
-     * período. O MANUAL cap. 10 lista mais blocos (Top 10 pagantes,
-     * desempenho por unidade, novos pacientes por origem); eles não existem
-     * ainda, e prometê-los ensinaria a equipe a procurar o que não há.
+     * A promessa diz o que a tela TEM, e agora ela tem o capítulo 10 inteiro:
+     * os quatro blocos que faltavam (Top 10 pagantes, desempenho por unidade,
+     * campanhas no período e novos pacientes por origem) entraram na segunda
+     * fatia do épico 8. Enquanto não existiam, a frase os omitia de propósito
+     * — prometer o que não há ensina a equipe a procurar um bloco que não
+     * existe.
      */
     promessa:
-      'Cumprimento de prazos da equipe e o que aconteceu com as pacientes no período escolhido.',
+      'Prazos da equipe, pacientes no período, Top 10 pagantes, unidades, campanhas e origens.',
   },
   {
     href: '/unidades',
@@ -207,9 +209,23 @@ export const MENU: readonly ItemDeMenu[] = [
     href: '/ajuda',
     rotulo: 'Ajuda e manual',
     grupo: 'Gestão',
+    /**
+     * `perm: null` — **a tela que todo perfil tem**, com `/hoje`, `/tarefas`,
+     * `/nova` e `/minhas-metas`.
+     *
+     * É o que o manual dela promete (cap. 1, "Perfis de acesso": *"Todos os
+     * perfis têm Hoje, as próprias tarefas, Nova tarefa, ficha do paciente,
+     * Minhas metas, Ajuda e Manual"*) — e é como a clínica nova aprende a
+     * ferramenta. O que depende de permissão é o CONTEÚDO de gestão, dentro
+     * da tela.
+     *
+     * Fica em **Gestão** porque é o grupo do fim do menu, onde ela mora no
+     * protótipo: é consulta, não rotina do balcão.
+     */
     perm: null,
-    epico: 9,
-    promessa: 'O manual em 14 capítulos e as perguntas frequentes, na linguagem da equipe.',
+    epico: null,
+    promessa:
+      'As 51 perguntas frequentes com busca e o manual em 14 capítulos, escritos pela PO.',
   },
 ]
 

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CampanhaNaLista } from './campanhas'
 import { DiaCivil, Uuid, centavosNaSaida } from './comum'
 
 /**
@@ -56,6 +57,15 @@ export const FiltroDoPainel = z
     periodo: PeriodoDoPainel.default('30d'),
     de: DiaCivil.optional(),
     ate: DiaCivil.optional(),
+    /**
+     * A janela do **Top 10 pagantes** — *"no período ou desde o início"*.
+     *
+     * É o `S.topModo` dela, e viaja no MESMO filtro em vez de virar rota
+     * própria: os dois modos leem o mesmo dado com a mesma regra, e uma
+     * segunda rota seria um segundo lugar onde o corte de caixa fechado pode
+     * ser esquecido.
+     */
+    top: z.enum(['periodo', 'tudo']).default('periodo'),
   })
   .strict()
   .refine((f) => f.periodo !== 'per' || (f.de !== undefined && f.ate !== undefined), {
@@ -201,6 +211,169 @@ export const PacientesNoPainel = z
   .strict()
 export type PacientesNoPainel = z.infer<typeof PacientesNoPainel>
 
+/**
+ * **O CORTE DE CAIXA FECHADO, DECLARADO** — a regra 6 posta em dois números.
+ *
+ * `ateODia` é o último dia da janela cujo caixa já foi fechado; `diasSemCaixa`
+ * é quantos dias da janela têm recebimento e **não** foram conferidos.
+ *
+ * Existe porque uma soma parcial sem recorte declarado é pior do que nenhuma
+ * soma: a gestora compara o ranking com a receita do período e vê uma
+ * diferença que ninguém explicou. O mesmo par já existe em `pacientes`
+ * (`porFormaAteODia`/`porFormaDiasSemCaixa`), com o nome que a Visão do mês
+ * usa — e os dois saem da MESMA função do serviço, com janelas diferentes.
+ */
+export const RecorteDeCaixa = z
+  .object({
+    ateODia: DiaCivil.nullable(),
+    diasSemCaixa: z.number().int(),
+  })
+  .strict()
+export type RecorteDeCaixa = z.infer<typeof RecorteDeCaixa>
+
+/**
+ * Uma linha do **Top 10 pagantes** (MANUAL cap. 10).
+ *
+ * `valor` é quanto a paciente pagou na janela, e ele passa pelo corte de caixa
+ * fechado — ver `TopPagantes.recorte`.
+ */
+export const PaganteNoPainel = z
+  .object({
+    pacienteId: Uuid,
+    nome: z.string(),
+    /** A unidade PRINCIPAL da paciente. `''` quando não tem. */
+    unidade: z.string(),
+    pagamentos: z.number().int(),
+    valor: centavosNaSaida,
+  })
+  .strict()
+export type PaganteNoPainel = z.infer<typeof PaganteNoPainel>
+
+/**
+ * **Top 10 pagantes** — *"no período do Painel ou desde o início"* (MANUAL
+ * cap. 10 e a pergunta frequente *"Como funciona o Top 10 pagantes?"*).
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * ELE RESPEITA O MESMO CORTE DO "RECEBIDO POR FORMA", E A RAZÃO É A REGRA 6
+ *
+ * Um ranking por paciente numa janela de **um dia** é a soma do dia por outro
+ * agrupamento — e a janela do painel é escolhida por quem olha (`per` com
+ * `de = ate = hoje`). O corte é o mesmo do `porForma`: só os dias com caixa
+ * **já fechado** entram, e `recorte` declara até onde a lista alcança.
+ *
+ * **Isto é mais restritivo que o protótipo de propósito.** Lá o top 10 soma
+ * `S.tasks` no navegador, sem olhar caixa nenhum — a mesma porta dos fundos
+ * que o `porForma` dele abre.
+ *
+ * Em `modo: 'periodo'` o `recorte` coincide com
+ * `pacientes.porFormaAteODia`/`porFormaDiasSemCaixa`: é o mesmo corte, e o
+ * serviço o calcula numa função só. Em `modo: 'tudo'` a janela é a história
+ * inteira da clínica, e por isso o campo é PRÓPRIO — o corte do período não
+ * descreveria o que esta lista somou.
+ * ────────────────────────────────────────────────────────────────────────────
+ */
+export const TopPagantes = z
+  .object({
+    modo: z.enum(['periodo', 'tudo']),
+    recorte: RecorteDeCaixa,
+    itens: z.array(PaganteNoPainel),
+  })
+  .strict()
+export type TopPagantes = z.infer<typeof TopPagantes>
+
+/**
+ * **Desempenho por unidade** (MANUAL cap. 10 e cap. 11, "Unidades").
+ *
+ * A unidade de um atendimento é a da TAREFA e, quando ela não tem, a da
+ * PACIENTE — é o `unidadeDaTarefa` dela (`t.unidadeId || pac.unidadeId`). Sem
+ * o segundo termo, a clínica que nunca troca a unidade no atendimento veria
+ * todo o faturamento em "Sem unidade".
+ *
+ * **`faturamento` passa pelo corte de caixa fechado** (a mesma razão de
+ * `TopPagantes`); **`ltvMedio` não passa, e isso é deliberado.** O LTV é a
+ * soma do que uma paciente pagou **na vida**, não na janela: ele não é o
+ * esperado de dia nenhum, e `/v1/pacientes` já o entrega por paciente com essa
+ * classificação escrita. Quem confere a gaveta não acha nela o LTV médio de
+ * uma unidade.
+ */
+export const LinhaPorUnidade = z
+  .object({
+    /** `null` é o balde "Sem unidade" — é um balde, não a ausência de balde. */
+    unidadeId: Uuid.nullable(),
+    nome: z.string(),
+    /** Pacientes ATIVAS cuja unidade principal é esta. */
+    pacientes: z.number().int(),
+    pagamentos: z.number().int(),
+    faturamento: centavosNaSaida,
+    /**
+     * A média do LTV **entre as pacientes que já pagaram algo**. `null`
+     * quando nenhuma pagou.
+     *
+     * O denominador exclui quem nunca pagou, como nela (`filter(x => x.ltv >
+     * 0)`): incluí-las dividiria pelo cadastro inteiro e a unidade que
+     * importou mil pacientes apareceria com o pior LTV da clínica.
+     */
+    ltvMedio: centavosNaSaida,
+    /** Programas que NASCERAM na janela. */
+    programasNovos: z.number().int(),
+    /**
+     * Programas não encerrados que **ainda têm sessão aberta**.
+     *
+     * É a definição que `catalogo.service.ts` já usa para "pacientes ativos",
+     * e é o `statsAdesao` dela: um programa cujas sessões acabaram está
+     * concluído, e contá-lo faria o número nunca descer.
+     */
+    programasAtivos: z.number().int(),
+    /** Sessões com data prevista na janela que **já venceram**. */
+    sessoesPrevistas: z.number().int(),
+    /** Destas, as que não aconteceram ou aconteceram depois da data. */
+    sessoesComFalta: z.number().int(),
+    /** `comFalta ÷ previstas`, em percentual inteiro. `null` sem base. */
+    taxaDeFalta: z.number().int().nullable(),
+    /**
+     * Tarefas de paciente ABERTAS e vencidas — **sem recorte de período**, como
+     * nela: a pergunta é *"o que está parado nesta unidade agora"*, e uma
+     * tarefa de agosto que ninguém fez não pode sumir quando a gestora olha
+     * novembro.
+     */
+    tarefasAtrasadas: z.number().int(),
+  })
+  .strict()
+export type LinhaPorUnidade = z.infer<typeof LinhaPorUnidade>
+
+/**
+ * **Novos pacientes por origem** (MANUAL cap. 10: *"novos pacientes"*).
+ *
+ * `novos` conta pela data de CADASTRO na ferramenta — um quarto recorte, que
+ * não é o prazo, nem a conclusão, nem a criação da tarefa.
+ *
+ * `ltvTotal` é o quanto essas pacientes já pagaram **na vida**, somado — é o
+ * `rec` dela (`g.reduce((a, p) => a + statsPac(p.id).ltv, 0)`). O nome não é
+ * `receita` de propósito: a `receita` do painel é a da JANELA, e dois fatos
+ * com o mesmo nome é a ambiguidade de `plano` que o `CONTEXT.md` abre
+ * proibindo. Sendo LTV, ele não passa pelo corte de caixa — mesma
+ * classificação de `ltvMedio`.
+ */
+export const OrigemNoPainel = z
+  .object({
+    /** `'Não informada'` quando a paciente foi cadastrada sem origem. */
+    origem: z.string(),
+    novos: z.number().int(),
+    /** Destes, os que já têm atendimento concluído. */
+    jaAtendidos: z.number().int(),
+    ltvTotal: centavosNaSaida,
+  })
+  .strict()
+export type OrigemNoPainel = z.infer<typeof OrigemNoPainel>
+
+export const NovosPacientes = z
+  .object({
+    total: z.number().int(),
+    porOrigem: z.array(OrigemNoPainel),
+  })
+  .strict()
+export type NovosPacientes = z.infer<typeof NovosPacientes>
+
 export const Painel = z
   .object({
     /** O dia da clínica, do SERVIDOR. É ele que separa atrasada de a vencer. */
@@ -222,6 +395,36 @@ export const Painel = z
     porSolicitante: z.array(LinhaPorSolicitante),
 
     pacientes: PacientesNoPainel,
+
+    // -----------------------------------------------------------------------
+    // OS QUATRO BLOCOS QUE FECHAM O CAPÍTULO 10
+    // -----------------------------------------------------------------------
+    topPagantes: TopPagantes,
+    /**
+     * Uma linha por unidade da clínica, mais o balde "Sem unidade" quando há o
+     * que pôr nele. **Vazio na clínica de um endereço só** — ela não cadastrou
+     * unidade nenhuma, e uma tabela de uma linha chamada "Sem unidade" não
+     * responde pergunta nenhuma. É o `temUnidades()` dela.
+     */
+    porUnidade: z.array(LinhaPorUnidade),
+    novosPacientes: NovosPacientes,
+    /**
+     * **As campanhas que CRUZAM o período** — `inicio <= ate AND fim >= de`.
+     *
+     * A forma é a mesma de `GET /v1/campanhas` (`CampanhaNaLista`), e isso não
+     * é economia de tipo: as sete contagens, o percentual da meta e a taxa de
+     * conversão de uma campanha são **uma** regra, e ela já mora no
+     * `CampanhasService`. Escrevê-las de novo aqui é a herança que o
+     * `CLAUDE.md` descreve — a mesma regra em dois lugares, divergindo no
+     * primeiro ajuste.
+     *
+     * **A `receita` da campanha NÃO passa pelo corte de caixa**, e a razão
+     * está escrita em `ROTAS_FORA_DA_CONFERENCIA`: ela é o total da campanha
+     * inteira, sem recorte de forma e sem recorte de dia — a janela dela é a
+     * própria, de semanas, e não a do painel. Quem confere a gaveta não acha
+     * nela o que o sistema espera em Pix hoje.
+     */
+    campanhas: z.array(CampanhaNaLista),
   })
   .strict()
 export type Painel = z.infer<typeof Painel>

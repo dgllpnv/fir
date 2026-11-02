@@ -13,5 +13,16 @@ import { CampanhasService } from './campanhas.service'
 @Module({
   controllers: [CampanhasController],
   providers: [CampanhasService, provedorDeRelogio],
+  /**
+   * **Exportado para o `PainelGeralModule`**, e só para ele.
+   *
+   * O bloco "Campanhas no período" do painel devolve a MESMA forma de
+   * `GET /v1/campanhas` porque as sete contagens, o percentual da meta e a taxa
+   * de conversão de uma campanha são **uma** regra — e ela mora aqui. A
+   * alternativa era um `SELECT` novo no painel com as mesmas sete contagens:
+   * exatamente a herança que o `CLAUDE.md` paga, a mesma regra em dois lugares,
+   * divergindo no primeiro ajuste.
+   */
+  exports: [CampanhasService],
 })
 export class CampanhasModule {}

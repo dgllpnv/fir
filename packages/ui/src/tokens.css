@@ -248,6 +248,9 @@ textarea:-webkit-autofill {
    limita nada. Todo ícone dentro de botão tem tamanho aqui, uma vez. */
 .btn svg { width: 18px; height: 18px; flex: none; }
 .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+/* `.btn` também veste <a> ("Ir para Hoje", "Trocar senha"): sem isto o
+   sublinhado do link atravessa o botão. */
+a.btn { text-decoration: none; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 
 /* Algarismos tabulares em TODA coluna de valor, quantidade ou data.

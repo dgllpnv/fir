@@ -440,6 +440,24 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
       'ticketMedio',
       'valorDosOrcamentosPagos',
       'valor',
+      // A segunda fatia do épico 8 — os quatro blocos do MANUAL cap. 10.
+      //
+      // `valor` (acima) é o do Top 10 pagantes; `faturamento` e `ltvMedio`
+      // são da tabela por unidade; `ltvTotal` é a soma do LTV das pacientes
+      // novas de uma origem.
+      //
+      // `metaEmDinheiro` e `resultadoEmDinheiro` chegam dentro de
+      // `CampanhaNaLista`: o bloco "Campanhas no período" devolve a MESMA
+      // forma de `GET /v1/campanhas`, e as sete contagens da campanha são uma
+      // regra só, no `CampanhasService`. Declará-los aqui é dizer a verdade
+      // sobre o que ESTA rota entrega — a cobertura de `redacao-de-valores`
+      // já viria das rotas de campanha, e é justamente por isso que a
+      // omissão passaria em silêncio.
+      'faturamento',
+      'ltvMedio',
+      'ltvTotal',
+      'metaEmDinheiro',
+      'resultadoEmDinheiro',
     ],
   },
 ]

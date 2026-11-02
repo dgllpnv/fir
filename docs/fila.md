@@ -2,11 +2,10 @@
 
 Ordenada pelo **caminho mais curto até as 4 clínicas migradas**, que é a entrega com data. Não por tamanho, nem por facilidade.
 
-**Estado em 2026-11-01:** 58 das 59 ações · 2.034 testes · épicos 1, 2, 3, 4, 5, 6, **7** e **8** fechados (o painel geral com três dos seis blocos do MANUAL cap. 10), mais a auditoria, a **identidade sem e-mail**, o **painel do superadmin** e a **administração da clínica**.
+**Estado em 2026-11-02:** 58 das 59 ações · 2.074 testes · épicos 1, 2, 3, 4, 5, 6, **7** e **8** fechados — o painel geral agora com o **capítulo 10 inteiro** —, mais a auditoria, a **identidade sem e-mail**, o **painel do superadmin**, a **administração da clínica** e a **Ajuda e manual**.
 
 A única ação ainda em ⬜ é `carregar`, e ela **não vira rota de propósito** —
-ver `paridade.md`. O que falta para a paridade virar portão é o resto do
-capítulo 10 do painel, a **Ajuda e manual** e o épico 9.
+ver `paridade.md`. O que falta para a paridade virar portão é o **épico 9**.
 
 ---
 
@@ -145,11 +144,11 @@ O que a segunda fatia resolveu, e como:
   jeito: `"Dra. Helena Prado"` virava `"Dra."`, que não identifica ninguém num
   consultório com duas doutoras. Achado por MEDIÇÃO, não por leitura.
 
-## 4 · Épico 8 — Campanhas e painel · **as 3 ações FECHADAS, o painel PARCIAL (2026-11-01)**
+## 4 · ~~Épico 8 — Campanhas e painel~~ · **FECHADO (2026-11-02)**
 
-**Entregue:** `salvarCampanha` · `excluirCampanha` · `importarCampanha`, a tela
-**`/campanhas`** e o **`/painel`** com Período · Cumprimento de prazos ·
-Pacientes no período (MANUAL cap. 10). A migration `0020` traz
+**Entregue na primeira fatia:** `salvarCampanha` · `excluirCampanha` ·
+`importarCampanha`, a tela **`/campanhas`** e o **`/painel`** com Período ·
+Cumprimento de prazos · Pacientes no período (MANUAL cap. 10). A migration `0020` traz
 `tarefas.campanha_id` e `pacientes.campanha_id`, que é o que destrava a dívida
 **D10**.
 
@@ -175,15 +174,66 @@ O que a fatia resolveu, e como:
   `superadmin.ts`.** O `CONTEXT.md` já proibia por escrito chamar o superadmin
   de `painel`; o arquivo nasceu com o nome errado antes de a tela existir.
 
-**Falta do cap. 10:** Top 10 pagantes, desempenho por unidade, novos pacientes
-por origem e o bloco de campanhas no período. E a dívida **D11** (indicadores
-de período na tela Pacientes) continua aberta.
+**A segunda fatia fechou o capítulo 10 (2026-11-02):** **Top 10 pagantes**
+(com a janela "no período" e "desde o início"), **desempenho por unidade**,
+**campanhas no período** e **novos pacientes por origem**.
 
-## 5 · Ajuda e manual
+O que essa fatia resolveu, e como:
 
-**14 capítulos, 77 seções, 35 perguntas frequentes** — tudo já escrito por ela. O custo é portar e dar busca.
+- **O corte de caixa fechado passou a valer para TODA soma de recebimento
+  agrupada**, e não só para o `porForma`: um ranking por paciente numa janela
+  de um dia é a soma daquele dia por outro agrupamento, e a janela do painel é
+  escolhida por quem olha (`per` com `de = ate = hoje`). O Top 10 e o
+  faturamento por unidade passam pelo mesmo `EXISTS` em `caixas_do_dia`, e
+  cada bloco **declara** até onde alcança. O protótipo soma os três no
+  navegador, sem olhar caixa nenhum.
+- **O que NÃO passa pelo corte está escrito, e é tão importante quanto:**
+  `ltvMedio` e `ltvTotal` são somas da VIDA da paciente, e a receita da
+  campanha é da janela DELA — nenhum dos três é o esperado de dia nenhum, e é
+  a mesma classificação que `/v1/pacientes` e `/v1/campanhas` já carregavam.
+  O LTV médio por unidade mostra isso na tela: ele inclui o pagamento de hoje
+  que o faturamento ao lado não inclui.
+- **As campanhas vêm do `CampanhasService`**, não de um `SELECT` novo: as sete
+  contagens, o percentual da meta e a taxa de conversão são uma regra só.
+  Recontá-las no painel seria a herança que o `CLAUDE.md` paga — a mesma regra
+  em dois lugares, divergindo no primeiro ajuste.
+- **Medido no navegador, e era defeito meu:** a tabela de oito colunas fazia a
+  página rolar na horizontal a **768 px** (`scrollWidth` 942). A 390 px ela já
+  estava certa, porque abaixo de 620 toda tabela do painel vira bloco — o
+  estouro vivia na faixa do meio, que é o tablet da recepção. A classe `larga`
+  antecipa a quebra para 900 px.
 
-**Não é acabamento:** é como a clínica aprende a ferramenta, e a migração sente primeiro. Uma equipe que não sabe usar abandona.
+A dívida **D11** (indicadores de período na tela Pacientes) continua aberta.
+
+## 5 · ~~Ajuda e manual~~ · **FECHADA (2026-11-02)**
+
+**14 capítulos, 77 seções e 51 perguntas frequentes**, portados palavra por
+palavra do protótipo para `apps/web/src/conteudo/`, com a tela `/ajuda` — duas
+abas (Perguntas e Manual), uma busca só, e o sumário do manual por capítulo.
+
+**Não era acabamento:** é como a clínica aprende a ferramenta, e a migração
+sente primeiro. Uma equipe que não sabe usar abandona.
+
+O que essa fatia resolveu, e como:
+
+- **O conteúdo é dado versionado no repositório, não linha de banco.** Ele é
+  igual para as quatro clínicas, não é dado de nenhuma delas, e muda com o
+  deploy. No banco precisaria de `clinica_id` (regra 19) e passaria a divergir
+  entre clínicas no primeiro ajuste de texto.
+- **Os números mudam com quem olha, e isso é dela:** 51 perguntas em 8 temas
+  para quem tem `painel` ou `config`, e exatamente **35 em 7 temas** para a
+  equipe — as 16 marcadas `adm` no protótipo. No manual, 14 capítulos para a
+  gestão e 11 para a recepção. Medido no navegador, com os dois perfis.
+- **O capítulo 13 vinha antes do 12 no array dela**, e o sumário lia
+  "… 11, 13, 12, 14". O número virou campo e a ordem passou a sair dele.
+- **A D-10 alcançou o texto:** PIN virou senha, o primeiro acesso mudou de
+  cadeia, e `conteudo.test.ts` cobra que nenhuma menção a PIN, a e-mail ou a
+  convite sobreviva — a mesma varredura de `identidade-sem-email`, do lado do
+  texto.
+- **"Trocar senha" ganhou botão no rodapé da lateral.** A rota existia e só era
+  alcançada pelo desvio do primeiro acesso: quem quisesse trocar por vontade
+  própria tinha de digitar o endereço. O manual (cap. 2) descreve esse botão, e
+  um manual que descreve um botão que não existe é pior que nenhum.
 
 ## 6 · 🚩 Épico 9 — Migração das 4 clínicas
 

@@ -1,5 +1,5 @@
 import type { Painel } from '@fir/contracts'
-import type { Relogio } from '@fir/domain'
+import { TIPO_SESSAO, type Relogio } from '@fir/domain'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import pg from 'pg'
@@ -43,6 +43,7 @@ let helena: string
 let juliana: string
 let paciente: string
 let outroPaciente: string
+let terceiroPaciente: string
 let gestao: string[]
 let semPainel: string[]
 
@@ -70,20 +71,34 @@ type Linha = {
   criadaEm?: string
   comPaciente?: boolean
   segundoPaciente?: boolean
+  terceiroPaciente?: boolean
+  /** A unidade DA TAREFA. Sem ela, vale a da paciente (`unidadeDaTarefa`). */
+  unidadeId?: string
+  campanhaId?: string
+  /** Faz da tarefa uma SESSÃO de programa — os quatro campos viajam juntos. */
+  sessao?: { programaId: string; item?: string; indice?: number; total?: number }
   recebimento?: { valor: bigint; aberto?: bigint; forma?: string; em?: string }
   historico?: { acao: string; porId: string; em: string }[]
 }
 
 const inserir = async (l: Linha): Promise<string> => {
   const pac =
-    l.comPaciente === false ? null : l.segundoPaciente === true ? outroPaciente : paciente
+    l.comPaciente === false
+      ? null
+      : l.terceiroPaciente === true
+        ? terceiroPaciente
+        : l.segundoPaciente === true
+          ? outroPaciente
+          : paciente
+  const tipo = l.sessao !== undefined ? TIPO_SESSAO : (l.tipo ?? '')
   const id = (
     await migrate.query<{ id: string }>(
       `INSERT INTO tarefas
          (clinica_id, solicitante_id, responsavel_id, descricao, prazo, status, concluida_em,
-          criada_em, paciente_id, tipo, historico)
+          criada_em, paciente_id, tipo, historico, unidade_id, campanha_id,
+          programa_id, item_chave, sessao_indice, sessao_total)
        VALUES ($1, $2, $3, 'fixture', $4::date, $5, $6, coalesce($7::timestamptz, now()),
-               $8, $9, $10::jsonb)
+               $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16)
        RETURNING id`,
       [
         clinica,
@@ -94,8 +109,14 @@ const inserir = async (l: Linha): Promise<string> => {
         l.concluidaEm ?? null,
         l.criadaEm ?? null,
         pac,
-        l.tipo ?? '',
+        tipo,
         JSON.stringify(l.historico ?? []),
+        l.unidadeId ?? null,
+        l.campanhaId ?? null,
+        l.sessao?.programaId ?? null,
+        l.sessao === undefined ? null : (l.sessao.item ?? 'i1'),
+        l.sessao === undefined ? null : (l.sessao.indice ?? 1),
+        l.sessao === undefined ? null : (l.sessao.total ?? 4),
       ],
     )
   ).rows[0]!.id
@@ -109,7 +130,7 @@ const inserir = async (l: Linha): Promise<string> => {
         clinica,
         pac,
         id,
-        l.tipo ?? '',
+        tipo,
         l.recebimento.valor.toString(),
         l.recebimento.forma ?? (l.recebimento.valor > 0n ? 'Pix' : ''),
         (l.recebimento.aberto ?? 0n).toString(),
@@ -166,6 +187,9 @@ beforeAll(async () => {
     ).rows[0]!.id
   paciente = await pac('Marta Alves')
   outroPaciente = await pac('Rosa Lima')
+  // A terceira existe para os blocos novos: ela é a paciente SEM unidade (o
+  // balde "Sem unidade") e a segunda linha de "novos por origem".
+  terceiroPaciente = await pac('Carla Dias')
 
   const mod = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(RELOGIO)
@@ -195,6 +219,21 @@ beforeEach(async () => {
   await migrate.query(`DELETE FROM caixas_do_dia WHERE clinica_id = $1`, [clinica])
   await migrate.query(`DELETE FROM recebimentos WHERE clinica_id = $1`, [clinica])
   await migrate.query(`DELETE FROM tarefas WHERE clinica_id = $1`, [clinica])
+  /*
+    O QUE OS BLOCOS NOVOS ESCREVEM, limpo na ORDEM das referências: a tarefa
+    aponta para programa, unidade e campanha, então ela sai primeiro (acima).
+    A paciente volta ao estado neutro — sem unidade, sem origem e cadastrada
+    FORA de novembro —, para que cada teste declare o que precisa em vez de
+    herdar o `now()` do `beforeAll`, que cai dentro do mês do cenário.
+  */
+  await migrate.query(`DELETE FROM programas WHERE clinica_id = $1`, [clinica])
+  await migrate.query(`DELETE FROM campanhas WHERE clinica_id = $1`, [clinica])
+  await migrate.query(
+    `UPDATE pacientes SET unidade_id = NULL, origem = '', criado_em = '2026-09-01T12:00:00Z'
+      WHERE clinica_id = $1`,
+    [clinica],
+  )
+  await migrate.query(`DELETE FROM unidades WHERE clinica_id = $1`, [clinica])
 })
 
 // ---------------------------------------------------------------------------
@@ -629,6 +668,416 @@ describe('o recebido POR FORMA só alcança dias com caixa já fechado (regra 6)
     expect(p.porForma).toEqual([])
     expect(p.porFormaAteODia).toBeNull()
     expect(p.porFormaDiasSemCaixa).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// OS QUATRO BLOCOS QUE FECHAM O MANUAL CAP. 10
+// ---------------------------------------------------------------------------
+
+/** Cadastra duas unidades e põe cada paciente na sua. Carla fica sem. */
+const montarUnidades = async (): Promise<{ pituba: string; itaigara: string }> => {
+  const criar = async (nome: string) =>
+    (
+      await migrate.query<{ id: string }>(
+        `INSERT INTO unidades (clinica_id, nome) VALUES ($1, $2) RETURNING id`,
+        [clinica, nome],
+      )
+    ).rows[0]!.id
+  const pituba = await criar('Pituba')
+  const itaigara = await criar('Itaigara')
+  await migrate.query(`UPDATE pacientes SET unidade_id = $2 WHERE id = $1`, [paciente, pituba])
+  await migrate.query(`UPDATE pacientes SET unidade_id = $2 WHERE id = $1`, [
+    outroPaciente,
+    itaigara,
+  ])
+  return { pituba, itaigara }
+}
+
+const criarPrograma = async (
+  pacienteId: string,
+  criadoEm: string,
+  situacao: 'ativo' | 'encerrado' = 'ativo',
+): Promise<string> =>
+  (
+    await migrate.query<{ id: string }>(
+      `INSERT INTO programas (clinica_id, paciente_id, inicio, situacao, encerrado_em, criado_em)
+       VALUES ($1, $2, '2026-11-01'::date, $3, $4, $5) RETURNING id`,
+      [clinica, pacienteId, situacao, situacao === 'encerrado' ? criadoEm : null, criadoEm],
+    )
+  ).rows[0]!.id
+
+const criarCampanha = async (
+  nome: string,
+  inicio: string,
+  fim: string,
+): Promise<string> =>
+  (
+    await migrate.query<{ id: string }>(
+      `INSERT INTO campanhas (clinica_id, categoria, nome, inicio, fim, metrica, meta, criada_por)
+       VALUES ($1, 'Sazonal', $2, $3::date, $4::date, 'contatos', 10, $5) RETURNING id`,
+      [clinica, nome, inicio, fim, helena],
+    )
+  ).rows[0]!.id
+
+const pagamento = (valor: bigint, dia: number, forma = 'Pix') => ({
+  tipo: 'Pagamento de consulta',
+  status: 'concluida' as const,
+  prazo: `2026-11-${String(dia).padStart(2, '0')}`,
+  concluidaEm: em(dia),
+  recebimento: { valor, forma, em: em(dia) },
+})
+
+describe('Top 10 pagantes', () => {
+  /**
+   * **ELE PASSA PELO MESMO CORTE DO "RECEBIDO POR FORMA"** (regra 6).
+   *
+   * Um ranking por paciente numa janela de um dia é a soma daquele dia por
+   * outro agrupamento — e a janela é escolhida por quem olha. O protótipo soma
+   * sem olhar caixa nenhum (`top10Html`).
+   *
+   * A fixture: no dia 10 (caixa FECHADO) Marta paga R$ 300 + R$ 200 e Rosa
+   * paga R$ 700; no dia 18 (HOJE, caixa ABERTO) Marta paga R$ 900.
+   *
+   * **A MUTAÇÃO:** largar o `EXISTS` em `caixas_do_dia` → Marta sobe para
+   * R$ 1.400 e passa a ser a primeira do ranking. O número `140000` é a soma
+   * que o servidor teria feito para quem vai contar a gaveta.
+   */
+  it('soma só os dias com caixa fechado, e declara até onde alcança', async () => {
+    await fecharOCaixa('2026-11-10')
+    await inserir(pagamento(30000n, 10))
+    await inserir(pagamento(20000n, 10))
+    await inserir({ ...pagamento(70000n, 10), segundoPaciente: true })
+    await inserir(pagamento(90000n, 18))
+
+    const top = (await ver()).topPagantes
+    expect(top.modo).toBe('periodo')
+    expect(top.itens).toEqual([
+      {
+        pacienteId: outroPaciente,
+        nome: 'Rosa Lima',
+        unidade: '',
+        pagamentos: 1,
+        valor: '70000',
+      },
+      {
+        pacienteId: paciente,
+        nome: 'Marta Alves',
+        unidade: '',
+        pagamentos: 2,
+        valor: '50000',
+      },
+    ])
+    expect(top.recorte).toEqual({ ateODia: '2026-11-10', diasSemCaixa: 1 })
+
+    // E o número do dia aberto não entra no bloco sob nome nenhum — é esta
+    // asserção que pega o campo renomeado, não a de chave.
+    const corpo = JSON.stringify(top)
+    for (const proibido of ['90000', '140000']) {
+      expect(corpo, `o dinheiro do dia aberto (${proibido}) entrou no ranking`).not.toContain(
+        proibido,
+      )
+    }
+  })
+
+  /**
+   * *"No período do Painel ou desde o início"* (MANUAL cap. 10).
+   *
+   * **A MUTAÇÃO:** aplicar a janela do período também no modo `tudo` → o
+   * pagamento de outubro desaparece e os dois modos devolvem o mesmo número,
+   * o que torna o botão "Desde o início" um enfeite.
+   */
+  it('o modo `tudo` alcança o que está FORA do período', async () => {
+    await fecharOCaixa('2026-10-05')
+    await fecharOCaixa('2026-11-10')
+    await inserir({
+      tipo: 'Pagamento de consulta',
+      status: 'concluida',
+      prazo: '2026-10-05',
+      concluidaEm: '2026-10-05T15:00:00.000Z',
+      recebimento: { valor: 500000n, forma: 'Pix', em: '2026-10-05T15:00:00.000Z' },
+    })
+    await inserir(pagamento(50000n, 10))
+
+    expect((await ver('periodo=mes')).topPagantes.itens[0]).toMatchObject({ valor: '50000' })
+    const tudo = (await ver('periodo=mes&top=tudo')).topPagantes
+    expect(tudo.modo).toBe('tudo')
+    expect(tudo.itens[0]).toMatchObject({ nome: 'Marta Alves', valor: '550000', pagamentos: 2 })
+  })
+
+  it('a unidade da linha é a PRINCIPAL da paciente, e o vazio é lista vazia', async () => {
+    const p = await ver()
+    expect(p.topPagantes.itens).toEqual([])
+    expect(p.topPagantes.recorte).toEqual({ ateODia: null, diasSemCaixa: 0 })
+
+    await montarUnidades()
+    await fecharOCaixa('2026-11-10')
+    await inserir(pagamento(10000n, 10))
+    expect((await ver()).topPagantes.itens[0]).toMatchObject({ unidade: 'Pituba' })
+  })
+})
+
+describe('desempenho por unidade', () => {
+  /**
+   * **A UNIDADE DE UM ATENDIMENTO É A DA TAREFA E, SEM ELA, A DA PACIENTE.**
+   *
+   * É o `unidadeDaTarefa` dela. **A MUTAÇÃO:** usar só `t.unidade_id` → os
+   * R$ 500 da tarefa sem unidade caem em "Sem unidade", e a clínica que nunca
+   * troca o campo no atendimento (o caso normal, porque ele já vem preenchido
+   * pela paciente) vê todo o faturamento fora das duas unidades.
+   *
+   * **A SEGUNDA:** largar o `EXISTS` em `caixas_do_dia` do faturamento → os
+   * R$ 700 de hoje entram em Itaigara.
+   *
+   * **A TERCEIRA:** aplicar o corte de caixa também no `ltvMedio` → o LTV
+   * médio de Itaigara vira `null`, e o número que a tela existe para comparar
+   * desaparece por causa de uma regra que não fala dele.
+   */
+  it('faturamento com o corte; LTV médio sem ele; e a tarefa manda na unidade', async () => {
+    const { pituba, itaigara } = await montarUnidades()
+    await fecharOCaixa('2026-11-10')
+    // Marta é da Pituba, e a tarefa não diz unidade: cai na dela.
+    await inserir(pagamento(50000n, 10))
+    // Marta de novo, mas o atendimento foi em Itaigara: a TAREFA manda.
+    await inserir({ ...pagamento(40000n, 10), unidadeId: itaigara })
+    // Rosa paga hoje, com o caixa ABERTO: não entra em faturamento nenhum.
+    await inserir({ ...pagamento(70000n, 18), segundoPaciente: true })
+
+    const linhas = new Map((await ver()).porUnidade.map((l) => [l.nome, l]))
+    expect([...linhas.keys()]).toEqual(['Itaigara', 'Pituba', 'Sem unidade'])
+
+    expect(linhas.get('Pituba')).toMatchObject({
+      unidadeId: pituba,
+      pacientes: 1,
+      pagamentos: 1,
+      faturamento: '50000',
+      // O LTV de Marta é o que ela pagou na VIDA: R$ 500 + R$ 400.
+      ltvMedio: '90000',
+    })
+    expect(linhas.get('Itaigara')).toMatchObject({
+      unidadeId: itaigara,
+      pacientes: 1,
+      pagamentos: 1,
+      faturamento: '40000',
+      // Rosa pagou hoje, com o caixa aberto: fora do faturamento, DENTRO do
+      // LTV. São duas perguntas diferentes, e só uma é o esperado da gaveta.
+      ltvMedio: '70000',
+    })
+    expect(linhas.get('Sem unidade')).toMatchObject({
+      unidadeId: null,
+      pacientes: 1,
+      faturamento: '0',
+      // Ninguém da "Sem unidade" pagou nada: média não existe, e `R$ 0,00`
+      // diria que o LTV médio é zero.
+      ltvMedio: null,
+    })
+  })
+
+  /**
+   * **"ATIVO" É PROGRAMA NÃO ENCERRADO QUE AINDA TEM SESSÃO ABERTA** — a mesma
+   * definição de `catalogo.service.ts` e o `statsAdesao` dela.
+   *
+   * **A MUTAÇÃO:** contar `situacao = 'ativo'` sem o `EXISTS` da sessão aberta
+   * → o programa de Rosa, com todas as sessões realizadas, continua "ativo"
+   * para sempre e o número nunca desce.
+   *
+   * **A SEGUNDA:** contar `programasNovos` sem a janela → o programa de
+   * outubro entra em novembro.
+   */
+  it('programas: novos na janela, ativos com sessão aberta', async () => {
+    await montarUnidades()
+    const daMarta = await criarPrograma(paciente, '2026-11-03T12:00:00Z')
+    const daRosa = await criarPrograma(outroPaciente, '2026-10-02T12:00:00Z')
+    await inserir({ prazo: '2026-11-25', sessao: { programaId: daMarta } })
+    await inserir({
+      segundoPaciente: true,
+      prazo: '2026-11-12',
+      status: 'concluida',
+      concluidaEm: em(12),
+      sessao: { programaId: daRosa },
+    })
+
+    const linhas = new Map((await ver()).porUnidade.map((l) => [l.nome, l]))
+    expect(linhas.get('Pituba')).toMatchObject({ programasNovos: 1, programasAtivos: 1 })
+    expect(linhas.get('Itaigara')).toMatchObject({ programasNovos: 0, programasAtivos: 0 })
+  })
+
+  /**
+   * **FALTA É "NÃO ACONTECEU NA DATA"**, e só conta o que JÁ venceu.
+   *
+   * **A MUTAÇÃO:** largar `t.prazo < hoje` → a sessão de 25/11, que ainda não
+   * chegou, entra como prevista e a taxa de falta da Pituba cai de 100% para
+   * 50% — a unidade com problema parece melhor por ter agenda cheia.
+   *
+   * **A SEGUNDA:** contar só `status = 'aberta'` como falta → a sessão
+   * realizada DEPOIS da data sai da conta, e o atraso crônico desaparece.
+   *
+   * **A TERCEIRA:** largar `t.tipo <> ALL(sessões)` nas tarefas atrasadas → a
+   * sessão aberta de 05/11 passa a contar duas vezes, como falta e como tarefa
+   * atrasada.
+   */
+  it('sessões vencidas, faltas e tarefas atrasadas', async () => {
+    await montarUnidades()
+    const daMarta = await criarPrograma(paciente, '2026-11-03T12:00:00Z')
+    const daRosa = await criarPrograma(outroPaciente, '2026-11-03T12:00:00Z')
+    // Pituba: uma sessão vencida e aberta (falta), uma que ainda não chegou.
+    await inserir({ prazo: '2026-11-05', sessao: { programaId: daMarta, indice: 1 } })
+    await inserir({ prazo: '2026-11-25', sessao: { programaId: daMarta, indice: 2 } })
+    // Itaigara: uma vencida e realizada DEPOIS da data — falta também.
+    await inserir({
+      segundoPaciente: true,
+      prazo: '2026-11-06',
+      status: 'concluida',
+      concluidaEm: em(9),
+      sessao: { programaId: daRosa, indice: 1 },
+    })
+    // Itaigara: uma vencida e realizada no prazo.
+    await inserir({
+      segundoPaciente: true,
+      prazo: '2026-11-12',
+      status: 'concluida',
+      concluidaEm: em(12),
+      sessao: { programaId: daRosa, indice: 2 },
+    })
+    // E uma tarefa de paciente atrasada, que NÃO é sessão.
+    await inserir({ segundoPaciente: true, tipo: 'Follow-up', prazo: '2026-11-14' })
+
+    const linhas = new Map((await ver()).porUnidade.map((l) => [l.nome, l]))
+    expect(linhas.get('Pituba')).toMatchObject({
+      sessoesPrevistas: 1,
+      sessoesComFalta: 1,
+      taxaDeFalta: 100,
+      tarefasAtrasadas: 0,
+    })
+    expect(linhas.get('Itaigara')).toMatchObject({
+      sessoesPrevistas: 2,
+      sessoesComFalta: 1,
+      taxaDeFalta: 50,
+      tarefasAtrasadas: 1,
+    })
+  })
+
+  /**
+   * **A CLÍNICA DE UM ENDEREÇO SÓ NÃO VÊ A TABELA** — é o `temUnidades()` dela.
+   *
+   * **A MUTAÇÃO:** devolver a tabela sempre → a clínica que nunca cadastrou
+   * unidade abre o painel e encontra um bloco "Desempenho por unidade" com uma
+   * linha chamada "Sem unidade", que não compara nada com nada.
+   */
+  it('sem unidade cadastrada, o bloco não existe', async () => {
+    await fecharOCaixa('2026-11-10')
+    await inserir(pagamento(50000n, 10))
+    expect((await ver()).porUnidade).toEqual([])
+  })
+})
+
+describe('novos pacientes por origem', () => {
+  /**
+   * **O QUARTO RECORTE DO PAINEL: a data de CADASTRO.**
+   *
+   * Não é o prazo (prazos), não é a conclusão (pacientes), não é a criação da
+   * tarefa (quem solicitou). *"Pela data de cadastro na ferramenta"*.
+   *
+   * **A MUTAÇÃO:** largar a janela de `criado_em` → Rosa, cadastrada em
+   * outubro, entra como nova de novembro e o total vira 3. É o número que a
+   * gestora usa para saber se a campanha trouxe gente.
+   *
+   * **A SEGUNDA:** contar `jaAtendidos` por qualquer tarefa concluída, e não
+   * só pelas de ATENDIMENTO → o contato de follow-up de Carla a faz parecer
+   * atendida, e a conversão da origem sobe sem ninguém ter entrado na clínica.
+   */
+  it('conta pela data de cadastro, e a origem vazia vira “Não informada”', async () => {
+    await migrate.query(
+      `UPDATE pacientes SET origem = 'Instagram', criado_em = '2026-11-05T12:00:00Z'
+        WHERE id = $1`,
+      [paciente],
+    )
+    await migrate.query(
+      `UPDATE pacientes SET origem = '', criado_em = '2026-11-07T12:00:00Z' WHERE id = $1`,
+      [terceiroPaciente],
+    )
+    await migrate.query(
+      `UPDATE pacientes SET origem = 'Indicação', criado_em = '2026-10-20T12:00:00Z'
+        WHERE id = $1`,
+      [outroPaciente],
+    )
+
+    // Marta foi atendida e pagou; Carla só tem um contato concluído.
+    await fecharOCaixa('2026-11-10')
+    await inserir({
+      tipo: 'Consulta realizada',
+      status: 'concluida',
+      prazo: '2026-11-10',
+      concluidaEm: em(10),
+    })
+    await inserir(pagamento(50000n, 10))
+    await inserir({
+      terceiroPaciente: true,
+      tipo: 'Follow-up',
+      status: 'concluida',
+      prazo: '2026-11-09',
+      concluidaEm: em(9),
+    })
+
+    const n = (await ver()).novosPacientes
+    expect(n.total).toBe(2)
+    expect(n.porOrigem).toEqual([
+      // O LTV é a vida da paciente, não a janela — e por isso NÃO passa pelo
+      // corte de caixa: ele não é o esperado de dia nenhum.
+      { origem: 'Instagram', novos: 1, jaAtendidos: 1, ltvTotal: '50000' },
+      { origem: 'Não informada', novos: 1, jaAtendidos: 0, ltvTotal: '0' },
+    ])
+  })
+
+  it('o total é a soma das linhas, e o vazio é um vazio de verdade', async () => {
+    const n = (await ver()).novosPacientes
+    expect(n.porOrigem).toEqual([])
+    expect(n.total).toBe(0)
+  })
+})
+
+describe('campanhas no período', () => {
+  /**
+   * **CRUZAR O PERÍODO É TOCÁ-LO**, não estar inteira dentro dele.
+   *
+   * **A MUTAÇÃO:** `inicio >= de` → "Outubro Rosa", que começou em 25/10 e
+   * ainda corria em novembro, desaparece do painel de novembro. É justamente a
+   * campanha que estava dando resultado.
+   *
+   * **A SEGUNDA:** recontar o resultado da campanha aqui, em vez de pedir ao
+   * `CampanhasService` → o painel e a tela de Campanhas passam a ter duas
+   * respostas para a mesma pergunta, e divergem no primeiro ajuste. O teste
+   * cobra o `resultadoEmNumero` e o `percentualDaMeta` **prontos**, que é o
+   * que só existe se a regra tiver vindo de lá.
+   */
+  it('traz as que cruzam o período, com o resultado já contado', async () => {
+    const outubroRosa = await criarCampanha('Outubro Rosa', '2026-10-25', '2026-11-05')
+    await criarCampanha('Natal', '2026-12-01', '2026-12-20')
+    await inserir({
+      tipo: 'Follow-up',
+      status: 'concluida',
+      prazo: '2026-11-03',
+      concluidaEm: em(3),
+      campanhaId: outubroRosa,
+    })
+
+    const campanhas = (await ver()).campanhas
+    expect(campanhas.map((x) => x.nome)).toEqual(['Outubro Rosa'])
+    expect(campanhas[0]).toMatchObject({
+      id: outubroRosa,
+      metrica: 'contatos',
+      metaEmNumero: 10,
+      metaEmDinheiro: null,
+      resultadoEmNumero: 1,
+      percentualDaMeta: 10,
+      tarefas: 1,
+      tarefasConcluidas: 1,
+      contatos: 1,
+    })
+  })
+
+  it('sem campanha nenhuma, o bloco é uma lista vazia', async () => {
+    expect((await ver()).campanhas).toEqual([])
   })
 })
 

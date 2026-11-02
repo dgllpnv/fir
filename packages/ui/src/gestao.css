@@ -212,3 +212,104 @@ table.painel td .muted { display: block; font-size: 11px; color: var(--muted); }
     margin-right: 6px;
   }
 }
+
+/*
+ * A TABELA LARGA VIRA BLOCO MAIS CEDO — a 900 px, não a 620.
+ *
+ * **Medido, e era um defeito meu:** "Desempenho por unidade" tem OITO colunas
+ * ("Pacientes", "Faturamento", "LTV médio", "Programas novos", "Programas
+ * ativos", "Faltas em sessões", "Tarefas atrasadas"), e a 768 px a página
+ * inteira passou a rolar na horizontal — `scrollWidth` 942 contra `clientWidth`
+ * 768. A 390 px ela já estava certa, porque abaixo de 620 toda tabela do painel
+ * vira bloco; o estouro vivia justamente na faixa do meio, que é o tablet da
+ * recepção.
+ *
+ * As regras são as mesmas do bloco acima, repetidas porque `@media` não aceita
+ * variável: o que muda é SÓ a largura em que elas entram. A alternativa era
+ * `overflow-x: auto` na tabela, e ela é pior — esconde colunas à direita de
+ * quem não sabe que há colunas à direita.
+ */
+@media (min-width: 621px) and (max-width: 900px) {
+  table.painel.larga thead { display: none; }
+  table.painel.larga,
+  table.painel.larga tbody,
+  table.painel.larga tr,
+  table.painel.larga td { display: block; width: auto; }
+  table.painel.larga tr {
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: var(--surface);
+  }
+  table.painel.larga td { border-bottom: 0; padding: 4px 0; text-align: left; }
+  table.painel.larga td.direita { text-align: left; }
+  table.painel.larga td[data-rotulo]::before {
+    content: attr(data-rotulo) ': ';
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-right: 6px;
+  }
+}
+
+/*
+ * TOP 10 PAGANTES — lista ordenada, não tabela.
+ *
+ * São três informações por linha (quem, quantos pagamentos, quanto) e uma
+ * ordem que importa: a tabela de quatro colunas gastaria a largura com
+ * cabeçalhos para dizer o que o próprio número já diz. A `fatia` é a
+ * comparação visual que uma coluna de valores não dá a 390 px.
+ */
+.top-pagantes {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.top-pagantes > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.top-pagantes > li > div { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.top-pagantes b { font-size: 14px; }
+.top-pagantes .muted { font-size: 11.5px; color: var(--muted); }
+.top-pagantes .posicao {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--gold-soft);
+  color: var(--on-gold-soft);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* As três primeiras posições ganham o dourado cheio — é o pódio, e ele é a
+   única informação da lista que a ordem sozinha não dá de relance. */
+.top-pagantes > li:nth-child(-n + 3) .posicao {
+  background: var(--gold);
+  color: var(--on-gold);
+}
+.top-pagantes .fatia {
+  display: block;
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: var(--gold);
+  /* Largura vinda do servidor em percentual: desenho, não conta. */
+  min-width: 2px;
+}
+.top-pagantes .num {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}

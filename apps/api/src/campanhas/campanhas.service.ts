@@ -102,6 +102,35 @@ export class CampanhasService {
   }
 
   /**
+   * **As campanhas que CRUZAM uma janela de dias** — o bloco "Campanhas no
+   * período" do Painel geral (MANUAL cap. 10).
+   *
+   * `inicio <= ate AND fim >= de`, que é o `campsPer` dela: cruzar o período é
+   * tocá-lo em qualquer ponto, e não estar inteira dentro dele. Com
+   * `inicio >= de`, a campanha que começou em setembro e ainda corre
+   * desapareceria do painel de outubro — justamente a que está dando
+   * resultado agora.
+   *
+   * **Ordenada pelo INÍCIO, crescente**, como nela: a tabela do painel lê como
+   * uma linha do tempo, não como um ranking.
+   *
+   * O filtro acontece AQUI e não em SQL de propósito: as sete contagens, o
+   * percentual da meta, a taxa de conversão e a situação são uma regra só, no
+   * `montar` — e um `WHERE` novo na consulta grande seria uma segunda lista de
+   * campanhas, com uma segunda chance de divergir da tela de Campanhas. A
+   * clínica tem dezenas de campanhas, não dezenas de milhares.
+   */
+  async noPeriodo(ctx: Contexto, de: string, ate: string): Promise<CampanhaNaLista[]> {
+    const hoje = diaDaClinica(this.relogio, ctx.fuso)
+    const todas = await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) =>
+      this.montar(c, ctx, hoje),
+    )
+    return todas.campanhas
+      .filter((x) => x.inicio <= ate && x.fim >= de)
+      .sort((a, b) => a.inicio.localeCompare(b.inicio) || a.nome.localeCompare(b.nome, 'pt-BR'))
+  }
+
+  /**
    * `salvarCampanha` — criar (`id === null`) e editar pela mesma porta.
    *
    * **409 no nome repetido, pelo índice `campanha_por_nome`.** O protótipo não

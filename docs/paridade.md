@@ -141,7 +141,7 @@ muda** — ver `apps/api/src/pessoas/indicadores.e2e.test.ts`.
 | `salvarCampanha` | v20 | ✅ | `POST /v1/campanhas` e `PUT /v1/campanhas/:id`. **A meta é um inteiro na escala da MÉTRICA** — CENTAVOS em `receita`, contagem nas outras três; o protótipo guarda reais em ponto flutuante. **Nome único por clínica, pelo índice** (ele aceita duas "Outubro Rosa", e o resultado parte em duas linhas do painel). **`tipoMetrica` viaja com a métrica ou não viaja**: "tipo de contato concluído" sem dizer qual tipo é uma meta que conta zero para sempre, e ele aceita exatamente isso. `PUT` e não `PATCH`, pela mesma razão da ficha de pessoa |
 | `excluirCampanha` | v20 | ✅ | `DELETE /v1/campanhas/:id` — **soft delete, e a TAREFA CONTINUA LIGADA**. Divergência consciente: o protótipo apaga a campanha **e limpa o `campanhaId` de toda tarefa dela**, então o trabalho feito perde a atribuição para sempre e o painel do trimestre passado muda sozinho |
 | `importarCampanha` | v20 | ✅ | `POST /v1/campanhas/:id/importar`. **Idempotente três vezes** (regra 26) por DOIS índices: `pacientes_nome_unico` (a chave de nome sai do Postgres, nunca de uma cópia em TypeScript) e `tarefa_viva_da_campanha` — no máximo uma tarefa ABERTA por (campanha, paciente). É a condição que o protótipo confere com `some()` e que duas abas atravessam juntas. **Completa o vazio, nunca sobrescreve** (regra 27), e `pacientesCompletados` distingue "completei" de "nada a completar". **Pagamento não é tarefa** (regra 3): o tipo do lote passa pela mesma regra de `POST /v1/tarefas` |
-| **Painel geral** | v20 | 🟡 | `GET /v1/painel`, com **Período · Cumprimento de prazos · Pacientes no período** (MANUAL cap. 10). As bordas dos períodos saem do SERVIDOR, no fuso da clínica (ele usa `today()` do navegador). **A taxa divide por `no prazo + com atraso + atrasadas`, nunca pelo total** — o que não venceu não pode estar no prazo nem fora dele. **O "recebido por forma" só alcança dias com caixa já FECHADO** (regra 6): o protótipo agrupa por forma no navegador sem olhar caixa nenhum, e a recepcionista que vai conferir a gaveta lê o esperado por forma do próprio dia. **Falta** o resto do capítulo: Top 10 pagantes, desempenho por unidade, novos pacientes por origem e o bloco de campanhas no período |
+| **Painel geral** | v20 | ✅ | `GET /v1/painel`, com o **capítulo 10 inteiro**: Período · Cumprimento de prazos · Pacientes no período · **Top 10 pagantes** · **Desempenho por unidade** · **Campanhas no período** · **Novos pacientes por origem**. As bordas dos períodos saem do SERVIDOR, no fuso da clínica (ele usa `today()` do navegador). **A taxa divide por `no prazo + com atraso + atrasadas`, nunca pelo total** — o que não venceu não pode estar no prazo nem fora dele. **Toda soma de recebimento AGRUPADA só alcança dias com caixa já FECHADO** (regra 6) — por forma, por paciente (Top 10) e por unidade: o protótipo agrupa as três no navegador sem olhar caixa nenhum, e a recepcionista que vai conferir a gaveta lê o esperado do próprio dia. O que NÃO passa pelo corte são os números de LTV (`ltvMedio`, `ltvTotal`) e a receita da campanha: são somas da VIDA da paciente e da janela da campanha, não o esperado de dia nenhum — mesma classificação que `/v1/pacientes` e `/v1/campanhas` já tinham. As sete contagens de cada campanha vêm do `CampanhasService`, não de um `SELECT` novo |
 
 ## Transversal
 
@@ -263,7 +263,7 @@ entregar metade:** é como a clínica aprende.
 | 7 · Pacientes | Cadastrar · Importar lista · Tela de relacionamento · Ficha · Excluir | 2 |
 | 8 · Programas | Como funcionam · Catálogo · Nova adesão · **Baixa automática no estoque** · Concluir sessão · Contatos dentro do programa · Tela Programas · Fim e contato de retorno · Encerrar ou excluir | 5, 6 |
 | 9 · Campanhas | No dia a dia · Criar · Métricas da meta · Importar lista · Acompanhar resultados | 8 |
-| 10 · Painel | Período · Cumprimento de prazos · Pacientes no período | 8 |
+| 10 · Painel | Período · Cumprimento de prazos · Pacientes no período (com Top 10 pagantes, unidades, campanhas e novos por origem) | 8 |
 | 11 · Cadastros da gestão | **Equipe · Unidades · Procedimentos** | 1, 2, 5 |
 | 12 · Estoque | Como funciona · Locais · Cadastrar itens · **Unidades de medida** · **QR: etiquetas e leitura pelo celular** · Importar do sistema principal · **Entrada pela nota** · Entradas e saídas · **Gerar lista de contagem** · **Análise do estoque** | 6 |
 | 13 · Gestão de pessoas | Ficha · **Alertas** · Metas do mês · Conversas 1:1 · Banco de horas | 7 |
@@ -280,3 +280,14 @@ desta leitura. Dois merecem destaque porque são regra, não tela:
 
 Mais **35 perguntas frequentes** em 7 capítulos, que são o texto de ajuda da
 interface.
+
+**Os dois foram portados, palavra por palavra** (`apps/web/src/conteudo/`), e a
+tela é `/ajuda`, com as duas abas e a busca. Os números precisam de uma nota,
+porque eles mudam com quem olha: o `AJUDA` dela tem **51** perguntas em **8**
+temas, e 16 delas são marcadas `adm` — a equipe sem `painel` nem `config` vê
+exatamente as **35 em 7 temas** que esta linha sempre citou. O mesmo vale para o
+manual: 14 capítulos para a gestão, 11 para a recepção (os capítulos 10, 11 e 13
+são de gestão inteiros), e 55 das 77 seções.
+
+**O que foi adaptado, e só isso:** as passagens de **PIN** e de **primeiro
+acesso** (D-10). O resto é o texto dela.

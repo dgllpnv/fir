@@ -146,6 +146,24 @@ export function Shell({
               {funcao ? <small>{funcao}</small> : null}
             </div>
           </div>
+          {/*
+            "Trocar senha", embaixo do nome — é o "Trocar meu PIN" dela, no
+            lugar em que ela o pôs.
+
+            A rota já existia e só era alcançada pelo DESVIO do primeiro
+            acesso (`lib/sessao` manda para lá quem tem senha provisória), ou
+            seja: quem quisesse trocar a senha por vontade própria tinha de
+            digitar o endereço. O manual (cap. 2, "Trocar a senha") descreve
+            este botão, e um manual que descreve um botão que não existe é
+            pior que nenhum.
+
+            `<a>` e não `<Link>`: `/trocar-senha` está FORA do grupo `(app)`,
+            não tem a Shell, e a navegação do cliente deixaria a lateral
+            montada por cima de uma tela que não a tem.
+          */}
+          <a className="btn ghost" href="/trocar-senha">
+            Trocar senha
+          </a>
           <button type="button" className="btn ghost" onClick={sair}>
             {ICONE_SAIR}
             Sair

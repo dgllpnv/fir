@@ -3,8 +3,12 @@ import type {
   FiltroDoPainel,
   LinhaPorResponsavel,
   LinhaPorSolicitante,
+  LinhaPorUnidade,
+  NovosPacientes,
   Painel,
   PacientesNoPainel,
+  RecorteDeCaixa,
+  TopPagantes,
 } from '@fir/contracts'
 import { PERIODOS_DO_PAINEL } from '@fir/contracts'
 import {
@@ -25,6 +29,7 @@ import { Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
 import type { PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
+import { CampanhasService } from '../campanhas/campanhas.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { diaDaClinica } from '../estoque/dia-da-clinica'
@@ -67,6 +72,41 @@ type Contexto = {
 /** O nome do tipo de sessão de programa, para o `<> ALL` do SQL. */
 const TIPOS_DE_SESSAO = TIPOS.filter((t) => t.sessao === true).map((t) => t.nome)
 
+/**
+ * **O UNIVERSO DA RECEITA, escrito uma vez** — e é o `ehReceita` dela.
+ *
+ * Tarefa viva, CONCLUÍDA, de paciente, do grupo Pagamentos **ou** de
+ * atendimento pagável que guardou dinheiro na própria tarefa. Os quatro blocos
+ * que somam recebimento no painel usam este mesmo `WHERE`: o quinto bloco é o
+ * que nasceria sem o `status = 'concluida'`, e aí a receita do período passaria
+ * a contar o que ninguém atendeu.
+ *
+ * Recebe as POSIÇÕES dos parâmetros em vez de fixá-las: cada consulta declara
+ * só o que usa, porque o Postgres recusa o statement inteiro quando um
+ * parâmetro declarado não aparece ("could not determine data type of parameter
+ * $6") — medido, e é o 500 que o reaproveitamento de uma lista grande produz.
+ */
+const baseDeReceita = (clinica: string, receita: string, pagaveis: string): string => `
+      t.clinica_id = ${clinica}
+      AND t.excluida_em IS NULL
+      AND t.status = 'concluida'
+      AND t.paciente_id IS NOT NULL
+      AND (t.tipo = ANY(${receita}::text[]) OR (t.tipo = ANY(${pagaveis}::text[]) AND r.valor > 0))`
+
+/**
+ * **O CORTE DA REGRA 6: só o dia cujo caixa já foi FECHADO.**
+ *
+ * O dia é o da CLÍNICA — com `AT TIME ZONE 'UTC'`, um recebimento das 21h de
+ * Salvador cairia no dia seguinte e escaparia do corte justamente no dia
+ * aberto, que é o único dia que o corte existe para proteger.
+ *
+ * Pressupõe `recebimentos` aliasada como `r`.
+ */
+const caixaFechado = (clinica: string, fuso: string): string => `EXISTS (
+            SELECT 1 FROM caixas_do_dia cx
+             WHERE cx.clinica_id = ${clinica}
+               AND cx.dia = (r.recebido_em AT TIME ZONE ${fuso})::date)`
+
 type LinhaDePrazo = {
   pessoa: string | null
   nome: string | null
@@ -84,19 +124,34 @@ export class PainelService {
   constructor(
     @Inject(BancoService) private readonly banco: BancoService,
     @Inject(RELOGIO) private readonly relogio: Relogio,
+    @Inject(CampanhasService) private readonly campanhas: CampanhasService,
   ) {}
 
   async painel(ctx: Contexto, filtro: FiltroDoPainel): Promise<Painel> {
     const hoje = diaDaClinica(this.relogio, ctx.fuso)
     const periodo = bordasDoPeriodo(filtro, hoje)
 
+    /**
+     * **As campanhas saem do `CampanhasService`, e não de um SELECT novo.**
+     *
+     * Elas vêm de FORA da transação do painel de propósito: `naClinica` abre a
+     * conexão da clínica, e chamar outro serviço de dentro dela abriria uma
+     * segunda — o bloco é leitura pura, e as sete contagens da campanha são
+     * uma regra que já existe num lugar só.
+     */
+    const campanhas = await this.campanhas.noPeriodo(ctx, periodo.de, periodo.ate)
+
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const [prazos, criadas, solicitantes, pacientes] = await Promise.all([
-        this.prazos(c, ctx, periodo, hoje),
-        this.criadasNoPeriodo(c, ctx, periodo),
-        this.porSolicitante(c, ctx, periodo),
-        this.pacientes(c, ctx, periodo),
-      ])
+      const [prazos, criadas, solicitantes, pacientes, topPagantes, porUnidade, novos] =
+        await Promise.all([
+          this.prazos(c, ctx, periodo, hoje),
+          this.criadasNoPeriodo(c, ctx, periodo),
+          this.porSolicitante(c, ctx, periodo),
+          this.pacientes(c, ctx, periodo),
+          this.topPagantes(c, ctx, periodo, filtro.top),
+          this.porUnidade(c, ctx, periodo, hoje),
+          this.novosPacientes(c, ctx, periodo),
+        ])
 
       return {
         hoje,
@@ -106,6 +161,10 @@ export class PainelService {
         porResponsavel: prazos.porPessoa,
         porSolicitante: solicitantes,
         pacientes,
+        topPagantes,
+        porUnidade,
+        novosPacientes: novos,
+        campanhas,
       }
     })
   }
@@ -342,10 +401,9 @@ export class PainelService {
      * grande parecia economia e é um 500.
      */
     const argsDeForma = [ctx.clinicaId, j.de, j.ate, [...TIPOS_DE_RECEITA], [...TIPOS_PAGAVEIS], ctx.fuso]
-    const FECHADO = `EXISTS (
-            SELECT 1 FROM caixas_do_dia cx
-             WHERE cx.clinica_id = $1
-               AND cx.dia = (r.recebido_em AT TIME ZONE $6)::date)`
+    // O MESMO corte dos blocos novos, e a mesma função: o `EXISTS` escrito
+    // duas vezes é a chance de um dos dois perder o `AT TIME ZONE` da clínica.
+    const FECHADO = caixaFechado('$1', '$6')
     const formas = await c.query<{ forma: string; n: string; valor: string }>(
       `SELECT CASE WHEN r.forma = '' THEN 'Não informada' ELSE r.forma END AS forma,
               count(*)::text AS n,
@@ -503,6 +561,405 @@ export class PainelService {
         concluidasNoPeriodo: Number(x.concluidas),
         valor: x.valor,
       })),
+    }
+  }
+
+  /**
+   * **O CORTE DE CAIXA FECHADO, numa função só** (regra 6).
+   *
+   * `janela === null` é "a história inteira" — o modo *desde o início* do Top
+   * 10. Com janela, é o período do painel.
+   *
+   * Os dois números que ele devolve são o que DECLARA o recorte: até que dia a
+   * soma alcança, e quantos dias com recebimento ficaram de fora. Sem eles a
+   * tabela parece a janela inteira, e a gestora compara uma soma parcial com
+   * um total sem saber — que é pior do que não ter a tabela.
+   *
+   * **Uma função e não o `WITH dias` copiado em cada bloco novo:** o quarto
+   * bloco não é revisado com o cuidado do primeiro, e é nele que o `EXISTS`
+   * some.
+   */
+  private async corteDeCaixa(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    /** Instantes UTC, semiaberta `[de, ate)` (regra 23). `null` = tudo. */
+    janela: { de: Date; ate: Date } | null,
+  ): Promise<RecorteDeCaixa> {
+    const args: unknown[] = [ctx.clinicaId, ctx.fuso, [...TIPOS_DE_RECEITA], [...TIPOS_PAGAVEIS]]
+    if (janela !== null) args.push(janela.de, janela.ate)
+    const r = await c.query<{ ate: string | null; sem_caixa: string }>(
+      `WITH dias AS (
+         SELECT DISTINCT (r.recebido_em AT TIME ZONE $2)::date AS dia,
+                ${caixaFechado('$1', '$2')} AS fechado
+           FROM tarefas t
+           JOIN recebimentos r
+             ON r.tarefa_id = t.id AND r.estornado_em IS NULL AND ${DINHEIRO_QUE_ENTROU}
+          WHERE ${baseDeReceita('$1', '$3', '$4')}
+            ${janela === null ? '' : 'AND t.concluida_em >= $5 AND t.concluida_em < $6'}
+       )
+       SELECT max(dia) FILTER (WHERE fechado)::text AS ate,
+              count(*) FILTER (WHERE NOT fechado)::text AS sem_caixa
+         FROM dias`,
+      args,
+    )
+    return {
+      ateODia: r.rows[0]?.ate ?? null,
+      diasSemCaixa: Number(r.rows[0]?.sem_caixa ?? '0'),
+    }
+  }
+
+  /**
+   * **TOP 10 PAGANTES** — *"no período do Painel ou desde o início"*.
+   *
+   * ──────────────────────────────────────────────────────────────────────────
+   * ELE PASSA PELO CORTE DE CAIXA FECHADO, E É O MESMO MOTIVO DO `porForma`
+   *
+   * Um ranking por paciente numa janela de **um dia** é a soma daquele dia por
+   * outro agrupamento — e a janela é escolhida por quem olha (`per` com
+   * `de = ate = hoje`). Sem o `EXISTS` em `caixas_do_dia`, a recepcionista que
+   * vai contar a gaveta abre o Painel, escolhe hoje, e lê o que o sistema
+   * espera: a regra 6 furada pela porta dos fundos, com outra etiqueta.
+   *
+   * **O protótipo soma sem olhar caixa nenhum** (`top10Html`). Divergência
+   * consciente, igual à do `porForma`.
+   * ──────────────────────────────────────────────────────────────────────────
+   *
+   * A unidade é a **principal da paciente** (`p.unidadeId` dela), não a do
+   * atendimento: a linha responde *"quem é esta paciente"*, e ela é de uma
+   * unidade só.
+   */
+  private async topPagantes(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    periodo: { de: string; ate: string },
+    modo: 'periodo' | 'tudo',
+  ): Promise<TopPagantes> {
+    const jan = modo === 'tudo' ? null : janela(periodo.de, periodo.ate, ctx.fuso)
+    const args: unknown[] = [ctx.clinicaId, ctx.fuso, [...TIPOS_DE_RECEITA], [...TIPOS_PAGAVEIS]]
+    if (jan !== null) args.push(jan.de, jan.ate)
+
+    const [itens, recorte] = await Promise.all([
+      c.query<{ id: string; nome: string; unidade: string; n: string; valor: string }>(
+        `SELECT t.paciente_id::text AS id,
+                max(pa.nome) AS nome,
+                coalesce(max(u.nome), '') AS unidade,
+                count(*)::text AS n,
+                sum(r.valor)::text AS valor
+           FROM tarefas t
+           JOIN recebimentos r
+             ON r.tarefa_id = t.id AND r.estornado_em IS NULL AND ${DINHEIRO_QUE_ENTROU}
+           JOIN pacientes pa ON pa.id = t.paciente_id
+           LEFT JOIN unidades u ON u.id = pa.unidade_id
+          WHERE ${baseDeReceita('$1', '$3', '$4')}
+            AND ${caixaFechado('$1', '$2')}
+            ${jan === null ? '' : 'AND t.concluida_em >= $5 AND t.concluida_em < $6'}
+          GROUP BY t.paciente_id
+          -- O desempate pelo NOME não é zelo: sem ele, duas pacientes com a
+          -- mesma soma trocam de posição entre dois carregamentos do mesmo
+          -- dado, e o "top 3" muda sozinho na tela.
+          ORDER BY sum(r.valor) DESC, max(pa.nome) ASC
+          LIMIT 10`,
+        args,
+      ),
+      this.corteDeCaixa(c, ctx, jan),
+    ])
+
+    return {
+      modo,
+      recorte,
+      itens: itens.rows.map((l) => ({
+        pacienteId: l.id,
+        nome: l.nome,
+        unidade: l.unidade,
+        pagamentos: Number(l.n),
+        valor: l.valor,
+      })),
+    }
+  }
+
+  /**
+   * **DESEMPENHO POR UNIDADE** — uma consulta, seis recortes diferentes.
+   *
+   * ──────────────────────────────────────────────────────────────────────────
+   * A UNIDADE DE UM ATENDIMENTO É A DA TAREFA E, SEM ELA, A DA PACIENTE
+   *
+   * É o `unidadeDaTarefa` dela (`t.unidadeId || pac.unidadeId`). Sem o segundo
+   * termo, a clínica que nunca troca a unidade no atendimento — o caso normal,
+   * porque o campo já vem preenchido pela paciente — veria **todo** o
+   * faturamento em "Sem unidade", e a tabela que existe para comparar os dois
+   * endereços mostraria um só.
+   * ──────────────────────────────────────────────────────────────────────────
+   *
+   * Cada bloco tem a SUA janela, e elas não são a mesma:
+   *
+   *   `pacientes` e `ltvMedio`  sem janela — é o cadastro e a vida da paciente
+   *   `faturamento`             a janela do painel, **com o corte de caixa**
+   *   `programasNovos`          a janela do painel (pela criação)
+   *   `programasAtivos`         sem janela — é o estado de hoje
+   *   `sessões`                 prazo na janela E já vencido
+   *   `tarefasAtrasadas`        sem janela — é o que está parado agora
+   *
+   * **`ltvMedio` não passa pelo corte**, e é deliberado: LTV é o que a
+   * paciente pagou na VIDA, não na janela — não é o esperado de dia nenhum, e
+   * `/v1/pacientes` já o entrega por paciente com essa classificação escrita.
+   *
+   * **Vazio na clínica de um endereço só** (o `temUnidades()` dela): sem
+   * unidade cadastrada, a tabela teria uma linha chamada "Sem unidade" e
+   * nenhuma comparação.
+   */
+  private async porUnidade(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    periodo: { de: string; ate: string },
+    hoje: string,
+  ): Promise<LinhaPorUnidade[]> {
+    const j = janela(periodo.de, periodo.ate, ctx.fuso)
+    const r = await c.query<{
+      id: string | null
+      nome: string
+      pacientes: string
+      com_ltv: string
+      soma_ltv: string
+      pagamentos: string
+      faturamento: string
+      programas_novos: string
+      programas_ativos: string
+      sessoes: string
+      faltas: string
+      atrasadas: string
+    }>(
+      `WITH baldes AS (
+         SELECT u.id, u.nome FROM unidades u WHERE u.clinica_id = $1
+         UNION ALL
+         -- "Sem unidade" é UM BALDE, não a ausência de balde: o atendimento
+         -- lançado sem unidade tem de aparecer em algum lugar, senão o total
+         -- da tabela não bate com o do painel e ninguém sabe por quê.
+         SELECT NULL::uuid, 'Sem unidade'
+       ),
+       pacientes_da_unidade AS (
+         SELECT pa.unidade_id AS uid,
+                count(*)::bigint AS pacientes,
+                count(*) FILTER (WHERE ltv.valor > 0)::bigint AS com_ltv,
+                coalesce(sum(ltv.valor) FILTER (WHERE ltv.valor > 0), 0)::bigint AS soma_ltv
+           FROM pacientes pa
+           CROSS JOIN LATERAL (
+             -- A MESMA definição de LTV de pacientes.service.ts: soma de
+             -- recebimentos com a constante da D-9, sem a venda a prazo.
+             SELECT coalesce(sum(r.valor), 0) AS valor
+               FROM recebimentos r
+              WHERE r.paciente_id = pa.id AND r.estornado_em IS NULL
+                AND ${DINHEIRO_QUE_ENTROU}
+           ) ltv
+          WHERE pa.clinica_id = $1 AND pa.ativo
+          GROUP BY 1
+       ),
+       faturamento AS (
+         SELECT coalesce(t.unidade_id, pa.unidade_id) AS uid,
+                count(*)::bigint AS pagamentos,
+                sum(r.valor)::bigint AS valor
+           FROM tarefas t
+           JOIN recebimentos r
+             ON r.tarefa_id = t.id AND r.estornado_em IS NULL AND ${DINHEIRO_QUE_ENTROU}
+           JOIN pacientes pa ON pa.id = t.paciente_id
+          WHERE ${baseDeReceita('$1', '$9', '$10')}
+            AND t.concluida_em >= $5 AND t.concluida_em < $6
+            AND ${caixaFechado('$1', '$2')}
+          GROUP BY 1
+       ),
+       programas_da_unidade AS (
+         SELECT coalesce(pr.unidade_id, pa.unidade_id) AS uid,
+                count(*) FILTER (WHERE pr.criado_em >= $5 AND pr.criado_em < $6)::bigint AS novos,
+                count(*) FILTER (
+                  WHERE pr.situacao = 'ativo'
+                    AND EXISTS (SELECT 1 FROM tarefas s
+                                 WHERE s.programa_id = pr.id AND s.status = 'aberta'
+                                   AND s.excluida_em IS NULL
+                                   AND s.tipo = ANY($7::text[]))
+                )::bigint AS ativos
+           FROM programas pr
+           JOIN pacientes pa ON pa.id = pr.paciente_id
+          WHERE pr.clinica_id = $1 AND pr.excluido_em IS NULL
+          GROUP BY 1
+       ),
+       sessoes_da_unidade AS (
+         SELECT coalesce(t.unidade_id, pa.unidade_id) AS uid,
+                count(*)::bigint AS previstas,
+                -- FALTA é "não aconteceu na data": continua aberta, ou foi
+                -- concluída depois do prazo. O dia da conclusão sai no fuso da
+                -- CLÍNICA — com UTC, a sessão das 21h viraria falta.
+                count(*) FILTER (
+                  WHERE t.status = 'aberta'
+                     OR (t.concluida_em AT TIME ZONE $2)::date > t.prazo
+                )::bigint AS faltas
+           FROM tarefas t
+           JOIN pacientes pa ON pa.id = t.paciente_id
+          WHERE t.clinica_id = $1 AND t.excluida_em IS NULL
+            AND t.status <> 'cancelada'
+            AND t.tipo = ANY($7::text[])
+            AND t.prazo >= $3::date AND t.prazo <= $4::date
+            -- Só o que JÁ venceu: a sessão de semana que vem não é falta.
+            AND t.prazo < $8::date
+          GROUP BY 1
+       ),
+       atrasadas_da_unidade AS (
+         SELECT coalesce(t.unidade_id, pa.unidade_id) AS uid, count(*)::bigint AS atrasadas
+           FROM tarefas t
+           JOIN pacientes pa ON pa.id = t.paciente_id
+          WHERE t.clinica_id = $1 AND t.excluida_em IS NULL
+            AND t.status = 'aberta' AND t.prazo < $8::date
+            AND t.tipo <> ALL($7::text[])
+          GROUP BY 1
+       )
+       SELECT b.id::text AS id, b.nome,
+              coalesce(p.pacientes, 0)::text AS pacientes,
+              coalesce(p.com_ltv, 0)::text AS com_ltv,
+              coalesce(p.soma_ltv, 0)::text AS soma_ltv,
+              coalesce(f.pagamentos, 0)::text AS pagamentos,
+              coalesce(f.valor, 0)::text AS faturamento,
+              coalesce(g.novos, 0)::text AS programas_novos,
+              coalesce(g.ativos, 0)::text AS programas_ativos,
+              coalesce(s.previstas, 0)::text AS sessoes,
+              coalesce(s.faltas, 0)::text AS faltas,
+              coalesce(a.atrasadas, 0)::text AS atrasadas
+         FROM baldes b
+         LEFT JOIN pacientes_da_unidade p ON p.uid IS NOT DISTINCT FROM b.id
+         LEFT JOIN faturamento f           ON f.uid IS NOT DISTINCT FROM b.id
+         LEFT JOIN programas_da_unidade g  ON g.uid IS NOT DISTINCT FROM b.id
+         LEFT JOIN sessoes_da_unidade s    ON s.uid IS NOT DISTINCT FROM b.id
+         LEFT JOIN atrasadas_da_unidade a  ON a.uid IS NOT DISTINCT FROM b.id
+        -- IS NOT DISTINCT FROM e não =: com =, a linha "Sem unidade"
+        -- (NULL) nunca casaria com o grupo NULL das métricas, e tudo o que
+        -- foi lançado sem unidade sairia como zero.
+        ORDER BY (b.id IS NULL), b.nome`,
+      [
+        ctx.clinicaId,
+        ctx.fuso,
+        periodo.de,
+        periodo.ate,
+        j.de,
+        j.ate,
+        TIPOS_DE_SESSAO,
+        hoje,
+        [...TIPOS_DE_RECEITA],
+        [...TIPOS_PAGAVEIS],
+      ],
+    )
+
+    /**
+     * **A CLÍNICA DE UM ENDEREÇO SÓ NÃO VÊ ESTE BLOCO** — é o `temUnidades()`
+     * dela, e a decisão mora aqui e não na tela: a tabela de uma linha
+     * chamada "Sem unidade" não compara nada com nada, e a tela que a
+     * recebesse precisaria de um `if` para esconder um bloco que o servidor
+     * não devia ter montado.
+     *
+     * Medido: sem isto, a clínica sem unidade cadastrada abre o painel e
+     * encontra um bloco novo com o faturamento do período repetido.
+     */
+    if (!r.rows.some((l) => l.id !== null)) return []
+
+    const linhas = r.rows.map((l) => {
+      const previstas = Number(l.sessoes)
+      const faltas = Number(l.faltas)
+      const comLtv = Number(l.com_ltv)
+      return {
+        unidadeId: l.id,
+        nome: l.nome,
+        pacientes: Number(l.pacientes),
+        pagamentos: Number(l.pagamentos),
+        faturamento: l.faturamento,
+        // **PELO VALUE OBJECT** (regra 1), e `null` sem ninguém que pagou:
+        // `R$ 0,00` diria que o LTV médio é zero, e ele não existe.
+        ltvMedio:
+          comLtv === 0
+            ? null
+            : Dinheiro.deCentavos(BigInt(l.soma_ltv)).media(comLtv).centavos.toString(),
+        programasNovos: Number(l.programas_novos),
+        programasAtivos: Number(l.programas_ativos),
+        sessoesPrevistas: previstas,
+        sessoesComFalta: faltas,
+        taxaDeFalta: previstas === 0 ? null : percentualInteiro(BigInt(faltas), BigInt(previstas)),
+        tarefasAtrasadas: Number(l.atrasadas),
+      }
+    })
+
+    /**
+     * A linha "Sem unidade" só fica se tiver o que mostrar; a unidade
+     * CADASTRADA fica sempre, mesmo vazia — é informação que ela existe e não
+     * teve movimento.
+     */
+    return linhas.filter(
+      (l) =>
+        l.unidadeId !== null ||
+        l.pacientes > 0 ||
+        l.pagamentos > 0 ||
+        l.programasNovos > 0 ||
+        l.programasAtivos > 0 ||
+        l.sessoesPrevistas > 0 ||
+        l.tarefasAtrasadas > 0,
+    )
+  }
+
+  /**
+   * **NOVOS PACIENTES POR ORIGEM** — pela data de CADASTRO.
+   *
+   * É o quarto recorte do painel, e nenhum dos outros três serve: não é o
+   * prazo (prazos), não é a conclusão (pacientes), não é a criação da tarefa
+   * (quem solicitou). *"Pela data de cadastro na ferramenta"*, como a nota da
+   * tela dela diz.
+   *
+   * `ltvTotal` é a soma do LTV dessas pacientes — a mesma definição de
+   * `pacientes.service.ts`, e por isso **sem** o corte de caixa: é o que elas
+   * pagaram na vida, não na janela.
+   *
+   * Só paciente **ativa**: um cadastro feito por engano e desativado não é
+   * uma paciente nova, e deixá-lo aqui faria a origem "Instagram" crescer com
+   * o erro de digitação de alguém.
+   */
+  private async novosPacientes(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    periodo: { de: string; ate: string },
+  ): Promise<NovosPacientes> {
+    const j = janela(periodo.de, periodo.ate, ctx.fuso)
+    const r = await c.query<{
+      origem: string
+      novos: string
+      atendidos: string
+      ltv: string
+    }>(
+      `SELECT CASE WHEN pa.origem = '' THEN 'Não informada' ELSE pa.origem END AS origem,
+              count(*)::text AS novos,
+              count(*) FILTER (
+                WHERE EXISTS (SELECT 1 FROM tarefas t
+                               WHERE t.paciente_id = pa.id AND t.excluida_em IS NULL
+                                 AND t.status = 'concluida' AND t.tipo = ANY($4::text[]))
+              )::text AS atendidos,
+              coalesce(sum(ltv.valor), 0)::text AS ltv
+         FROM pacientes pa
+         CROSS JOIN LATERAL (
+           SELECT coalesce(sum(r.valor), 0) AS valor
+             FROM recebimentos r
+            WHERE r.paciente_id = pa.id AND r.estornado_em IS NULL
+              AND ${DINHEIRO_QUE_ENTROU}
+         ) ltv
+        WHERE pa.clinica_id = $1 AND pa.ativo
+          AND pa.criado_em >= $2 AND pa.criado_em < $3
+        GROUP BY 1
+        ORDER BY count(*) DESC, 1 ASC`,
+      [ctx.clinicaId, j.de, j.ate, [...TIPOS_QUE_ATENDEM]],
+    )
+
+    const porOrigem = r.rows.map((l) => ({
+      origem: l.origem,
+      novos: Number(l.novos),
+      jaAtendidos: Number(l.atendidos),
+      ltvTotal: l.ltv,
+    }))
+    return {
+      // DERIVADO da soma das linhas, não uma segunda contagem: um `count(*)`
+      // à parte é a chance de o total não bater com a tabela embaixo dele.
+      total: porOrigem.reduce((n, o) => n + o.novos, 0),
+      porOrigem,
     }
   }
 }

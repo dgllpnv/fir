@@ -235,4 +235,33 @@ export const CAMPOS_MONETARIOS = [
   'receita',
   'ticketMedio',
   'valorDosOrcamentosPagos',
+
+  // ---------------------------------------------------------------------
+  // O ÉPICO 8, SEGUNDA FATIA: os quatro blocos que fecham o capítulo 10.
+  //
+  //  * `faturamento` — o recebido da UNIDADE na janela do painel. Nome
+  //    próprio porque é o rótulo da coluna dela ("Faturamento"), e porque
+  //    `receita` já significa outra coisa na MESMA resposta: a receita do
+  //    período inteiro. Dois fatos, dois nomes — a ambiguidade de `plano`
+  //    que o `CONTEXT.md` abre proibindo.
+  //
+  //  * `ltvMedio` — a média do LTV entre as pacientes de uma unidade que já
+  //    pagaram algo. `ltv` já está nesta lista e **não** o cobre: a redação
+  //    casa nome EXATO, nunca prefixo (de propósito, senão `ltvTotal`
+  //    desapareceria junto com qualquer campo futuro que comece com `ltv`).
+  //
+  //  * `ltvTotal` — quanto as pacientes novas de uma origem já pagaram, na
+  //    vida, somado. Não é `receita` pela mesma razão de `faturamento`: a
+  //    janela é a vida da paciente, não o período.
+  //
+  // **O que NÃO entra, e é o ponto:** `novos`, `jaAtendidos`, `pacientes`,
+  // `pagamentos`, `programasNovos`, `programasAtivos`, `sessoesPrevistas`,
+  // `sessoesComFalta`, `taxaDeFalta`, `tarefasAtrasadas` e `diasSemCaixa`.
+  // Nenhum é dinheiro, e apagá-los esconderia o trabalho da unidade em vez
+  // do preço de alguma coisa — o mesmo defeito de `saldo` → `saldoEmEstoque`,
+  // pelo lado inverso.
+  // ---------------------------------------------------------------------
+  'faturamento',
+  'ltvMedio',
+  'ltvTotal',
 ] as const
