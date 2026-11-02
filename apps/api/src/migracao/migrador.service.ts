@@ -135,6 +135,39 @@ const FORMAS = new Set(['Pix', 'Dinheiro', 'Cartão de crédito', 'Cartão de d�
 /** O perfil SEM PERMISSÃO para a pessoa que a v20 apagou da aba `Equipe`. */
 const PERFIL_DA_EQUIPE_ANTERIOR = { chave: 'pf_mig', nome: 'Sem acesso (equipe anterior)' }
 
+/**
+ * O perfil SEM PERMISSÃO para quem entra com o acesso **ainda não definido**.
+ *
+ * ## Por que ele existe, e por que não é "sem perfil"
+ *
+ * A política do corte é: quem era `admin = true` na v20 vira administradora, e
+ * **todo o resto entra sem acesso nenhum** — a clínica atribui o perfil quando
+ * entrar. O motivo é medido, não hipotético: entre os `admin = false` reais há
+ * `Tec. Enfermagem`, `Fisioterapeuta` e `Comercial externo`, e o perfil
+ * "Recepção" carrega `receber`, `caixa`, `contas` e `cobrancas`. Super-
+ * permissionar por conveniência de migração é o erro que não se descobre até
+ * alguém abrir a tela errada.
+ *
+ * "Sem perfil" literal — `perfil_id IS NULL` — é **impossível** aqui, e em dois
+ * lugares independentes:
+ *
+ *  1. `pessoa_tem_acesso_definido` (migration 0002):
+ *     `CHECK ((admin AND perfil_id IS NULL) OR (NOT admin AND perfil_id IS NOT NULL))`.
+ *     Quem não é admin PRECISA de um perfil.
+ *  2. `pendenciasDeDecisao` recusa a clínica cujo mapa não cobre todos os não
+ *     administradores — de propósito, para que não exista padrão silencioso.
+ *
+ * Então o equivalente fiel é um perfil com `perms = []`: a pessoa existe, o
+ * histórico dela fica ligado, `temPerm` devolve `false` para toda chave, e a
+ * clínica concede o acesso numa tela. É exatamente o que
+ * `PERFIL_DA_EQUIPE_ANTERIOR` já faz para a pessoa apagada — mesma mecânica,
+ * nome diferente, porque dizer "equipe anterior" de quem trabalha lá hoje
+ * mandaria a clínica desativar a pessoa errada.
+ *
+ * Criado só quando as decisões o referenciam, como o outro.
+ */
+const PERFIL_SEM_ACESSO = { chave: 'pf_sem', nome: 'Sem acesso definido' }
+
 type Mapa = Map<string, string>
 
 @Injectable()
@@ -455,6 +488,20 @@ export class Migrador {
         [clinicaId, p.id, p.nome, [...p.perms]],
       )
       perfilPorChave.set(p.id, novo.rows[0]!.id)
+    }
+
+    // O perfil "Sem acesso definido", criado **só se as decisões o
+    // referenciarem**. Fica junto dos padrões porque `perfilPorChave` é
+    // consultado ao inserir cada pessoa, e uma criação tardia faria a primeira
+    // pessoa mapeada falhar com `perfil "pf_sem" não existe nesta clínica`.
+    if ([...(decisoes.perfilPorPessoa?.values() ?? [])].includes(PERFIL_SEM_ACESSO.chave)) {
+      if (!perfilPorChave.has(PERFIL_SEM_ACESSO.chave)) {
+        const novo = await c.query<{ id: string }>(
+          'INSERT INTO perfis (clinica_id, chave, nome, perms) VALUES ($1,$2,$3,$4) RETURNING id',
+          [clinicaId, PERFIL_SEM_ACESSO.chave, PERFIL_SEM_ACESSO.nome, []],
+        )
+        perfilPorChave.set(PERFIL_SEM_ACESSO.chave, novo.rows[0]!.id)
+      }
     }
 
     const garantirPerfilDaEquipeAnterior = async (): Promise<string> => {
