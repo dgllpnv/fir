@@ -4,7 +4,7 @@ import type { ClinicaCriada } from '@fir/contracts'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
-import { Carregando, Vazio } from '@/components/estados'
+import { Carregando, Toast, Vazio } from '@/components/estados'
 import { SenhaProvisoria } from '@/components/senha-provisoria'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { usePainel } from '../contexto'
@@ -27,6 +27,8 @@ export default function Clinicas() {
   const router = useRouter()
   const { sessao, recarregar } = usePainel()
   const [criada, setCriada] = useState<ClinicaCriada | null>(null)
+  /** Uma mensagem por vez, e toda ação confirma o que aconteceu (design.md §4). */
+  const [recado, setRecado] = useState<string | null>(null)
   const dobra = useRef<HTMLDetailsElement>(null)
 
   const abrirCriacao = () => {
@@ -142,7 +144,19 @@ export default function Clinicas() {
         </>
       )}
 
-      <FormularioDeClinica dobra={dobra} aoCriar={setCriada} aoRecarregar={recarregar} />
+      <FormularioDeClinica
+        dobra={dobra}
+        aoCriar={(c) => {
+          setCriada(c)
+          // A caixa da provisória confirma a SENHA; o recado confirma a
+          // CLÍNICA, que é o que a pessoa pediu. Sem ele, criar uma clínica
+          // termina numa caixa que fala de outra coisa.
+          setRecado(`Clínica ${c.codigo} criada, com os perfis padrão e ${c.admin.nome}.`)
+        }}
+        aoRecarregar={recarregar}
+      />
+
+      <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
   )
 }
