@@ -1,0 +1,404 @@
+#!/usr/bin/env bash
+# O deploy do Firmare Rotinas de Gestão.
+#
+# Roda **na VPS**, do diretório que contém este arquivo. É idempotente: rodar
+# duas vezes não recria segredo, não reaplica migration e não perde dado.
+#
+# ## A ordem, e por que ela é essa
+#
+#   1. segredos — gerados uma vez, e nunca no repositório
+#   2. a guarda da allowlist do painel
+#   3. Postgres e Redis, e esperar ficarem saudáveis de verdade
+#   4. `fir_painel` (provisionar-painel.sh), que não é migration
+#   5. migrations, como `fir_migrate` — o único papel com BYPASSRLS
+#   6. API e web
+#   7. verificação
+#
+# O passo 6 do README — `./redefinir-superadmin.sh` — **não** está aqui, de
+# propósito: ele imprime uma senha na tela, e um passo que imprime segredo não
+# pertence a um script que alguém roda de novo por reflexo.
+#
+# ## A ARMADILHA DA ORDEM, medida e não deduzida
+#
+# O README manda subir o Postgres (passo 2) ANTES de provisionar o painel
+# (passo 3). **Isso não funciona**, e a razão não é óbvia: o Compose interpola
+# o arquivo INTEIRO antes de decidir o que subir, então
+# `DATABASE_URL_PAINEL:?` na definição da `api` derruba até
+# `docker compose up -d postgres`. Medido:
+#
+#   error while interpolating services.api.environment.DATABASE_URL_PAINEL:
+#   required variable DATABASE_URL_PAINEL is missing a value
+#
+# E `provisionar-painel.sh` usa `docker compose exec`, então ele também falha —
+# o passo que existe para resolver a pendência não consegue rodar. É um laço.
+#
+# A saída é escrever `SENHA_PAINEL` e `DATABASE_URL_PAINEL` no `.env` **aqui,
+# antes de qualquer comando do Compose**. O `provisionar-painel.sh` continua
+# sendo quem CRIA e credencia o papel no Postgres — ele acrescenta a chave só
+# se faltar, então encontra as duas já lá e vai direto ao SQL. A guarda `:?`
+# continua valendo para quem rodar o Compose à mão com um `.env` incompleto,
+# que é de quem ela sempre foi.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+AMBIENTE=.env
+
+# ---------------------------------------------------------------------------
+# 1 · segredos
+# ---------------------------------------------------------------------------
+# Gerados **na máquina**, uma vez, com 32 bytes de urandom. Nunca passam por
+# conversa, por commit, nem por variável de ambiente de CI.
+segredo() { head -c 32 /dev/urandom | base64 | tr -d '=+/' | cut -c1-40; }
+
+if [ ! -f "$AMBIENTE" ]; then
+  echo "==> gerando segredos em $AMBIENTE"
+  cat > "$AMBIENTE" <<FIM
+# Gerado por implantar.sh. **Não versionar.**
+#
+# Perder este arquivo com o volume do Postgres vivo torna o banco inacessível:
+# as senhas de fir_migrate, fir_app e fir_painel estão dentro dele, e só dentro
+# dele. COPIE-O para onde a equipe guarda senhas antes de qualquer coisa.
+DOMINIO=${DOMINIO:-fir.o9cmue.easypanel.host}
+VERSAO=${VERSAO:-mais-recente}
+
+SENHA_POSTGRES=$(segredo)
+SENHA_MIGRATE=$(segredo)
+SENHA_APP=$(segredo)
+SENHA_REDIS=$(segredo)
+FIM
+  chmod 600 "$AMBIENTE"
+else
+  echo "==> $AMBIENTE já existe; mantendo os segredos"
+fi
+
+# **600 em toda execução, e não só na criação.** O arquivo tem as senhas do
+# banco; um `chmod` perdido num editor não deve sobreviver a um deploy.
+chmod 600 "$AMBIENTE"
+
+# Chaves acrescentadas depois da primeira instalação.
+#
+# Sem este bloco, uma chave nova só existiria em instalação nova — e a que está
+# no ar, que é justamente a que precisa dela, subiria quebrada no `:?` do
+# compose. Cada chave é acrescentada **uma vez**, e nunca sobrescrita: quem já
+# tem valor definido continua com o dele, porque trocar a senha de um papel em
+# uso derruba a aplicação.
+acrescentar_segredo() {
+  if ! grep -q "^$1=" "$AMBIENTE"; then
+    echo "==> acrescentando $1 a $AMBIENTE"
+    printf '%s=%s\n' "$1" "$(segredo)" >> "$AMBIENTE"
+  fi
+}
+
+acrescentar_linha() {
+  if ! grep -q "^$1=" "$AMBIENTE"; then
+    echo "==> acrescentando $1=$2 a $AMBIENTE"
+    printf '%s=%s\n' "$1" "$2" >> "$AMBIENTE"
+  fi
+}
+
+acrescentar_segredo SENHA_REDIS
+
+# As duas chaves do painel, ANTES de qualquer comando do Compose — ver "a
+# armadilha da ordem" no cabeçalho. `provisionar-painel.sh` usa exatamente
+# estes nomes e o mesmo "acrescentar só se faltar", então as duas execuções
+# concordam em vez de competir.
+acrescentar_segredo SENHA_PAINEL
+
+# A chave que nasce com **valor fechado**, e não vazia — é a terceira
+# categoria, e a diferença é de segurança, não de estilo.
+#
+# Uma linha `IPS_DO_PAINEL=` lê-se, para quem abre o `.env`, como "sem
+# restrição" — e é o contrário. E a recuperação de lockout reescreve esta linha
+# com `sed`; **sem linha, o `sed` não casa nada e falha em silêncio**, deixando
+# o operador convencido de que se liberou.
+#
+# `127.0.0.1/32` é sintaticamente válido e semanticamente inútil pela internet:
+# ele não é alcançável nem a partir do próprio host, porque uma conexão do host
+# chega ao container com o endereço do gateway da bridge. Quem tem shell na VPS
+# já tem root — a allowlist nunca teve como defender contra ele.
+acrescentar_linha IPS_DO_PAINEL 127.0.0.1/32
+
+set -a
+# shellcheck disable=SC1090
+. "./$AMBIENTE"
+set +a
+
+# `DATABASE_URL_PAINEL` depende de `SENHA_PAINEL`, então só pode ser montada
+# depois de o `.env` ser lido.
+acrescentar_linha DATABASE_URL_PAINEL \
+  "postgresql://fir_painel:${SENHA_PAINEL}@postgres:5432/fir"
+
+set -a
+# shellcheck disable=SC1090
+. "./$AMBIENTE"
+set +a
+
+: "${DOMINIO:?DOMINIO não está no .env}"
+
+# ---------------------------------------------------------------------------
+# 2 · a guarda da allowlist do painel
+# ---------------------------------------------------------------------------
+# **Falhar aqui é barato; falhar no Traefik é falhar aberto.**
+#
+# Um `sourceRange` vazio ou com CIDR malformado impede o Traefik de construir o
+# middleware, e um roteador cuja cadeia de middlewares falhou **não entra na
+# árvore de roteamento** — ele não passa a bloquear, deixa de existir. A
+# negação na regra do roteador do produto (ver o compose) contém isso: o painel
+# vira 404 em vez de ficar aberto. Esta guarda é a segunda camada, e é a que
+# diz **por que**, em vez de devolver um 404 que ninguém sabe ler.
+#
+# Um IP nu — `203.0.113.7` sem `/32` — é o erro mais comum e é recusado aqui: o
+# Traefik também o recusaria, e três linhas de shell no lugar certo poupam a
+# viagem.
+IPS_DO_PAINEL=${IPS_DO_PAINEL:-127.0.0.1/32}
+if ! printf '%s' "$IPS_DO_PAINEL" \
+   | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}(,[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2})*$'; then
+  echo "ERRO: IPS_DO_PAINEL não é uma lista de CIDRs válida: '$IPS_DO_PAINEL'" >&2
+  echo "      Formato: 203.0.113.7/32  ou  203.0.113.7/32,198.51.100.0/24" >&2
+  echo "      Para fechar o painel para todos: 127.0.0.1/32" >&2
+  exit 1
+fi
+# Faixa larga demais é o erro que **passa no aceite e não filtra nada** — e ele
+# tem um caminho conhecido: o operador vê 403 onde esperava 200, conclui que "o
+# IP não está chegando", e alarga a faixa até funcionar. `10.0.0.0/8` libera os
+# vizinhos; `0.0.0.0/0` libera a internet.
+#
+# Não recusamos: `0.0.0.0/0` é um desligamento deliberado de rollback, e um
+# script que impede o rollback é pior que o risco. Avisamos alto.
+for faixa in ${IPS_DO_PAINEL//,/ }; do
+  prefixo=${faixa#*/}
+  if [ "$prefixo" -lt 24 ] 2>/dev/null; then
+    echo "  ATENÇÃO: $faixa é uma faixa larga (/$prefixo)." >&2
+    echo "  Se você chegou a ela porque o teste dava 403, o problema não era a" >&2
+    echo "  faixa: confira se o IP do cliente chega ao Traefik. Uma allowlist" >&2
+    echo "  que passa no aceite e não filtra nada é pior do que nenhuma." >&2
+  fi
+done
+echo "==> allowlist do painel: $IPS_DO_PAINEL"
+
+# ---------------------------------------------------------------------------
+# 3 · dados
+# ---------------------------------------------------------------------------
+# O `10-papeis.sh` roda **aqui**, uma vez, na criação do volume, e é ele que
+# cria `fir_migrate` e `fir_app` com as senhas do `.env`. Se o volume já
+# existir, o Postgres o ignora — que é o certo: reexecutar trocaria a senha de
+# papéis em uso.
+echo "==> subindo Postgres e Redis"
+docker compose up -d postgres redis
+
+echo "==> esperando ficarem saudáveis"
+saudaveis=0
+for _ in $(seq 1 60); do
+  saudaveis=$(docker compose ps --format '{{.Service}} {{.Health}}' \
+              | grep -c 'healthy' || true)
+  [ "$saudaveis" -ge 2 ] && break
+  sleep 3
+done
+if [ "$saudaveis" -lt 2 ]; then
+  echo "ERRO: Postgres ou Redis não ficaram saudáveis." >&2
+  docker compose logs --tail 40 postgres redis >&2
+  exit 1
+fi
+
+# A asserção que o healthcheck não faz: os papéis existem. Se o volume foi
+# criado numa execução anterior SEM as senhas no ambiente, o `10-papeis.sh` não
+# rodou e as migrations falhariam mais adiante com "password authentication
+# failed" — mensagem que manda procurar no lugar errado.
+papeis=$(docker compose exec -T -e PGPASSWORD="$SENHA_POSTGRES" postgres \
+  psql --username fir --dbname fir -tAc \
+  "SELECT count(*) FROM pg_roles WHERE rolname IN ('fir_migrate','fir_app')" | tr -d '[:space:]')
+if [ "${papeis:-0}" -ne 2 ]; then
+  echo "ERRO: fir_migrate e/ou fir_app não existem (encontrados: ${papeis:-0})." >&2
+  echo "  O 10-papeis.sh roda UMA VEZ, na criação do volume. Se o volume" >&2
+  echo "  'fir_postgres-dados' foi criado antes de o .env existir, ele não" >&2
+  echo "  rodou. Ver infra/producao/README.md." >&2
+  exit 1
+fi
+echo "  ok  fir_migrate e fir_app existem"
+
+# ---------------------------------------------------------------------------
+# 4 · o papel do painel
+# ---------------------------------------------------------------------------
+# Não é migration, e o cabeçalho de `provisionar-painel.sh` diz as duas razões:
+# `fir_migrate` não tem CREATEROLE, e uma migration com senha dentro fica no
+# repositório para sempre. Ele é idempotente e REBAIXA o papel a cada execução
+# — se alguém deu BYPASSRLS "para depurar", isto desfaz.
+echo "==> provisionando fir_painel"
+./provisionar-painel.sh
+
+# ---------------------------------------------------------------------------
+# 5 · migrations
+# ---------------------------------------------------------------------------
+# Container descartável, na rede dos dados, com a imagem da API — as migrations
+# viajam **dentro** dela, para que nunca se aplique migration de uma versão
+# diferente da que vai rodar.
+#
+# Como `fir_migrate`, nunca como superusuário: rodar migration com
+# superusuário faz tudo passar, e passar assim esconde os erros de permissão
+# que aparecem só no primeiro deploy. A `0013` CONFERE o papel do painel e para
+# se ele estiver errado.
+echo "==> aplicando migrations"
+docker compose run --rm --no-deps \
+  -e DATABASE_URL_MIGRATE="postgresql://fir_migrate:${SENHA_MIGRATE}@postgres:5432/fir" \
+  --entrypoint node api migrar.js
+
+# ---------------------------------------------------------------------------
+# 6 · aplicação
+# ---------------------------------------------------------------------------
+echo "==> subindo API e web"
+docker compose up -d api web
+
+# ---------------------------------------------------------------------------
+# 7 · verificação
+# ---------------------------------------------------------------------------
+# **Um deploy que não é verificado não é um deploy.** Falha numa asserção é
+# deploy RECUSADO, não aviso — com duas exceções marcadas, onde o que se mede
+# depende de um Traefik que não é nosso e que demora alguns segundos para ver
+# um container novo.
+echo "==> verificando"
+
+falhou=0
+
+# 7.1 · a API responde, e o BANCO responde com ela.
+# `/v1/saude` consulta o Postgres: um container "saudável" cujo banco caiu é
+# pior que um container morto, porque continua recebendo tráfego.
+esperar_api() {
+  for _ in $(seq 1 40); do
+    if docker compose exec -T api node -e \
+      "fetch('http://127.0.0.1:4811/v1/saude').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))" \
+      2>/dev/null; then return 0; fi
+    sleep 3
+  done
+  return 1
+}
+if esperar_api; then
+  echo "  ok  a API responde 200 em /v1/saude (o banco responde com ela)"
+else
+  echo "  ERRO: a API não respondeu em /v1/saude." >&2
+  docker compose logs --tail 40 api >&2
+  exit 1
+fi
+
+# 7.2 · sem sessão, a API RECUSA.
+# Um 200 aqui significaria que o guard global caiu — e não há 200 "inofensivo"
+# numa rota que devolve dado de clínica.
+if docker compose exec -T api node -e \
+  "fetch('http://127.0.0.1:4811/v1/eu').then(r=>process.exit(r.status===401?0:1)).catch(()=>process.exit(1))" \
+  2>/dev/null; then
+  echo "  ok  a API responde 401 em /v1/eu (sem sessão, como deve)"
+else
+  echo "  ERRO: /v1/eu não respondeu 401 sem sessão. NÃO libere este deploy." >&2
+  falhou=1
+fi
+
+# 7.3 · o web alcança a API pela rede interna.
+if docker compose exec -T web node -e \
+  "fetch('http://api:4811/v1/saude').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))" \
+  2>/dev/null; then
+  echo "  ok  o web alcança a API pela rede interna"
+else
+  echo "  ERRO: o web não alcança a API." >&2
+  falhou=1
+fi
+
+# 7.4 · O REWRITE DE `/api` FUNCIONA — a asserção que o Mavia não tinha.
+#
+# É a segunda das três armadilhas registradas lá: o destino do rewrite entra no
+# manifesto de rotas no BUILD, e quando ele sai sem host **todas as telas
+# servem 200 e `/api/*` devolve 404**. O deploy parecia bom e o produto não
+# funcionava. Nenhuma das outras asserções pega isso: a API responde, o web
+# alcança a API, o Traefik serve a página — e o login ainda assim não entra.
+#
+# Medir pelo web, na porta do web, é o único jeito de exercitar o manifesto.
+if docker compose exec -T web node -e \
+  "fetch('http://127.0.0.1:4810/api/v1/saude').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))" \
+  2>/dev/null; then
+  echo "  ok  o web repassa /api/* para a API (o rewrite tem host)"
+else
+  echo "  ERRO: /api/v1/saude pelo web não respondeu 200." >&2
+  echo "  O destino do rewrite provavelmente saiu sem host no build." >&2
+  echo "  Ver o ARG FIR_API_URL em apps/web/Dockerfile." >&2
+  falhou=1
+fi
+
+# 7.5 · NENHUMA PORTA PUBLICADA NO HOST.
+# A VPS roda a produção de outros negócios. Um `ports:` que escapou para o
+# compose publicaria o Postgres do FIR na internet — e é o tipo de linha que
+# entra "só para depurar" e fica.
+publicadas=$(docker compose ps --format '{{.Service}} {{.Ports}}' | grep -E '0\.0\.0\.0|:::' || true)
+if [ -z "$publicadas" ]; then
+  echo "  ok  nenhum serviço do FIR publica porta no host"
+else
+  echo "  ERRO: há porta publicada no host:" >&2
+  echo "$publicadas" >&2
+  falhou=1
+fi
+
+# 7.6 · o Postgres NÃO tem rota de saída.
+# A rede `dados` é `internal: true`, e o ponto é esse: um banco comprometido não
+# tem por onde exfiltrar. Vale medir, porque `internal` é uma palavra num
+# arquivo até alguém acrescentar uma segunda rede ao serviço.
+if docker compose exec -T postgres getent hosts github.com >/dev/null 2>&1; then
+  echo "  ERRO: o Postgres resolve nome externo — ele ganhou rota de saída." >&2
+  falhou=1
+else
+  echo "  ok  o Postgres não tem rota de saída"
+fi
+
+# 7.7 · o Traefik serve a página de entrada.
+codigo=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: ${DOMINIO}" \
+         --resolve "${DOMINIO}:443:127.0.0.1" "https://${DOMINIO}/entrar" || echo 000)
+if [ "$codigo" = "200" ]; then
+  echo "  ok  o Traefik serve https://${DOMINIO}/entrar"
+else
+  echo "  ATENÇÃO: o Traefik devolveu $codigo em /entrar." >&2
+  echo "  O Traefik demora alguns segundos para ver um container novo." >&2
+  echo "  Confira com: docker logs \$(docker ps -qf name=easypanel-traefik)" >&2
+fi
+
+# 7.8 · a allowlist do painel.
+#
+# Roda a partir do host da VPS, que **não** está na lista — uma conexão do host
+# chega ao container com o endereço do gateway, não com `127.0.0.1`. Então o
+# esperado aqui é recusa.
+#
+# Os três resultados possíveis significam coisas diferentes, e colapsá-los num
+# "ok/erro" esconderia justamente a falha que importa.
+codigo_painel=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: ${DOMINIO}" \
+                --resolve "${DOMINIO}:443:127.0.0.1" "https://${DOMINIO}/superadmin" || echo 000)
+case "$codigo_painel" in
+  403)
+    echo "  ok  o painel recusa origem fora da allowlist (403 do Traefik)"
+    ;;
+  404)
+    echo "  ATENÇÃO: /superadmin devolveu 404." >&2
+    echo "  O roteador do painel não está na árvore — provavelmente o middleware" >&2
+    echo "  não pôde ser construído. Está FECHADO, que é o modo de falha certo," >&2
+    echo "  mas o painel não sobe assim. Confira IPS_DO_PAINEL e os logs do Traefik." >&2
+    ;;
+  200)
+    echo "  ERRO: /superadmin respondeu 200 de uma origem fora da allowlist." >&2
+    echo "  O controle da D-5 restrição 6 NÃO está no ar." >&2
+    falhou=1
+    ;;
+  *)
+    echo "  ATENÇÃO: /superadmin devolveu $codigo_painel; esperado 403." >&2
+    ;;
+esac
+
+if [ "$falhou" -ne 0 ]; then
+  echo >&2
+  echo "DEPLOY RECUSADO: uma ou mais asserções falharam." >&2
+  echo "Os containers estão de pé, mas NÃO entregue este endereço a ninguém" >&2
+  echo "antes de a falha estar resolvida." >&2
+  exit 1
+fi
+
+echo
+echo "FIR em https://${DOMINIO}"
+echo "Segredos em $(pwd)/$AMBIENTE — modo 600, fora do repositório."
+echo
+echo "O PRIMEIRO OPERADOR do painel ainda não existe. Crie-o com:"
+echo "  ./redefinir-superadmin.sh <usuario> \"Nome Completo\""
+echo "Ele imprime a senha UMA VEZ, e por isso não está neste script."

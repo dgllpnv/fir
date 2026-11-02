@@ -103,7 +103,16 @@ services:
     image: fir/web:${VERSAO:-mais-recente}
     restart: unless-stopped
     environment:
-      API_INTERNA: http://api:4811
+      # O NOME importa: `next.config.mjs` lê `FIR_API_URL`, e a chave que
+      # estava aqui antes (`API_INTERNA`) não era lida por ninguém — o web
+      # caía no padrão `127.0.0.1:4811`, que dentro deste container é o
+      # PRÓPRIO web. Todas as telas serviriam 200 e `/api/*` falharia.
+      #
+      # E o valor que de fato decide o rewrite é o `ARG` do
+      # `apps/web/Dockerfile`, porque `rewrites()` entra no manifesto de rotas
+      # no **build**. Esta variável existe para que build e runtime concordem,
+      # e para que quem ler o compose veja o endereço certo em vez de deduzir.
+      FIR_API_URL: http://api:4811
       TZ: UTC
     depends_on:
       api: { condition: service_started }

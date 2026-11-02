@@ -52,16 +52,20 @@ AMBIENTE=.env
 SENHA_POSTGRES=$(grep '^SENHA_POSTGRES=' "$AMBIENTE" | cut -d= -f2-)
 
 # A senha e o hash vêm do container da API, que é quem tem o Argon2 e o
-# domínio. `--input-type=module` porque o produto é ESM.
+# domínio. A saída é JSON numa linha, e o shell só a separa — a senha nunca
+# entra na linha de comando do psql (ver `--set` abaixo), nem num `set -x`.
 #
-# A saída é JSON numa linha, e o shell só a separa — a senha nunca entra na
-# linha de comando do psql (ver `--set` abaixo), nem num `set -x`.
-CREDENCIAL=$(docker compose exec -T api node --input-type=module -e "
-  const { gerarSenhaProvisoria } = await import('@fir/domain')
-  const { hashDeSenha } = await import('@fir/api/autenticacao/senha')
-  const senha = gerarSenhaProvisoria()
-  process.stdout.write(JSON.stringify({ senha, hash: await hashDeSenha(senha) }))
-")
+# **`credencial.js`, e não um `node -e` com `import('@fir/domain')`.** A versão
+# anterior fazia isso e funcionava só na máquina de desenvolvimento: a imagem
+# de produção carrega um bundle e o `node_modules` apenas das dependências
+# externas, sem `@fir/domain` nem `@fir/api` resolvíveis. A saída de emergência
+# quebraria exatamente no dia em que fosse necessária — e esse é o único dia em
+# que ela é usada.
+#
+# O arquivo é construído a partir de `apps/api/credencial.ts`, pelas MESMAS
+# funções do produto (`gerarSenhaProvisoria`, `hashDeSenha`). Ver
+# `apps/api/construir.mjs`.
+CREDENCIAL=$(docker compose exec -T api node credencial.js)
 
 SENHA=$(printf '%s' "$CREDENCIAL" | sed 's/.*"senha":"\([^"]*\)".*/\1/')
 HASH=$(printf '%s' "$CREDENCIAL" | sed 's/.*"hash":"\([^"]*\)".*/\1/')

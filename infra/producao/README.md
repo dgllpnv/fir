@@ -4,16 +4,63 @@ Na mesma VPS do Mavia, **ao lado e nunca dentro** da orquestração do
 EasyPanel: containers comuns, descobertos pelo Traefik por label, Postgres
 próprio, rede de dados sem rota de saída, só o `web` encarando a internet.
 
+## O deploy, em dois comandos
+
+```bash
+ssh root@2.24.79.49
+cd /opt/fir/repo && git fetch origin && git reset --hard origin/fundacao
+
+# `nice` porque o build compete com o Chatwoot e o WhatsApp de clientes de
+# OUTROS negócios na mesma máquina.
+nice -n 19 docker build -f apps/api/Dockerfile -t fir/api:mais-recente .
+nice -n 19 docker build -f apps/web/Dockerfile -t fir/web:mais-recente .
+
+cd infra/producao && bash implantar.sh
+./redefinir-superadmin.sh <usuario> "Nome"   # cria o PRIMEIRO operador
+```
+
+`implantar.sh` é idempotente: rodar duas vezes não recria segredo, não reaplica
+migration e não perde dado. Ele faz os passos 1 a 5 abaixo e termina com oito
+asserções — **um deploy que não é verificado não é um deploy**.
+
+O passo 6 fica fora dele de propósito: ele imprime uma senha na tela, e um
+passo que imprime segredo não pertence a um script que alguém roda de novo por
+reflexo.
+
 ## A ordem obrigatória, e o que acontece fora dela
 
 ```
-1.  cp .env.exemplo .env   e preencha os segredos
-2.  docker compose up -d postgres          # 10-papeis.sh roda AQUI, uma vez
-3.  ./provisionar-painel.sh                # cria fir_painel, escreve DATABASE_URL_PAINEL
-4.  pnpm --filter @fir/api db:migrate      # a 0013 CONFERE o papel
-5.  docker compose up -d                   # api + web
+1.  segredos no .env  (incluindo SENHA_PAINEL e DATABASE_URL_PAINEL)
+2.  docker compose up -d postgres redis    # 10-papeis.sh roda AQUI, uma vez
+3.  ./provisionar-painel.sh                # cria e credencia fir_painel
+4.  migrar.js, como fir_migrate            # a 0013 CONFERE o papel
+5.  docker compose up -d api web
 6.  ./redefinir-superadmin.sh <usuario> "Nome"   # cria o PRIMEIRO operador
 ```
+
+### ⚠️ A armadilha da ordem — medida, não deduzida
+
+A versão anterior deste README mandava provisionar o painel **depois** de subir
+o Postgres. **Isso não funciona, e o motivo não é óbvio:** o Compose interpola
+o arquivo INTEIRO antes de decidir o que subir, então `DATABASE_URL_PAINEL:?`
+na definição da `api` derruba até `docker compose up -d postgres`. Medido:
+
+```
+error while interpolating services.api.environment.DATABASE_URL_PAINEL:
+required variable DATABASE_URL_PAINEL is missing a value: rode ./provisionar-painel.sh
+```
+
+E `provisionar-painel.sh` usa `docker compose exec` — então ele também falha. O
+passo que existe para resolver a pendência não consegue rodar: é um laço, e
+quem o encontrar às duas da manhã vai ler a mensagem como "falta rodar o script
+que acabei de tentar rodar".
+
+Por isso `implantar.sh` escreve `SENHA_PAINEL` e `DATABASE_URL_PAINEL` no
+`.env` **antes de qualquer comando do Compose**. `provisionar-painel.sh`
+continua sendo quem cria e credencia o papel no Postgres — ele acrescenta
+chave só se faltar, então encontra as duas já lá e vai direto ao SQL. A guarda
+`:?` continua valendo para quem rodar o Compose à mão com `.env` incompleto,
+que é de quem ela sempre foi.
 
 **Fora de ordem, a `0013` para**, e o `RAISE EXCEPTION` dela diz exatamente o
 que fazer:

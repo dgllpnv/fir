@@ -12,6 +12,7 @@
     "./banco/limpeza-de-teste": "./src/banco/limpeza-de-teste.ts",
     "./autenticacao/senha": "./src/autenticacao/senha.ts"
   },
+  "//build": "NÃO declare um script `build` aqui. O bundle de produção é `node construir.mjs`, e o Dockerfile o invoca direto. Como `teste` depende de `@fir/api`, um script `build` entra no `dependsOn: [\"^build\"]` de `typecheck` e `test` do turbo.json — e aí a suíte inteira passa a exigir um bundle de produção para rodar, falhando em qualquer máquina com extensão de editor que edite node_modules (ver a guarda em construir.mjs).",
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "db:migrate": "tsx migrar.ts",
@@ -37,6 +38,7 @@
     "@types/node": "^22",
     "@types/pg": "^8",
     "@types/supertest": "^7.2.1",
+    "esbuild": "^0.25.0",
     "fast-check": "^3.23.2",
     "supertest": "^7.3.1",
     "tsx": "^4",

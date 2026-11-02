@@ -1,0 +1,73 @@
+# O que NÃO vai para o contexto de build.
+#
+# Isto não é otimização. O `docker build` empacota o diretório inteiro e o
+# manda para o daemon **antes** de ler o Dockerfile, então tudo que estiver
+# aqui existe dentro do build — inclusive o que o `.gitignore` mantém fora do
+# repositório, porque `.gitignore` e `.dockerignore` são listas independentes.
+#
+# Na máquina de quem desenvolve, o diretório contém duas coisas que não podem
+# entrar em imagem nenhuma:
+#
+#   versoes/          o código da v20 rodando em 4 clínicas vivas
+#   docs/Planilhas/   planilhas exportadas: nome, telefone, procedimento,
+#                     valor e dose de PACIENTES REAIS
+#
+# Na VPS o repositório é um clone limpo e nenhuma das duas existe — o que
+# significa que o defeito só apareceria na máquina de quem construísse local,
+# e passaria despercebido justamente por isso.
+
+# ---------------------------------------------------------------------------
+# Dado real. Nunca em imagem, nunca em contexto de build.
+# ---------------------------------------------------------------------------
+versoes/
+docs/Planilhas/
+*.xlsx
+docs/seguranca-v20-local.md
+
+# ---------------------------------------------------------------------------
+# Segredo. O `.env` de produção tem as senhas do banco e do painel.
+# ---------------------------------------------------------------------------
+infra/producao/.env
+infra/producao/redis.conf
+**/.env
+**/.env.*
+!**/.env.exemplo
+
+# ---------------------------------------------------------------------------
+# O que o build refaz, e que se trazido de fora CONTAMINA o artefato.
+# ---------------------------------------------------------------------------
+# `node_modules` é o item que mais importa desta lista: é ele que carrega a
+# dependência que a extensão de editor editou no disco (ver a guarda
+# `so-dentro-do-repositorio` em apps/api/construir.mjs). O Dockerfile roda o
+# seu próprio `pnpm install --frozen-lockfile`; trazer o de fora é trocar um
+# artefato reproduzível por uma cópia da máquina de alguém.
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+dist/
+**/dist/
+.turbo/
+**/.turbo/
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# Ruído: não muda o artefato, e invalida o cache de camada a cada commit.
+# ---------------------------------------------------------------------------
+.git/
+.gitignore
+.github/
+.claude/
+.superpowers/
+*.log
+*.md
+prototipo-rotinas-de-gestao.html
+docs/
+
+# `teste/` é um pacote do workspace, e o `--frozen-lockfile` compara o lockfile
+# com TODOS os manifestos — sem este `package.json` a instalação falha dizendo
+# que o lockfile está desatualizado, que manda procurar no lugar errado. O
+# conteúdo dos testes não entra; o manifesto, sim.
+teste/*
+!teste/package.json
