@@ -280,6 +280,35 @@
 .entrada .marcabloco { display: grid; gap: 6px; text-align: center; }
 .entrada .marca { font-size: 40px; }
 
+/* A clínica que veio do LINK (`/entrar?clinica=CODIGO`) ou da memória do
+   aparelho: visível, porque quem entra precisa saber em qual clínica entra, e
+   recolhida, porque já está resolvida e não é um campo a preencher.
+
+   `min-height: 64px` é a altura do bloco "rótulo + campo" ao lado — as duas
+   formas do campo de clínica medem o mesmo, e por isso trocar uma pela outra
+   (na montagem, ou no "Trocar") não desloca usuário, senha nem o botão.
+
+   Sem `--gold-soft` de fundo: o par `--muted` sobre `--gold-soft` não está na
+   lista medida de `contraste.test.ts`, e cor nova entra pelo teste, não pela
+   tela. Aqui é a mesma moldura de um campo preenchido, que é o que ela é. */
+.clinica-do-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+}
+.clinica-do-link > div { flex: 1; min-width: 0; }
+/* `break-all`: o código é ditado por telefone e pode ter 32 caracteres sem um
+   espaço. Em 390 px, sem isto ele estoura a caixa — e tela de rotina não rola
+   na horizontal. */
+.clinica-do-link b { display: block; font-size: 15px; word-break: break-all; }
+/* Alvo de toque: 44 px de altura mesmo sendo um link de texto. */
+.clinica-do-link .link { min-height: 44px; padding: 0 4px; flex: none; }
+
 /* A altura fica reservada mesmo sem erro: a mensagem que aparece não pode
    empurrar o botão "Entrar" para baixo do dedo que já está indo nele. */
 .erro-entrada {

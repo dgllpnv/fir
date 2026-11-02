@@ -66,6 +66,20 @@ export function clinicaDoParametro(busca: string): string {
 }
 
 /**
+ * De onde a clínica da tela de entrada veio. A **origem** decide a tela: do
+ * link ou da memória, o campo fica recolhido; no padrão, ele é um campo de
+ * texto como antes.
+ *
+ * É um dado só, com as duas respostas juntas, porque a tela precisa das duas:
+ * derivar "veio de fora" comparando o código com o padrão daria errado no caso
+ * mais comum do desenvolvimento — `?clinica=demo` é link, e não padrão.
+ */
+export type ClinicaResolvida = {
+  readonly codigo: string
+  readonly origem: 'link' | 'memoria' | 'padrao'
+}
+
+/**
  * Qual clínica a tela abre: **o link vence a memória, e a memória vence o
  * padrão**.
  *
@@ -73,11 +87,19 @@ export function clinicaDoParametro(busca: string): string {
  * clínica. A memória é conveniência, para quem salvou o favorito sem o final
  * do link ou digitou o código uma vez.
  */
-export function clinicaInicial(busca: string, guardada: string | null): string {
-  return (
-    clinicaDoParametro(busca) || codigoDeClinicaOuVazio(guardada) || CLINICA_DE_DESENVOLVIMENTO
-  )
+export function resolverClinica(busca: string, guardada: string | null): ClinicaResolvida {
+  const doLink = clinicaDoParametro(busca)
+  if (doLink !== '') return { codigo: doLink, origem: 'link' }
+
+  const daMemoria = codigoDeClinicaOuVazio(guardada)
+  if (daMemoria !== '') return { codigo: daMemoria, origem: 'memoria' }
+
+  return { codigo: CLINICA_DE_DESENVOLVIMENTO, origem: 'padrao' }
 }
+
+/** Só o código. Atalho para quem não precisa da origem. */
+export const clinicaInicial = (busca: string, guardada: string | null): string =>
+  resolverClinica(busca, guardada).codigo
 
 /** Lê a clínica lembrada neste aparelho. */
 export function clinicaGuardada(): string | null {

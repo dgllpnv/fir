@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
-import { AvisoDaProvisoria, campo, tabela } from '../pecas'
+import { AvisoDaProvisoria, SeletorDeClinica, campo, tabela } from '../pecas'
 
 export default function Clinicas() {
   const router = useRouter()
@@ -76,6 +76,16 @@ export default function Clinicas() {
         />
       )}
 
+      {/* O caminho curto para quem tem quarenta clínicas: digitar duas letras
+          e dar Enter. A tabela continua embaixo — ela é a visão completa, e com
+          quatro clínicas ainda é o jeito mais rápido de ver tudo de uma vez. */}
+      {itens !== null && itens.length > 0 && (
+        <SeletorDeClinica
+          clinicas={itens}
+          aoEscolher={(c) => router.push(`/superadmin/clinicas/${c.id}/pessoas`)}
+        />
+      )}
+
       <table style={tabela}>
         <thead>
           <tr>
@@ -83,6 +93,7 @@ export default function Clinicas() {
             <th style={{ textAlign: 'left' }}>Nome</th>
             <th style={{ textAlign: 'left' }}>Fuso</th>
             <th style={{ textAlign: 'left' }}>Estado</th>
+            <th />
           </tr>
         </thead>
         <tbody>
@@ -94,6 +105,19 @@ export default function Clinicas() {
               <td>{c.nome}</td>
               <td>{c.fuso}</td>
               <td>{c.ativa ? 'ativa' : 'desativada'}</td>
+              <td>
+                {/* **O link da clínica** — o mesmo que a recepção dela usa
+                    (`GUIA-INSTALACAO.md` da v20). Ele pré-seleciona a clínica
+                    na tela de entrada; ninguém digita o código.
+
+                    `<a>` e não `<Link>`: sai do painel para o produto, que é
+                    outra árvore de layout, e abre em aba nova porque quem
+                    alterna entre clínicas testando não quer perder o painel.
+                    `rel="noopener"` por hábito, mesmo sendo a mesma origem. */}
+                <a href={`/entrar?clinica=${encodeURIComponent(c.codigo)}`} target="_blank" rel="noopener">
+                  abrir o sistema
+                </a>
+              </td>
             </tr>
           ))}
         </tbody>

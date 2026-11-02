@@ -1,16 +1,63 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
+import { clinicaGuardada, lembrarClinica, resolverClinica } from '@/lib/clinica-do-link'
 
+/**
+ * A tela de entrada — e **a clínica vem do LINK**.
+ *
+ * `/entrar?clinica=raphaella` pré-seleciona a clínica: a recepcionista abre o
+ * favorito dela e só digita usuário e senha. É como as quatro clínicas em uso
+ * já entram hoje (`GUIA-INSTALACAO.md` da v20: cada clínica tem o próprio
+ * endereço), e é o que o protótipo faz.
+ *
+ * **Não há lista de clínicas aqui, e não vai haver** (D-12). Um menu com as
+ * clínicas cadastradas exigiria uma rota que responde antes de qualquer
+ * autenticação — ela publicaria a lista de clientes do produto e tiraria um
+ * dos dois desconhecidos da credencial, que hoje é clínica + usuário + senha.
+ * Quem não tem o link digita o código, como antes. O seletor com a lista mora
+ * no painel do superadmin, que é autenticado e atrás da allowlist de IP.
+ */
 export default function Entrar() {
   const router = useRouter()
-  const [clinica, setClinica] = useState('demo')
+  const [clinica, setClinica] = useState('')
+  /**
+   * `true` quando a clínica veio do link ou da memória do aparelho — e aí o
+   * campo fica **recolhido** (`docs/design.md` §1: campo raro fica
+   * recolhido). Com o link, a clínica está resolvida; o caso raro é o link
+   * errado, e ele fica atrás de "Trocar".
+   */
+  const [doLink, setDoLink] = useState(false)
   const [usuario, setUsuario] = useState('')
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const campoUsuario = useRef<HTMLInputElement>(null)
+  const campoClinica = useRef<HTMLInputElement>(null)
+
+  /**
+   * A clínica é resolvida DEPOIS da montagem, e não num inicializador.
+   *
+   * `location.search` e `localStorage` não existem no servidor, e esta página
+   * é pré-renderizada: um inicializador que lesse os dois produziria HTML
+   * diferente do primeiro render do cliente — erro de hidratação. O custo é
+   * um quadro com o campo vazio, e ele não desloca nada: as duas formas do
+   * campo (aberto e recolhido) têm a mesma altura, cobrada em `shell.css`.
+   *
+   * Sem `useSearchParams`: ele força a página inteira a uma fronteira
+   * `Suspense` no build estático, e aí o formulário sai do HTML pré-renderizado
+   * — preço alto para ler um parâmetro uma vez, na montagem.
+   */
+  useEffect(() => {
+    const r = resolverClinica(window.location.search, clinicaGuardada())
+    setClinica(r.codigo)
+    const recolher = r.origem !== 'padrao'
+    setDoLink(recolher)
+    // Zero digitação para quem tem o link: o foco já nasce no usuário.
+    if (recolher) campoUsuario.current?.focus()
+  }, [])
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault()
@@ -21,6 +68,15 @@ export default function Entrar() {
         method: 'POST',
         body: JSON.stringify({ clinica, usuario, senha }),
       })
+      /**
+       * Lembra a clínica **só depois de entrar**, nunca ao ler o parâmetro.
+       *
+       * É o que o MANUAL promete ("depois do primeiro acesso, o aparelho
+       * lembra a clínica") com uma falha a menos: gravar o parâmetro na
+       * chegada guardaria para sempre o código de um link digitado errado, e
+       * a tela passaria a abrir sozinha numa clínica que não existe.
+       */
+      lembrarClinica(clinica)
       router.push('/hoje')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
@@ -42,18 +98,51 @@ export default function Entrar() {
         </div>
 
         <div className="cartao">
-          <label className="campo">
-            Clínica
-            <input
-              value={clinica}
-              onChange={(e) => setClinica(e.target.value)}
-              autoComplete="organization"
-              required
-            />
-          </label>
+          {doLink ? (
+            /* A clínica já está resolvida. Ela continua visível — quem entra
+               precisa saber em qual clínica vai entrar —, mas não ocupa um
+               campo a preencher. */
+            <div className="clinica-do-link">
+              <div>
+                <div className="eyebrow">Clínica</div>
+                <b>{clinica}</b>
+              </div>
+              <button
+                type="button"
+                className="link"
+                onClick={() => {
+                  setDoLink(false)
+                  // O valor fica, e o campo nasce selecionado: quem clicou por
+                  // engano não perde o código, e quem vai trocar digita por
+                  // cima sem apagar nada.
+                  requestAnimationFrame(() => campoClinica.current?.select())
+                }}
+              >
+                Trocar
+              </button>
+            </div>
+          ) : (
+            <label className="campo">
+              Clínica
+              <input
+                ref={campoClinica}
+                value={clinica}
+                onChange={(e) => setClinica(e.target.value)}
+                autoComplete="organization"
+                // O mesmo trio do campo de usuário, e pela mesma razão: o
+                // código é minúsculo e ditado por telefone, e o teclado do
+                // tablet maiusculiza por padrão.
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                required
+              />
+            </label>
+          )}
           <label className="campo">
             Usuário
             <input
+              ref={campoUsuario}
               value={usuario}
               onChange={(e) => setUsuario(e.target.value)}
               autoComplete="username"

@@ -4,6 +4,7 @@ import {
   CLINICA_DE_DESENVOLVIMENTO,
   clinicaDoParametro,
   clinicaInicial,
+  resolverClinica,
 } from './clinica-do-link'
 
 describe('a clínica vem do LINK (?clinica=codigo)', () => {
@@ -72,5 +73,17 @@ describe('qual clínica a tela abre', () => {
 
   it('a chave da memória é estável — trocá-la esquece a clínica de 4 clínicas', () => {
     expect(CHAVE_DA_CLINICA).toBe('fir.clinica')
+  })
+
+  it('a ORIGEM distingue link, memória e padrão — e `?clinica=demo` é LINK', () => {
+    // É o caso mais comum do desenvolvimento, e é por ele que a origem existe
+    // em vez de a tela comparar o código com o padrão: `demo` vindo do link
+    // recolhe o campo; `demo` de padrão deixa o campo aberto para digitar.
+    expect(resolverClinica('?clinica=demo', null)).toEqual({ codigo: 'demo', origem: 'link' })
+    expect(resolverClinica('', 'demo')).toEqual({ codigo: 'demo', origem: 'memoria' })
+    expect(resolverClinica('', null)).toEqual({
+      codigo: CLINICA_DE_DESENVOLVIMENTO,
+      origem: 'padrao',
+    })
   })
 })
