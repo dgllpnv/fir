@@ -38,7 +38,15 @@ fi
 SENHA_POSTGRES=$(grep '^SENHA_POSTGRES=' .env | cut -d= -f2-)
 [ -f "$CHAVE" ] || { echo "ERRO: chave $CHAVE não existe — nada aqui é legível sem ela." >&2; exit 1; }
 
-ARQUIVO=${1:-$(ls -1t "$DESTINO"/fir-*.dump.gpg 2>/dev/null | head -1)}
+# `find` e nao `ls` com glob, pela mesma razao registrada no `backup.sh`: com
+# a pasta vazia o glob nao casa, o `ls` sai com status 2, o `pipefail` propaga
+# e o `set -e` mata o script ANTES da checagem de "nenhum backup encontrado"
+# logo abaixo — que e justamente a mensagem que explicaria o problema.
+mais_recente() {
+  find "$DESTINO" -maxdepth 1 -type f -name 'fir-*.dump.gpg' -printf '%T@	%p
+' 2>/dev/null     | sort -rn | cut -f2- | head -1
+}
+ARQUIVO=${1:-$(mais_recente)}
 [ -n "${ARQUIVO:-}" ] && [ -f "$ARQUIVO" ] || { echo "ERRO: nenhum backup encontrado em $DESTINO." >&2; exit 1; }
 
 psql_() { docker compose exec -T -e PGPASSWORD="$SENHA_POSTGRES" postgres psql -U fir "$@"; }

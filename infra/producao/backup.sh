@@ -125,17 +125,29 @@ fi
 # ---------------------------------------------------------------------------
 # Retenção
 # ---------------------------------------------------------------------------
+# `find`, e NAO `ls` com glob: numa pasta vazia — que e o estado do `mensal/`
+# em todo mes antes do dia 01 — o glob nao casa, o `ls` sai com status 2, o
+# `pipefail` propaga, e o `set -e` MATA o script. Efeito medido na primeira
+# execucao real: o backup ja estava gravado e verificado, e ainda assim o
+# script saiu com codigo 2, sem imprimir o resumo. Um backup bom relatado como
+# falha treina quem opera a ignorar o alarme.
 podar() {
   local pasta=$1 manter=$2
-  local n
-  n=$(ls -1t "$pasta"/fir-*.dump.gpg 2>/dev/null | wc -l)
-  if [ "$n" -gt "$manter" ]; then
-    ls -1t "$pasta"/fir-*.dump.gpg | tail -n +$((manter + 1)) | while read -r velho; do
-      echo "    retenção: removendo $(basename "$velho")"
-      shred -u "$velho" 2>/dev/null || rm -f "$velho"
-    done
-  fi
+  local arquivos=() total i
+  while IFS= read -r linha; do arquivos+=("$linha"); done < <(
+    find "$pasta" -maxdepth 1 -type f -name 'fir-*.dump.gpg' -printf '%T@	%p
+' 2>/dev/null       | sort -rn | cut -f2-
+  )
+  total=${#arquivos[@]}
+  [ "$total" -gt "$manter" ] || return 0
+  for ((i = manter; i < total; i++)); do
+    echo "    retencao: removendo $(basename "${arquivos[i]}")"
+    shred -u "${arquivos[i]}" 2>/dev/null || rm -f "${arquivos[i]}"
+  done
 }
+
+# Mesma razao: contar com `find`, nunca com glob que pode nao casar.
+quantos() { find "$1" -maxdepth 1 -type f -name 'fir-*.dump.gpg' 2>/dev/null | wc -l; }
 podar "$DESTINO" "$MANTER_DIARIOS"
 podar "$DESTINO/mensal" "$MANTER_MENSAIS"
 
@@ -143,8 +155,7 @@ printf '%s  %s  %s bytes  %s objetos\n' "$AGORA" "$(basename "$ARQUIVO")" "$TAMA
   >> "$DESTINO/manifesto.txt"
 
 echo "==> ok: $(basename "$ARQUIVO") · $TAMANHO bytes · $OBJETOS objetos"
-echo "    diários: $(ls -1 "$DESTINO"/fir-*.dump.gpg 2>/dev/null | wc -l)/$MANTER_DIARIOS" \
-     "· mensais: $(ls -1 "$DESTINO/mensal"/fir-*.dump.gpg 2>/dev/null | wc -l)/$MANTER_MENSAIS"
+echo "    diarios: $(quantos "$DESTINO")/$MANTER_DIARIOS · mensais: $(quantos "$DESTINO/mensal")/$MANTER_MENSAIS"
 echo "    disco: $(df -h "$DESTINO" | tail -1 | awk '{print $5" usado, "$4" livre"}')"
 
 # ---------------------------------------------------------------------------
