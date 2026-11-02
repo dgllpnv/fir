@@ -86,6 +86,13 @@ export default function Clinicas() {
         />
       )}
 
+      {/* A tabela rola DENTRO da própria caixa, e não a página.
+          Cinco colunas não cabem em 390 px nem antes desta mudança (medido:
+          437 px de largura mínima com quatro), e sem este contorno a página
+          inteira nasce encolhida — o seletor acima, que é o caminho rápido,
+          apareceria em escala reduzida por causa de uma tabela que é visão de
+          mesa de escritório. Aqui o seletor fica em 390 px de verdade. */}
+      <div style={{ overflowX: 'auto' }}>
       <table style={tabela}>
         <thead>
           <tr>
@@ -93,7 +100,7 @@ export default function Clinicas() {
             <th style={{ textAlign: 'left' }}>Nome</th>
             <th style={{ textAlign: 'left' }}>Fuso</th>
             <th style={{ textAlign: 'left' }}>Estado</th>
-            <th />
+            <th style={{ textAlign: 'left' }}>Sistema</th>
           </tr>
         </thead>
         <tbody>
@@ -114,14 +121,20 @@ export default function Clinicas() {
                     outra árvore de layout, e abre em aba nova porque quem
                     alterna entre clínicas testando não quer perder o painel.
                     `rel="noopener"` por hábito, mesmo sendo a mesma origem. */}
-                <a href={`/entrar?clinica=${encodeURIComponent(c.codigo)}`} target="_blank" rel="noopener">
-                  abrir o sistema
+                <a
+                  href={`/entrar?clinica=${encodeURIComponent(c.codigo)}`}
+                  target="_blank"
+                  rel="noopener"
+                  title={`Abre a tela de entrada já com a clínica ${c.codigo} escolhida`}
+                >
+                  abrir
                 </a>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
       {itens === null && <p>Carregando…</p>}
       {itens?.length === 0 && <p>Nenhuma clínica ainda.</p>}
 

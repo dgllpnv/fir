@@ -283,6 +283,23 @@ Isto **não re-litiga a decisão**. É o que a torna defensável.
 
 ---
 
+## D-12 · A clínica vem do link; nenhuma rota pública lista clínicas · 2026-11-02
+
+**O pedido:** na tela de entrada, clicar e abrir um menu com as clínicas cadastradas, em vez de digitar o código.
+
+**O custo apresentado:** o menu exige uma rota que responde **antes de qualquer autenticação**. Ela publica a lista de clientes do produto e tira **um dos dois desconhecidos** da credencial — hoje é clínica + usuário + senha; viraria usuário + senha, e usuário é adivinhável (`recepcao`, `ana`). É a classe do `equipePublica` da v20, que removemos de propósito.
+
+**A decisão, com o custo à vista:** **não** haverá rota pública de clínicas. No lugar, as duas coisas que a recepção de fato usa:
+
+1. **`/entrar?clinica=CODIGO` pré-seleciona a clínica** e recolhe o campo. É como as quatro clínicas já entram (cada uma tem o próprio link no `GUIA-INSTALACAO.md` da v20), e a recepcionista nunca digita o código. Sem o parâmetro, a tela segue como hoje: campo de texto.
+2. **O seletor com a lista vai para o painel do superadmin** — autenticado e atrás da allowlist de IP do escritório. Busca por digitação, teclado completo, escrito para quarenta clínicas.
+
+**O que isso obriga:** a lista do painel devolve o **mínimo** (`id`, `codigo`, `nome`, `fuso`, `ativa`) e nada que revele tamanho. `criadaEm` saiu — atravessava a resposta e nenhuma tela a mostrava.
+
+**Como derrubar:** não derrube por conveniência. Dois testes seguram a decisão: *"devolve o MÍNIMO"* (`painel-clinicas.e2e.test.ts`) e *"nenhuma rota pública menciona CLÍNICA no caminho"* (`teste/rotas-protegidas.test.ts`). Ver [ADR 0010](adr/0010-clinica-vem-do-link-e-nenhuma-rota-publica-lista-clinicas.md).
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |
