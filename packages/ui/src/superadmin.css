@@ -1,0 +1,508 @@
+/*
+ * O PAINEL DO SUPERADMIN — a cara do sistema, e um sinal que o sistema não tem.
+ *
+ * ## O que havia antes, e por que mudou
+ *
+ * O painel nasceu *deliberadamente feio*: fonte monoespaçada, `style` inline,
+ * nenhuma marca. A justificativa estava escrita no `layout.tsx` — "quem abrir
+ * isto por engano precisa perceber imediatamente que não está no sistema da
+ * clínica". **A intenção é legítima; a execução estava errada.** Feiura não é
+ * controle: ela não diz ONDE você está nem EM QUAL CLÍNICA você age — e são
+ * essas duas perguntas que o painel precisa responder de relance, porque ele
+ * cria clínica e administradora em QUALQUER clínica.
+ *
+ * ## O sinal, agora
+ *
+ * Uma **faixa dourada preenchida**, grudada no topo, em toda largura e nos
+ * dois temas, dizendo "PAINEL INTERNO" e **a clínica em que se está agindo**.
+ *
+ * Três razões para ela ser esta:
+ *  1. **O produto nunca preenche nada de dourado em largura cheia** — o
+ *     dourado cheio aparece só no item ativo do menu e num chip. Uma faixa
+ *     dourada de ponta a ponta não existe em nenhuma das 17 telas da clínica.
+ *  2. **`--gold` é o MESMO valor nos dois temas** (ver `tokens.css`), e
+ *     `--on-gold` também. A faixa é idêntica no claro e no escuro, então o
+ *     sinal não enfraquece em nenhum dos dois. Uma faixa que usasse `--ink`
+ *     ficaria quase igual ao `--surface` do tema escuro — o sinal sumiria
+ *     justamente para quem usa escuro.
+ *  3. **É identidade, não ruído.** Papel e dourado é a marca; a faixa a usa no
+ *     volume máximo. Quem abre o painel não vê "outro produto": vê o mesmo
+ *     produto num lugar que diz qual lugar é.
+ *
+ * O par `--on-gold` sobre `--gold` (6,76:1) é medido em `contraste.test.ts` e
+ * vale nos dois temas. **Nada na faixa usa cor para hierarquia** — ela é toda
+ * da mesma tinta, e quem conduz é tamanho, peso e espaçamento. O que a faixa
+ * usa para dizer "aqui agir é erro" (clínica desativada, clínica não
+ * identificada) é INVERSÃO do mesmo par, nunca um vermelho — ver o comentário
+ * de `.onde > .alerta`, que registra o número falso que isso descobriu.
+ */
+
+/* ---------- o casco ---------- */
+
+.superadmin {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+/* ---------- a faixa ---------- */
+
+.superadmin-faixa {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--gold);
+  color: var(--on-gold);
+  /* Traço escuro embaixo: separa a faixa do papel sem sombra — `design.md`
+     proíbe sombra para criar profundidade falsa. */
+  border-bottom: 1px solid var(--on-gold);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/*
+ * **`.faixa-barra`, e não `.barra`** — e o prefixo é correção de um defeito
+ * MEDIDO: `rotina.css` tem um `.barra` global, que é a barra de progresso da
+ * meta (altura 8 px, `overflow: hidden`). A faixa do painel herdou os dois e
+ * desabou para 17 px de altura, com "PAINEL INTERNO" cortado ao meio — o
+ * sinal inteiro do painel apagado por uma classe de outro arquivo. Toda
+ * classe só do painel leva prefixo, e `identidade.test.ts` passa a reprovar
+ * nome que exista nos dois lugares.
+ *
+ * Duas linhas em 390 px, uma linha no computador — `flex-wrap`, e não um
+ * `@media` com duas estruturas. O contexto da clínica é o item que embrulha,
+ * e ele embrulha para a linha de baixo INTEIRO, nunca cortado.
+ */
+.superadmin-faixa > .faixa-barra {
+  display: flex;
+  align-items: center;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  /*
+   * A MESMA medida de `.superadmin-corpo > .wrap` (860 px, com `box-sizing:
+   * border-box` e 16 px de recuo), para "PAINEL INTERNO" nascer exatamente
+   * acima do título da tela. O preenchimento dourado continua atravessando a
+   * janela inteira — é ele o sinal; o que acompanha a leitura é o TEXTO.
+   * `shell.css` resolve a mesma tensão do outro lado, porque lá a barra é
+   * navegação de 17 links e aqui é uma frase.
+   */
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+/* "PAINEL INTERNO · Firmare" — Lora, porque é a marca, com a palavra que
+   importa primeiro. Não é `.marca` do produto: a hierarquia aqui é invertida
+   de propósito, o lugar vem antes do nome. */
+.superadmin-faixa .aqui {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  flex: none;
+}
+.superadmin-faixa .aqui small {
+  display: block;
+  font-family: var(--body);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/*
+ * ONDE SE ESTÁ AGINDO — a razão de a faixa existir.
+ *
+ * Em 390 px ela cai para a segunda linha completa; no computador fica no meio,
+ * separada da marca por um traço vertical. `min-width: 0` + reticências: nome
+ * de clínica longo encolhe, nunca empurra a faixa para fora da tela.
+ */
+/*
+ * `order: 3` em 390 px — e a razão é medida: sem ele, `flex-basis: 100%` joga
+ * "quem + Sair" para uma TERCEIRA linha, e a faixa fica com 114 px de altura
+ * num aparelho de 844 px. Com a ordem trocada são duas linhas e 72 px: em
+ * cima a marca e quem está dentro; embaixo, a clínica, em toda a largura.
+ */
+.superadmin-faixa .onde {
+  margin: 0;
+  order: 3;
+  flex: 1 1 100%;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.3;
+}
+.superadmin-faixa .onde > span {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.superadmin-faixa .onde > b {
+  min-width: 0;
+  font-weight: 700;
+  /* O código é ditado por telefone e vem antes do nome: é por ele que o
+     operador reconhece a clínica, e é ele que aparece no link de entrada. */
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.superadmin-faixa .onde > b .nome { font-weight: 500; }
+/*
+ * "não identificada" e "desativada": as duas situações em que agir é erro, e
+ * as duas aparecem por INVERSÃO — fundo `--on-gold`, tinta `--gold`.
+ *
+ * **Não é vermelho, e a razão é medida.** `--bad-on-gold` sobre o dourado dá
+ * 4,25:1: passa como elemento gráfico (3:1) e reprova em AA de texto (4,5:1).
+ * O comentário dele em `tokens.css` afirmava 8,0:1, e o número só caiu quando
+ * esta faixa tentou usá-lo como tinta e `contraste.test.ts` recalculou. A
+ * inversão usa o par que já era medido (6,76:1) e, sobre uma faixa cheia, grita
+ * mais que hue nenhum.
+ */
+.superadmin-faixa .onde > b.faixa-alerta,
+.superadmin-faixa .onde > .faixa-alerta {
+  background: var(--on-gold);
+  color: var(--gold);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-weight: 700;
+}
+
+.superadmin-faixa .faixa-quem {
+  order: 2;
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  min-width: 0;
+}
+.superadmin-faixa .faixa-quem > span {
+  min-width: 0;
+  max-width: 14ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+/* Botão de contorno sobre a faixa. A tinta é a mesma `--on-gold`; o hover
+   inverte, e a inversão é o mesmo par medido ao contrário. */
+.superadmin-faixa .botao-faixa {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--on-gold);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--on-gold);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+/* SVG sem largura declarada ocupa 100% do que o pai der — o ícone de 180 px
+   que `tokens.css` documenta. Todo ícone de botão tem tamanho, uma vez. */
+.superadmin-faixa .botao-faixa svg { width: 16px; height: 16px; flex: none; }
+.superadmin-faixa .botao-faixa:hover { background: var(--on-gold); color: var(--gold); }
+.superadmin-faixa .botao-faixa:disabled { opacity: 0.55; cursor: default; }
+/* O foco da base é um `outline` dourado — sobre a faixa dourada ele
+   desapareceria. Aqui o contorno é escuro, pela mesma razão de todo o resto. */
+.superadmin-faixa :focus-visible { outline-color: var(--on-gold); }
+
+@media (min-width: 720px) {
+  .superadmin-faixa > .faixa-barra { padding: 10px 20px; }
+  .superadmin-faixa .aqui { font-size: 16px; }
+  /* Uma linha só: o contexto da clínica deixa de embrulhar e ganha o traço
+     que o separa da marca. */
+  .superadmin-faixa .onde {
+    /* No computador a clínica volta para o MEIO, entre a marca e quem está
+       dentro: é a ordem da frase que a pessoa lê. */
+    order: 2;
+    flex: 1 1 auto;
+    border-left: 1px solid var(--on-gold);
+    padding-left: 14px;
+    font-size: 13.5px;
+  }
+  .superadmin-faixa .faixa-quem { order: 3; }
+}
+
+/* ---------- o corpo ---------- */
+
+.superadmin-corpo {
+  padding-top: 22px;
+  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+}
+.superadmin-corpo > .wrap { max-width: 860px; }
+
+/*
+ * O DOSSIÊ DA CLÍNICA — o cabeçalho das telas que agem dentro de uma.
+ *
+ * A faixa já diz qual clínica, e ela está sempre à vista. Isto é a segunda
+ * afirmação, no lugar onde se decide: código, nome, fuso e estado, mais o
+ * link que abre a tela de entrada DELA. Redundância deliberada — "agi na
+ * clínica errada" é o defeito que o painel pode causar, e o custo de dizer
+ * duas vezes é uma linha de texto.
+ */
+.superadmin-dossie {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+.superadmin-dossie > .dossie-linha {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.superadmin-dossie .codigo {
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.superadmin-dossie .nome { font-size: 15px; }
+.superadmin-dossie .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+/*
+ * ALVO DE TOQUE nos dois links de navegação do dossiê — "abrir o sistema
+ * dela" e o "← Todas as clínicas" acima dele. Medidos em 390 px: 22 px e
+ * 16 px de altura, que é alvo de caneta. `design.md` §1: quem usa a
+ * ferramenta está com a mão ocupada.
+ */
+.superadmin-dossie .link,
+.superadmin-voltar {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+/* ---------- a lista ---------- */
+
+/*
+ * A TABELA VIRA BLOCO ABAIXO DE 620 px, com o rótulo da coluna virando
+ * prefixo da linha — a mesma regra de `table.painel` em `gestao.css`.
+ *
+ * O que havia antes era `overflow-x: auto` numa `<div>`: cinco colunas em
+ * 390 px mediam 437 px de largura mínima, e a saída foi esconder as duas
+ * últimas atrás de um arrasto que ninguém adivinha. Bloco mostra as cinco.
+ */
+table.superadmin-lista {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+table.superadmin-lista th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+table.superadmin-lista td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+table.superadmin-lista td .muted { display: block; font-size: 11.5px; color: var(--muted); }
+table.superadmin-lista td.coluna-acao { text-align: right; white-space: nowrap; }
+table.superadmin-lista .codigo {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+/* O código É o link para a clínica, e ele precisa da tinta de link da casa.
+   Sem isto o navegador o pinta de AZUL — a cor que `design.md` §3 mais
+   combate, e a que grita "interface sem direção". */
+table.superadmin-lista a.codigo { color: var(--gold-ink); text-decoration: underline; }
+
+@media (max-width: 620px) {
+  table.superadmin-lista thead { display: none; }
+  table.superadmin-lista,
+  table.superadmin-lista tbody,
+  table.superadmin-lista tr,
+  table.superadmin-lista td { display: block; width: auto; }
+  table.superadmin-lista tr {
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: var(--surface);
+  }
+  table.superadmin-lista td { border-bottom: 0; padding: 3px 0; text-align: left; }
+  table.superadmin-lista td.coluna-acao { text-align: left; padding-top: 8px; }
+  /*
+   * ALVO DE TOQUE no cartão: com a tabela virada bloco, o código é o botão de
+   * "ir para esta clínica" e a ação é o de "redefinir senha". Medido: 16 px de
+   * altura cada um, que é alvo de caneta, não de dedo — `design.md` §1 pede o
+   * contrário. `inline-flex` mantém o rótulo da coluna na mesma linha.
+   */
+  table.superadmin-lista td a.codigo,
+  table.superadmin-lista td.coluna-acao .link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+  /* O CÓDIGO é o título do cartão, e cresce. Ele é a única célula SEM
+     `data-rotulo` no JSX — por isso não ganha prefixo: "Código: demo" num
+     cartão cujo título é o código seria o rótulo explicando a si mesmo. Os
+     outros quatro continuam rotulados, que é como se lê um cartão sem
+     cabeçalho de tabela. */
+  table.superadmin-lista td:first-child { font-size: 15px; padding-bottom: 2px; }
+  table.superadmin-lista td[data-rotulo]::before {
+    content: attr(data-rotulo) ": ";
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-right: 6px;
+  }
+}
+
+/* ---------- o que é raro fica recolhido ---------- */
+
+/*
+ * Criar clínica são cinco campos; criar administradora, três. Abertos, eles
+ * empurram a lista — que é o que se abre o painel para ver — para baixo da
+ * dobra em 390 px. `design.md` §1: o raro fica recolhido.
+ *
+ * `<details>` e não um botão com estado: o teclado já sabe abri-lo, e o
+ * conteúdo fechado sai da ordem de tabulação sem nenhuma linha de JavaScript.
+ */
+details.superadmin-dobra {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 12px 14px;
+  margin-top: 18px;
+}
+details.superadmin-dobra > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  list-style: none;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+details.superadmin-dobra > summary::-webkit-details-marker { display: none; }
+details.superadmin-dobra > summary::after {
+  content: "";
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--gold);
+  border-bottom: 2px solid var(--gold);
+  transform: rotate(45deg) translateY(-2px);
+}
+details.superadmin-dobra[open] > summary::after { transform: rotate(-135deg) translateY(-2px); }
+.superadmin-dobra > form { display: grid; gap: 12px; margin-top: 14px; max-width: 460px; }
+
+/* ---------- o seletor de clínicas ---------- */
+
+.superadmin-busca { max-width: 460px; margin-bottom: 16px; }
+.superadmin-busca ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  max-height: 15rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.superadmin-busca li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  /* Alvo de toque grande: quem usa está com a mão ocupada. */
+  min-height: 44px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 13.5px;
+}
+.superadmin-busca li:last-child { border-bottom: 0; }
+.superadmin-busca li[aria-selected="true"] { background: var(--gold-soft); }
+.superadmin-busca li .codigo {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--on-gold-soft);
+  flex: none;
+}
+.superadmin-busca li .nome {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* As duas linhas que não são opção: "nenhuma" e "x de y". */
+.superadmin-busca li.aviso {
+  color: var(--muted);
+  cursor: default;
+  font-size: 12.5px;
+  min-height: 38px;
+}
+.superadmin-busca li.aviso .num {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ---------- a porta: entrar e trocar a senha ---------- */
+
+/*
+ * As duas reusam `.entrada` e `.caixa` do produto — mesma caixa, mesma marca,
+ * mesmo olho na senha. **O que não se reusa é a promessa:** o selo abaixo diz,
+ * antes de qualquer campo, que esta não é a entrada da clínica. É a mesma
+ * pergunta da faixa, feita na porta — e aqui ela não pode ser respondida pela
+ * faixa, porque antes de entrar não há clínica nem operador para nomear.
+ */
+.superadmin-porta { display: grid; gap: 8px; justify-items: center; text-align: center; }
+/* A altura do aviso de regra fica RESERVADA: ele aparece e some a cada tecla,
+   e sem a reserva o campo seguinte sobe e desce debaixo do dedo. A tela do
+   produto faz o mesmo com `style` inline; aqui é classe, porque o painel não
+   tem `style` inline nenhum — ver `identidade.test.ts`. */
+.campo .erro-reservado { display: block; min-height: 16px; }
+
+/* O erro do FORMULÁRIO (o que o servidor respondeu), acima do botão. A altura
+   fica reservada pela mesma razão: ele não empurra o botão para baixo do dedo
+   que já estava indo nele. */
+.erro-do-painel {
+  margin: 0;
+  min-height: 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--bad);
+}
+
+.superadmin-porta > .selo {
+  background: var(--gold);
+  color: var(--on-gold);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}

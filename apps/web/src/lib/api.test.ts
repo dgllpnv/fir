@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CAMINHO_TROCAR_SENHA, chamar, ErroDaApi } from './api'
+import { CAMINHO_TROCAR_SENHA, CAMINHO_TROCAR_SENHA_DO_PAINEL, chamar, ErroDaApi } from './api'
 
 /**
  * O cabeçalho `content-type` não é detalhe de transporte — é o que decidiu, em
@@ -89,6 +89,35 @@ describe('chamar', () => {
     )
     await expect(chamar('v1/hoje')).rejects.toThrow(ErroDaApi)
     expect(ida).toEqual([CAMINHO_TROCAR_SENHA])
+  })
+
+  it('409 SENHA_PROVISORIA_OPERADOR desvia para a troca de senha DO PAINEL', async () => {
+    /**
+     * Dois espaços de identidade, dois destinos (D-5). Mandar o operador para
+     * `/trocar-senha` o largaria numa tela que busca `GET /v1/eu` com uma
+     * sessão de clínica que ele não tem — e ela desvia para `/entrar`, a
+     * entrada da CLÍNICA. O operador acabaria na tela que o painel existe
+     * para não ser confundido com.
+     *
+     * Antes deste desvio a tela não existia: quem entrava com a senha da VPS
+     * via "troque a senha provisória antes de continuar" e nenhum lugar onde
+     * trocá-la.
+     */
+    const ida: string[] = []
+    vi.stubGlobal('window', { location: { assign: (u: string) => ida.push(u) } })
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          message: 'Troque a senha provisória antes de continuar.',
+          codigo: 'SENHA_PROVISORIA_OPERADOR',
+        }),
+      } as unknown as Response),
+    )
+    await expect(chamar('v1/superadmin/clinicas')).rejects.toThrow(ErroDaApi)
+    expect(ida).toEqual([CAMINHO_TROCAR_SENHA_DO_PAINEL])
+    expect(ida).not.toContain(CAMINHO_TROCAR_SENHA)
   })
 
   it('409 de OUTRA coisa não desvia — só o código estável desvia', async () => {

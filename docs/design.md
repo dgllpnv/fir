@@ -50,8 +50,18 @@ Duas armadilhas que isso trouxe, e as duas têm teste:
 **O dourado tem dois papéis e eles não se trocam.** `--gold` é traço, borda e realce; `--gold-ink` é texto.
 
 Isto não é gosto — é a conta. E a conta **não mora mais neste arquivo**: mora em
-`packages/ui/src/contraste.test.ts`, que recalcula 15 pares × 2 temas direto do
-`tokens.css` e reprova a entrega se algum cair abaixo de 4,5:1.
+`packages/ui/src/contraste.test.ts`, que recalcula **16 pares de texto** (limite
+4,5:1) e **1 par gráfico** (limite 3:1) × 2 temas, direto do `tokens.css`, e
+reprova a entrega se algum cair abaixo do seu limite.
+
+**São duas listas porque são dois limites de verdade,** e a segunda nasceu de um
+número falso: `--bad-on-gold` tinha escrito em `tokens.css` que dava "8,0:1"
+sobre o dourado. Dá **4,25:1** — o suficiente para a bolinha de atraso (gráfico,
+3:1) e **insuficiente para uma palavra** (4,5:1). O erro só apareceu quando a
+faixa do painel do superadmin tentou usá-lo como tinta. Uma lista só obrigaria a
+escolher entre reprovar um ponto que está certo e aprovar uma palavra que não se
+lê. **Só entra na lista gráfica o que CARREGA informação** — `--line` e o
+dourado de traço separam e decoram, e a WCAG 1.4.11 não os alcança.
 
 Os três números que ensinam o resto:
 

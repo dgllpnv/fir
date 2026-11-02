@@ -1,72 +1,18 @@
 'use client'
 
-import { useId, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useId, useState, type KeyboardEvent } from 'react'
 import { filtrarClinicas, type ClinicaEscolhivel } from '@/lib/filtro-de-clinicas'
 
-export const campo: CSSProperties = { display: 'block', marginBottom: '.75rem' }
-
-export const tabela: CSSProperties = {
-  width: '100%',
-  borderCollapse: 'collapse',
-  // Algarismos tabulares em toda coluna que alinha — `docs/design.md`.
-  fontVariantNumeric: 'tabular-nums',
-}
-
 /**
- * A caixa da senha provisória — **e a frase de segurança que importa**.
+ * As peças do painel. **Nenhum `style` inline** — o estilo mora em
+ * `packages/ui/src/superadmin.css`, com o resto do sistema de design.
  *
- * O maior risco deste plano inteiro é que a provisória atravessa o balcão por
- * voz ou por papel. As três defesas são o prazo de 72 h, a troca obrigatória
- * no primeiro acesso e a revogação de sessões na redefinição — e **nenhuma
- * delas impede o papel de ficar colado no monitor por dois dias**.
- *
- * Por isso a frase está aqui, grande, antes da senha. É provavelmente a única
- * frase de segurança que quem opera isto vai ler no ano inteiro.
+ * O que havia aqui antes: `const campo: CSSProperties`, `const tabela:
+ * CSSProperties` e um `style={{…}}` por elemento. Estilo em objeto JavaScript
+ * não herda tema, não tem `:hover`, não tem `@media` e não aparece numa busca
+ * por classe — é a razão pela qual ninguém conseguia melhorar esta tela
+ * depois de ela existir.
  */
-export function AvisoDaProvisoria({
-  titulo,
-  usuario,
-  senha,
-  expiraEm,
-  aoFechar,
-}: {
-  titulo: string
-  usuario?: string
-  senha: string
-  expiraEm: string
-  aoFechar: () => void
-}) {
-  return (
-    <section
-      role="alert"
-      style={{
-        border: '2px solid #000',
-        padding: '1rem',
-        margin: '1rem 0',
-        background: '#ffe',
-      }}
-    >
-      <h2 style={{ fontSize: '.9rem', margin: '0 0 .5rem' }}>{titulo}</h2>
-      <p style={{ margin: '0 0 .75rem' }}>
-        <strong>Esta senha aparece uma única vez.</strong> Dite-a por telefone e não a escreva em
-        papel que fique no balcão — quem passar pelo computador nos próximos dias entra com ela.
-        Ela vence em {new Date(expiraEm).toLocaleString('pt-BR')} e a pessoa é obrigada a trocá-la
-        no primeiro acesso.
-      </p>
-      {usuario !== undefined && (
-        <p style={{ margin: '0 0 .25rem' }}>
-          Usuário: <code style={{ fontSize: '1.1rem' }}>{usuario}</code>
-        </p>
-      )}
-      <p style={{ margin: '0 0 .75rem' }}>
-        Senha: <code style={{ fontSize: '1.1rem' }}>{senha}</code>
-      </p>
-      <button type="button" onClick={aoFechar} style={{ padding: '.4rem .8rem', font: 'inherit' }}>
-        Já anotei — esconder
-      </button>
-    </section>
-  )
-}
 
 /** Quantas opções aparecem de uma vez. Ver `SeletorDeClinica`. */
 const MOSTRA = 8
@@ -140,10 +86,9 @@ export function SeletorDeClinica({
   }
 
   return (
-    <div style={{ marginBottom: '1rem', maxWidth: '26rem' }}>
-      <label style={campo} htmlFor={`${id}-busca`}>
+    <div className="superadmin-busca">
+      <label className="campo" htmlFor={`${id}-busca`}>
         Ir para a clínica
-        <br />
         <input
           id={`${id}-busca`}
           type="text"
@@ -164,25 +109,27 @@ export function SeletorDeClinica({
             setAberto(true)
           }}
           onFocus={() => setAberto(true)}
+          /*
+           * Fecha ao SAIR do campo — medido com o teclado: sem isto, o Tab
+           * levava o foco para a própria lista (o Chrome torna foco de
+           * teclado qualquer região rolável) e ela ficava aberta por cima da
+           * tabela, com a pessoa presa num passo que não existe na tela.
+           * `onMouseDown` com `preventDefault` nas opções é o que mantém o
+           * clique funcionando apesar deste fechamento.
+           */
+          onBlur={() => setAberto(false)}
           onKeyDown={noTeclado}
-          style={{ width: '100%', padding: '.4rem', font: 'inherit' }}
         />
       </label>
 
+      {/* `tabIndex={-1}` na lista: o Chrome torna foco de teclado toda região
+          ROLÁVEL, e esta é uma (`overflow-y: auto`, oito opções por vez). Sem
+          isto o Tab saía do campo e caía DENTRO da lista — um passo que não
+          existe na tela, e de onde a pessoa de teclado não sabe sair. A lista
+          é dirigida pelas setas, de dentro do campo, que é o que o padrão de
+          combobox manda. */}
       {aberto && (
-        <ul
-          id={`${id}-lista`}
-          role="listbox"
-          aria-label="Clínicas"
-          style={{
-            listStyle: 'none',
-            margin: 0,
-            padding: 0,
-            border: '1px solid #111',
-            maxHeight: '14rem',
-            overflowY: 'auto',
-          }}
-        >
+        <ul id={`${id}-lista`} role="listbox" aria-label="Clínicas" tabIndex={-1}>
           {visiveis.map((c, i) => (
             <li
               key={c.id}
@@ -193,31 +140,59 @@ export function SeletorDeClinica({
               // campo perde o foco, a lista fecha, e o clique cai no vazio.
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => escolher(c)}
-              style={{
-                padding: '.4rem',
-                cursor: 'pointer',
-                background: i === alvo ? '#ffe' : 'transparent',
-                borderTop: i === 0 ? 'none' : '1px solid #ddd',
-              }}
             >
-              <code>{c.codigo}</code> · {c.nome}
-              {c.ativa ? '' : ' (desativada)'}
+              <span className="codigo">{c.codigo}</span>
+              <span className="nome">{c.nome}</span>
+              {c.ativa ? null : <span className="pill mau">desativada</span>}
             </li>
           ))}
           {visiveis.length === 0 && (
-            <li style={{ padding: '.4rem' }}>Nenhuma clínica com esse código ou nome.</li>
+            <li className="aviso">Nenhuma clínica com esse código ou nome.</li>
           )}
           {achadas.length > visiveis.length && (
-            <li style={{ padding: '.4rem', borderTop: '1px solid #ddd' }}>
+            <li className="aviso">
               {/* Algarismos tabulares: é coluna de quantidade. */}
-              <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+              <span className="num">
                 {visiveis.length} de {achadas.length}
-              </span>{' '}
-              — digite para filtrar.
+              </span>
+              <span>— digite para filtrar.</span>
             </li>
           )}
         </ul>
       )}
+    </div>
+  )
+}
+
+/**
+ * O erro do painel **dá saída**, e as saídas são as do painel.
+ *
+ * `Erro` de `components/estados` oferece "Ir para Hoje", que é uma tela da
+ * CLÍNICA: o operador não tem sessão de clínica nenhuma, cairia na entrada do
+ * produto e veria o campo "Clínica" — exatamente a confusão que o painel
+ * inteiro existe para evitar. Mesma forma, saídas do lugar certo.
+ */
+export function ErroDoPainel({
+  mensagem,
+  recarregar,
+}: {
+  mensagem: string
+  recarregar: () => void
+}) {
+  return (
+    <div className="erro-de-tela" role="alert">
+      <p>{mensagem}</p>
+      <div className="botoes">
+        <button type="button" className="btn" onClick={recarregar}>
+          Tentar de novo
+        </button>
+        <a className="btn ghost" href="/superadmin/clinicas">
+          Ir para as clínicas
+        </a>
+        <a className="btn ghost" href="/superadmin/entrar">
+          Entrar de novo
+        </a>
+      </div>
     </div>
   )
 }

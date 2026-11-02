@@ -1,17 +1,175 @@
 'use client'
 
-import type { ClinicaCriada, ClinicaNaLista, ClinicasDoPainel } from '@fir/contracts'
+import type { ClinicaCriada } from '@fir/contracts'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
+import { Carregando, Vazio } from '@/components/estados'
+import { SenhaProvisoria } from '@/components/senha-provisoria'
 import { chamar, ErroDaApi } from '@/lib/api'
-import { AvisoDaProvisoria, SeletorDeClinica, campo, tabela } from '../pecas'
+import { usePainel } from '../contexto'
+import { ErroDoPainel, SeletorDeClinica } from '../pecas'
 
+/**
+ * **As clínicas** — a lista, a busca e a criação.
+ *
+ * A ordem da tela é a ordem do uso: buscar (duas letras e Enter), ver, e só
+ * então criar. Criar clínica são cinco campos e acontece uma vez por cliente
+ * novo; `docs/design.md` §1 manda recolher o raro, e aberto esse formulário
+ * empurrava a lista para baixo da dobra em 390 px.
+ *
+ * **A lista é o mínimo** (`id`, `codigo`, `nome`, `fuso`, `ativa`) e continua
+ * sendo: nada de contagem de pacientes "para enriquecer a tela", que é o mapa
+ * comercial dos clientes do produto. Quem a busca é o `ProvedorDoPainel`, uma
+ * vez, para esta tela e para a faixa.
+ */
 export default function Clinicas() {
   const router = useRouter()
-  const [itens, setItens] = useState<ClinicaNaLista[] | null>(null)
-  const [erro, setErro] = useState('')
+  const { sessao, recarregar } = usePainel()
   const [criada, setCriada] = useState<ClinicaCriada | null>(null)
+  const dobra = useRef<HTMLDetailsElement>(null)
+
+  const abrirCriacao = () => {
+    if (dobra.current === null) return
+    dobra.current.open = true
+    dobra.current.scrollIntoView({ block: 'nearest' })
+  }
+
+  return (
+    <section>
+      {/* Sem `eyebrow` aqui: a faixa logo acima já diz "Painel interno", e
+          repetir o mesmo rótulo a dois centímetros de distância é como se
+          ensina a não ler nenhum dos dois. */}
+      <div className="titulo">
+        <h2>Clínicas</h2>
+      </div>
+      <p className="nota">
+        Cada clínica tem o próprio código, o próprio fuso e a própria equipe. Daqui saem a clínica
+        e a administradora dela; o resto da equipe nasce dentro da clínica, criada por ela.
+      </p>
+
+      {criada === null ? null : (
+        <SenhaProvisoria
+          nome={criada.admin.nome}
+          usuario={criada.admin.usuario}
+          senha={criada.admin.senhaProvisoria}
+          expiraEm={criada.admin.senhaProvisoriaExpiraEm}
+          aoFechar={() => setCriada(null)}
+        />
+      )}
+
+      {sessao.tag === 'erro' ? (
+        <ErroDoPainel mensagem={sessao.mensagem} recarregar={recarregar} />
+      ) : sessao.tag !== 'pronta' ? (
+        /* O esqueleto reserva a altura da lista: quando ela chega, nada pula
+           embaixo do dedo que já estava indo no primeiro código. */
+        <Carregando linhas={4} fino />
+      ) : sessao.clinicas.length === 0 ? (
+        <Vazio>
+          <b>Nenhuma clínica ainda.</b>
+          <p className="nota">
+            A primeira criação entrega a clínica funcionando: os perfis padrão e a administradora
+            com senha provisória, numa chamada só.
+          </p>
+          <button type="button" className="btn" onClick={abrirCriacao}>
+            Criar a primeira clínica
+          </button>
+        </Vazio>
+      ) : (
+        <>
+          {/* O caminho curto para quem tem quarenta clínicas: digitar duas
+              letras e dar Enter. A tabela continua embaixo — ela é a visão
+              completa, e com quatro clínicas ainda é o jeito mais rápido de
+              ver tudo de uma vez. */}
+          <SeletorDeClinica
+            clinicas={sessao.clinicas}
+            aoEscolher={(c) => router.push(`/superadmin/clinicas/${c.id}/pessoas`)}
+          />
+
+          <table className="superadmin-lista">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Nome</th>
+                <th>Fuso</th>
+                <th>Estado</th>
+                <th>
+                  <span className="sr-apenas">Abrir o sistema da clínica</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessao.clinicas.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <Link className="codigo" href={`/superadmin/clinicas/${c.id}/pessoas`}>
+                      {c.codigo}
+                    </Link>
+                  </td>
+                  <td data-rotulo="Nome">{c.nome}</td>
+                  <td data-rotulo="Fuso">{c.fuso}</td>
+                  <td data-rotulo="Estado">
+                    {c.ativa ? (
+                      <span className="pill bom">ativa</span>
+                    ) : (
+                      <span className="pill mau">desativada</span>
+                    )}
+                  </td>
+                  <td className="coluna-acao">
+                    {/* **O link da clínica** — o mesmo que a recepção dela usa
+                        (`GUIA-INSTALACAO.md` da v20). Ele pré-seleciona a
+                        clínica na tela de entrada; ninguém digita o código.
+
+                        `<a>` e não `<Link>`: sai do painel para o produto, que
+                        é outra árvore de layout, e abre em aba nova porque
+                        quem alterna entre clínicas testando não quer perder o
+                        painel. `rel="noopener"` por hábito, mesmo na mesma
+                        origem. */}
+                    <a
+                      className="link"
+                      href={`/entrar?clinica=${encodeURIComponent(c.codigo)}`}
+                      target="_blank"
+                      rel="noopener"
+                      title={`Abre a tela de entrada já com a clínica ${c.codigo} escolhida`}
+                    >
+                      abrir o sistema dela
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      <FormularioDeClinica dobra={dobra} aoCriar={setCriada} aoRecarregar={recarregar} />
+    </section>
+  )
+}
+
+/** Os fusos que as clínicas em uso têm. Sugestão, nunca limite: o campo aceita
+ *  qualquer nome IANA, e quem valida é o servidor (regra 22 — o fuso é
+ *  propriedade da clínica, e nunca uma constante global). */
+const FUSOS = [
+  'America/Bahia',
+  'America/Sao_Paulo',
+  'America/Fortaleza',
+  'America/Recife',
+  'America/Manaus',
+  'America/Cuiaba',
+  'America/Belem',
+]
+
+function FormularioDeClinica({
+  dobra,
+  aoCriar,
+  aoRecarregar,
+}: {
+  dobra: React.RefObject<HTMLDetailsElement | null>
+  aoCriar: (c: ClinicaCriada) => void
+  aoRecarregar: () => void
+}) {
+  const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [form, setForm] = useState({
     codigo: '',
@@ -20,23 +178,6 @@ export default function Clinicas() {
     adminNome: '',
     adminUsuario: '',
   })
-
-  async function carregar() {
-    try {
-      const r = await chamar<ClinicasDoPainel>('v1/superadmin/clinicas')
-      setItens(r.itens)
-    } catch (x) {
-      // 404 aqui é "não há sessão de painel" — o guard responde 404 para não
-      // confirmar que a rota existe. A tela traduz para o que a pessoa faz.
-      if (x instanceof ErroDaApi && x.status === 404) router.push('/superadmin/entrar')
-      else setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
-    }
-  }
-
-  useEffect(() => {
-    void carregar()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   async function criar(e: React.FormEvent) {
     e.preventDefault()
@@ -52,9 +193,10 @@ export default function Clinicas() {
           admin: { nome: form.adminNome, usuario: form.adminUsuario },
         }),
       })
-      setCriada(r)
+      aoCriar(r)
       setForm({ codigo: '', nome: '', fuso: 'America/Bahia', adminNome: '', adminUsuario: '' })
-      await carregar()
+      if (dobra.current !== null) dobra.current.open = false
+      aoRecarregar()
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
     } finally {
@@ -63,86 +205,16 @@ export default function Clinicas() {
   }
 
   return (
-    <>
-      <h1 style={{ fontSize: '1rem' }}>Clínicas</h1>
-
-      {criada && (
-        <AvisoDaProvisoria
-          titulo={`Clínica "${criada.codigo}" criada`}
-          usuario={criada.admin.usuario}
-          senha={criada.admin.senhaProvisoria}
-          expiraEm={criada.admin.senhaProvisoriaExpiraEm}
-          aoFechar={() => setCriada(null)}
-        />
-      )}
-
-      {/* O caminho curto para quem tem quarenta clínicas: digitar duas letras
-          e dar Enter. A tabela continua embaixo — ela é a visão completa, e com
-          quatro clínicas ainda é o jeito mais rápido de ver tudo de uma vez. */}
-      {itens !== null && itens.length > 0 && (
-        <SeletorDeClinica
-          clinicas={itens}
-          aoEscolher={(c) => router.push(`/superadmin/clinicas/${c.id}/pessoas`)}
-        />
-      )}
-
-      {/* A tabela rola DENTRO da própria caixa, e não a página.
-          Cinco colunas não cabem em 390 px nem antes desta mudança (medido:
-          437 px de largura mínima com quatro), e sem este contorno a página
-          inteira nasce encolhida — o seletor acima, que é o caminho rápido,
-          apareceria em escala reduzida por causa de uma tabela que é visão de
-          mesa de escritório. Aqui o seletor fica em 390 px de verdade. */}
-      <div style={{ overflowX: 'auto' }}>
-      <table style={tabela}>
-        <thead>
-          <tr>
-            <th style={{ textAlign: 'left' }}>Código</th>
-            <th style={{ textAlign: 'left' }}>Nome</th>
-            <th style={{ textAlign: 'left' }}>Fuso</th>
-            <th style={{ textAlign: 'left' }}>Estado</th>
-            <th style={{ textAlign: 'left' }}>Sistema</th>
-          </tr>
-        </thead>
-        <tbody>
-          {itens?.map((c) => (
-            <tr key={c.id}>
-              <td>
-                <Link href={`/superadmin/clinicas/${c.id}/pessoas`}>{c.codigo}</Link>
-              </td>
-              <td>{c.nome}</td>
-              <td>{c.fuso}</td>
-              <td>{c.ativa ? 'ativa' : 'desativada'}</td>
-              <td>
-                {/* **O link da clínica** — o mesmo que a recepção dela usa
-                    (`GUIA-INSTALACAO.md` da v20). Ele pré-seleciona a clínica
-                    na tela de entrada; ninguém digita o código.
-
-                    `<a>` e não `<Link>`: sai do painel para o produto, que é
-                    outra árvore de layout, e abre em aba nova porque quem
-                    alterna entre clínicas testando não quer perder o painel.
-                    `rel="noopener"` por hábito, mesmo sendo a mesma origem. */}
-                <a
-                  href={`/entrar?clinica=${encodeURIComponent(c.codigo)}`}
-                  target="_blank"
-                  rel="noopener"
-                  title={`Abre a tela de entrada já com a clínica ${c.codigo} escolhida`}
-                >
-                  abrir
-                </a>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </div>
-      {itens === null && <p>Carregando…</p>}
-      {itens?.length === 0 && <p>Nenhuma clínica ainda.</p>}
-
-      <h2 style={{ fontSize: '.9rem', marginTop: '2rem' }}>Criar clínica</h2>
+    <details className="superadmin-dobra" ref={dobra}>
+      <summary>Criar clínica e administradora</summary>
       <form onSubmit={criar}>
-        <label style={campo}>
-          Código (ditado por telefone, minúsculas)
-          <br />
+        <p className="nota">
+          Uma chamada entrega a clínica funcionando: clínica, perfis padrão e a administradora com
+          senha provisória. Tudo ou nada — meia criação é o estado que produz um chamado.
+        </p>
+
+        <label className="campo">
+          Código da clínica
           <input
             value={form.codigo}
             onChange={(e) => setForm({ ...form, codigo: e.target.value })}
@@ -150,45 +222,58 @@ export default function Clinicas() {
             autoCorrect="off"
             spellCheck={false}
             required
-            style={{ width: '100%', padding: '.4rem', font: 'inherit' }}
           />
+          <small>
+            Ditado por telefone e digitado todo dia na entrada: minúsculas, sem espaço. Ex.:
+            <b> raphaella</b>.
+          </small>
         </label>
-        <label style={campo}>
-          Nome
-          <br />
+
+        <label className="campo">
+          Nome da clínica
           <input
             value={form.nome}
             onChange={(e) => setForm({ ...form, nome: e.target.value })}
             required
-            style={{ width: '100%', padding: '.4rem', font: 'inherit' }}
           />
         </label>
-        <label style={campo}>
-          Fuso (IANA — regra 22: é propriedade da clínica, nunca global)
-          <br />
+
+        <label className="campo">
+          Fuso da clínica
+          {/* `<input>` com `<datalist>`, e não `<select>`: os sete da lista
+              cobrem as clínicas de hoje, e o campo continua aceitando
+              qualquer nome IANA — recusar um apelido válido seria recusar uma
+              clínica. */}
           <input
             value={form.fuso}
             onChange={(e) => setForm({ ...form, fuso: e.target.value })}
+            list="fusos-iana"
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
             required
-            style={{ width: '100%', padding: '.4rem', font: 'inherit' }}
           />
+          <datalist id="fusos-iana">
+            {FUSOS.map((f) => (
+              <option key={f} value={f} />
+            ))}
+          </datalist>
+          <small>
+            É propriedade da clínica, nunca do sistema: é ele que decide onde começa o dia dela.
+          </small>
         </label>
-        <label style={campo}>
+
+        <label className="campo">
           Nome da administradora
-          <br />
           <input
             value={form.adminNome}
             onChange={(e) => setForm({ ...form, adminNome: e.target.value })}
             required
-            style={{ width: '100%', padding: '.4rem', font: 'inherit' }}
           />
         </label>
-        <label style={campo}>
+
+        <label className="campo">
           Usuário da administradora
-          <br />
           <input
             value={form.adminUsuario}
             onChange={(e) => setForm({ ...form, adminUsuario: e.target.value })}
@@ -196,16 +281,18 @@ export default function Clinicas() {
             autoCorrect="off"
             spellCheck={false}
             required
-            style={{ width: '100%', padding: '.4rem', font: 'inherit' }}
           />
+          <small>A senha dela é gerada aqui e aparece uma única vez.</small>
         </label>
-        <p role="alert" aria-live="polite" style={{ minHeight: '1.4rem' }}>
+
+        <p role="alert" aria-live="polite" className="erro-do-painel">
           {erro}
         </p>
-        <button type="submit" disabled={enviando} style={{ padding: '.5rem 1rem', font: 'inherit' }}>
+
+        <button type="submit" disabled={enviando} className="btn">
           {enviando ? 'Criando…' : 'Criar clínica e administradora'}
         </button>
       </form>
-    </>
+    </details>
   )
 }

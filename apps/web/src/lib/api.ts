@@ -19,6 +19,17 @@ export class ErroDaApi extends Error {
 /** Onde a pessoa com senha provisória é obrigada a terminar o primeiro acesso. */
 export const CAMINHO_TROCAR_SENHA = '/trocar-senha'
 
+/**
+ * O mesmo desvio, para o OPERADOR do painel.
+ *
+ * São dois espaços de identidade disjuntos (D-5): o operador não é uma pessoa
+ * de clínica nenhuma, a provisória dele é gerada pelo break-glass da VPS, e o
+ * `PainelGuard` responde 409 `SENHA_PROVISORIA_OPERADOR` em toda rota de
+ * painel menos três. Mandá-lo para `/trocar-senha` — a tela do produto — o
+ * largaria numa tela que pede a sessão de clínica que ele não tem.
+ */
+export const CAMINHO_TROCAR_SENHA_DO_PAINEL = '/superadmin/trocar-senha'
+
 export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
   /**
    * `content-type: application/json` só quando HÁ corpo.
@@ -57,6 +68,13 @@ export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Prom
      */
     if (corpo.codigo === 'SENHA_PROVISORIA' && typeof window !== 'undefined') {
       window.location.assign(CAMINHO_TROCAR_SENHA)
+    }
+    // O código do painel é OUTRO (`SENHA_PROVISORIA_OPERADOR`), e o destino
+    // também. Dois códigos e não um: um só faria o produto desviar o operador
+    // para a tela da clínica, e o painel desviar a recepcionista para a porta
+    // que ela não enxerga.
+    if (corpo.codigo === 'SENHA_PROVISORIA_OPERADOR' && typeof window !== 'undefined') {
+      window.location.assign(CAMINHO_TROCAR_SENHA_DO_PAINEL)
     }
     throw new ErroDaApi(
       r.status,

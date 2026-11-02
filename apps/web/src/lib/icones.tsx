@@ -175,3 +175,32 @@ export const ICONE_WHATSAPP = svg(
   <path key="a" d="M20 11.5a8 8 0 0 1-11.9 7L4 20l1.6-4A8 8 0 1 1 20 11.5Z" />,
   <path key="b" d="M9.2 9.1c.2-.5.4-.5.6-.5h.5c.2 0 .4 0 .6.5l.6 1.4c.1.2 0 .4-.1.5l-.4.5c-.1.2-.2.3 0 .6a6 6 0 0 0 2.4 2c.3.1.4 0 .6-.1l.5-.5c.2-.2.3-.2.5-.1l1.4.7c.3.1.4.3.4.5 0 .5-.4 1.4-1.6 1.4-1 0-2.6-.6-4-2a7 7 0 0 1-2-3.5c0-.7.2-1.1.5-1.4Z" />,
 )
+
+/* ------------------------------------------------------------------------
+ * O OLHO DA SENHA — aberto e cortado.
+ *
+ * Mora aqui porque são TRÊS telas que mostram a senha digitada: a entrada do
+ * produto, a entrada do painel e a troca da provisória do operador. Nasceu
+ * dentro de `app/entrar/page.tsx`, e a segunda tela a precisar dele é a que
+ * decide se ele vira constante compartilhada ou terceira cópia.
+ *
+ * `strokeWidth` 1.7 e não o 1.8 da casa: é o traço com que ele foi desenhado
+ * e medido na tela de entrada, e o olho tem círculo interno — um traço mais
+ * grosso o fecha.
+ * ---------------------------------------------------------------------- */
+
+const olho = (...filhos: ReactElement[]): ReactElement => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} aria-hidden="true">
+    {filhos}
+  </svg>
+)
+
+export const ICONE_OLHO_ABERTO = olho(
+  <path key="a" d="M1.8 12S5.5 5.2 12 5.2 22.2 12 22.2 12 18.5 18.8 12 18.8 1.8 12 1.8 12Z" />,
+  <circle key="b" cx="12" cy="12" r="3.2" />,
+)
+
+export const ICONE_OLHO_FECHADO = olho(
+  <path key="a" d="M1.8 12S5.5 5.2 12 5.2c1.5 0 2.9.36 4.1.92M22.2 12s-1.4 2.56-4 4.42M9.9 9.9a3.2 3.2 0 0 0 4.3 4.3" />,
+  <path key="b" d="M3.2 3.2 20.8 20.8" />,
+)

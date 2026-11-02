@@ -78,7 +78,24 @@ const TEXTO: readonly [string, string, string][] = [
   ['--gold-ink', '--bg', 'eyebrow, link'],
   ['--gold-ink', '--surface', 'link dentro de cartão'],
   ['--on-gold-soft', '--gold-soft', 'contador, pílula de paciente'],
-  ['--on-gold', '--gold', 'chip escolhido, dia selecionado da semana'],
+  /*
+   * A faixa do painel do superadmin é dourado PREENCHIDO em largura cheia, e
+   * sobre ela TODO texto é `--on-gold`: a marca, a clínica em que se age e o
+   * botão "Sair". Nada ali usa cor para hierarquia — quem conduz é tamanho e
+   * peso —, e é por isso que um par só cobre a faixa inteira.
+   */
+  ['--on-gold', '--gold', 'chip escolhido, dia selecionado da semana, FAIXA DO PAINEL'],
+  /*
+   * E a INVERSÃO do mesmo par: a pílula "desativada" / "não identificada" na
+   * faixa, e o "Sair" sob o cursor. A razão de contraste é simétrica, então o
+   * número é o mesmo — o par entra na lista pelo USO, que é o que faz alguém
+   * pensar duas vezes antes de trocar uma das duas pontas.
+   *
+   * Foi a tentativa de pintar essa pílula de `--bad-on-gold` que descobriu um
+   * número falso em `tokens.css`: ele dá 4,25:1 sobre o dourado, não 8,0:1 —
+   * passa como elemento gráfico (3:1) e reprova como texto.
+   */
+  ['--gold', '--on-gold', 'pílula invertida na faixa do painel, "Sair" sob o cursor'],
   ['--warn-ink', '--surface', 'pílula “Atrasada”'],
   ['--warn-ink', '--bg', 'pílula “Atrasada” fora de cartão'],
   ['--ok', '--surface', 'pílula “Concluída”, botão de WhatsApp'],
@@ -90,6 +107,31 @@ const TEXTO: readonly [string, string, string][] = [
 
 /** AA para texto normal. 11,5 px em negrito NÃO é "texto grande" (18,66 px). */
 const AA = 4.5
+
+/**
+ * Os pares que são ELEMENTO GRÁFICO, e o limite deles é 3:1 (WCAG 1.4.11).
+ *
+ * **Esta lista existe por causa de um número falso.** `--bad-on-gold` nasceu
+ * para a bolinha de atraso sobre o dia selecionado — um ponto de 6 px, não uma
+ * palavra — e o comentário dele em `tokens.css` afirmava 8,0:1. Quando a faixa
+ * do painel tentou usá-lo como TINTA, a varredura recalculou: 4,25:1. Passa
+ * aqui, reprova em `TEXTO`.
+ *
+ * Duas listas e não uma, porque são dois limites de verdade: colapsá-las
+ * obrigaria a escolher entre reprovar um ponto que está certo e aprovar uma
+ * palavra que não se lê.
+ *
+ * **Só entra aqui o gráfico que CARREGA INFORMAÇÃO.** `--line` (1,24:1 sobre o
+ * claro) e `--gold` como traço (2,21:1) ficam fora de propósito: eles separam
+ * e decoram, e a WCAG 1.4.11 não os alcança — listá-los reprovaria o desenho
+ * inteiro para medir uma coisa que a norma não pede. A bolinha de atraso é o
+ * contrário: ela é a única portadora do fato "tem tarefa atrasada neste dia".
+ */
+const GRAFICO: readonly [string, string, string][] = [
+  ['--bad-on-gold', '--gold', 'bolinha de atraso no dia selecionado da semana'],
+]
+
+const AA_GRAFICO = 3
 
 describe.each([
   ['claro', CLARO],
@@ -105,6 +147,18 @@ describe.each([
       r,
       `${uso}: ${tinta} (${a}) sobre ${fundo} (${b}) dá ${r.toFixed(2)}:1 no tema ${nome}`,
     ).toBeGreaterThanOrEqual(AA)
+  })
+
+  it.each(GRAFICO)('%s sobre %s (%s) passa no mínimo gráfico', (tinta, fundo, uso) => {
+    const a = t[tinta]
+    const b = t[fundo]
+    expect(a, `${tinta} não existe no tema ${nome}`).toBeDefined()
+    expect(b, `${fundo} não existe no tema ${nome}`).toBeDefined()
+    const r = razao(a!, b!)
+    expect(
+      r,
+      `${uso}: ${tinta} (${a}) sobre ${fundo} (${b}) dá ${r.toFixed(2)}:1 no tema ${nome}`,
+    ).toBeGreaterThanOrEqual(AA_GRAFICO)
   })
 })
 

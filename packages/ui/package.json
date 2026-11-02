@@ -13,7 +13,8 @@
     "./estoque.css": "./src/estoque.css",
     "./equipe.css": "./src/equipe.css",
     "./gestao.css": "./src/gestao.css",
-    "./ajuda.css": "./src/ajuda.css"
+    "./ajuda.css": "./src/ajuda.css",
+    "./superadmin.css": "./src/superadmin.css"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

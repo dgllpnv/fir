@@ -3,6 +3,9 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
+/* O olho mora em `lib/icones` desde que a entrada do PAINEL passou a usar o
+   mesmo: duas cópias do mesmo traço divergem na primeira correção. */
+import { ICONE_OLHO_ABERTO, ICONE_OLHO_FECHADO } from '@/lib/icones'
 import { clinicaGuardada, lembrarClinica, resolverClinica } from '@/lib/clinica-do-link'
 
 /**
@@ -20,22 +23,6 @@ import { clinicaGuardada, lembrarClinica, resolverClinica } from '@/lib/clinica-
  * Quem não tem o link digita o código, como antes. O seletor com a lista mora
  * no painel do superadmin, que é autenticado e atrás da allowlist de IP.
  */
-/* Olho aberto e olho cortado — SVG inline, com rótulo no botão.
-   `docs/design.md` proíbe emoji na interface e biblioteca de ícone nova. */
-const OLHO_ABERTO = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-    <path d="M1.8 12S5.5 5.2 12 5.2 22.2 12 22.2 12 18.5 18.8 12 18.8 1.8 12 1.8 12Z" />
-    <circle cx="12" cy="12" r="3.2" />
-  </svg>
-)
-
-const OLHO_FECHADO = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
-    <path d="M1.8 12S5.5 5.2 12 5.2c1.5 0 2.9.36 4.1.92M22.2 12s-1.4 2.56-4 4.42M9.9 9.9a3.2 3.2 0 0 0 4.3 4.3" />
-    <path d="M3.2 3.2 20.8 20.8" />
-  </svg>
-)
-
 export default function Entrar() {
   const router = useRouter()
   const [clinica, setClinica] = useState('')
@@ -218,7 +205,7 @@ export default function Entrar() {
                 aria-pressed={senhaVisivel}
                 onClick={() => setSenhaVisivel((v) => !v)}
               >
-                {senhaVisivel ? OLHO_FECHADO : OLHO_ABERTO}
+                {senhaVisivel ? ICONE_OLHO_FECHADO : ICONE_OLHO_ABERTO}
               </button>
             </span>
           </label>

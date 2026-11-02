@@ -59,14 +59,26 @@
   --on-gold: #2e1f0e;
 
   /*
-   * O vermelho que ainda se lê SOBRE `--gold`.
+   * O vermelho que ainda se VÊ sobre `--gold` — e **só como elemento
+   * gráfico**, nunca como texto.
    *
    * `--bad` (#B4442F) sobre o dourado dá 2,3:1 — abaixo do mínimo de 3:1 que
    * a WCAG pede para elemento gráfico. A bolinha de "tem tarefa atrasada"
    * aparece no dia SELECIONADO da faixa, que é dourado preenchido, e lá ela
-   * precisa continuar vermelha e continuar visível. Medido: #7A2416 sobre
-   * #C5A467 dá 8,0:1. Fora dos blocos de tema pela mesma razão de
-   * `--on-gold`: o dourado é o mesmo nos dois.
+   * precisa continuar vermelha e continuar visível.
+   *
+   * **Medido: 4,25:1 sobre #C5A467** — passa com folga no limite de 3:1 de
+   * elemento gráfico e **reprova em AA de texto** (4,5:1). O número que este
+   * comentário trazia antes era "8,0:1", e era falso: ele só apareceu quando a
+   * faixa do painel do superadmin tentou usar este token como TINTA e
+   * `contraste.test.ts` recalculou a conta. Daí a faixa passar a marcar
+   * "desativada" por INVERSÃO (fundo `--on-gold`, tinta `--gold`, 6,76:1) em
+   * vez de por vermelho — e daí este token estar na lista `GRAFICO` do teste,
+   * não na `TEXTO`. É o caso que `docs/design.md` §2 descreve: tabela escrita
+   * à mão envelhece em silêncio; teste que recalcula do token, não.
+   *
+   * Fora dos blocos de tema pela mesma razão de `--on-gold`: o dourado é o
+   * mesmo nos dois.
    */
   --bad-on-gold: #7a2416;
 }
