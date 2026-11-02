@@ -14,3 +14,11 @@ infra/producao/redis.conf
 # publicacao em docs/diferencas-versao-po-vs-nossa.md.
 versoes/
 docs/seguranca-v20-local.md
+
+# As planilhas exportadas das clinicas: dado de saude de PACIENTES REAIS, com
+# nome, telefone, procedimento e valor. O repositorio e publico.
+#
+# Elas chegaram em docs/, que e commitado inteiro -- um `git add -A` as teria
+# mandado para o GitHub. Ficam no disco, como fonte da migracao, e nunca aqui.
+docs/Planilhas/
+*.xlsx
