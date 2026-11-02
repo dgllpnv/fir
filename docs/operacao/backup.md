@@ -63,6 +63,34 @@ tal**, por duas razões:
    Postgres, papéis, migrations, api e web) **mais** esta restauração. Medir só
    a segunda metade é relatar metade do caminho.
 
+### O componente de RTO que vive fora do banco: as imagens
+
+A VPS tem um cron **que não é nosso** e que não deve ser alterado:
+
+```
+/etc/cron.d/docker-image-prune
+0 0 * * * root sleep $(shuf -i 0-21600 -n 1) && docker image prune -af --filter "until=24h"
+```
+
+`prune -af` remove toda imagem **não referenciada por container nenhum** com
+mais de 24 h. `fir/api:mais-recente` e `fir/web:mais-recente` existem **só
+localmente** — não publicamos em registry. Então:
+
+- **Em operação normal, estão seguras**: os containers `fir-api-1` e
+  `fir-web-1` as referenciam.
+- **Depois de um `docker compose down` que passe de 24 h, elas somem.** O
+  `up` seguinte falha com "image not found", e recuperar exige **reconstruir
+  a partir do git** (`nice -n 19 docker build ...`), alguns minutos a mais.
+
+Isso é um custo de RTO, não um defeito: o build é reproduzível de propósito
+(é por isso que ele acontece no Docker e não na máquina de quem implanta), e o
+repositório é a fonte. Mas **o número tem de incluir esse tempo**, e o
+`docker builder prune` semanal garante que o cache não estará quente.
+
+O remédio, se um dia o RTO apertar, é nosso e não deles: publicar as imagens
+num registry, ou guardar um `docker save` ao lado dos dumps. Nenhum dos dois
+está feito.
+
 ### Calendário
 
 Repetir o ensaio **a cada quatro a seis épicos**, e obrigatoriamente:
