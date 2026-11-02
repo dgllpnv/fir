@@ -208,6 +208,22 @@ await build({
 })
 
 /**
+ * O CORTE DE UMA CLÍNICA.
+ *
+ * Ferramenta de deploy, como o migrador: ela roda em container descartável, na
+ * rede dos dados, com a planilha montada **somente leitura**. Nada na API a
+ * importa, e ela não é alcançável por rota nenhuma.
+ *
+ * O padrão dela é o ENSAIO — roda a migração inteira, confere os seis totais e
+ * dá `ROLLBACK`. Só grava com `--valendo`, e só depois de o ensaio fechar.
+ */
+await build({
+  ...comum,
+  entryPoints: ['migrar-clinica.ts'],
+  outfile: 'dist/migrar-clinica.js',
+})
+
+/**
  * O que **não** entra na imagem, e é decisão e não esquecimento:
  *
  * - `semear.ts` — a semente da clínica de demonstração tem a senha escrita
@@ -215,9 +231,6 @@ await build({
  *   credencial conhecida a um `docker compose run` de distância, e a clínica
  *   de teste nasce pelo painel do superadmin, que é o caminho que queremos
  *   exercitar de verdade.
- * - `migrar-clinica.ts` — o corte das clínicas reais depende de decisões que o
- *   dono do produto ainda vai tomar com cada uma, e o ensaio dele roda contra
- *   cópia restaurada do backup, não contra a imagem que serve o produto.
  */
 
-console.log('\nAPI construída em dist/ (api.js, migrar.js, credencial.js).')
+console.log('\nAPI construída em dist/ (api.js, migrar.js, credencial.js, migrar-clinica.js).')

@@ -92,6 +92,36 @@ services:
       # endereço do proxy, todas as clínicas viram um IP só, e o limite por
       # origem passa a ser um limite global. Ver `main.ts`.
       PROXY_SALTOS_CONFIAVEIS: '1'
+
+      # O PISO DE TEMPO DE `/v1/entrar` (D2), calibrado **nesta** máquina.
+      #
+      # O padrão do código é 100 ms, e foi calibrado na máquina de
+      # desenvolvimento (máximo medido lá: 52 ms). Esta VPS divide 4 vCPU com
+      # 27 containers de produção de outros negócios, então o número de lá não
+      # vale aqui — e estimar seria exatamente o erro que o piso existe para
+      # não cometer.
+      #
+      # MEDIDO na VPS, contra a API em container, com `PISO_RESPOSTA_ENTRAR_MS=0`
+      # e o limite por origem levantado, 200 amostras, 200/200 em HTTP 200 —
+      # o caminho de SUCESSO, que é o mais lento dos quatro (ele soma o Argon2
+      # à criação de sessão e a duas transações curtas):
+      #
+      #     p50 19,4 ms   p90 22,7 ms   p95 25,1 ms   p99 36,0 ms   máx 87,3 ms
+      #
+      # Numa segunda série, mais ruidosa: p99 44,9 ms e máx 109,5 ms.
+      #
+      # 150 ms fica acima do p99 das duas séries com folga de mais de três
+      # vezes, e acima dos dois máximos observados — inclusive o de 109,5 ms,
+      # que o padrão de 100 ms NÃO cobriria. Um pico acima do piso não é
+      # catastrófico (ele não é atribuível a um caso específico), mas um piso
+      # que o ruído do vizinho atravessa com frequência deixa de igualar a
+      # classe, que é o que ele existe para fazer.
+      #
+      # Custo em tráfego real: nenhum. São ~24 logins POR MÊS (quatro clínicas,
+      # seis pessoas, sessão de 30 dias). Custo sob ataque: nenhum, porque sob
+      # fila a espera já passa do piso e nenhuma espera é somada.
+      PISO_RESPOSTA_ENTRAR_MS: ${PISO_RESPOSTA_ENTRAR_MS:-150}
+
       TZ: UTC
       HOST: '0.0.0.0'
     depends_on:
