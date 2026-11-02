@@ -3,6 +3,7 @@ import {
   MOTIVO_PESSOA,
   comoChamar,
   podeDesativar,
+  podeExcluirPessoa,
   podeRemoverPerfis,
   podeTrocarAcesso,
   type PessoaDaClinica,
@@ -205,5 +206,80 @@ describe('comoChamar — o nome pelo qual a equipe chama a pessoa', () => {
   it('espaço a mais não vira nome vazio', () => {
     expect(comoChamar('  Dra.   Helena   Prado ')).toBe('Dra. Helena')
     expect(comoChamar(' Juliana  Santos')).toBe('Juliana')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// EXCLUIR — soft delete, e as mesmas duas invariantes de desativar
+// ---------------------------------------------------------------------------
+
+describe('podeExcluir', () => {
+  const admin = (id: string, ativo = true): PessoaDaClinica => ({
+    id,
+    admin: true,
+    perfilId: null,
+    ativo,
+  })
+  const equipe = (id: string, ativo = true): PessoaDaClinica => ({
+    id,
+    admin: false,
+    perfilId: 'pf_rec',
+    ativo,
+  })
+
+  it('NINGUÉM se exclui', () => {
+    const eu = admin('a')
+    const r = podeExcluirPessoa(eu, 'a', [eu, admin('b')])
+    expect(r.tipo).toBe('erro')
+    if (r.tipo !== 'erro') return
+    expect(r.erro.codigo).toBe(MOTIVO_PESSOA.EU_MESMA_EXCLUIR)
+  })
+
+  it('a clínica NÃO fica sem administradora ativa', () => {
+    const unica = admin('a')
+    const r = podeExcluirPessoa(unica, 'b', [unica, equipe('b')])
+    expect(r.tipo).toBe('erro')
+    if (r.tipo !== 'erro') return
+    expect(r.erro.codigo).toBe(MOTIVO_PESSOA.ULTIMA_ADMIN)
+    // A mensagem diz EXCLUIR, não "desativar": um botão que a pessoa não
+    // apertou mandaria procurar outra tela.
+    expect(r.erro.mensagem).toContain('excluir')
+  })
+
+  it('admin INATIVA não conta para o mínimo — excluir a última ATIVA é recusado mesmo com ela lá', () => {
+    const ativa = admin('a')
+    const dormindo = admin('b', false)
+    const r = podeExcluirPessoa(ativa, 'c', [ativa, dormindo, equipe('c')])
+    expect(r.tipo).toBe('erro')
+    if (r.tipo !== 'erro') return
+    expect(r.erro.codigo).toBe(MOTIVO_PESSOA.ULTIMA_ADMIN)
+  })
+
+  it('excluir uma administradora JÁ INATIVA é PERMITIDO, mesmo sendo a única', () => {
+    /**
+     * O beco que a condição `alvo.ativo` evita.
+     *
+     * A clínica cuja única administradora está inativa já está trancada — e
+     * destrancá-la é trabalho do superadmin. Recusar a exclusão dela mandaria
+     * "dê acesso de administrador a outra pessoa antes", por uma tela que
+     * ninguém dessa clínica consegue abrir.
+     *
+     * MUTAÇÃO: tire `alvo.ativo &&` de `podeExcluirPessoa` e este teste fica
+     * vermelho — e é o único que fica.
+     */
+    const trancada = admin('a', false)
+    const r = podeExcluirPessoa(trancada, 'c', [trancada, equipe('c')])
+    expect(r.tipo).toBe('ok')
+  })
+
+  it('excluir quem NÃO é administradora não depende de ninguém', () => {
+    const ela = equipe('c')
+    expect(podeExcluirPessoa(ela, 'a', [admin('a'), ela]).tipo).toBe('ok')
+  })
+
+  it('com duas administradoras ativas, excluir uma passa', () => {
+    const a = admin('a')
+    const b = admin('b')
+    expect(podeExcluirPessoa(a, 'b', [a, b]).tipo).toBe('ok')
   })
 })

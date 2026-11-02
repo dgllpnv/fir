@@ -137,6 +137,13 @@ export async function inserirPessoa(
  *
  * Sem clínica no `WHERE`: a RLS já a impõe, e a pessoa da vizinha
  * simplesmente não existe vista daqui — `rowCount` zero vira 404.
+ *
+ * `excluida_em IS NULL` pela mesma razão, e o defeito foi MEDIDO: sem ele,
+ * redefinir a senha de quem a clínica excluiu respondia **200** e trocava a
+ * senha de uma linha que nenhuma tela mostra. O sintoma no teste foi outro, e
+ * é o que torna isto caro: a pessoa seguinte a tentar entrar com a senha
+ * antiga tomava 401, e o 401 aparecia num teste que não tinha relação nenhuma
+ * com exclusão. Quem saiu da clínica não é alvo de escrita nenhuma.
  */
 export async function redefinirSenhaDePessoa(
   c: pg.PoolClient,
@@ -146,7 +153,7 @@ export async function redefinirSenhaDePessoa(
   const r = await c.query(
     `UPDATE pessoas
         SET senha_hash = $1, senha_provisoria = true, senha_provisoria_expira_em = $2
-      WHERE id = $3`,
+      WHERE id = $3 AND excluida_em IS NULL`,
     [provisoria.hash, provisoria.expiraEm, pessoaId],
   )
   if (r.rowCount === 0) throw new PessoaNaoExiste()
@@ -155,4 +162,139 @@ export async function redefinirSenhaDePessoa(
     `UPDATE sessoes SET revogada_em = now() WHERE pessoa_id = $1 AND revogada_em IS NULL`,
     [pessoaId],
   )
+}
+
+/**
+ * **EXCLUIR uma pessoa — soft delete, e os três efeitos juntos.**
+ *
+ * Um `UPDATE` só, com os três campos, e a razão é a mesma do `editar`: dois
+ * `UPDATE` separados deixariam a trilha com dois eventos para uma ação, e o
+ * segundo poderia não acontecer.
+ *
+ *  - `excluida_em` é o estado novo: ela sai da lista e de toda escolha.
+ *  - `ativo = false` **tem** de vir junto, e o `CHECK
+ *    pessoa_excluida_esta_inativa` (0023) o cobra. Sem ele, a pessoa ficaria
+ *    fora de toda tela e **ainda entrando** — `entrar` filtra `ativo`, não
+ *    `excluida_em`. Acesso sem supervisão, porque nenhuma tela a mostra para
+ *    alguém desativar.
+ *  - `desativada_em` segue `ativo` pelo `CHECK pessoa_desativada_tem_instante`
+ *    (0014), e `coalesce` preserva o instante de quem já estava inativa: a
+ *    pergunta "desde quando ela está fora" não muda de resposta porque alguém
+ *    arrumou a lista seis meses depois.
+ *
+ * E as sessões caem. "Tirei o acesso dela" tem de ser verdade no instante do
+ * toque — é a mesma razão do `desativar`, e aqui vale mais.
+ *
+ * **IDEMPOTENTE pelo `WHERE`:** `excluida_em IS NULL` faz a segunda chamada
+ * afetar zero linhas e virar `PessoaNaoExiste` (404). Sem isso, excluir duas
+ * vezes reescreveria `excluida_em` e a trilha registraria uma exclusão que não
+ * aconteceu.
+ *
+ * Sem cláusula de clínica: a RLS já a impõe, e a pessoa da vizinha
+ * simplesmente não existe vista daqui.
+ */
+export async function excluirPessoa(c: pg.PoolClient, pessoaId: string): Promise<void> {
+  const r = await c.query(
+    `UPDATE pessoas
+        SET excluida_em   = now(),
+            ativo         = false,
+            desativada_em = coalesce(desativada_em, now())
+      WHERE id = $1 AND excluida_em IS NULL`,
+    [pessoaId],
+  )
+  if (r.rowCount === 0) throw new PessoaNaoExiste()
+
+  await c.query(
+    'UPDATE sessoes SET revogada_em = now() WHERE pessoa_id = $1 AND revogada_em IS NULL',
+    [pessoaId],
+  )
+}
+
+/**
+ * **EDITAR** nome, função e acesso — o mesmo `UPDATE` para a clínica e para o
+ * painel.
+ *
+ * O painel precisava dele e não tinha: a tela de pessoas do painel só criava
+ * administradora e redefinia senha, então corrigir o nome de alguém exigia
+ * entrar na clínica. Escrever um segundo `UPDATE` lá seria a mesma regra em
+ * dois lugares — e a cópia que ninguém revisa é a que esquece de derrubar as
+ * sessões ao desativar.
+ *
+ * `coalesce` em cada campo: o que não veio não muda. Montar o SQL por
+ * concatenação conforme os campos presentes é o caminho que acaba interpolando
+ * nome de coluna.
+ *
+ * **`usuario` NÃO está aqui, e é decisão de produto.** Ele é ditado por
+ * telefone, é o nome pelo qual a equipe chama a pessoa, e é a chave de
+ * `tentativas_login.identificador` — trocá-lo quebraria o que ela decorou e
+ * misturaria o histórico de bloqueio de duas contas. Ver `CONTEXT.md`,
+ * `Pessoa`: *"um identificador de login não tem valor de exibição"*.
+ *
+ * Quem chama **já conferiu as invariantes do domínio** (`podeTrocarAcesso`,
+ * `podeDesativar`): esta função escreve, não julga. A ordem importa e está nos
+ * dois chamadores.
+ */
+export async function editarPessoa(
+  c: pg.PoolClient,
+  pessoaId: string,
+  dados: {
+    readonly nome?: string | undefined
+    readonly funcao?: string | undefined
+    readonly admin?: boolean | undefined
+    readonly perfilId?: string | null | undefined
+    readonly ativo?: boolean | undefined
+  },
+): Promise<LinhaDePessoaEditada> {
+  const r = await c.query<LinhaDePessoaEditada>(
+    `UPDATE pessoas
+        SET nome      = coalesce($2, nome),
+            funcao    = coalesce($3, funcao),
+            admin     = coalesce($4, admin),
+            perfil_id = CASE WHEN $4::boolean IS NULL THEN perfil_id
+                             WHEN $4 THEN NULL ELSE $5 END,
+            ativo     = coalesce($6, ativo),
+            desativada_em = CASE WHEN coalesce($6, ativo) THEN NULL
+                                 ELSE coalesce(desativada_em, now()) END
+      WHERE id = $1 AND excluida_em IS NULL
+      RETURNING id, nome, usuario, funcao, admin, perfil_id, ativo,
+                senha_provisoria, senha_provisoria_expira_em`,
+    [
+      pessoaId,
+      dados.nome ?? null,
+      dados.funcao ?? null,
+      dados.admin ?? null,
+      dados.admin === undefined || dados.admin ? null : (dados.perfilId ?? null),
+      dados.ativo ?? null,
+    ],
+  )
+  const linha = r.rows[0]
+  if (linha === undefined) throw new PessoaNaoExiste()
+
+  /**
+   * Desativar **DERRUBA AS SESSÕES**, e isto não é zelo.
+   *
+   * Sem isto, a pessoa desativada continua trabalhando até o cookie vencer.
+   * "Tirei o acesso dela" tem de ser verdade no instante em que o admin toca o
+   * botão, senão a clínica que demitiu alguém às 14h descobre às 18h que ela
+   * esteve na ferramenta a tarde inteira.
+   */
+  if (dados.ativo === false) {
+    await c.query(
+      'UPDATE sessoes SET revogada_em = now() WHERE pessoa_id = $1 AND revogada_em IS NULL',
+      [pessoaId],
+    )
+  }
+  return linha
+}
+
+export type LinhaDePessoaEditada = {
+  id: string
+  nome: string
+  usuario: string
+  funcao: string
+  admin: boolean
+  perfil_id: string | null
+  ativo: boolean
+  senha_provisoria: boolean
+  senha_provisoria_expira_em: Date | null
 }

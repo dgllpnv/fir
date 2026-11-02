@@ -210,3 +210,18 @@ export type SalvarPerfis = z.infer<typeof SalvarPerfis>
 
 export const ListaDePerfis = z.object({ perfis: z.array(PerfilPublico) })
 export type ListaDePerfis = z.infer<typeof ListaDePerfis>
+
+/**
+ * **EDITAR uma pessoa pelo painel** — nome, função e acesso.
+ *
+ * É o `EditarPessoa` da clínica, **de propósito**: a mesma forma, a mesma
+ * união discriminada do acesso, a mesma recusa de corpo vazio. Um contrato
+ * próprio aqui divergiria no primeiro campo novo, e a divergência apareceria
+ * como "o painel não consegue fazer o que a clínica faz".
+ *
+ * **`usuario` não está aqui, e não é esquecimento.** Ele é ditado por
+ * telefone, é o nome pelo qual a equipe chama a pessoa, e é a chave de
+ * `tentativas_login.identificador`. Ver `CONTEXT.md`, `Pessoa`.
+ */
+export const EditarPessoaNoPainelEntrada = EditarPessoa
+export type EditarPessoaNoPainelEntrada = z.infer<typeof EditarPessoaNoPainelEntrada>

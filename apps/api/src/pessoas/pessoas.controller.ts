@@ -14,6 +14,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -132,6 +133,37 @@ export class PessoasController {
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     const c = req.contexto!
     return this.acesso.editar({ clinicaId: c.clinicaId, ator: c.ator }, id, dados.data)
+  }
+
+  /**
+   * **EXCLUIR a pessoa** — e excluir é SOFT DELETE (regra 20).
+   *
+   * `DELETE` como VERBO, `UPDATE` como efeito: o verbo descreve a intenção do
+   * chamador ("tire esta pessoa da equipe"), e a implementação é o estado
+   * `excluida_em`. A linha fica, e o histórico dela continua ligado — tarefa,
+   * recebimento, movimento de estoque e trilha seguem apontando para ela.
+   * Apagar de verdade mudaria o passado da clínica, e as FKs `NOT NULL`
+   * recusariam de qualquer forma.
+   *
+   * **204 e sem corpo:** não há o que devolver. A lista recarrega e a pessoa
+   * não está nela.
+   *
+   * Três recusas possíveis, e cada uma diz uma coisa:
+   *  - **404** a pessoa não existe nesta clínica, ou já foi excluída.
+   *  - **422** o domínio recusou, com o `codigo` e a frase dele: *ninguém se
+   *    exclui*, e *a clínica não fica sem administradora ativa*.
+   *  - **403** a sessão é a de suporte do painel, que não assina — não é o
+   *    caso aqui (excluir não grava pessoa em coluna nenhuma), e por isso
+   *    **o operador PODE excluir**.
+   */
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async excluir(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: RequisicaoComContexto,
+  ): Promise<void> {
+    const c = req.contexto!
+    await this.acesso.excluir({ clinicaId: c.clinicaId, ator: c.ator }, id)
   }
 
   /**

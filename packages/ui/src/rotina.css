@@ -390,6 +390,24 @@ details.pendentes:not([open]) .ver-aberto { display: none; }
 .pergunta .chips { margin: 0; }
 .pergunta .chips button { min-height: 36px; padding: 6px 16px; }
 .botoes { display: flex; gap: 8px; flex-wrap: wrap; }
+/*
+ * ALVO DE TOQUE para o link que é AÇÃO.
+ *
+ * `.botoes` é a fileira de ações de um formulário, e todo link dentro dela é
+ * uma ação — "Redefinir senha", "Excluir da equipe", "Deixar como está".
+ * Medido em 390 px antes desta regra: **22 px de altura**, que é alvo de
+ * caneta ao lado de botões de 46 px. `docs/design.md` §1: quem usa a
+ * ferramenta está com a mão ocupada, e as duas ações mais perigosas da tela
+ * de acessos eram as duas mais difíceis de acertar.
+ *
+ * Mesma forma de `.superadmin-dossie .link` em `superadmin.css`, e pela mesma
+ * razão medida lá.
+ */
+.botoes > .link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
 
 /* ---------- lista e tabela ---------- */
 
@@ -434,6 +452,26 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
 .linha .info b { font-weight: 600; overflow-wrap: anywhere; }
 .linha .info small { font-size: 12.5px; color: var(--muted); }
 .linha .valor { font-size: 14px; white-space: nowrap; }
+/*
+ * **"editar" / "fechar" no fim da linha** — o affordance que faltava.
+ *
+ * A linha inteira é um `<button>` que abre o editor, e o cursor dizia isso ao
+ * mouse e a mais ninguém. Uma palavra resolve, e ela é `aria-hidden`: quem usa
+ * leitor de tela já recebe o `aria-expanded` do próprio botão, e o rótulo
+ * repetido seria ruído.
+ *
+ * `flex: none` e `nowrap` para que ela não encolha nem quebre em 390 px, onde
+ * o nome longo já disputa a largura com a pílula do perfil.
+ */
+.linha > .abrir {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--gold-ink);
+}
 
 /* ---------- indicadores ---------- */
 

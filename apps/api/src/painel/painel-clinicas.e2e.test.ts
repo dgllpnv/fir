@@ -4,7 +4,7 @@ import { Test } from '@nestjs/testing'
 import { randomBytes } from 'node:crypto'
 import pg from 'pg'
 import request from 'supertest'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { AppModule } from '../app.module'
 import { hashDeSenha } from '../autenticacao/senha'
 import {
@@ -540,5 +540,196 @@ describe('o superadmin alcança as pessoas de QUALQUER clínica', () => {
     } finally {
       await migrate.query('UPDATE operadores SET ativo = true WHERE id = $1', [operador])
     }
+  })
+})
+
+
+/* ======================================================================
+ * EDITAR e EXCLUIR pessoa PELO PAINEL
+ *
+ * O painel criava administradora e redefinia senha, e nada mais. A falta
+ * aparecia no caso que ele existe para resolver: a clínica trancada — sem
+ * administradora ativa — não consegue corrigir nem o nome de quem está lá
+ * dentro.
+ *
+ * O que estes testes cobram é que o acesso total do operador **não escapa do
+ * domínio**: a clínica não fica sem administradora ativa nem pela mão dele,
+ * porque isso a tranca, e destrancá-la é o que ele viria fazer.
+ * ====================================================================== */
+
+describe('o painel edita e exclui pessoa, com as invariantes da clínica', () => {
+  let clinicaId: string
+  let codigoDaClinica: string
+  let adminId: string
+  let equipeId: string
+  let perfilId: string
+
+  beforeEach(async () => {
+    const c = await criarClinicaOk()
+    clinicaId = c.id
+    codigoDaClinica = c.codigo
+    adminId = c.admin.id
+
+    const ps = await http()
+      .get(`/v1/superadmin/clinicas/${clinicaId}/pessoas`)
+      .set('Cookie', painel)
+      .expect(200)
+    // A clínica nova nasce com os cinco perfis padrão e UMA administradora.
+    expect((ps.body.itens as { id: string }[]).length).toBe(1)
+
+    const perfis = await migrate.query<{ id: string }>(
+      `SELECT id FROM perfis WHERE clinica_id = $1 AND chave = 'pf_rec'`,
+      [clinicaId],
+    )
+    perfilId = perfis.rows[0]!.id
+
+    const nova = await http()
+      .post(`/v1/superadmin/clinicas/${clinicaId}/pessoas`)
+      .set('Cookie', painel)
+      .send({ nome: 'Juliana Santos', usuario: 'juliana', perfilId })
+      .expect(201)
+    equipeId = nova.body.id
+  })
+
+  const editar = (pessoaId: string, corpo: Record<string, unknown>) =>
+    http()
+      .patch(`/v1/superadmin/clinicas/${clinicaId}/pessoas/${pessoaId}`)
+      .set('Cookie', painel)
+      .send(corpo)
+
+  const excluir = (pessoaId: string) =>
+    http()
+      .delete(`/v1/superadmin/clinicas/${clinicaId}/pessoas/${pessoaId}`)
+      .set('Cookie', painel)
+
+  it('edita nome, função e acesso', async () => {
+    const r = await editar(equipeId, {
+      nome: 'Juliana Costa',
+      funcao: 'Recepção',
+      acesso: { admin: true },
+    }).expect(200)
+    expect(r.body.nome).toBe('Juliana Costa')
+    expect(r.body.funcao).toBe('Recepção')
+    expect(r.body.admin).toBe(true)
+    expect(r.body.perfilId).toBeNull()
+    // O USUÁRIO não muda, e não está no contrato: ele é ditado por telefone e
+    // é a chave de `tentativas_login.identificador`.
+    expect(r.body.usuario).toBe('juliana')
+  })
+
+  it('campo a mais no corpo é 400 — inclusive `usuario`', async () => {
+    await editar(equipeId, { usuario: 'juliana.costa' }).expect(400)
+  })
+
+  it('corpo VAZIO é 400: não há nada a alterar', async () => {
+    await editar(equipeId, {}).expect(400)
+  })
+
+  it('desativar DERRUBA a sessão viva dela', async () => {
+    // A senha provisória autentica, e a sessão criada por ela é real.
+    const prov = await migrate.query<{ id: string }>(
+      'SELECT id FROM pessoas WHERE id = $1',
+      [equipeId],
+    )
+    expect(prov.rows).toHaveLength(1)
+    await migrate.query(
+      `INSERT INTO sessoes (clinica_id, pessoa_id, token_hash, expira_em)
+       VALUES ($1, $2, $3, now() + interval '1 day')`,
+      [clinicaId, equipeId, `sessao-de-${equipeId}`],
+    )
+
+    await editar(equipeId, { ativo: false }).expect(200)
+
+    const viva = await migrate.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM sessoes
+        WHERE pessoa_id = $1 AND revogada_em IS NULL`,
+      [equipeId],
+    )
+    expect(viva.rows[0]!.n, 'a sessão dela sobreviveu à desativação').toBe('0')
+  })
+
+  it('NEM O OPERADOR deixa a clínica sem administradora ativa — ao desativar', async () => {
+    const r = await editar(adminId, { ativo: false }).expect(422)
+    expect(r.body.codigo).toBe('UltimaAdministradoraAtiva')
+  })
+
+  it('NEM O OPERADOR deixa a clínica sem administradora ativa — ao rebaixar', async () => {
+    const r = await editar(adminId, { acesso: { admin: false, perfilId } }).expect(422)
+    expect(r.body.codigo).toBe('UltimaAdministradoraAtiva')
+  })
+
+  it('NEM O OPERADOR deixa a clínica sem administradora ativa — ao EXCLUIR', async () => {
+    /**
+     * MUTAÇÃO: tire `exigirDominio(podeExcluirPessoa(...))` de
+     * `PainelPessoasService.excluir` e este teste fica vermelho. O painel
+     * passaria a ser o caminho pelo qual a clínica fica trancada — pela mão de
+     * quem viria destrancá-la.
+     */
+    const r = await excluir(adminId).expect(422)
+    expect(r.body.codigo).toBe('UltimaAdministradoraAtiva')
+    const l = await migrate.query<{ excluida_em: Date | null }>(
+      'SELECT excluida_em FROM pessoas WHERE id = $1',
+      [adminId],
+    )
+    expect(l.rows[0]!.excluida_em).toBeNull()
+  })
+
+  it('exclui quem NÃO é a última administradora, e a LINHA FICA', async () => {
+    await excluir(equipeId).expect(204)
+    const l = await migrate.query<{ nome: string; ativo: boolean; excluida_em: Date | null }>(
+      'SELECT nome, ativo, excluida_em FROM pessoas WHERE id = $1',
+      [equipeId],
+    )
+    expect(l.rows, 'a pessoa foi APAGADA: o passado da clínica mudou').toHaveLength(1)
+    expect(l.rows[0]!.nome).toBe('Juliana Santos')
+    expect(l.rows[0]!.ativo).toBe(false)
+    expect(l.rows[0]!.excluida_em).not.toBeNull()
+  })
+
+  it('a excluída sai da LISTA do painel — ele não é a porta dos fundos', async () => {
+    await excluir(equipeId).expect(204)
+    const r = await http()
+      .get(`/v1/superadmin/clinicas/${clinicaId}/pessoas`)
+      .set('Cookie', painel)
+      .expect(200)
+    expect((r.body.itens as { id: string }[]).map((p) => p.id)).not.toContain(equipeId)
+  })
+
+  it('a excluída não é mais ALVO: ficha, editar, senha e excluir dão 404', async () => {
+    await excluir(equipeId).expect(204)
+    await http()
+      .get(`/v1/superadmin/clinicas/${clinicaId}/pessoas/${equipeId}`)
+      .set('Cookie', painel)
+      .expect(404)
+    await editar(equipeId, { nome: 'Outro Nome' }).expect(404)
+    await http()
+      .post(`/v1/superadmin/clinicas/${clinicaId}/pessoas/${equipeId}/senha`)
+      .set('Cookie', painel)
+      .expect(404)
+    await excluir(equipeId).expect(404)
+  })
+
+  it('a escrita do operador cai na trilha DA CLÍNICA como `operador`', async () => {
+    await excluir(equipeId).expect(204)
+    const r = await migrate.query<{ ator_tipo: string; ator_id: string | null }>(
+      `SELECT ator_tipo, ator_id FROM auditoria
+        WHERE clinica_id = $1 AND entidade = 'pessoas' AND entidade_id = $2
+          AND para -> 'excluida_em' IS NOT NULL
+        ORDER BY id DESC LIMIT 1`,
+      [clinicaId, equipeId],
+    )
+    expect(r.rows, `nenhuma linha de trilha em ${codigoDaClinica}`).toHaveLength(1)
+    expect(r.rows[0]!.ator_tipo).toBe('operador')
+    expect(r.rows[0]!.ator_id).toBe(operador)
+  })
+
+  it('sem cookie de painel é 404, nos dois verbos', async () => {
+    await http()
+      .patch(`/v1/superadmin/clinicas/${clinicaId}/pessoas/${equipeId}`)
+      .send({ nome: 'X' })
+      .expect(404)
+    await http()
+      .delete(`/v1/superadmin/clinicas/${clinicaId}/pessoas/${equipeId}`)
+      .expect(404)
   })
 })

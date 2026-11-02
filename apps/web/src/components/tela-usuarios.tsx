@@ -13,6 +13,7 @@ import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { Carregando, Erro, Toast } from './estados'
+import { ExcluirPessoa } from './excluir-pessoa'
 import { SenhaProvisoria } from './senha-provisoria'
 
 /**
@@ -26,10 +27,14 @@ import { SenhaProvisoria } from './senha-provisoria'
  *    o LÊ de volta na lista. Aqui a senha é gerada no servidor, aparece uma vez
  *    e nunca mais — é o defeito da D-0 corrigido pela D-10, e é a diferença
  *    mais visível entre as duas telas.
- *  - **Não há "Excluir usuário".** Regra 20: desativar é um estado. A tela dela
- *    oferece "inativar" e "excluir de vez" e explica a diferença; aqui a
- *    diferença não existe, porque quem está inativo não entra — e a linha fica,
- *    nomeando as tarefas antigas.
+ *  - **"Excluir" existe, e é SOFT DELETE.** A tela dela oferece "inativar" e
+ *    "excluir de vez", e a segunda apaga a linha — deixando as tarefas antigas
+ *    apontando para um id inexistente, que ela contorna copiando o NOME para
+ *    dentro de cada tarefa. Aqui as duas afirmações continuam diferentes e
+ *    nenhuma delas apaga nada: **inativa** é "afastada, volta num toque" e
+ *    continua na lista; **excluída** é "não é mais da equipe" e sai da lista,
+ *    com o histórico intacto (regra 20). Colapsar as duas obrigaria a recepção
+ *    a procurar, entre quinze inativas, as três que ainda voltam.
  *  - **`usuario` não se edita.** Ele é ditado por telefone e vira o nome pelo
  *    qual a equipe chama a pessoa; trocá-lo quebraria o que ela decorou.
  *
@@ -125,9 +130,10 @@ function AbaPessoas({
         depende do <b>perfil de acesso</b>.
       </p>
       <p className="nota">
-        Para tirar alguém da equipe, <b>desative</b>: ela deixa de entrar na hora, e continua
-        nomeada nas tarefas e nos relatórios antigos. Não há exclusão de pessoa — apagá-la mudaria o
-        passado.
+        Para afastar alguém por um tempo, <b>desative</b>: ela deixa de entrar na hora e continua na
+        lista, para voltar num toque. Para quem <b>não é mais da equipe</b>, use <b>Excluir</b>: ela
+        sai da lista e perde o acesso, e o histórico dela continua — as tarefas e os relatórios
+        antigos seguem com o nome dela. Nada aqui apaga o passado.
       </p>
 
       {provisoria === null ? null : (
@@ -252,6 +258,19 @@ function LinhaDePessoa({
           </small>
         </div>
         <span className={p.admin ? 'pill bom' : 'pill'}>{nomeDoAcesso}</span>
+        {/*
+          **O AFFORDANCE DE EDITAR, dito com uma palavra.**
+
+          A linha inteira já era um `<button>` que abre o formulário, e isso
+          basta para o mouse: o cursor muda. Não basta para quem bate o olho —
+          nada na linha dizia que ela abre algo, e o pedido do dono foi "um
+          botão de editar". Um `<button>` dentro de um `<button>` é HTML
+          inválido, então o rótulo é parte do próprio botão da linha: a linha É
+          o botão de editar.
+        */}
+        <span className="abrir" aria-hidden="true">
+          {aberto ? 'fechar' : 'editar'}
+        </span>
       </button>
       {aberto ? (
         <FormularioDePessoa
@@ -293,6 +312,7 @@ function FormularioDePessoa({
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
   const [confirmandoSenha, setConfirmandoSenha] = useState(false)
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false)
 
   /**
    * O usuário é sugerido do nome, e a canonização é a **do domínio** —
@@ -520,6 +540,20 @@ function FormularioDePessoa({
         <button type="button" className="btn ghost" onClick={aoFechar} disabled={ocupado}>
           Cancelar
         </button>
+        {/*
+          **EXCLUIR fica aqui, dentro do editor aberto** — ao lado de
+          "Redefinir senha", que é a outra ação que mexe no acesso dela.
+
+          Não na linha da lista: uma lista de seis pessoas com um "excluir" por
+          linha é seis alvos de toque errado, em 390 px, debaixo do dedo de
+          quem estava rolando. Aqui exige abrir a pessoa primeiro — e o título
+          do formulário diz qual pessoa é.
+        */}
+        {p === undefined || p.euMesma ? null : (
+          <button type="button" className="link" onClick={() => setConfirmandoExclusao(true)}>
+            Excluir da equipe
+          </button>
+        )}
         {p === undefined ? null : confirmandoSenha ? (
           <>
             <button
@@ -552,6 +586,22 @@ function FormularioDePessoa({
           A senha atual deixa de valer e <b>as sessões abertas dela caem</b>. A nova aparece aqui,
           uma vez.
         </p>
+      ) : null}
+
+      {/* A confirmação é um MODAL, e ela DIZ O QUE ACONTECE — ver
+          `excluir-pessoa.tsx`. O caminho é a única diferença entre esta tela e
+          a do painel. */}
+      {p !== undefined && confirmandoExclusao ? (
+        <ExcluirPessoa
+          nome={p.nome}
+          usuario={p.usuario}
+          caminho={`v1/pessoas/${p.id}`}
+          aoFechar={() => setConfirmandoExclusao(false)}
+          aoExcluir={() => {
+            setConfirmandoExclusao(false)
+            aoMudar?.(`${p.nome} foi excluída da equipe. O histórico dela continua.`)
+          }}
+        />
       ) : null}
     </div>
   )

@@ -10,6 +10,7 @@ import {
   type PessoaDaClinica,
   type Result,
   podeDesativar,
+  podeExcluirPessoa,
   podeRemoverPerfis,
   podeTrocarAcesso,
 } from '@fir/domain'
@@ -23,6 +24,7 @@ import type pg from 'pg'
 import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
+import { editarPessoa, excluirPessoa } from './escrita-de-pessoa'
 
 /**
  * **Usuários e acessos** — listar, trocar acesso, ativar/desativar, e os
@@ -56,10 +58,19 @@ type LinhaDePessoa = {
   senha_provisoria_expira_em: Date | null
 }
 
+/**
+ * **`excluida_em IS NULL` na BASE da consulta, não em cada chamada.**
+ *
+ * A exclusão é soft delete (0023): a linha fica, e quem some é a pessoa — da
+ * lista, de toda escolha, e do alvo de qualquer escrita. Pôr o filtro aqui é
+ * o que faz a quinta consulta a nascer já nascer certa; pô-lo em cada `WHERE`
+ * é como a quinta nasce mostrando quem saiu da clínica.
+ */
 const SELECT_PESSOA = `
   SELECT id, nome, usuario, funcao, admin, perfil_id, ativo,
          senha_provisoria, senha_provisoria_expira_em
-    FROM pessoas`
+    FROM pessoas
+   WHERE excluida_em IS NULL`
 
 @Injectable()
 export class AcessoService {
@@ -137,58 +148,54 @@ export class AcessoService {
       }
 
       /**
-       * UM `UPDATE` SÓ, com `coalesce` no que não veio.
+       * O `UPDATE` mora em `escrita-de-pessoa.ts`, com o do painel.
        *
-       * Montar o SQL por concatenação conforme os campos presentes é o caminho
-       * que acaba interpolando nome de coluna; e dois `UPDATE` separados (um de
-       * acesso, um de ativação) deixariam a trilha com dois eventos para uma
-       * ação da recepção.
-       *
-       * `desativada_em` segue `ativo` pelo CHECK `pessoa_desativada_tem_instante`
-       * da 0014 — reativar limpa o instante, e não há caminho que escreva um
-       * sem o outro.
+       * O painel precisava editar pessoa e não tinha como; escrever um
+       * segundo `UPDATE` lá seria a mesma regra em dois lugares, e a cópia que
+       * ninguém revisa é a que esquece de derrubar as sessões ao desativar.
+       * O que muda entre os dois é o POOL e o ATOR, nunca a regra.
        */
-      const r = await c.query<LinhaDePessoa>(
-        `UPDATE pessoas
-            SET nome      = coalesce($2, nome),
-                funcao    = coalesce($3, funcao),
-                admin     = coalesce($4, admin),
-                perfil_id = CASE WHEN $4::boolean IS NULL THEN perfil_id
-                                 WHEN $4 THEN NULL ELSE $5 END,
-                ativo     = coalesce($6, ativo),
-                desativada_em = CASE WHEN coalesce($6, ativo) THEN NULL
-                                     ELSE coalesce(desativada_em, now()) END
-          WHERE id = $1
-          RETURNING id, nome, usuario, funcao, admin, perfil_id, ativo,
-                    senha_provisoria, senha_provisoria_expira_em`,
-        [
-          pessoaId,
-          dados.nome ?? null,
-          dados.funcao ?? null,
-          dados.acesso === undefined ? null : dados.acesso.admin,
-          dados.acesso === undefined || dados.acesso.admin ? null : dados.acesso.perfilId,
-          dados.ativo ?? null,
-        ],
-      )
-
-      /**
-       * Desativar **DERRUBA AS SESSÕES**, e isto não é zelo.
-       *
-       * Sem isto, a pessoa desativada continua trabalhando até o cookie
-       * vencer. "Tirei o acesso dela" tem de ser verdade no instante em que o
-       * admin toca o botão, senão a clínica que demitiu alguém às 14h descobre
-       * às 18h que ela esteve na ferramenta a tarde inteira.
-       */
-      if (dados.ativo === false) {
-        await c.query(
-          'UPDATE sessoes SET revogada_em = now() WHERE pessoa_id = $1 AND revogada_em IS NULL',
-          [pessoaId],
-        )
-      }
+      const linha = await editarPessoa(c, pessoaId, {
+        ...(dados.nome === undefined ? {} : { nome: dados.nome }),
+        ...(dados.funcao === undefined ? {} : { funcao: dados.funcao }),
+        ...(dados.acesso === undefined
+          ? {}
+          : dados.acesso.admin
+            ? { admin: true as const, perfilId: null }
+            : { admin: false as const, perfilId: dados.acesso.perfilId }),
+        ...(dados.ativo === undefined ? {} : { ativo: dados.ativo }),
+      })
 
       // Nada de `registrar()` à mão: o trigger `registrar_auditoria` (0004) já
       // gravou quem, quando e de → para.
-      return paraSaida(r.rows[0]!, pessoaDoAtor(ctx.ator) ?? '')
+      return paraSaida(linha, pessoaDoAtor(ctx.ator) ?? '')
+    })
+  }
+
+  /**
+   * **EXCLUIR a pessoa** — e excluir é SOFT DELETE (regra 20).
+   *
+   * A ORDEM é a mesma de `editar`, e ela é a invariante: ler o alvo com `FOR
+   * UPDATE`, ler a equipe, **julgar pelo domínio**, e só então escrever. Duas
+   * abas excluindo a última administradora ao mesmo tempo seriam duas leituras
+   * concordando que há duas; o `FOR UPDATE` serializa a decisão.
+   *
+   * `podeExcluir` é a MESMA função que a tela usa para esconder o botão
+   * (`@fir/domain`), e o servidor sempre valida — a tela é conveniência
+   * (regra 16).
+   *
+   * Nada aqui apaga linha: o histórico dela continua ligado a esta pessoa, e
+   * `tarefas.responsavel_id`, `recebimentos.registrado_por` e
+   * `conversas_1a1.por_id` continuam apontando para cá.
+   */
+  async excluir(ctx: Contexto, pessoaId: string): Promise<void> {
+    await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      const alvo = await umaPessoa(c, pessoaId)
+      const equipe = await equipeDaClinica(c)
+      exigirDominio(podeExcluirPessoa(alvo, pessoaDoAtor(ctx.ator) ?? '', equipe))
+      await excluirPessoa(c, pessoaId)
+      // Nada de `registrar()` à mão: o trigger `registrar_auditoria` (0004) já
+      // gravou quem, quando e de → para.
     })
   }
 
@@ -262,7 +269,10 @@ export class AcessoService {
 /** A equipe inteira na forma que o DOMÍNIO espera — nada de HTTP aqui. */
 async function equipeDaClinica(c: pg.PoolClient): Promise<PessoaDaClinica[]> {
   const r = await c.query<{ id: string; admin: boolean; perfil_id: string | null; ativo: boolean }>(
-    'SELECT id, admin, perfil_id, ativo FROM pessoas',
+    // `excluida_em IS NULL`: quem saiu da clínica não conta como
+    // administradora ativa, não trava a remoção de perfil, e não aparece na
+    // recusa que NOMEIA quem está preso num perfil.
+    'SELECT id, admin, perfil_id, ativo FROM pessoas WHERE excluida_em IS NULL',
   )
   return r.rows.map((l) => ({
     id: l.id,
@@ -273,7 +283,7 @@ async function equipeDaClinica(c: pg.PoolClient): Promise<PessoaDaClinica[]> {
 }
 
 async function umaPessoa(c: pg.PoolClient, id: string): Promise<PessoaDaClinica & LinhaDePessoa> {
-  const r = await c.query<LinhaDePessoa>(`${SELECT_PESSOA} WHERE id = $1 FOR UPDATE`, [id])
+  const r = await c.query<LinhaDePessoa>(`${SELECT_PESSOA} AND id = $1 FOR UPDATE`, [id])
   const l = r.rows[0]
   // Sem cláusula de clínica: a RLS já a impõe, e a pessoa da vizinha
   // simplesmente não existe vista daqui — `undefined` vira 404.

@@ -336,6 +336,45 @@ Não derrube por conveniência. Seguram a decisão: `teste/sessao-de-operador.te
 
 ---
 
+## D-14 · A senha provisória é modal; editar e excluir pessoa existem nos dois lugares · 2026-11-02
+
+Três pedidos do dono, na mesma tela — `Usuários e acessos` da clínica e a tela de pessoas do painel.
+
+### 1 · A senha provisória vira MODAL
+
+**Era um bloco no topo da tela, e o defeito é da informação, não do layout:** ela **aparece uma vez e não se recupera**. No topo, compete com a lista, sai de vista ao rolar, e a pessoa fecha sem copiar — e aí o caminho é *redefinir de novo*, gastando outra provisória e derrubando as sessões dela mais uma vez.
+
+O modal **obriga a fechar de propósito**: foco preso, `Esc` fecha, o foco volta para o botão que o abriu, `role="dialog"` + `aria-modal` + rótulo, e **clicar fora NÃO fecha** — um toque errado no véu, com a senha na tela, custa uma redefinição. A senha sai em 22 px com `user-select: all`, porque ela vai ser **ditada por telefone**, e o botão copia **usuário e senha juntos**.
+
+O laço de foco mora em `apps/web/src/lib/foco.ts`, puro, com teste próprio: não há Testing Library nesta árvore, e um laço escrito dentro do `useEffect` seria código que nenhum teste roda.
+
+### 2 · Editar pessoa — e o `usuario` NÃO entra
+
+Nome, função, acesso e ativação, nos dois lugares. A rota da clínica já existia (`PATCH /v1/pessoas/:id`); o painel **não tinha nenhuma**, e a falta aparecia justamente no caso que ele existe para resolver — a clínica trancada, sem administradora ativa, não conseguia corrigir nem o nome de quem estava lá dentro.
+
+**O `usuario` ficou de fora, e é decisão, não esquecimento.** Ele é ditado por telefone, é o nome pelo qual a equipe chama a pessoa, e é a chave de `tentativas_login.identificador` — que guarda o TEXTO digitado, não um uuid. Trocá-lo quebraria o que ela decorou e misturaria o histórico de bloqueio de duas contas. O campo aparece na tela, somente leitura, **com a explicação e a saída**: crie a pessoa com o usuário novo e exclua esta. Se o dono quiser o contrário, é uma decisão nova — e ela precisa dizer o que acontece com o limite de tentativas.
+
+### 3 · Excluir pessoa — e é SOFT DELETE
+
+`DELETE` como **verbo**, `UPDATE` como **efeito** (`pessoas.excluida_em`, migration `0023`).
+
+- **A linha fica, e o histórico continua ligado a ela:** tarefa, recebimento, movimento de estoque e trilha seguem apontando para a pessoa, com o nome dela legível. Apagar mudaria o passado da clínica — e as FKs `NOT NULL` (`tarefas.responsavel_id`, `recebimentos.registrado_por`, `conversas_1a1.por_id`) recusariam de qualquer forma.
+- **Excluída implica inativa**, por `CHECK`. Sem isso, existiria o pior estado possível: fora de toda tela e **ainda entrando** — `entrar` filtra `ativo`, não `excluida_em`.
+- **A clínica não fica sem administradora ativa**, e **admin inativa não conta**. Vale para o superadmin também.
+- **Ninguém se exclui.**
+- **A confirmação diz o que acontece**, e as duas metades: *ela perde o acesso agora, com as sessões caindo* **e** *o histórico dela continua*. Quem não sabe da segunda hesita por medo de "perder os dados", e o caminho real volta a ser deixar quinze inativas na lista. A caixa também oferece a alternativa: **desative**, se ela só vai se afastar.
+- **Idempotente:** excluir duas vezes é 404, e a segunda não reescreve `excluida_em` nem a trilha.
+
+### O que isso obriga
+
+`excluida_em IS NULL` entra na **base** de toda consulta de pessoa — lista, alvo de escrita, equipe que o domínio julga, e a lista do painel. Pô-lo em cada `WHERE` é como a quinta consulta nasce mostrando quem saiu da clínica. O defeito foi medido: sem o filtro em `redefinirSenhaDePessoa`, redefinir a senha de quem a clínica excluiu respondia **200**.
+
+### Como derrubar
+
+Seguram a decisão: `podeExcluirPessoa` em `packages/domain/src/pessoa.ts` (6 testes, com prova por mutação em `alvo.ativo`), `acesso.e2e.test.ts` (13 testes na borda da clínica), `painel-clinicas.e2e.test.ts` (13 na borda do painel), `modal.test.ts` e `excluir-pessoa.test.ts` (o que a caixa diz).
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

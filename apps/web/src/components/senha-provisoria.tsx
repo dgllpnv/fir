@@ -2,9 +2,10 @@
 
 import { comoChamar } from '@fir/domain'
 import { useState } from 'react'
+import { Modal } from './modal'
 
 /**
- * **A senha provisória, mostrada UMA VEZ.**
+ * **A senha provisória, mostrada UMA VEZ — e num MODAL.**
  *
  * Este componente existe separado por um motivo que não é organização de
  * arquivo: ele é o único lugar do produto onde uma senha aparece na tela, e
@@ -12,16 +13,25 @@ import { useState } from 'react'
  * o que vier) precisa achar um só lugar para reusar — não copiar o bloco e
  * esquecer o aviso.
  *
- * **O aviso não é decoração.** O servidor devolve a provisória no corpo da
- * resposta que a criou e **nada a guarda**: só o hash Argon2id existe no banco,
- * a trilha a esconde, nenhum log a vê. Se a pessoa fechar o painel sem anotar,
- * o caminho é **redefinir de novo** — e a tela tem de dizer isso antes, não
- * depois. É o contrário do defeito da D-0: na v20 o administrativo lê o PIN de
- * cada pessoa a qualquer momento.
+ * ## POR QUE MODAL, e não um bloco no topo da tela
  *
- * **Fechar exige um toque deliberado.** Nenhum `setTimeout`, nenhum
- * fechamento ao clicar fora: o balcão interrompe, e uma senha que desaparece
- * sozinha enquanto o telefone toca é uma senha perdida.
+ * Era um bloco no topo, e o defeito é da informação, não do layout: **esta
+ * senha aparece uma vez e não se recupera**. No topo da página ela compete com
+ * a lista, sai de vista ao rolar, e a pessoa fecha sem copiar — e aí o caminho
+ * é *redefinir de novo*, gastando outra provisória e derrubando as sessões da
+ * pessoa mais uma vez. O modal **obriga a fechar de propósito**, que é o
+ * comportamento certo para o que não volta.
+ *
+ * `Modal` cuida do foco preso, do Esc, da volta do foco e de o véu **não**
+ * fechar ao clique — ver o cabeçalho dele, inclusive a razão do item 5.
+ *
+ * ## O aviso não é decoração
+ *
+ * O servidor devolve a provisória no corpo da resposta que a criou e **nada a
+ * guarda**: só o hash Argon2id existe no banco, a trilha a esconde, nenhum log
+ * a vê. Se a pessoa fechar sem anotar, o caminho é **redefinir de novo** — e a
+ * tela tem de dizer isso antes, não depois. É o contrário do defeito da D-0:
+ * na v20 o administrativo lê o PIN de cada pessoa a qualquer momento.
  */
 export function SenhaProvisoria({
   nome,
@@ -61,10 +71,13 @@ export function SenhaProvisoria({
   }
 
   return (
-    <div className="painel" role="alert" aria-live="polite">
-      <b>Senha provisória de {nome}</b>
-
-      <p className="nota" style={{ margin: 0 }}>
+    <Modal titulo={`Senha provisória de ${nome}`} aoFechar={aoFechar}>
+      {/*
+        `role="alert"` NÃO vai aqui: o `Modal` já é `role="dialog"` com
+        `aria-modal`, e o leitor de tela anuncia o diálogo ao receber o foco.
+        Um `alert` dentro dele leria o mesmo conteúdo duas vezes.
+      */}
+      <p className="nota">
         <b>Ela aparece só desta vez.</b> Nem você nem ninguém consegue ler esta senha depois de
         fechar — nem no banco, nem na trilha. Se perder, use <b>Redefinir senha</b> para gerar
         outra.
@@ -78,35 +91,45 @@ export function SenhaProvisoria({
           conhece. `aria-readonly` não substitui — o atributo real é o que
           impede a edição que confundiria quem acha que está trocando a senha.
         */}
-        <input className="num" type="text" readOnly value={usuario} />
+        <input className="num segredo" type="text" readOnly value={usuario} />
       </div>
 
       <div className="campo">
         Senha provisória
-        <input className="num" type="text" readOnly value={senha} style={{ fontSize: 16 }} />
+        {/* 22 px e `user-select: all` (ver `modal.css`): ela vai ser DITADA
+            por telefone, e quem dita lê de longe. */}
+        <input className="segredo" type="text" readOnly value={senha} />
       </div>
 
-      <p className="nota" style={{ margin: 0 }}>
-        Vale até <b>{formatarPrazo(expiraEm)}</b>, e <b>{comoChamar(nome)}</b> é obrigada a
-        trocá-la no primeiro acesso. Papel no balcão que funciona para sempre é o PIN com outro
-        nome.
+      <p className="nota">
+        Vale por <b>72 horas</b>, até <b>{formatarPrazo(expiraEm)}</b>, e{' '}
+        <b>{comoChamar(nome)}</b> é <b>obrigada a trocá-la no primeiro acesso</b> — o servidor
+        recusa qualquer outra tela até ela trocar. Papel no balcão que funciona para sempre é o PIN
+        com outro nome.
+      </p>
+
+      <p className="nota aviso-do-modal" role="status" aria-live="polite">
+        {copiado === 'falhou'
+          ? 'Não consegui copiar neste navegador. Toque no campo para selecionar e copie à mão.'
+          : copiado === 'sim'
+            ? 'Usuário e senha copiados.'
+            : ''}
       </p>
 
       <div className="botoes">
         <button type="button" className="btn" onClick={() => void copiar()}>
           {copiado === 'sim' ? 'Copiado' : 'Copiar usuário e senha'}
         </button>
+        {/*
+          O fechamento é um ATO, e o rótulo diz o que a pessoa está afirmando.
+          "Fechar" convidaria ao toque reflexo que esta caixa existe para
+          evitar.
+        */}
         <button type="button" className="btn ghost" onClick={aoFechar}>
           Já anotei, fechar
         </button>
       </div>
-
-      {copiado === 'falhou' ? (
-        <p className="nota" style={{ margin: 0 }}>
-          Não consegui copiar neste navegador. Selecione o texto dos campos acima.
-        </p>
-      ) : null}
-    </div>
+    </Modal>
   )
 }
 

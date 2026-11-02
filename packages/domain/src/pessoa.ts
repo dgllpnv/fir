@@ -53,6 +53,7 @@ export const MOTIVO_PESSOA = {
   PROPRIO_ADMIN: 'NaoPodeTirarOProprioAdmin',
   SEM_PERFIL: 'AcessoIndefinido',
   PERFIL_EM_USO: 'PerfilEmUso',
+  EU_MESMA_EXCLUIR: 'NaoPodeExcluirASiMesma',
 } as const
 
 /**
@@ -144,6 +145,60 @@ export function podeTrocarAcesso(
         MOTIVO_PESSOA.ULTIMA_ADMIN,
         'Esta é a única administradora ativa da clínica. Dê acesso de administrador ' +
           'a outra pessoa antes de mudar o acesso desta.',
+      ),
+    )
+  }
+  return ok(undefined)
+}
+
+/**
+ * **Excluir uma pessoa** — e excluir é SOFT DELETE (regra 20).
+ *
+ * O nome leva `Pessoa` porque `podeExcluir` já existe, e é de TAREFA
+ * (`tarefa.ts`): "só quem pediu — ou quem acompanha a equipe". Duas funções
+ * com o mesmo nome no barril de `@fir/domain` é ambiguidade de export, e o
+ * compilador a recusa — o que é o resultado certo. `podeDesativar` e
+ * `podeTrocarAcesso` seguem sem sufixo porque só existem para pessoa.
+ *
+ * As duas recusas são as mesmas de `podeDesativar`, pela razão óbvia: excluir
+ * tira o acesso como desativar tira, e mais. Elas estão escritas aqui e não
+ * delegadas a `podeDesativar` por um motivo que a MENSAGEM entrega — "antes de
+ * desativar esta" numa tela cujo botão diz "Excluir" manda a pessoa procurar
+ * um botão que ela não apertou.
+ *
+ * ## A assimetria que `podeDesativar` não tem, e ela é medida
+ *
+ * `alvo.ativo &&` na segunda recusa. Excluir alguém que **já está inativa**
+ * não muda o número de administradoras ATIVAS — ela não estava na conta. Sem
+ * esta condição, a clínica cuja única administradora está inativa (estado que
+ * só o superadmin destrava) ficaria também impedida de **excluí-la**, com uma
+ * mensagem que manda "dar acesso de administrador a outra pessoa antes" — por
+ * uma tela que ninguém dessa clínica consegue abrir. A recusa seria um beco.
+ *
+ * `podeDesativar` não precisa da condição porque desativar quem já está
+ * inativa não faz nada; aqui faz.
+ */
+export function podeExcluirPessoa(
+  alvo: PessoaDaClinica,
+  quemFazId: string,
+  equipe: readonly PessoaDaClinica[],
+): Result<void> {
+  if (alvo.id === quemFazId) {
+    return erro(
+      erroDe(
+        MOTIVO_PESSOA.EU_MESMA_EXCLUIR,
+        'Você não pode excluir o seu próprio acesso. Quem o devolveria seria outra ' +
+          'administradora.',
+      ),
+    )
+  }
+
+  if (alvo.admin && alvo.ativo && adminsAtivasSem(equipe, alvo.id) === 0) {
+    return erro(
+      erroDe(
+        MOTIVO_PESSOA.ULTIMA_ADMIN,
+        'Esta é a única administradora ativa da clínica. Dê acesso de administrador ' +
+          'a outra pessoa antes de excluir esta.',
       ),
     )
   }

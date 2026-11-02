@@ -336,6 +336,18 @@ table.superadmin-lista td {
 }
 table.superadmin-lista td .muted { display: block; font-size: 11.5px; color: var(--muted); }
 table.superadmin-lista td.coluna-acao { text-align: right; white-space: nowrap; }
+/*
+ * ESPAÇO ENTRE AS AÇÕES da linha — e ele não é estética.
+ *
+ * São três agora ("Editar", "Redefinir senha", "Excluir"), e a última é
+ * destrutiva. Medido em 390 px antes desta regra: 38 + 102 + 44 px de largura
+ * **encostados**, sem nenhum pixel entre eles. O dedo que vai em "Redefinir
+ * senha" encosta em "Excluir".
+ *
+ * `margin-left` no irmão em vez de `gap`: a célula é um `<td>` de tabela acima
+ * de 620 px, e `display: flex` nela quebraria o alinhamento da coluna.
+ */
+table.superadmin-lista td.coluna-acao > .link + .link { margin-left: 14px; }
 table.superadmin-lista .codigo {
   font-weight: 600;
   font-variant-numeric: tabular-nums;

@@ -162,9 +162,20 @@ describe('o estilo mora no sistema de design, não no JSX', () => {
         for (const c of m[1]!.split(/\s+/).filter(Boolean)) usadas.add(c)
       }
     }
+    /**
+     * SEM COMENTÁRIO, e a razão é a mesma do `semComentarios` do JSX: o CSS do
+     * produto precisa poder **nomear** uma classe do painel para explicar por
+     * que copiou a forma dela.
+     *
+     * Medido: `rotina.css` passou a citar `.superadmin-dossie .link` no
+     * comentário de `.botoes > .link` ("mesma forma, e pela mesma razão medida
+     * lá"), e esta varredura acusou colisão numa regra que não existe. O
+     * remédio seria apagar a explicação — exatamente o que o cabeçalho de
+     * `semComentarios` diz que não se faz.
+     */
     const outros = readdirSync(UI)
       .filter((f) => f.endsWith('.css') && f !== 'superadmin.css')
-      .map((f) => readFileSync(join(UI, f), 'utf8'))
+      .map((f) => readFileSync(join(UI, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
       .join('\n')
     const colidem = [...usadas]
       .filter((c) => !COMPARTILHADAS.has(c))

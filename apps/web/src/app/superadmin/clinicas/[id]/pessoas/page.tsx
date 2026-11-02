@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Carregando, Toast, Vazio } from '@/components/estados'
+import { ExcluirPessoa } from '@/components/excluir-pessoa'
 import { SenhaProvisoria } from '@/components/senha-provisoria'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { usePainel } from '../../../contexto'
@@ -47,6 +48,10 @@ export default function PessoasDaClinica() {
   const [provisoria, setProvisoria] = useState<Provisoria | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
   const [tentativa, setTentativa] = useState(0)
+  /** Quem está com o editor aberto. `null` = ninguém. */
+  const [editando, setEditando] = useState<PessoaNoPainel | null>(null)
+  /** Quem está na caixa de confirmação de exclusão. `null` = ninguém. */
+  const [excluindo, setExcluindo] = useState<PessoaNoPainel | null>(null)
 
   const base = `v1/superadmin/clinicas/${id}/pessoas`
 
@@ -180,14 +185,64 @@ export default function PessoasDaClinica() {
                   </span>
                 </td>
                 <td className="coluna-acao">
+                  {/* Três ações, e a ordem é a da frequência: corrigir um nome
+                      acontece mais que redefinir senha, e redefinir acontece
+                      mais que excluir. A destrutiva é a última. */}
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => setEditando(editando?.id === p.id ? null : p)}
+                    aria-expanded={editando?.id === p.id}
+                  >
+                    {editando?.id === p.id ? 'Fechar' : 'Editar'}
+                  </button>
                   <button type="button" className="link" onClick={() => void redefinir(p)}>
                     Redefinir senha
+                  </button>
+                  <button type="button" className="link" onClick={() => setExcluindo(p)}>
+                    Excluir
                   </button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {/*
+        O EDITOR, e ele só existe com a clínica RESOLVIDA — a mesma razão do
+        formulário de criar, logo abaixo: `base` já leva o id do endereço, e
+        uma edição feita sem saber em qual clínica se está é o defeito que o
+        painel pode causar.
+      */}
+      {editando === null || clinica === null ? null : (
+        <FormularioDeEdicao
+          clinica={clinica}
+          pessoa={editando}
+          base={base}
+          aoFechar={() => setEditando(null)}
+          aoSalvar={(nome) => {
+            setEditando(null)
+            setRecado(`${nome} foi atualizada em ${clinica.codigo}.`)
+            setTentativa((n) => n + 1)
+          }}
+        />
+      )}
+
+      {/* A confirmação é um MODAL, e ela DIZ O QUE ACONTECE — o mesmo
+          componente da tela da clínica, com o caminho do painel. */}
+      {excluindo === null ? null : (
+        <ExcluirPessoa
+          nome={excluindo.nome}
+          usuario={excluindo.usuario}
+          caminho={`${base}/${excluindo.id}`}
+          aoFechar={() => setExcluindo(null)}
+          aoExcluir={() => {
+            setRecado(`${excluindo.nome} foi excluída da equipe. O histórico dela continua.`)
+            setExcluindo(null)
+            setTentativa((n) => n + 1)
+          }}
+        />
       )}
 
       {/* O formulário SÓ EXISTE com a clínica resolvida. Ver o comentário do
@@ -353,6 +408,145 @@ function FormularioDeAdmin({
         <button type="submit" disabled={enviando} className="btn">
           {enviando ? 'Criando…' : `Criar administradora em ${clinica.codigo}`}
         </button>
+      </form>
+    </details>
+  )
+}
+
+/**
+ * **O EDITOR DE PESSOA DO PAINEL** — nome, função e acesso.
+ *
+ * O painel não tinha isto, e a falta aparecia justamente no caso que ele
+ * existe para resolver: a clínica trancada — sem administradora ativa — não
+ * consegue corrigir nem o nome de quem está lá dentro.
+ *
+ * **O USUÁRIO não se edita, e o campo mostra isso.** Ele é ditado por telefone,
+ * é o nome pelo qual a equipe chama a pessoa, e é a chave de
+ * `tentativas_login.identificador` — trocá-lo quebraria o que ela decorou e
+ * misturaria o histórico de bloqueio de duas contas. O contrato não o aceita, e
+ * mandá-lo responderia 400.
+ *
+ * **A clínica é nomeada no botão**, como no formulário de criar: duas abas do
+ * painel abertas em duas clínicas são indistinguíveis por um botão que só diz
+ * "Salvar".
+ */
+function FormularioDeEdicao({
+  clinica,
+  pessoa,
+  base,
+  aoFechar,
+  aoSalvar,
+}: {
+  clinica: ClinicaNaLista
+  pessoa: PessoaNoPainel
+  base: string
+  aoFechar: () => void
+  aoSalvar: (nome: string) => void
+}) {
+  const [nome, setNome] = useState(pessoa.nome)
+  const [funcao, setFuncao] = useState(pessoa.funcao)
+  const [admin, setAdmin] = useState(pessoa.admin)
+  const [ativo, setAtivo] = useState(pessoa.ativo)
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    setErro('')
+    setEnviando(true)
+    try {
+      /**
+       * SÓ O QUE MUDOU viaja, e o acesso viaja INTEIRO.
+       *
+       * Mandar `acesso` sempre reescreveria o perfil em cada salvamento de
+       * nome, e a trilha da clínica registraria uma troca de permissão que o
+       * operador não fez — numa trilha append-only, que é a prova que a
+       * clínica apresentaria.
+       */
+      const corpo: Record<string, unknown> = {}
+      if (nome.trim() !== pessoa.nome) corpo['nome'] = nome.trim()
+      if (funcao.trim() !== pessoa.funcao) corpo['funcao'] = funcao.trim()
+      if (ativo !== pessoa.ativo) corpo['ativo'] = ativo
+      // O painel promove a administradora e nada mais: rebaixar alguém para um
+      // perfil exige escolher QUAL, e a lista de perfis da clínica não está
+      // nesta tela. Quem reorganiza perfil é a clínica, por dentro.
+      if (admin !== pessoa.admin && admin) corpo['acesso'] = { admin: true }
+      if (Object.keys(corpo).length === 0) {
+        aoFechar()
+        return
+      }
+      await chamar<PessoaNoPainel>(`${base}/${pessoa.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(corpo),
+      })
+      aoSalvar(nome.trim())
+    } catch (x) {
+      // A mensagem do servidor INTEIRA: o 422 do domínio já explica a saída.
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <details className="superadmin-dobra" open>
+      <summary>
+        Editar {pessoa.nome} em {clinica.codigo}
+      </summary>
+      <form onSubmit={salvar}>
+        <label className="campo">
+          Nome
+          <input value={nome} onChange={(e) => setNome(e.target.value)} required />
+        </label>
+
+        <div className="campo">
+          Usuário para entrar
+          <input className="codigo" type="text" readOnly value={pessoa.usuario} />
+          <small>
+            O usuário não muda. Ela o decorou e o dita por telefone; se precisar mesmo de outro,
+            crie a pessoa com o usuário novo e exclua este.
+          </small>
+        </div>
+
+        <label className="campo">
+          Função <small>(opcional)</small>
+          <input value={funcao} onChange={(e) => setFuncao(e.target.value)} />
+        </label>
+
+        <label className="campo">
+          <span>
+            <input type="checkbox" checked={admin} onChange={(e) => setAdmin(e.target.checked)} />{' '}
+            Administradora (acesso total)
+          </span>
+          <small>
+            Daqui só se PROMOVE. Rebaixar para um perfil é escolha da clínica, por dentro — é lá que
+            a lista de perfis dela existe.
+          </small>
+        </label>
+
+        <label className="campo">
+          <span>
+            <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />{' '}
+            Pode entrar na ferramenta
+          </span>
+          <small>
+            Desmarcar derruba as sessões abertas dela na hora. A clínica não fica sem administradora
+            ativa — nem pela sua mão.
+          </small>
+        </label>
+
+        <p role="alert" aria-live="polite" className="erro-do-painel">
+          {erro}
+        </p>
+
+        <div className="botoes">
+          <button type="submit" disabled={enviando} className="btn">
+            {enviando ? 'Salvando…' : `Salvar em ${clinica.codigo}`}
+          </button>
+          <button type="button" className="btn ghost" onClick={aoFechar} disabled={enviando}>
+            Cancelar
+          </button>
+        </div>
       </form>
     </details>
   )

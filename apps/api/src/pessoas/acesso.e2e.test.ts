@@ -62,6 +62,9 @@ const listar = (sessao: string[]) =>
 const editar = (sessao: string[], id: string, corpo: Record<string, unknown>) =>
   request(app.getHttpServer()).patch(`/v1/pessoas/${id}`).set('Cookie', sessao).send(corpo)
 
+const excluir = (sessao: string[], id: string) =>
+  request(app.getHttpServer()).delete(`/v1/pessoas/${id}`).set('Cookie', sessao)
+
 const perfis = (sessao: string[]) =>
   request(app.getHttpServer()).get('/v1/pessoas/perfis').set('Cookie', sessao)
 
@@ -152,18 +155,20 @@ afterAll(async () => {
  */
 beforeEach(async () => {
   await migrate.query(
-    `UPDATE pessoas SET admin = true, perfil_id = NULL, ativo = true, desativada_em = NULL
+    `UPDATE pessoas SET admin = true, perfil_id = NULL, ativo = true, desativada_em = NULL,
+            excluida_em = NULL
       WHERE id = $1`,
     [helenaId],
   )
   await migrate.query(
     `UPDATE pessoas SET admin = false, perfil_id = $2, ativo = true, desativada_em = NULL,
-            nome = 'Juliana Santos', funcao = ''
+            excluida_em = NULL, nome = 'Juliana Santos', funcao = ''
       WHERE id = $1`,
     [julianaId, perfilRec],
   )
   await migrate.query(
-    `UPDATE pessoas SET admin = false, perfil_id = $2, ativo = true, desativada_em = NULL
+    `UPDATE pessoas SET admin = false, perfil_id = $2, ativo = true, desativada_em = NULL,
+            excluida_em = NULL
       WHERE id = $1`,
     [sofiaId, perfilConfig],
   )
@@ -516,5 +521,145 @@ describe('perfis da clínica', () => {
     await salvarPerfis(semConfig, {
       perfis: [{ id: perfilRec, nome: 'Recepção', perms: ['jornada'] }],
     }).expect(403)
+  })
+})
+
+/* ======================================================================
+ * EXCLUIR PESSOA — soft delete, e os invariantes do domínio na BORDA
+ * ====================================================================== */
+
+describe('excluir pessoa é SOFT DELETE, e a clínica não fica sem administradora', () => {
+  const linhaDe = async (id: string) =>
+    (
+      await migrate.query<{ ativo: boolean; excluida_em: Date | null; nome: string }>(
+        'SELECT ativo, excluida_em, nome FROM pessoas WHERE id = $1',
+        [id],
+      )
+    ).rows[0]
+
+  it('a LINHA FICA — o histórico dela continua ligado', async () => {
+    await excluir(admin, julianaId).expect(204)
+    const l = await linhaDe(julianaId)
+    expect(l, 'a pessoa foi APAGADA: o passado da clínica mudou').toBeDefined()
+    expect(l!.nome).toBe('Juliana Santos')
+    expect(l!.excluida_em).not.toBeNull()
+  })
+
+  it('e ela sai da LISTA', async () => {
+    const antes = await listar(admin).expect(200)
+    expect((antes.body.pessoas as { id: string }[]).map((p) => p.id)).toContain(julianaId)
+
+    await excluir(admin, julianaId).expect(204)
+
+    const depois = await listar(admin).expect(200)
+    expect((depois.body.pessoas as { id: string }[]).map((p) => p.id)).not.toContain(julianaId)
+  })
+
+  it('EXCLUÍDA IMPLICA INATIVA — e por isso ela não entra mais', async () => {
+    /**
+     * O estado que o `CHECK pessoa_excluida_esta_inativa` (0023) torna
+     * impossível: fora de toda tela e ainda entrando. `entrar` filtra `ativo`,
+     * não `excluida_em` — é o CHECK que faz uma condição cobrir as duas
+     * saídas, na rota mais atacada do produto.
+     */
+    await excluir(admin, julianaId).expect(204)
+    expect((await linhaDe(julianaId))!.ativo).toBe(false)
+    await entrar('juliana', SENHA).expect(401)
+  })
+
+  it('as SESSÕES VIVAS dela caem no instante do toque', async () => {
+    await listar(semConfig).expect(403)
+    await excluir(admin, julianaId).expect(204)
+    await listar(semConfig).expect(401)
+  })
+
+  it('NINGUÉM se exclui', async () => {
+    const r = await excluir(admin, helenaId).expect(422)
+    expect(r.body.codigo).toBe('NaoPodeExcluirASiMesma')
+    expect((await linhaDe(helenaId))!.excluida_em).toBeNull()
+  })
+
+  it('A ÚLTIMA ADMINISTRADORA ATIVA NÃO SE EXCLUI — nem por outra pessoa', async () => {
+    /**
+     * O arranjo importa: quem exclui é Sofia, que tem `config` e **não** é
+     * admin. Com a própria Helena tentando, `EU_MESMA_EXCLUIR` responderia
+     * primeiro e a invariante da clínica ficaria sem medição.
+     *
+     * MUTAÇÃO: tire a segunda recusa de `podeExcluirPessoa` e este teste fica
+     * vermelho — a clínica perde a única administradora ativa e ninguém mais
+     * abre Configurações. A única saída seria o painel.
+     */
+    const r = await excluir(comConfig, helenaId).expect(422)
+    expect(r.body.codigo).toBe('UltimaAdministradoraAtiva')
+    expect(r.body.message).toContain('excluir')
+    expect((await linhaDe(helenaId))!.excluida_em).toBeNull()
+    await entrar('helena', SENHA).expect(200)
+  })
+
+  it('com DUAS administradoras ativas, excluir uma passa', async () => {
+    await editar(admin, julianaId, { acesso: { admin: true } }).expect(200)
+    await excluir(admin, julianaId).expect(204)
+    expect((await linhaDe(julianaId))!.excluida_em).not.toBeNull()
+  })
+
+  it('excluir DUAS VEZES é 404 — a segunda não reescreve a trilha', async () => {
+    await excluir(admin, julianaId).expect(204)
+    const primeira = (await linhaDe(julianaId))!.excluida_em
+    await excluir(admin, julianaId).expect(404)
+    expect((await linhaDe(julianaId))!.excluida_em).toEqual(primeira)
+  })
+
+  it('a excluída não é mais ALVO de nada: editar e redefinir senha dão 404', async () => {
+    await excluir(admin, julianaId).expect(204)
+    await editar(admin, julianaId, { nome: 'Nome Novo' }).expect(404)
+    await request(app.getHttpServer())
+      .post(`/v1/pessoas/${julianaId}/senha`)
+      .set('Cookie', admin)
+      .expect(404)
+  })
+
+  it('a excluída NÃO APARECE na recusa de "perfil em uso"', async () => {
+    /**
+     * `podeRemoverPerfis` nomeia quem está preso num perfil e filtra por
+     * `ativo`. A excluída é inativa, então ela já não travaria — o que este
+     * teste cobra é que `equipeDaClinica` também a tire da conta, que é o
+     * mesmo filtro de onde sai a lista de nomes.
+     */
+    await excluir(admin, julianaId).expect(204)
+    const r = await salvarPerfis(admin, {
+      perfis: [
+        { id: perfilEnf, nome: 'Enfermagem', perms: ['programas'] },
+        { id: perfilConfig, nome: 'Supervisão', perms: ['config'] },
+      ],
+    })
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+  })
+
+  it('sem `config` é 403, e a pessoa NÃO é excluída', async () => {
+    await excluir(semConfig, sofiaId).expect(403)
+    expect((await linhaDe(sofiaId))!.excluida_em).toBeNull()
+  })
+
+  it('a pessoa da VIZINHA é 404, nem com o id na mão', async () => {
+    await excluir(admin, pessoaDaOutra).expect(404)
+    const l = await migrate.query<{ excluida_em: Date | null }>(
+      'SELECT excluida_em FROM pessoas WHERE id = $1',
+      [pessoaDaOutra],
+    )
+    expect(l.rows[0]!.excluida_em).toBeNull()
+  })
+
+  it('a exclusão cai na TRILHA, com quem excluiu', async () => {
+    await excluir(admin, julianaId).expect(204)
+    const r = await migrate.query<{ ator_tipo: string; ator_id: string }>(
+      `SELECT ator_tipo, ator_id FROM auditoria
+        WHERE clinica_id = $1 AND entidade = 'pessoas' AND entidade_id = $2
+          AND para -> 'excluida_em' IS NOT NULL
+        ORDER BY id DESC LIMIT 1`,
+      [clinica, julianaId],
+    )
+    expect(r.rows).toHaveLength(1)
+    expect(r.rows[0]!.ator_tipo).toBe('pessoa')
+    expect(r.rows[0]!.ator_id).toBe(helenaId)
   })
 })

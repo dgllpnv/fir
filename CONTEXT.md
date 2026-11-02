@@ -69,14 +69,40 @@ caminho pelo qual a tela desmarca "Ativa"; e `login` exige `u.ativo`. A última
 administradora desmarca a própria caixa, sai, e ninguém da clínica abre
 Configurações de novo — a única saída é o superadmin.
 
-**Desativar pessoa é um estado, nunca uma exclusão** (regra 20, e a mesma
-decisão da ADR 0003 para paciente): não há `DELETE`. O protótipo oferece as duas
-coisas, e elas produzem o mesmo efeito observável com uma diferença só — a
-segunda apaga a linha e deixa as tarefas antigas apontando para um id
-inexistente, que ele contorna copiando o nome para dentro de cada tarefa.
-**Desativar derruba as sessões vivas**: "tirei o acesso dela" tem de ser verdade
+**Desativada e excluída são DOIS estados, e nenhum deles apaga a linha** (regra
+20, e a mesma decisão da ADR 0003 para paciente). Não há `DELETE` — o protótipo
+oferece "inativar" e "excluir de vez", e a segunda apaga a linha e deixa as
+tarefas antigas apontando para um id inexistente, que ele contorna copiando o
+nome para dentro de cada tarefa.
+
+A clínica usa as duas afirmações, e elas são diferentes:
+
+- **`ativo = false` — desativada:** "afastada, de licença, não usa mais a
+  ferramenta, mas é da equipe". **Continua na lista**, para voltar num toque.
+- **`excluida_em` — excluída (D-14):** "não é mais da equipe". **Sai da lista** e
+  de toda escolha. **Excluída implica inativa**, por `CHECK` (migration `0023`):
+  não existe pessoa fora de toda tela e ainda entrando — e é esse `CHECK` que
+  deixa `entrar` precisando conferir só `ativo`.
+
+Colapsar as duas obrigaria a recepção a procurar, entre quinze inativas, as três
+que ainda voltam.
+
+**As duas derrubam as sessões vivas**: "tirei o acesso dela" tem de ser verdade
 no instante do toque, senão a clínica que demitiu alguém às 14h descobre às 18h
 que ela esteve na ferramenta a tarde inteira.
+
+**A clínica nunca fica sem administradora ativa por nenhum dos três caminhos** —
+desativar, rebaixar e excluir —, e **admin inativa não conta** para o mínimo.
+São três chamadores e **uma** tabela de regras (`podeDesativar`,
+`podeTrocarAcesso`, `podeExcluirPessoa`), inclusive para o superadmin: ele não
+tranca a clínica que viria destrancar.
+
+**O `usuario` não se edita, e isso é decisão** (D-14): ele é ditado por
+telefone, é o nome pelo qual a equipe chama a pessoa, e é a chave de
+`tentativas_login.identificador`. Trocá-lo quebraria o que ela decorou e
+misturaria o histórico de bloqueio de duas contas. Por isso o índice único de
+`(clinica_id, usuario)` **não** é parcial em `excluida_em` — ao contrário do de
+`perfis`: não se reaproveita identificador de gente.
 
 **Perfil excluído é soft delete.** Uma pessoa inativa continua apontando para
 ele, e um `DELETE` chegaria à tela como erro de constraint sobre um perfil que
