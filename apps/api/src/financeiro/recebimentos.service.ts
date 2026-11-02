@@ -12,7 +12,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -53,7 +53,7 @@ type Referencia = keyof typeof TIPO_DA_REFERENCIA
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -186,7 +186,9 @@ export class RecebimentosService {
          RETURNING id`,
         [
           ctx.clinicaId,
-          ctx.ator,
+          // `tarefas.solicitante_id` e `recebimentos.registrado_por` sao
+          // NOT NULL: registrar dinheiro e ritual da clinica (D-13).
+          exigePessoa(ctx.ator),
           DESCRICAO_DA_REFERENCIA[ref],
           dados.em,
           recebidoEm,
@@ -216,7 +218,7 @@ export class RecebimentosService {
           aberto.toString(),
           recebidoEm,
           unidade,
-          ctx.ator,
+          exigePessoa(ctx.ator),
           dados.requisicaoId,
           programaId,
         ],

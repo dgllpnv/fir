@@ -21,7 +21,7 @@ import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
-import { type AutorDaRequisicao, type LinhaDeTarefa, paraSaida, SELECT_TAREFA } from './leitura'
+import { type LeitorDaRequisicao, type LinhaDeTarefa, paraSaida, SELECT_TAREFA } from './leitura'
 
 /**
  * A consulta que as DUAS telas usam.
@@ -194,7 +194,7 @@ export class ConsultaDeTarefasService {
     clinicaId: ClinicaId,
     ator: Ator,
     fuso: string,
-    autor: AutorDaRequisicao,
+    autor: LeitorDaRequisicao,
     consulta: ConsultaDeTarefas,
   ): Promise<ListaDeTarefas> {
     const hoje = this.hojeDaClinica(fuso)
@@ -282,7 +282,7 @@ export class ConsultaDeTarefasService {
     clinicaId: ClinicaId,
     ator: Ator,
     fuso: string,
-    autor: AutorDaRequisicao,
+    autor: LeitorDaRequisicao,
     consulta: ConsultaDeHoje,
   ): Promise<RespostaDeHoje> {
     const hoje = this.hojeDaClinica(fuso)
@@ -396,7 +396,7 @@ export class ConsultaDeTarefasService {
     hoje: string,
     inicio: string,
     escopo: Escopo,
-    autor: AutorDaRequisicao,
+    autor: LeitorDaRequisicao,
   ): Promise<RespostaDeHoje['semana']> {
     const p = new Parametros(clinicaId, hoje, inicio, somarDias(inicio, 7))
     const doEscopo = filtroDeEscopo(escopo, autor.id, p)
@@ -475,7 +475,7 @@ export class ConsultaDeTarefasService {
     hoje: string,
     dia: string,
     escopo: Escopo,
-    autor: AutorDaRequisicao,
+    autor: LeitorDaRequisicao,
   ): Promise<{ ocultas: number; alvo: Escopo }> {
     const alvo = escopoAlternativo(escopo, autor.podeEquipe)
     if (escopo === 'equipe') return { ocultas: 0, alvo }

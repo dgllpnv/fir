@@ -23,12 +23,22 @@ export function Shell({
   clinica,
   usuario,
   funcao,
+  suporte,
   children,
 }: {
   itens: readonly ItemDeMenu[]
   clinica: string
   usuario: string
   funcao: string
+  /**
+   * A sessão é a de SUPORTE do painel (D-13).
+   *
+   * O casco não muda de forma por causa disto — só cede o topo: a faixa
+   * dourada já está grudada em `top: 0`, e com as duas `sticky` a de baixo
+   * ficaria escondida atrás dela. Ver `shell.css`,
+   * `.shell[data-suporte='sim'] .topbar`.
+   */
+  suporte: boolean
   children: ReactNode
 }) {
   const rota = usePathname()
@@ -81,7 +91,7 @@ export function Shell({
   const ativo = (href: string) => rota === href || rota.startsWith(`${href}/`)
 
   return (
-    <div className="shell">
+    <div className="shell" data-suporte={suporte ? 'sim' : 'nao'}>
       <aside
         className="side"
         id="menu-lateral"
@@ -177,7 +187,7 @@ export function Shell({
 
       <div className="conteudo">
         <header className="topbar">
-          <div className="barra">
+          <div className="barra-do-topo">
             <button
               type="button"
               className="botao-menu"

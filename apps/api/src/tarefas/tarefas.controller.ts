@@ -29,7 +29,7 @@ import type { RequisicaoComContexto } from '../comum/contexto'
 import { ConclusaoService } from './conclusao.service'
 import { ConsultaDeTarefasService } from './consulta.service'
 import { EdicaoDeTarefasService } from './edicao.service'
-import { autorDe, exigirEscopo } from './leitura'
+import { autorDe, exigirEscopo, leitorDe } from './leitura'
 import { TarefasService } from './tarefas.service'
 
 /**
@@ -64,7 +64,7 @@ export class TarefasController {
     if (!dados.success) throw new BadRequestException('Confira os filtros da busca.')
     const c = req.contexto!
     exigirEscopo(c, dados.data.escopo, [dados.data.responsavelId, dados.data.solicitanteId])
-    return this.consulta.listar(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), dados.data)
+    return this.consulta.listar(c.clinicaId, c.ator, c.clinicaFuso, leitorDe(c), dados.data)
   }
 
   @Post()
@@ -77,7 +77,10 @@ export class TarefasController {
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     // `!` seguro: `SessaoGuard` é global e esta rota não é `@Publico()`.
     const c = req.contexto!
-    return this.tarefas.criar(c.clinicaId, c.ator, c.clinicaFuso, c.ator, dados.data)
+    // `autorDe(c).id` e não `c.ator`: `tarefas.responsavel_id` é NOT NULL e
+    // guarda uma PESSOA. A sessão de suporte do painel é recusada aqui — ver
+    // `autorDe` em `leitura.ts` (D-13).
+    return this.tarefas.criar(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c).id, dados.data)
   }
 
   @Post(':id/concluir')

@@ -172,7 +172,17 @@ export class AutenticacaoController {
   eu(@Req() req: RequisicaoComContexto): EuSaida {
     const c = req.contexto!
     return {
-      usuario: c.usuario,
+      /**
+       * UM DOS DOIS É `null`, SEMPRE — e é o contrato que diz qual (D-13).
+       *
+       * Na sessão de suporte não há pessoa, e `usuario` é `null`. **Nada
+       * aqui fabrica uma pessoa a partir do operador**: `eu.usuario.id` é
+       * "quem sou eu" em cinco telas do produto, e um id inventado ali
+       * poria o nome de uma funcionária real — ou um id que não existe — numa
+       * ação que não é dela.
+       */
+      usuario: c.pessoa,
+      operador: c.operador,
       clinica: {
         id: c.clinicaId,
         codigo: c.clinicaCodigo,
@@ -228,6 +238,14 @@ export class AutenticacaoController {
     )
     if (r === 'ok') return
     if (r === 'atual-invalida') throw new ForbiddenException('A senha atual não confere.')
+    // Sessão de suporte do painel: não há pessoa de quem a senha seja. 403 e
+    // não 400 — o corpo está certo; é a SESSÃO que não pode fazer isto. A
+    // senha do operador troca-se no painel, que é o espaço dele.
+    if (r === 'nao-e-pessoa') {
+      throw new ForbiddenException(
+        'Esta é uma sessão do painel. A senha do operador é trocada no painel.',
+      )
+    }
     // A mensagem vem do DOMÍNIO: é a mesma frase que a tela mostra antes do
     // envio, e escrevê-la de novo aqui seria a segunda verdade.
     throw new HttpException(r.mensagem, HttpStatus.UNPROCESSABLE_ENTITY)

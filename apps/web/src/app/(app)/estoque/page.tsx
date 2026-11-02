@@ -18,14 +18,13 @@ import { sessaoAtual } from '@/lib/sessao'
  * entrada no futuro.
  */
 export default async function Estoque() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem, minhaPessoaId } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'estoque')) return <SemAcesso tela="Estoque" />
   return (
     <TelaEstoque
       hoje={eu.hoje}
       podeGerir={temPerm(quem, perfis, 'estoque.gerir')}
-      minhaPessoaId={eu.usuario.id}
+      minhaPessoaId={minhaPessoaId}
     />
   )
 }

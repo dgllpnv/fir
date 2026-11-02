@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -26,7 +26,7 @@ export const DIAS_DE_AVISO = 3
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
   /** `contas.gerir` vê e paga TODAS; só `contas` vê e paga as dela. */
   readonly gerir: boolean
@@ -109,7 +109,10 @@ export class ContasService {
     // só com `contas`, as dela. Não são dois níveis — são dois alcances, e a
     // diferença importa: a conta do pró-labore não aparece para a recepção.
     if (!ctx.gerir) {
-      params.push(ctx.ator)
+      // `pessoaDoAtor`: sem pessoa nao ha conta "dela", e a lista sai
+      // vazia. O operador tem `contas.gerir` (acesso total), entao este
+      // ramo nao e o dele — ele ve todas.
+      params.push(pessoaDoAtor(ctx.ator))
       filtros.push(`c.responsavel_id = $${params.length}`)
     }
     if (q.situacao === 'abertas') filtros.push('c.pago_em IS NULL')
@@ -152,7 +155,7 @@ export class ContasService {
       const r = await c.query<LinhaDeConta>(
         `${SELECT_BASE} AND c.pago_em IS NULL AND c.responsavel_id = $2 AND c.vencimento <= $3::date
          ORDER BY c.vencimento ASC, c.descricao ASC`,
-        [ctx.clinicaId, ctx.ator, somarDias(hoje, DIAS_DE_AVISO)],
+        [ctx.clinicaId, pessoaDoAtor(ctx.ator), somarDias(hoje, DIAS_DE_AVISO)],
       )
       return r.rows.map((x) => paraSaida(x, hoje))
     })
@@ -186,7 +189,7 @@ export class ContasService {
           unidade,
           serie?.id ?? null,
           serie?.dia ?? null,
-          ctx.ator,
+          pessoaDoAtor(ctx.ator),
         ],
       )
       return this.lerUma(c, ctx, r.rows[0]!.id, hoje)
@@ -276,7 +279,7 @@ export class ContasService {
       await c.query(
         `UPDATE contas_a_pagar SET pago_em=$2, valor_pago=$3, forma_pagamento=$4, pago_por=$5
           WHERE id=$1`,
-        [id, dados.em, dados.valor.toString(), dados.formaPagamento ?? '', ctx.ator],
+        [id, dados.em, dados.valor.toString(), dados.formaPagamento ?? '', pessoaDoAtor(ctx.ator)],
       )
 
       let proxima: ContaNaLista | null = null
@@ -299,7 +302,7 @@ export class ContasService {
              WHERE serie_id IS NOT NULL AND excluida_em IS NULL
              DO NOTHING
            RETURNING id`,
-          [id, vencimento, ctx.ator],
+          [id, vencimento, pessoaDoAtor(ctx.ator)],
         )
         const criada = nova.rows[0]
         if (criada !== undefined) proxima = await this.lerUma(c, ctx, criada.id, hoje)
@@ -319,7 +322,7 @@ export class ContasService {
   private async linhaCrua(c: pg.PoolClient, ctx: Contexto, id: string): Promise<LinhaDeConta> {
     const r = await c.query<LinhaDeConta>(
       `${SELECT_BASE} AND c.id = $2 AND ($3::boolean OR c.responsavel_id = $4)`,
-      [ctx.clinicaId, id, ctx.gerir, ctx.ator],
+      [ctx.clinicaId, id, ctx.gerir, pessoaDoAtor(ctx.ator)],
     )
     const linha = r.rows[0]
     if (linha === undefined) throw new NotFoundException('Conta não encontrada.')

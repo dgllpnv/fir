@@ -73,7 +73,8 @@ class ContextoDeMentiraGuard implements CanActivate {
       // `PessoaId` é nominal pela mesma razão de `ClinicaId` — ver
       // `banco/ator.ts`.
       ator: pessoaIdDeFonteConfiavel('00000000-0000-0000-0000-000000000002'),
-      usuario: {
+      operador: null,
+      pessoa: {
         id: '00000000-0000-0000-0000-000000000002',
         nome: 'Pessoa de Mentira',
         usuario: 'mentira',

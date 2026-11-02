@@ -285,9 +285,48 @@ export class PainelService {
     return 'ok'
   }
 
-  /** Revoga a sessão do painel. Token desconhecido não é erro: nada a fazer. */
+  /**
+   * Revoga a sessão do painel — **e, com ela, toda sessão de suporte viva**
+   * daquele operador (D-13, invariante 5).
+   *
+   * Sem a segunda metade, "Sair" no painel deixaria de pé as sessões abertas
+   * dentro das clínicas: a credencial mais poderosa do produto continuaria
+   * viva num navegador que a pessoa acredita ter fechado. Os trinta minutos
+   * de `DURACAO_SESSAO_DE_SUPORTE_MS` cobrem o esquecimento; isto cobre a
+   * intenção.
+   *
+   * A ORDEM é: ler quem é, revogar as de suporte, revogar a do painel. Ao
+   * contrário, o token do painel já estaria morto e não haveria de quem
+   * descobrir o operador — e o remédio seria guardar o id em algum lugar, que
+   * é como essa revogação deixaria de acontecer no dia em que alguém mexesse
+   * nesta função.
+   *
+   * Token desconhecido não é erro: nada a fazer.
+   *
+   * `revogar_sessoes_de_operador` é `SECURITY DEFINER` por necessidade, e o
+   * porquê está na migration 0022: a RLS de `sessoes` nega justamente a
+   * consulta que descobriria em quais clínicas essas sessões estão.
+   */
   async sair(token: string): Promise<void> {
     const hash = hashDoToken(token)
+    const quem = await this.banco.nasTabelasDoPainel(SISTEMA, async (c) => {
+      const r = await c.query<{ operador_id: string }>(
+        'SELECT operador_id FROM sessoes_de_operador WHERE token_hash = $1',
+        [hash],
+      )
+      return r.rows[0]?.operador_id ?? null
+    })
+
+    if (quem !== null) {
+      const ator = operadorIdDeFonteConfiavel(quem)
+      await this.banco.nasTabelasDoPainel(ator, async (c) => {
+        // A trigger grava uma linha na `auditoria` de CADA clínica afetada,
+        // com `ator_tipo = 'operador'`: a clínica vê a revogação como vê a
+        // abertura.
+        await c.query('SELECT revogar_sessoes_de_operador($1)', [quem])
+      })
+    }
+
     await this.banco.nasTabelasDoPainel(SISTEMA, async (c) => {
       await c.query(
         'UPDATE sessoes_de_operador SET revogada_em = now() WHERE token_hash = $1',

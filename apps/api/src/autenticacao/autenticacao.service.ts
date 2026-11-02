@@ -1,4 +1,4 @@
-import type { EuSaida } from '@fir/contracts'
+import type { EuSaida, OperadorPublico } from '@fir/contracts'
 import {
   avaliarSenha,
   diaCivil,
@@ -9,7 +9,8 @@ import {
   type Perfil,
 } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
-import { SISTEMA, pessoaIdDeFonteConfiavel } from '../banco/ator'
+import type pg from 'pg'
+import { SISTEMA, operadorIdDeFonteConfiavel, pessoaIdDeFonteConfiavel } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { type ClinicaId, clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
@@ -95,6 +96,25 @@ type LinhaPessoa = {
 /** As colunas de `pessoas` que a sessão precisa. Uma lista só, nunca duas. */
 const COLUNAS_DA_PESSOA = `id, nome, usuario, funcao, senha_hash, admin, perfil_id, ativo,
           senha_provisoria, senha_provisoria_expira_em`
+
+/**
+ * Os perfis DA CLÍNICA, num lugar só.
+ *
+ * Os dois ramos de `contextoDoToken` (pessoa e operador) precisam deles, e a
+ * segunda cópia de um `SELECT … FROM perfis` é a que esquece o `ORDER BY` — e
+ * aí a lista da tela muda de ordem entre duas leituras do mesmo dado.
+ */
+async function lerPerfis(c: pg.PoolClient): Promise<PerfilComChave[]> {
+  const r = await c.query<{ id: string; chave: string; nome: string; perms: string[] }>(
+    'SELECT id, chave, nome, perms FROM perfis ORDER BY nome',
+  )
+  return r.rows.map((x) => ({
+    id: x.id,
+    chave: x.chave,
+    nome: x.nome,
+    perms: x.perms as ChaveDePermissao[],
+  }))
+}
 
 /** O que `PessoaPublica` leva da linha. Nunca o hash, nunca o prazo interno. */
 const pessoaPublica = (p: LinhaPessoa) => ({
@@ -390,17 +410,19 @@ export class AutenticacaoService {
         [clinica.id, pessoa.id, hash, String(DURACAO_SESSAO_MS)],
       )
 
-      const perfisRaw = await c.query<{ id: string; chave: string; nome: string; perms: string[] }>(
-        'SELECT id, chave, nome, perms FROM perfis ORDER BY nome',
-      )
+      const perfis = await lerPerfis(c)
 
       return {
         tipo: 'ok' as const,
         token,
         eu: {
           usuario: pessoaPublica(pessoa),
+          // `null` SEMPRE nesta rota: quem entra por `/v1/entrar` é uma
+          // pessoa da clínica, com usuário e senha dela. A sessão de suporte
+          // do operador nasce no painel (D-13) e nunca por aqui.
+          operador: null,
           clinica: { id: clinica.id, codigo: clinica.codigo, nome: clinica.nome, fuso: clinica.fuso },
-          perfis: perfisRaw.rows.map((x) => ({ id: x.id, chave: x.chave, nome: x.nome, perms: x.perms })),
+          perfis: perfis.map((x) => ({ id: x.id, chave: x.chave, nome: x.nome, perms: [...x.perms] })),
           hoje: diaCivil(this.relogio.agora(), clinica.fuso),
         } satisfies EuSaida,
       }
@@ -419,13 +441,28 @@ export class AutenticacaoService {
    * A razão está no cabeçalho da tarefa: a RLS exige a clínica que esta
    * consulta existe para descobrir. Medido: o `SELECT` direto devolve zero
    * linhas, e toda requisição autenticada responderia 401.
+   *
+   * ## DOIS SUJEITOS POSSÍVEIS — D-13
+   *
+   * A linha de `sessoes` carrega uma `pessoa` **ou** um `operador`, nunca os
+   * dois (`CHECK sessao_tem_um_sujeito`, migration 0022). O ramo do operador
+   * é a *sessão de suporte*: o superadmin dentro do sistema da clínica.
+   *
+   * O usuário e o nome do operador vêm de `resolver_sessao`, e não de um
+   * `SELECT` em `operadores`: `fir_app` não tem privilégio nenhum naquela
+   * tabela (REVOKE da 0013), e é esse REVOKE que impede a API do balcão de
+   * ler o hash de senha do superadmin. Dar-lhe um `GRANT SELECT` para buscar
+   * um nome entregaria a tabela inteira.
    */
   async contextoDoToken(token: string): Promise<ContextoDaRequisicao | null> {
     const hash = hashDoToken(token)
-    const s = await this.banco.semIsolamentoDeClinica<{ clinica_id: string; pessoa_id: string }>(
-      'SELECT clinica_id, pessoa_id FROM resolver_sessao($1)',
-      [hash],
-    )
+    const s = await this.banco.semIsolamentoDeClinica<{
+      clinica_id: string
+      pessoa_id: string | null
+      operador_id: string | null
+      operador_usuario: string | null
+      operador_nome: string | null
+    }>('SELECT * FROM resolver_sessao($1)', [hash])
     const sessao = s.rows[0]
     if (!sessao) return null
 
@@ -444,44 +481,87 @@ export class AutenticacaoService {
     // Segunda fonte confiável de `ClinicaId`: veio de `resolver_sessao`, que
     // a descobre pelo HASH do cookie. Ver `clinica-id.ts`.
     const clinicaId = clinicaIdDeFonteConfiavel(clinica.id)
+    const daClinica = {
+      clinicaId,
+      clinicaCodigo: clinica.codigo,
+      clinicaNome: clinica.nome,
+      clinicaFuso: clinica.fuso,
+    }
+
+    /**
+     * O RAMO DO OPERADOR — a sessão de suporte.
+     *
+     * O ator é o `OperadorId`, e é ele que `naClinica` traduz em
+     * `operador:<uuid>` para a trigger gravar `ator_tipo = 'operador'` na
+     * trilha DA CLÍNICA. Nenhuma escrita dele é atribuída a uma pessoa, e
+     * nenhuma linha de `pessoas` existe para ser atribuída.
+     *
+     * `pode` é `temPerm` com `admin: true`, e **não** `() => true`: é a mesma
+     * função do servidor e da tela (regra 16), e as dependências entre chaves
+     * continuam valendo por ela. Um `() => true` ao lado seria a segunda
+     * resposta para "o que você pode" — e a que ninguém revisaria quando a
+     * matriz mudasse.
+     *
+     * `perfis` continuam sendo os DA CLÍNICA. Eles não decidem nada aqui (o
+     * admin passa por cima), e estão na resposta porque a tela os usa para
+     * rotular — inventar uma lista vazia faria a tela de Usuários e acessos
+     * abrir sem nenhum perfil para escolher.
+     */
+    if (sessao.operador_id !== null) {
+      const ator = operadorIdDeFonteConfiavel(sessao.operador_id)
+      const operador: OperadorPublico = {
+        id: sessao.operador_id,
+        usuario: sessao.operador_usuario ?? '',
+        nome: sessao.operador_nome ?? '',
+        // A provisória do operador é cobrada pelo `PainelGuard`, que já o
+        // impede de abrir a sessão de suporte. Aqui ela é sempre `false`: um
+        // `true` mandaria o produto desviar para `/trocar-senha`, a tela que
+        // troca senha de PESSOA e que ele não tem.
+        senhaProvisoria: false,
+      }
+      const perfis = await this.banco.naClinica(clinicaId, ator, (c) => lerPerfis(c))
+      return {
+        ...daClinica,
+        ator,
+        pessoa: null,
+        operador,
+        perfis,
+        pode: (chave: ChaveDePermissao) =>
+          temPerm({ admin: true, perfilId: '' }, perfis, chave),
+      } satisfies ContextoDaRequisicao
+    }
+
+    // Sessão sem sujeito nenhum não existe no banco (`CHECK
+    // sessao_tem_um_sujeito`). Se chegar aqui, a invariante caiu: recusa.
+    if (sessao.pessoa_id === null) return null
 
     /**
      * O ator é a pessoa do cookie, não `SISTEMA`: ela é quem está pedindo, e
-     * é dentro desta transação que todo handler autenticado vai rodar. Quando
-     * o Plano 6 trouxer dose e lote por paciente, a leitura que a regra 18
-     * manda registrar acontece aqui — com `SISTEMA`, o registro de acesso
-     * responderia "o sistema olhou o prontuário", que não responde nada.
+     * é dentro desta transação que todo handler autenticado vai rodar. A
+     * leitura que a regra 18 manda registrar acontece aqui — com `SISTEMA`, o
+     * registro de acesso responderia "o sistema olhou o prontuário", que não
+     * responde nada.
      */
-    const ator = pessoaIdDeFonteConfiavel(sessao.pessoa_id)
+    const pessoaId = sessao.pessoa_id
+    const ator = pessoaIdDeFonteConfiavel(pessoaId)
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const p = await c.query<LinhaPessoa>(
         `SELECT ${COLUNAS_DA_PESSOA}
          FROM pessoas WHERE id = $1 AND ativo`,
-        [sessao.pessoa_id],
+        [pessoaId],
       )
       const pessoa = p.rows[0]
       if (!pessoa) return null
 
-      const perfisRaw = await c.query<{ id: string; chave: string; nome: string; perms: string[] }>(
-        'SELECT id, chave, nome, perms FROM perfis ORDER BY nome',
-      )
-      const perfis: PerfilComChave[] = perfisRaw.rows.map((x) => ({
-        id: x.id,
-        chave: x.chave,
-        nome: x.nome,
-        perms: x.perms as ChaveDePermissao[],
-      }))
-
+      const perfis = await lerPerfis(c)
       const usuarioParaPermissao = { admin: pessoa.admin, perfilId: pessoa.perfil_id ?? '' }
 
       return {
-        clinicaId,
-        clinicaCodigo: clinica.codigo,
-        clinicaNome: clinica.nome,
-        clinicaFuso: clinica.fuso,
+        ...daClinica,
         ator,
-        usuario: pessoaPublica(pessoa),
+        pessoa: pessoaPublica(pessoa),
+        operador: null,
         perfis,
         pode: (chave: ChaveDePermissao) => temPerm(usuarioParaPermissao, perfis, chave),
       } satisfies ContextoDaRequisicao
@@ -496,22 +576,40 @@ export class AutenticacaoService {
    */
   async sair(token: string): Promise<void> {
     const hash = hashDoToken(token)
-    // `pessoa_id` junto, e não só a clínica: o `UPDATE` abaixo é uma ESCRITA,
-    // e a trilha precisa dizer quem revogou. `resolver_sessao` já devolvia os
-    // dois — "quem saiu" vem do mesmo hash de cookie que prova a sessão, pela
-    // mesma razão que `contextoDoToken` confia nele.
+    // O SUJEITO junto, e não só a clínica: o `UPDATE` abaixo é uma ESCRITA, e
+    // a trilha precisa dizer quem revogou. "Quem saiu" vem do mesmo hash de
+    // cookie que prova a sessão, pela mesma razão que `contextoDoToken`
+    // confia nele.
     const s = await this.banco.semIsolamentoDeClinica<{
       clinica_id: string
-      pessoa_id: string
-    }>('SELECT clinica_id, pessoa_id FROM resolver_sessao($1)', [hash])
+      pessoa_id: string | null
+      operador_id: string | null
+    }>('SELECT clinica_id, pessoa_id, operador_id FROM resolver_sessao($1)', [hash])
     const sessao = s.rows[0]
     // Token desconhecido, expirado ou já revogado: nada a fazer, e o
     // controlador limpa o cookie de qualquer forma.
     if (!sessao) return
 
+    /**
+     * Na SESSÃO DE SUPORTE o ator é o operador (D-13), e isto não é detalhe:
+     * com `pessoaIdDeFonteConfiavel(null!)` o `set_config` receberia a string
+     * `'null'`, a trigger de auditoria estouraria em `'null'::uuid`, e **o
+     * botão Sair pararia de funcionar** — o operador ficaria com a sessão
+     * mais poderosa do produto viva e uma tela dizendo que ele saiu.
+     */
+    const ator =
+      sessao.operador_id !== null
+        ? operadorIdDeFonteConfiavel(sessao.operador_id)
+        : sessao.pessoa_id !== null
+          ? pessoaIdDeFonteConfiavel(sessao.pessoa_id)
+          : null
+    // Sessão sem sujeito não existe (`CHECK sessao_tem_um_sujeito`): sem ator
+    // não há trilha, e sem trilha não se escreve.
+    if (ator === null) return
+
     await this.banco.naClinica(
       clinicaIdDeFonteConfiavel(sessao.clinica_id),
-      pessoaIdDeFonteConfiavel(sessao.pessoa_id),
+      ator,
       async (c) => {
         await c.query('UPDATE sessoes SET revogada_em = now() WHERE token_hash = $1', [hash])
       },
@@ -536,8 +634,19 @@ export class AutenticacaoService {
     tokenDaSessao: string,
     atual: string,
     nova: string,
-  ): Promise<'ok' | 'atual-invalida' | ErroDeDominio> {
-    const { clinicaId, ator, usuario } = contexto
+  ): Promise<'ok' | 'atual-invalida' | 'nao-e-pessoa' | ErroDeDominio> {
+    const { clinicaId, ator, pessoa: usuario } = contexto
+
+    /**
+     * SESSÃO DE SUPORTE NÃO TROCA SENHA DE NINGUÉM (D-13, invariante 1).
+     *
+     * Não há pessoa a quem a senha pertença. Sem esta recusa, o que o
+     * compilador aceitaria é um `UPDATE pessoas … WHERE id = undefined` — zero
+     * linhas, 204 na tela, e o operador achando que trocou alguma coisa. A
+     * senha do OPERADOR troca-se no painel (`POST /v1/superadmin/eu/senha`),
+     * que é o espaço de identidade dele.
+     */
+    if (usuario === null) return 'nao-e-pessoa'
 
     // --- TRANSAÇÃO 1 (curta): só o hash guardado. Nenhum Argon2.
     const linha = await this.banco.naClinica(clinicaId, ator, async (c) => {

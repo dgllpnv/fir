@@ -12,8 +12,7 @@ import { sessaoAtual } from '@/lib/sessao'
  * duas poria salário e permissão na mesma tela, com públicos diferentes.
  */
 export default async function Usuarios() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'config')) return <SemAcesso tela="Usuários e acessos" />
   return <TelaUsuarios />
 }

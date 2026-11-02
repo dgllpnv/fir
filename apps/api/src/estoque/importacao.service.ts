@@ -1,7 +1,7 @@
 import type { ImportarItensEstoque, ResultadoDaImportacaoDeItens } from '@fir/contracts'
 import { Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 
@@ -26,7 +26,7 @@ import type { ClinicaId } from '../banco/clinica-id'
  * ────────────────────────────────────────────────────────────────────────────
  */
 
-type Contexto = { readonly clinicaId: ClinicaId; readonly ator: PessoaId }
+type Contexto = { readonly clinicaId: ClinicaId; readonly ator: Ator }
 
 @Injectable()
 export class ImportacaoDeItensService {
@@ -115,8 +115,8 @@ export class ImportacaoDeItensService {
             l.custo == null ? null : l.custo.toString(),
             localId,
             d.unidadeId ?? null,
-            d.responsavelId ?? ctx.ator,
-            ctx.ator,
+            d.responsavelId ?? pessoaDoAtor(ctx.ator),
+            pessoaDoAtor(ctx.ator),
           ],
         )
 
@@ -177,7 +177,7 @@ async function acharOuCriarLocal(
      ON CONFLICT (clinica_id, unidade_id, nome_chave) WHERE excluido_em IS NULL
      DO NOTHING
      RETURNING id`,
-    [ctx.clinicaId, nome, unidadeId, ctx.ator],
+    [ctx.clinicaId, nome, unidadeId, pessoaDoAtor(ctx.ator)],
   )
   if (ins.rowCount === 1) return { id: ins.rows[0]!.id, criado: true }
 

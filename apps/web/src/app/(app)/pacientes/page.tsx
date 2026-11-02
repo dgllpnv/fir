@@ -12,8 +12,8 @@ import { SemAcesso } from '@/components/sem-acesso'
  * jeito; aqui a recusa chega como uma frase em vez de uma lista vazia.
  */
 export default async function Pacientes() {
-  const { eu, perfis } = await sessaoAtual()
-  const usuario = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
+  const usuario = quem
 
   if (!temPerm(usuario, perfis, 'pacientes')) return <SemAcesso tela="Pacientes" />
 

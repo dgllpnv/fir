@@ -19,7 +19,7 @@ import {
   TIPO_SESSAO,
 } from '@fir/domain'
 import { Inject, Injectable, NotFoundException } from '@nestjs/common'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { Transacao } from '../banco/transacao'
@@ -53,7 +53,7 @@ const DIAS_DE_RISCO = 7
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -142,7 +142,11 @@ export class LeituraDeProgramasService {
     const limite30 = somarDias(hoje, DIAS_DOS_RETORNOS)
     // `'eu'` resolvido NO SERVIDOR: aceitar o id do cliente deixaria qualquer
     // um ver a agenda de qualquer um trocando o parâmetro.
-    const responsavel = q.responsavelId === 'eu' ? ctx.ator : (q.responsavelId ?? null)
+    // `'eu'` na sessao de suporte (D-13) nao pode virar `null`: `null` aqui
+    // significa "sem filtro", que e o OPOSTO do pedido. `''` nao casa com
+    // `responsavel_id` de ninguem, e o escopo "meu" do operador sai VAZIO.
+    const responsavel =
+      q.responsavelId === 'eu' ? (pessoaDoAtor(ctx.ator) ?? '') : (q.responsavelId ?? null)
 
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const programas = await this.lerProgramas(c, ctx, hoje, q)

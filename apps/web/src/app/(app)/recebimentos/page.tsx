@@ -11,8 +11,7 @@ import { sessaoAtual } from '@/lib/sessao'
  * decide que dia a clínica está lançando.
  */
 export default async function Recebimentos() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'receber')) return <SemAcesso tela="Recebimentos" />
   return <TelaRecebimentos hoje={eu.hoje} mes={eu.hoje.slice(0, 7)} />
 }

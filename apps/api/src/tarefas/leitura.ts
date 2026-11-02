@@ -2,7 +2,7 @@ import type { ItemOrcadoNaSaida, TarefaNaLista } from '@fir/contracts'
 import type { Autor, Etapa, EventoDeJornada } from '@fir/domain'
 import { ForbiddenException } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { exigePessoa, pessoaDoAtor, type PessoaId } from '../banco/ator'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { ContextoDaRequisicao } from '../comum/contexto'
 
@@ -30,6 +30,15 @@ export type AutorDaRequisicao = Autor & {
 }
 
 /**
+ * Quem está LENDO — o mesmo de cima, com o `id` solto.
+ *
+ * `string` e não `PessoaId`: na sessão de suporte (D-13) ele é `''`, que não
+ * casa com `responsavel_id` de ninguém. É o tipo que diz, no nome, que este
+ * valor **não assina nada** — e é por isso que ele não é aceito onde se grava.
+ */
+export type LeitorDaRequisicao = Omit<AutorDaRequisicao, 'id'> & { readonly id: string }
+
+/**
  * Quem está agindo, do jeito que `packages/domain` entende.
  *
  * `podeEquipe` é `temPerm(…, 'tarefas.equipe')` JÁ RESOLVIDO — as quatro
@@ -42,7 +51,42 @@ export type AutorDaRequisicao = Autor & {
  * contrário.
  */
 export const autorDe = (c: ContextoDaRequisicao): AutorDaRequisicao => ({
-  id: c.ator,
+  /**
+   * `exigePessoa` — e a SESSÃO DE SUPORTE é RECUSADA aqui (D-13).
+   *
+   * Este autor é quem **assina**: ele vai para `tarefas.responsavel_id` (NOT
+   * NULL), para `recebimentos.registrado_por` (NOT NULL) e para o `historico`
+   * da tarefa, que é o registro de quem moveu o cartão na jornada.
+   *
+   * Não há resposta honesta para "qual pessoa" quando o ator é o operador.
+   * Concluir um atendimento, fechar um orçamento, concluir uma sessão com
+   * baixa de dose — são **rituais da clínica**, feitos por quem trabalha
+   * nela. Emprestar o id de uma funcionária poria o nome dela num atendimento
+   * que ela não fez, num histórico que não se reescreve.
+   *
+   * O operador continua **vendo tudo**: quem lê usa `leitorDe`, logo abaixo.
+   */
+  id: exigePessoa(c.ator),
+  podeEquipe: c.pode('tarefas.equipe'),
+  podeJornada: c.pode('jornada'),
+})
+
+/**
+ * Quem está **lendo** — e aqui a sessão de suporte passa.
+ *
+ * `Autor` do domínio, sem a marca `PessoaId`: `id` é usado só em cláusula de
+ * escopo ("minhas", "solicitei"), nunca gravado. Na sessão de suporte ele é
+ * `''`, que não casa com `responsavel_id` de ninguém — o escopo "meu" sai
+ * **vazio**, e o que o operador usa é `equipe`, liberado porque `podeEquipe`
+ * é `true`.
+ *
+ * **Duas funções e não um parâmetro booleano**, de propósito: o booleano seria
+ * esquecido no caminho de escrita número nove, e o esquecimento ali é uma
+ * tarefa assinada com `''` — ou, se a coluna fosse anulável, com ninguém.
+ * Separadas, o compilador cobra a escolha em cada chamada.
+ */
+export const leitorDe = (c: ContextoDaRequisicao): LeitorDaRequisicao => ({
+  id: pessoaDoAtor(c.ator) ?? '',
   podeEquipe: c.pode('tarefas.equipe'),
   podeJornada: c.pode('jornada'),
 })
@@ -66,7 +110,7 @@ export function exigirEscopo(
   if (escopo === 'equipe' && !c.pode('tarefas.equipe')) {
     throw new ForbiddenException('Seu perfil não acompanha as tarefas da equipe.')
   }
-  const deOutraPessoa = pessoas.some((p) => p !== undefined && p !== c.ator)
+  const deOutraPessoa = pessoas.some((p) => p !== undefined && p !== pessoaDoAtor(c.ator))
   if (deOutraPessoa && !c.pode('tarefas.equipe')) {
     throw new ForbiddenException('Seu perfil não acompanha as tarefas de outras pessoas.')
   }

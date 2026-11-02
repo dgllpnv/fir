@@ -17,7 +17,7 @@ import {
 } from '@fir/domain'
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -28,7 +28,7 @@ const ULTIMOS = 15
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -114,7 +114,9 @@ export class CaixaService {
         const r = await c.query<{ id: string }>(
           `INSERT INTO caixas_do_dia (clinica_id, dia, obs, fechado_por)
            VALUES ($1,$2,$3,$4) RETURNING id`,
-          [ctx.clinicaId, dados.dia, dados.obs, ctx.ator],
+          // `caixas_do_dia.fechado_por` e NOT NULL: fechar o caixa e
+          // ritual da clinica, feito por quem trabalha nela (D-13).
+          [ctx.clinicaId, dados.dia, dados.obs, exigePessoa(ctx.ator)],
         )
         caixaId = r.rows[0]!.id
       } catch (e) {

@@ -12,9 +12,9 @@ import { sessaoAtual } from '@/lib/sessao'
  * manda continua sendo `GET /v1/jornada`, que recusa sozinho.
  */
 export default async function Jornada() {
-  const { eu, perfis } = await sessaoAtual()
+  const { eu, perfis, quem } = await sessaoAtual()
   const pode = temPerm(
-    { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' },
+    quem,
     perfis,
     'jornada',
   )

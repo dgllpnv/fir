@@ -16,7 +16,7 @@ import {
 } from '@fir/domain'
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -55,7 +55,7 @@ import {
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -179,7 +179,7 @@ export class NotasService {
           d.nota.fornecedor,
           d.nota.cnpj,
           d.nota.dia,
-          ctx.ator,
+          pessoaDoAtor(ctx.ator),
         ],
       )
 
@@ -296,7 +296,7 @@ export class NotasService {
           custo,
           notaId,
           obs: observacao(d.nota, l.como === 'nota' ? l.descricao : ''),
-          criadoPor: ctx.ator,
+          criadoPor: pessoaDoAtor(ctx.ator),
         })
 
         if (custo !== null) {

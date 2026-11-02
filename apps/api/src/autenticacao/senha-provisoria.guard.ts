@@ -56,7 +56,7 @@ const juntar = (...partes: (string | undefined)[]): string => {
  *
  * 409 e não 403: 403 é "você não pode"; isto é "termine isto primeiro".
  *
- * A fonte do estado é `req.contexto.usuario.senhaProvisoria`, que o
+ * A fonte do estado é `req.contexto.pessoa.senhaProvisoria`, que o
  * `SessaoGuard` leu do BANCO a cada requisição — nunca o corpo, nunca um
  * cabeçalho, nunca o cookie.
  */
@@ -68,7 +68,14 @@ export class SenhaProvisoriaGuard implements CanActivate {
     // Sem contexto é rota pública: não há sessão, logo não há provisória a
     // cobrar. Quem recusa o anônimo é o `SessaoGuard`, que já rodou.
     if (!contexto) return true
-    if (!contexto.usuario.senhaProvisoria) return true
+    /**
+     * `contexto.pessoa?.…` e não `contexto.pessoa!.…`: na SESSÃO DE SUPORTE
+     * (D-13) não há pessoa, e não há provisória de pessoa a cobrar. A
+     * provisória do OPERADOR é cobrada pelo `PainelGuard`, que o impede de
+     * abrir a sessão de suporte antes de trocá-la — então a sessão que chega
+     * aqui já passou por lá.
+     */
+    if (contexto.pessoa?.senhaProvisoria !== true) return true
 
     const prefixo = Reflect.getMetadata(PATH_METADATA, ctx.getClass()) as string | undefined
     const caminho = Reflect.getMetadata(PATH_METADATA, ctx.getHandler()) as string | undefined

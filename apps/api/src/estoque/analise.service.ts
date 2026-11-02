@@ -1,7 +1,7 @@
 import type { AnaliseDoEstoque, ItemNaAnalise } from '@fir/contracts'
 import { Quantidade, analiseDoPeriodo, somarDias } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
-import type { PessoaId } from '../banco/ator'
+import type { Ator, PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -32,7 +32,7 @@ import { movimentosDosItens, quantidadeNaSaida } from './movimentos.repositorio'
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 

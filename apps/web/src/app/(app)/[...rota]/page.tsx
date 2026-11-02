@@ -32,8 +32,8 @@ export default async function AindaNaoConstruida({
   // Aqui a tela não tem dado, então não há vazamento hoje. O motivo de
   // consertar agora é outro: é esta página que o épico 2 vai copiar quando
   // construir Tarefas e Pacientes de verdade, e aí vai ter dado.
-  const { eu, perfis } = await sessaoAtual()
-  if (item.perm !== null && !temPerm({ admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }, perfis, item.perm)) {
+  const { eu, perfis, quem } = await sessaoAtual()
+  if (item.perm !== null && !temPerm(quem, perfis, item.perm)) {
     return (
       <section>
         <h2 style={{ fontSize: 26, marginBottom: 16 }}>Sem acesso a esta tela</h2>

@@ -6,7 +6,7 @@ import type {
 } from '@fir/contracts'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 
@@ -21,7 +21,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
 }
 
 type LinhaDeProcedimento = {
@@ -237,7 +237,7 @@ export class CatalogoService {
            VALUES ($15,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
                    CASE WHEN $14 THEN NULL ELSE now() END, $16)
            RETURNING id`,
-          [...valores, ctx.clinicaId, ctx.ator],
+          [...valores, ctx.clinicaId, pessoaDoAtor(ctx.ator)],
         )
         novoId = r.rows[0]!.id
       } else {

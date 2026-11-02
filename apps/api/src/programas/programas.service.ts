@@ -23,7 +23,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { Transacao } from '../banco/transacao'
@@ -38,7 +38,7 @@ import {
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -104,7 +104,11 @@ export class ProgramasService {
             ? null
             : Dinheiro.deCentavos(dados.pagamento.valorTotal),
         modoDeCobranca: modo,
-        atorId: ctx.ator,
+        // `exigePessoa`: a montagem materializa SESSÕES, e
+        // `tarefas.responsavel_id` é NOT NULL. Montar doze aplicações numa
+        // paciente é ritual da clínica — a sessão de suporte é recusada
+        // aqui (D-13), nunca assinada com o nome de uma funcionária.
+        atorId: exigePessoa(ctx.ator),
         hojeDaClinica: hoje,
       })
       if (ehErro(montado)) throw traduzirErroDeMontagem(montado.erro)
@@ -312,7 +316,9 @@ export class ProgramasService {
        RETURNING id`,
       [
         ctx.clinicaId,
-        ctx.ator,
+        // `tarefas.solicitante_id` e `recebimentos.registrado_por` sao NOT
+        // NULL — a adesao e dinheiro e e ritual da clinica (D-13).
+        exigePessoa(ctx.ator),
         'Adesão ao programa',
         diaCivil(agora, ctx.fuso),
         agora,
@@ -343,7 +349,7 @@ export class ProgramasService {
         aberto.toString(),
         agora,
         unidade,
-        ctx.ator,
+        exigePessoa(ctx.ator),
       ],
     )
     return r.rows[0]!.id

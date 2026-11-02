@@ -1,7 +1,7 @@
 import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import type { EuSaida } from '@fir/contracts'
+import type { EuSaida, OperadorPublico } from '@fir/contracts'
 import { type ChaveDePermissao, PERMS } from '@fir/domain'
 
 const API = process.env.FIR_API_URL || 'http://127.0.0.1:4811'
@@ -10,6 +10,27 @@ const CHAVES = new Set<string>(PERMS.map((p) => p[1]))
 export type Sessao = {
   readonly eu: EuSaida
   readonly perfis: readonly { id: string; nome: string; perms: ChaveDePermissao[] }[]
+  /**
+   * O sujeito como `temPerm` o quer. **Derivado num lugar só.**
+   *
+   * Na sessão de suporte (D-13) não há pessoa, e o que entra aqui é
+   * `{ admin: true, perfilId: '' }` — acesso total, pela MESMA função que o
+   * servidor usa. Montar isto em cada página era o que já acontecia (cinco
+   * cópias de `{ admin: eu.usuario.admin, … }`), e a sexta seria a que
+   * estourasse em `null`.
+   */
+  readonly quem: { readonly admin: boolean; readonly perfilId: string }
+  /**
+   * O id da PESSOA da sessão, ou `''` na sessão de suporte.
+   *
+   * `''` e não um id emprestado: é "quem sou eu" do filtro *Para mim*, do
+   * responsável padrão e de *Minhas metas*. Vazio é resposta legítima — o
+   * operador não tem tarefa, nem meta, nem conta; fingir que é alguém poria o
+   * nome de uma funcionária numa ação que não é dela (D-13).
+   */
+  readonly minhaPessoaId: string
+  /** A sessão é do PAINEL. `null` na sessão de uma pessoa da clínica. */
+  readonly suporte: { readonly operador: OperadorPublico } | null
 }
 
 /**
@@ -43,7 +64,12 @@ export const sessaoAtual = cache(async (): Promise<Sessao> => {
    *
    * `/trocar-senha` NÃO usa esta função, justamente para não entrar em laço.
    */
-  if (eu.usuario.senhaProvisoria) redirect('/trocar-senha')
+  // `?.` e não `!`: na SESSÃO DE SUPORTE (D-13) não há pessoa, e não há
+  // provisória de pessoa a cobrar. A do OPERADOR é cobrada pelo painel, que o
+  // impede de abrir a sessão de suporte antes de trocá-la — mandá-lo para
+  // `/trocar-senha` o largaria numa tela que troca a senha de uma pessoa que
+  // ele não é.
+  if (eu.usuario?.senhaProvisoria === true) redirect('/trocar-senha')
   // `perms` chega como string[] do JSON; o domínio quer ChaveDePermissao[].
   // O estreitamento acontece aqui, uma vez, e não em cada chamada de temPerm.
   const perfis = eu.perfis.map((p) => ({
@@ -51,5 +77,14 @@ export const sessaoAtual = cache(async (): Promise<Sessao> => {
     nome: p.nome,
     perms: p.perms.filter((k): k is ChaveDePermissao => CHAVES.has(k)),
   }))
-  return { eu, perfis }
+  return {
+    eu,
+    perfis,
+    quem:
+      eu.usuario === null
+        ? { admin: true, perfilId: '' }
+        : { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' },
+    minhaPessoaId: eu.usuario?.id ?? '',
+    suporte: eu.operador === null ? null : { operador: eu.operador },
+  }
 })

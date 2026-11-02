@@ -21,7 +21,7 @@ export default async function Nova({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const { eu, perfis } = await sessaoAtual()
+  const { minhaPessoaId } = await sessaoAtual()
   const p = await searchParams
   const texto = (chave: string): string | undefined => {
     const v = p[chave]
@@ -30,7 +30,7 @@ export default async function Nova({
 
   return (
     <TelaNovaTarefa
-      eu={eu.usuario.id}
+      eu={minhaPessoaId}
       inicial={{
         ...(texto('pacienteId') === undefined ? {} : { pacienteId: texto('pacienteId')! }),
         ...(texto('tipo') === undefined ? {} : { tipo: texto('tipo')! }),

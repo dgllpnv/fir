@@ -44,8 +44,11 @@ export default function TrocarSenha() {
    * da sessão e é quem decide — este aqui existe para a pessoa não descobrir
    * o problema depois de apertar o botão.
    */
+  // `eu.usuario` é `null` na sessão de suporte do painel (D-13) — e lá esta
+  // tela nem abre: `POST /v1/eu/senha` responde 403, porque não há pessoa de
+  // quem a senha seja. O `?.` existe para o tipo, não para um caso de uso.
   const contexto = eu
-    ? [eu.clinica.codigo, eu.clinica.nome, eu.usuario.usuario, eu.usuario.nome]
+    ? [eu.clinica.codigo, eu.clinica.nome, eu.usuario?.usuario ?? '', eu.usuario?.nome ?? '']
     : []
   const juizo = nova === '' ? null : avaliarSenha(nova, { contexto })
   const avisoDaRegra = juizo !== null && ehErro(juizo) ? juizo.erro.mensagem : ''

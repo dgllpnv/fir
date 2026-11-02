@@ -12,8 +12,8 @@ import { sessaoAtual } from '@/lib/sessao'
  * uma linha — e um endereço que a pessoa pode guardar.
  */
 export default async function Ficha({ params }: { params: Promise<{ id: string }> }) {
-  const { eu, perfis } = await sessaoAtual()
-  const usuario = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
+  const usuario = quem
 
   if (!temPerm(usuario, perfis, 'pacientes')) return <SemAcesso tela="Pacientes" />
 

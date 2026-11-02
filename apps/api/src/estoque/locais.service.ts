@@ -6,7 +6,7 @@ import type {
 } from '@fir/contracts'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 
@@ -21,7 +21,7 @@ import type { ClinicaId } from '../banco/clinica-id'
  * não operação do dia.
  */
 
-type Contexto = { readonly clinicaId: ClinicaId; readonly ator: PessoaId }
+type Contexto = { readonly clinicaId: ClinicaId; readonly ator: Ator }
 
 type LinhaDeLocal = {
   id: string
@@ -72,7 +72,7 @@ export class LocaisService {
         const r = await c.query<{ id: string }>(
           `INSERT INTO locais_de_estoque (clinica_id, nome, unidade_id, ativo, criado_por)
            VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-          [ctx.clinicaId, d.nome, d.unidadeId ?? null, d.ativo, ctx.ator],
+          [ctx.clinicaId, d.nome, d.unidadeId ?? null, d.ativo, pessoaDoAtor(ctx.ator)],
         )
         id = r.rows[0]!.id
       } catch (e) {

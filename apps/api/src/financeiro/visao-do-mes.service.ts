@@ -20,7 +20,7 @@ import {
 } from '@fir/domain'
 import { BadRequestException, Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -38,7 +38,7 @@ const DESCRICAO_DO_FECHAMENTO =
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -151,7 +151,9 @@ export class VisaoDoMesService {
          ON CONFLICT (clinica_id, competencia)
            DO UPDATE SET valor = EXCLUDED.valor, definida_por = EXCLUDED.definida_por,
                          definida_em = now()`,
-        [ctx.clinicaId, `${mes}-01`, valor.toString(), ctx.ator],
+        // `metas_do_mes.definida_por` e NOT NULL: a meta e da clinica,
+        // definida por quem responde por ela (D-13).
+        [ctx.clinicaId, `${mes}-01`, valor.toString(), exigePessoa(ctx.ator)],
       )
     })
     return this.percentualDaMeta(ctx, mes)
@@ -224,7 +226,13 @@ export class VisaoDoMesService {
            ON CONFLICT (clinica_id, marcador, prazo)
              WHERE marcador IS NOT NULL AND excluida_em IS NULL
              DO NOTHING`,
-          [ctx.clinicaId, ctx.ator, DESCRICAO_DO_FECHAMENTO, prazo, MARCADOR_DE_FECHAMENTO],
+          [
+            ctx.clinicaId,
+            exigePessoa(ctx.ator),
+            DESCRICAO_DO_FECHAMENTO,
+            prazo,
+            MARCADOR_DE_FECHAMENTO,
+          ],
         )
         criadas += r.rowCount ?? 0
       }

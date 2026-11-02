@@ -27,7 +27,7 @@ import {
 } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import type { Ator, PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import { CampanhasService } from '../campanhas/campanhas.service'
 import type { ClinicaId } from '../banco/clinica-id'
@@ -65,7 +65,7 @@ import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 

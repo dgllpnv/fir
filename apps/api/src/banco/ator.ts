@@ -39,12 +39,27 @@ export const pessoaIdDeFonteConfiavel = (id: string): PessoaId => id as PessoaId
 /**
  * O ator que não é pessoa: semente, job de fila, migration de dados.
  *
- * `Symbol`, e não a string `'sistema'`: com a string, um `PessoaId` mal
- * tipado que viesse a valer `'sistema'` se passaria por sistema, e qualquer
- * variável `string` seria um ator válido para o compilador. O símbolo não tem
- * outro valor possível, e escrevê-lo é um ato deliberado.
+ * ## Era um `Symbol`, e virou um objeto congelado — a razão é MEDIDA
+ *
+ * A propriedade que se queria é a mesma, e ela se mantém: **nenhuma `string`
+ * é um ator válido para o compilador**, então um `PessoaId` mal tipado que
+ * viesse a valer `'sistema'` não se passa por sistema. Escrever `SISTEMA`
+ * continua sendo um ato deliberado.
+ *
+ * O que mudou é o que o `unique symbol` custava. Ele **alarga** em posição de
+ * propriedade de literal de objeto: `{ ator: c.ator }` inferia
+ * `symbol | PessoaId | OperadorId`, e `symbol` não é assinável a um `unique
+ * symbol`. Com a D-13, quando `ContextoDaRequisicao.ator` passou de
+ * `PessoaId` para `Ator`, isso virou **35 erros de compilação** em
+ * controladores que só repassam o contexto — e a saída seria um `as Ator` em
+ * cada um deles, isto é, 35 afirmações sem prova no caminho que decide quem
+ * assina a trilha.
+ *
+ * Objeto congelado não alarga, e `===` sobre um singleton distingue tão bem
+ * quanto um símbolo. `Object.freeze` para que ninguém lhe acrescente um `id` e
+ * o faça parecer um `OperadorId`.
  */
-export const SISTEMA = Symbol('ator.sistema')
+export const SISTEMA = Object.freeze({ tipo: 'sistema' } as const)
 
 /**
  * O OPERADOR do painel — o superadmin. **Ele não é uma `pessoa`** (D-5,
@@ -59,14 +74,12 @@ export const SISTEMA = Symbol('ator.sistema')
  * tradução viraria palpite — exatamente o tipo de "funciona hoje" que escreve
  * o ator errado numa trilha append-only, onde não há como corrigir depois.
  *
- * As duas saídas possíveis eram tornar **os dois** discriminados, ou só este.
- * O segundo é o que está aqui, e a razão é de risco, não de preguiça:
- * `PessoaId` atravessa ~20 arquivos como string (parâmetro de SQL,
- * `aplicadoPorId`, `autorId`), e trocá-lo por um objeto seria uma mudança
- * mecânica em cada um deles — mudança grande, em código de dinheiro e de
- * dose, para comprar a mesma propriedade que esta assimetria já dá. Com
- * `symbol | object | string`, `typeof` separa os três casos e as duas funções
- * são **totais**.
+ * `PessoaId` continua string, e a razão é de risco: ela atravessa ~20
+ * arquivos como string (parâmetro de SQL, `aplicadoPorId`, `autorId`), e
+ * trocá-la por um objeto seria uma mudança mecânica em cada um deles — grande,
+ * em código de dinheiro e de dose, para comprar a mesma propriedade que esta
+ * assimetria já dá. Com `string` de um lado e objeto do outro, `typeof`
+ * separa os casos e as duas funções são **totais**.
  *
  * O preço é a assimetria entre os dois tipos, e ele está escrito aqui para
  * quem estranhar.
@@ -116,9 +129,15 @@ export const SISTEMA_NO_BANCO = 'sistema'
  * marca um valor carrega, e o palpite erra em silêncio.
  */
 export const atorParaOBanco = (ator: Ator): string => {
-  if (ator === SISTEMA) return SISTEMA_NO_BANCO
-  if (typeof ator === 'object') return `${PREFIXO_OPERADOR}${ator.id}`
-  return ator
+  // `typeof === 'string'` PRIMEIRO, e não `=== SISTEMA` primeiro: a pessoa é
+  // o caso de toda requisição do balcão, e a ordem deixa a leitura do mais
+  // comum ao mais raro. Os três ramos cobrem a união inteira — não há "senão".
+  if (typeof ator === 'string') return ator
+  // `ator.tipo` e não `ator === SISTEMA`: é o DISCRIMINANTE que estreita a
+  // união para o compilador, e é ele que torna estes três ramos totais — sem
+  // "senão", sem `as`.
+  if (ator.tipo === 'sistema') return SISTEMA_NO_BANCO
+  return `${PREFIXO_OPERADOR}${ator.id}`
 }
 
 /**
@@ -137,7 +156,72 @@ export const atorParaOBanco = (ator: Ator): string => {
 export const atorEmColunas = (
   ator: Ator,
 ): { readonly tipo: 'pessoa' | 'operador' | 'sistema'; readonly id: string | null } => {
-  if (ator === SISTEMA) return { tipo: 'sistema', id: null }
-  if (typeof ator === 'object') return { tipo: 'operador', id: ator.id }
-  return { tipo: 'pessoa', id: ator }
+  if (typeof ator === 'string') return { tipo: 'pessoa', id: ator }
+  if (ator.tipo === 'sistema') return { tipo: 'sistema', id: null }
+  return { tipo: 'operador', id: ator.id }
+}
+
+/**
+ * O ator QUANDO ELE É UMA PESSOA — `null` quando não é (D-13).
+ *
+ * ## Por que esta função existe, e por que ela não é uma conveniência
+ *
+ * `Ator` responde "quem está escrevendo", e é o que vai para
+ * `app.pessoa_id` e para a trilha. Mas o banco tem **trinta e tantas colunas**
+ * que guardam *uma pessoa da clínica*: `criada_por`, `responsavel_id`,
+ * `lancado_por`, `fechado_por`, `definida_por`, `por_id`. Elas são FK para
+ * `pessoas`, e o `OperadorId` **não cabe em nenhuma delas** — nem deve: o
+ * operador não é uma pessoa da clínica (D-5, restrição 1).
+ *
+ * Antes da D-13 os dois papéis eram o mesmo valor, e por isso `ctx.ator` ia
+ * direto para a coluna. Agora são dois, e **esta é a única tradução**. Sem
+ * ela, o objeto `{ tipo: 'operador', id }` seria serializado pelo `pg` e
+ * chegaria ao Postgres como texto — `invalid input syntax for type uuid`, 500
+ * na tela, numa rota que a recepcionista usa todo dia.
+ *
+ * `null` é a resposta HONESTA para coluna anulável: nenhuma pessoa da clínica
+ * fez aquilo, e quem fez está na trilha, com `ator_tipo = 'operador'`.
+ * Fabricar um id ali seria assinar o trabalho de alguém com o nome de outra.
+ *
+ * Em cláusula `WHERE` ("as contas sob minha responsabilidade", "minhas
+ * metas"), `null` não casa nada e a lista sai **vazia** — que é exatamente o
+ * que se quer: o operador não tem tarefa, nem meta, nem conta. Mostrar vazio
+ * é resposta legítima; mostrar as de alguém não é.
+ */
+export const pessoaDoAtor = (ator: Ator): PessoaId | null =>
+  typeof ator === 'string' ? ator : null
+
+/**
+ * O erro de uma escrita que **exige nome de pessoa** e não o tem.
+ *
+ * Erro próprio e não `ForbiddenException`: `banco/` não conhece HTTP. Quem
+ * traduz é o `FiltroDeExcecao` da borda — num lugar só, para que a rota
+ * número quarenta não precise lembrar de mapear.
+ */
+export class SessaoDeSuporteNaoAssina extends Error {
+  constructor() {
+    super('Esta ação é de uma pessoa da clínica, e a sessão do painel não é uma.')
+  }
+}
+
+/**
+ * O ator como pessoa, **ou recusa**.
+ *
+ * Usado onde a coluna é `NOT NULL` e guarda uma pessoa: `recebimentos.
+ * registrado_por`, `caixas_do_dia.fechado_por`, `metas_do_mes.definida_por`,
+ * `conversas_1a1.por_id`, `tarefas.responsavel_id`.
+ *
+ * Nessas, não há resposta honesta para "qual pessoa": fechar o caixa da
+ * clínica, registrar um recebimento, definir a meta do mês e conduzir uma 1:1
+ * são **rituais da clínica**, feitos por quem trabalha nela. O suporte olha e
+ * conserta configuração; ele não faz a rotina da clínica em nome de ninguém.
+ *
+ * FALHA FECHADO, e é o modo de falha certo: a alternativa seria deixar o
+ * `NULL` chegar à coluna e o Postgres recusar com `not-null violation` — 500
+ * numa tela, em vez de uma frase que diz o que aconteceu.
+ */
+export const exigePessoa = (ator: Ator): PessoaId => {
+  const pessoa = pessoaDoAtor(ator)
+  if (pessoa === null) throw new SessaoDeSuporteNaoAssina()
+  return pessoa
 }

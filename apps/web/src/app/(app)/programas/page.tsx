@@ -15,8 +15,7 @@ import { sessaoAtual } from '@/lib/sessao'
  * formulário que daria 403 é conveniência, não controle de acesso.
  */
 export default async function Programas() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'programas')) return <SemAcesso tela="Programas" />
   return <TelaProgramas podeReceber={temPerm(quem, perfis, 'receber')} />
 }

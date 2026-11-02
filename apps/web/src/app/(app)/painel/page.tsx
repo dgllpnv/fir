@@ -16,8 +16,7 @@ import { sessaoAtual } from '@/lib/sessao'
  * para a clínica inteira.
  */
 export default async function PainelPage() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'painel')) return <SemAcesso tela="Painel geral" />
   return <TelaPainel />
 }

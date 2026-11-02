@@ -10,8 +10,7 @@ import { sessaoAtual } from '@/lib/sessao'
  * quem manda é `@Exige('finmes')` em `PATCH /v1/configuracoes/financeiro`.
  */
 export default async function Caixa() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'caixa')) return <SemAcesso tela="Caixa do dia" />
   return <TelaCaixa hoje={eu.hoje} podeConfigurar={temPerm(quem, perfis, 'finmes')} />
 }

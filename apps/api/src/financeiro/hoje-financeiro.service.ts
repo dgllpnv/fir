@@ -1,7 +1,7 @@
 import type { BlocoFinanceiroDeHoje } from '@fir/contracts'
 import { diaCivil } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -9,7 +9,7 @@ import { ContasService } from './contas.service'
 
 export type ContextoDeHojeFinanceiro = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
   readonly podeCaixa: boolean
   readonly podeContas: boolean
@@ -79,7 +79,9 @@ export class HojeFinanceiroService {
         [ctx.clinicaId],
       )
       const responsavel = cfg.rows[0]?.caixa_responsavel_id ?? null
-      return responsavel === null || responsavel === ctx.ator
+      // `pessoaDoAtor`: sem pessoa, a conta de responsavel definido nao e
+    // "dele". O operador tem `contas.gerir`, que e o ramo que o atende.
+    return responsavel === null || responsavel === pessoaDoAtor(ctx.ator)
     })
   }
 }

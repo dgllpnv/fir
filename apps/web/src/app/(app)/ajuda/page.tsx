@@ -21,11 +21,11 @@ import { sessaoAtual } from '@/lib/sessao'
  * booleano: a tela não repete `temPerm` por item.
  */
 export default async function AjudaPage() {
-  const { eu, perfis } = await sessaoAtual()
+  const { eu, perfis, quem } = await sessaoAtual()
   return (
     <TelaAjuda
       gestao={podeVerConteudoDeGestao(
-        { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId },
+        quem,
         perfis,
       )}
     />

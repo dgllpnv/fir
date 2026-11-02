@@ -15,8 +15,7 @@ import { sessaoAtual } from '@/lib/sessao'
  * `escopo=equipe` sem a permissão, e é ele quem manda.
  */
 export default async function Hoje() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem, minhaPessoaId } = await sessaoAtual()
   const podeEquipe = temPerm(quem, perfis, 'tarefas.equipe')
   // `fechar` cria dinheiro, e o servidor exige `receber` além de `jornada`
   // (decisão D-7). Aqui só se decide se o BOTÃO aparece.
@@ -31,7 +30,7 @@ export default async function Hoje() {
 
   return (
     <TelaHoje
-      eu={eu.usuario.id}
+      eu={minhaPessoaId}
       podeEquipe={podeEquipe}
       podeReceber={podeReceber}
       podeValores={temPerm(quem, perfis, 'valores')}

@@ -18,7 +18,7 @@ import {
 } from '@fir/domain'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { exigePessoa, pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -63,7 +63,7 @@ import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -163,7 +163,7 @@ export class CampanhasService {
                (clinica_id, categoria, foco, nome, objetivo, inicio, fim, metrica,
                 tipo_metrica, meta, criada_por)
              VALUES ($1, $2, $3, $4, $5, $6::date, $7::date, $8, $9, $10, $11)`,
-            [ctx.clinicaId, ...campos, ctx.ator],
+            [ctx.clinicaId, ...campos, pessoaDoAtor(ctx.ator)],
           )
           return
         }
@@ -363,7 +363,9 @@ export class CampanhasService {
           telefones,
           aniversarios,
           campanhaId,
-          ctx.ator,
+          // `pacientes.criado_por` e anulavel; na sessao de suporte nao
+          // houve pessoa da clinica criando (D-13).
+          pessoaDoAtor(ctx.ator),
           limpas.map((l) => l.chave),
         ],
       )
@@ -395,7 +397,9 @@ export class CampanhasService {
              DO NOTHING`,
           [
             ctx.clinicaId,
-            ctx.ator,
+            // `tarefas.solicitante_id` e NOT NULL e guarda uma PESSOA: a
+            // sessao de suporte e recusada (D-13).
+            exigePessoa(ctx.ator),
             l.responsavelId,
             descricao,
             l.prazo,

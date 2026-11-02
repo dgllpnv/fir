@@ -22,7 +22,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -61,7 +61,7 @@ import { gravarMovimento, movimentosDosItens, quantidadeNaSaida } from './movime
  */
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly clinicaCodigo: string
 }
 
@@ -195,7 +195,7 @@ export class ItensService {
           dia: diaDaClinica(this.relogio, fuso),
           lote: d.inicial.lote ?? null,
           obs: 'Inventário inicial',
-          criadoPor: ctx.ator,
+          criadoPor: pessoaDoAtor(ctx.ator),
         })
       }
 
@@ -293,7 +293,7 @@ export class ItensService {
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
                    $19, CASE WHEN $18 THEN NULL ELSE now() END, $20)
            RETURNING id`,
-          [...valores, ctx.clinicaId, ctx.ator],
+          [...valores, ctx.clinicaId, pessoaDoAtor(ctx.ator)],
         )
         return r.rows[0]!.id
       }

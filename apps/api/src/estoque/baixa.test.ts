@@ -1,7 +1,7 @@
 import { Quantidade, ehOk, saldoEmMedida } from '@fir/domain'
 import pg from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import type { PessoaId } from '../banco/ator'
+import type { Ator, PessoaId } from '../banco/ator'
 import type { ClinicaId } from '../banco/clinica-id'
 import {
   apagarClinicaDeTeste,

@@ -204,6 +204,28 @@ export type ClinicaNaLista = z.infer<typeof ClinicaNaLista>
 export const ClinicasDoPainel = z.object({ itens: z.array(ClinicaNaLista) })
 export type ClinicasDoPainel = z.infer<typeof ClinicasDoPainel>
 
+/**
+ * A SESSÃO DE SUPORTE recém-aberta — decisão **D-13**.
+ *
+ * O operador clica na clínica e já entra no sistema dela, logado, com
+ * privilégio de administradora. O que atravessa é o MÍNIMO para a tela abrir
+ * a aba certa e dizer quanto tempo tem: a clínica (que o operador já
+ * escolheu) e o instante em que a sessão morre.
+ *
+ * **Nada de dado de negócio aqui**, pela mesma razão de `ClinicaNaLista`: a
+ * resposta de abrir a sessão não é o lugar de contar quantos pacientes a
+ * clínica tem. O que o operador vai ver, ele vê DENTRO do sistema dela, e
+ * cada leitura lá cai na trilha dela.
+ *
+ * `expiraEm` e não `duracaoEmMinutos`: o prazo é do SERVIDOR (regra 24), e um
+ * número de minutos obrigaria a tela a somá-lo ao relógio do navegador.
+ */
+export const SessaoDeSuporteCriada = z.object({
+  clinica: ClinicaNaLista,
+  expiraEm: z.string().datetime({ offset: true }),
+})
+export type SessaoDeSuporteCriada = z.infer<typeof SessaoDeSuporteCriada>
+
 /** A ficha de pessoa vista pelo painel. **Nunca** hash, nunca provisória. */
 export const PessoaNoPainel = z.object({
   id: Uuid,

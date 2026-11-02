@@ -1,10 +1,11 @@
 import { ConsultaDeHoje, type HojeComProgramas } from '@fir/contracts'
 import { BadRequestException, Controller, Get, Inject, Query, Req } from '@nestjs/common'
+import { pessoaDoAtor } from '../banco/ator'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { HojeFinanceiroService } from '../financeiro/hoje-financeiro.service'
 import { LeituraDeProgramasService } from '../programas/leitura.service'
 import { ConsultaDeTarefasService } from '../tarefas/consulta.service'
-import { autorDe, exigirEscopo } from '../tarefas/leitura'
+import { exigirEscopo, leitorDe } from '../tarefas/leitura'
 
 /**
  * `GET /v1/hoje` — a tela que a clínica deixa aberta o dia inteiro.
@@ -38,7 +39,7 @@ export class HojeController {
     // As TRÊS em paralelo: são leituras independentes, e a tela Hoje é a que a
     // recepção recarrega o dia inteiro.
     const [tarefas, financeiro, sessoes] = await Promise.all([
-      this.consulta.hoje(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), dados.data),
+      this.consulta.hoje(c.clinicaId, c.ator, c.clinicaFuso, leitorDe(c), dados.data),
       this.financeiro.bloco({
         clinicaId: c.clinicaId,
         ator: c.ator,
@@ -63,7 +64,10 @@ export class HojeController {
         { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
         {
           podePrograma: c.pode('programas'),
-          responsavelId: dados.data.escopo === 'equipe' ? null : c.ator,
+          // Na SESSÃO DE SUPORTE (D-13) não há pessoa, e `pessoaDoAtor`
+          // devolve `null`: o escopo "meu" do operador é VAZIO, nunca o de
+          // alguém. Mostrar vazio é resposta legítima.
+          responsavelId: dados.data.escopo === 'equipe' ? null : pessoaDoAtor(c.ator),
         },
       ),
     ])

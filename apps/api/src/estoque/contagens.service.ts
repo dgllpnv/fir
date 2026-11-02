@@ -27,7 +27,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { exigePessoa, pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -66,7 +66,7 @@ import { gravarMovimento, movimentosDosItens, quantidadeNaSaida } from './movime
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -249,7 +249,7 @@ export class ContagensService {
              VALUES ($1, $2, $3, $4::date, $5, $6)
              ON CONFLICT (contagem_id, item_id, lote) DO UPDATE SET milesimos =
                contado_na_contagem.milesimos + excluded.milesimos`,
-            [ctx.clinicaId, id, item.itemId, l.lote, l.quantidade.toString(), ctx.ator],
+            [ctx.clinicaId, id, item.itemId, l.lote, l.quantidade.toString(), pessoaDoAtor(ctx.ator)],
           )
         }
       }
@@ -318,7 +318,7 @@ export class ContagensService {
         d.prazo,
         d.repetir,
         anteriorId,
-        ctx.ator,
+        pessoaDoAtor(ctx.ator),
       ],
     )
     const id = r.rows[0]!.id
@@ -333,7 +333,9 @@ export class ContagensService {
     const tarefa = await c.query<{ id: string }>(
       `INSERT INTO tarefas (clinica_id, solicitante_id, responsavel_id, descricao, prazo)
        VALUES ($1, $2, $3, $4, $5::date) RETURNING id`,
-      [ctx.clinicaId, ctx.ator, d.responsavelId, nome, d.prazo],
+      // `tarefas.solicitante_id` e NOT NULL: a contagem VIRA uma tarefa de
+      // quem vai contar, e a sessao de suporte nao assina tarefa (D-13).
+      [ctx.clinicaId, exigePessoa(ctx.ator), d.responsavelId, nome, d.prazo],
     )
     await c.query('UPDATE contagens_de_estoque SET tarefa_id = $1 WHERE id = $2', [
       tarefa.rows[0]!.id,
@@ -457,7 +459,7 @@ export class ContagensService {
           lote: l.lote,
           contagemId: atual.id,
           obs: atual.nome.slice(0, 120),
-          criadoPor: ctx.ator,
+          criadoPor: pessoaDoAtor(ctx.ator),
         })
       }
     }
@@ -526,6 +528,12 @@ export class ContagensService {
     hoje: string,
   ): Promise<number> {
     let criadas = 0
+    // `tarefas.solicitante_id` e `responsavel_id` são NOT NULL e guardam uma
+    // PESSOA. A tarefa de reposição nasce ao FECHAR a contagem, e fechar
+    // contagem é ritual da clínica — a sessão de suporte é recusada (D-13).
+    // Resolvido UMA vez, fora do laço: dentro dele, a recusa viria depois de
+    // já ter criado as primeiras tarefas.
+    const solicitante = exigePessoa(ctx.ator)
     for (const item of itens) {
       const lotes = rascunho.get(item.item_id)
       if (lotes === undefined || item.minimo === null) continue
@@ -545,11 +553,11 @@ export class ContagensService {
          ON CONFLICT DO NOTHING`,
         [
           ctx.clinicaId,
-          ctx.ator,
+          solicitante,
           // O responsável pelo ITEM, quando há; senão quem contou. É o
           // protótipo (`it.responsavelId || me.id`), e a razão é a do produto:
           // a tarefa precisa cair com alguém, nunca na fila de ninguém.
-          item.responsavel_id ?? ctx.ator,
+          item.responsavel_id ?? solicitante,
           `Repor estoque: ${item.nome} (tem ${contadoTexto}, mínimo ${minimoTexto})`,
           // Dois dias, como o protótipo: repor é urgente mas não é hoje.
           somarDias(hoje, 2),

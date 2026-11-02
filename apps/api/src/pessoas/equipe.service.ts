@@ -36,7 +36,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { diaDaClinica } from '../estoque/dia-da-clinica'
@@ -71,7 +71,7 @@ import { RELOGIO, type Relogio } from '../comum/relogio'
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -366,7 +366,7 @@ export class EquipeService {
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                    CASE WHEN $10 THEN NULL ELSE now() END, $11)
            RETURNING id`,
-          [ctx.clinicaId, ...valores, ctx.ator],
+          [ctx.clinicaId, ...valores, pessoaDoAtor(ctx.ator)],
         )
         return r.rows[0]!.id
       }
@@ -414,7 +414,7 @@ export class EquipeService {
       await c.query(
         `INSERT INTO ferias_da_pessoa (clinica_id, ficha_id, inicio, fim, situacao, criada_por)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [ctx.clinicaId, fichaId, dados.inicio, dados.fim, dados.situacao, ctx.ator],
+        [ctx.clinicaId, fichaId, dados.inicio, dados.fim, dados.situacao, pessoaDoAtor(ctx.ator)],
       )
     })
     return this.ficha(ctx, fichaId)
@@ -444,7 +444,7 @@ export class EquipeService {
       await c.query(
         `INSERT INTO documentos_da_pessoa (clinica_id, ficha_id, nome, validade, criado_por)
          VALUES ($1, $2, $3, $4, $5)`,
-        [ctx.clinicaId, fichaId, dados.nome, dados.validade, ctx.ator],
+        [ctx.clinicaId, fichaId, dados.nome, dados.validade, pessoaDoAtor(ctx.ator)],
       )
     })
     return this.ficha(ctx, fichaId)
@@ -556,7 +556,7 @@ export class EquipeService {
             mes,
             linha.saldoEmMinutos,
             linha.obs,
-            ctx.ator,
+            pessoaDoAtor(ctx.ator),
             [...CONTRATOS_COM_BANCO_DE_HORAS],
           ],
         )
@@ -617,7 +617,7 @@ export class EquipeService {
            DO UPDATE SET limite_de_horas_minutos = excluded.limite_de_horas_minutos,
                          atualizada_em = now(),
                          atualizada_por = excluded.atualizada_por`,
-        [ctx.clinicaId, dados.limiteDeHorasEmMinutos, ctx.ator],
+        [ctx.clinicaId, dados.limiteDeHorasEmMinutos, pessoaDoAtor(ctx.ator)],
       )
       return { limiteDeHorasEmMinutos: dados.limiteDeHorasEmMinutos }
     })

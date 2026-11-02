@@ -12,8 +12,7 @@ import { sessaoAtual } from '@/lib/sessao'
  */
 export default async function Programa({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'programas')) return <SemAcesso tela="Programas" />
   return (
     <FichaDoProgramaNaTela

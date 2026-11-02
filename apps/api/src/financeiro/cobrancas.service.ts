@@ -7,7 +7,7 @@ import type {
 import { diaCivil, Dinheiro, montarMensagemDeCobranca, type SaldoDoPaciente } from '@fir/domain'
 import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { exigePessoa, pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -18,7 +18,7 @@ const DIAS_SEM_CONTATO = 15
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
   readonly clinicaNome: string
 }
@@ -120,7 +120,15 @@ export class CobrancasService {
       // data de negócio é do servidor (regra 24), e o servidor é este.
       await c.query(
         `INSERT INTO cobrancas (clinica_id, paciente_id, canal, por, em) VALUES ($1,$2,$3,$4,$5)`,
-        [ctx.clinicaId, dados.pacienteId, dados.canal, ctx.ator, this.relogio.agora()],
+        // `cobrancas.por` e NOT NULL: quem cobrou a paciente e uma pessoa
+        // da clinica, e a sessao de suporte nao cobra em nome dela (D-13).
+        [
+          ctx.clinicaId,
+          dados.pacienteId,
+          dados.canal,
+          exigePessoa(ctx.ator),
+          this.relogio.agora(),
+        ],
       )
     })
   }
@@ -140,8 +148,10 @@ export class CobrancasService {
       const paciente = p.rows[0]
       if (paciente === undefined) throw new NotFoundException('Paciente não encontrado.')
 
+      // A mensagem de cobranca assina com o nome de quem cobra; sem pessoa
+      // nao ha nome, e a consulta volta vazia.
       const eu = await c.query<{ nome: string }>('SELECT nome FROM pessoas WHERE id = $1', [
-        ctx.ator,
+        pessoaDoAtor(ctx.ator),
       ])
       const cfg = await c.query<{ mensagem_de_cobranca: string }>(
         'SELECT mensagem_de_cobranca FROM configuracao_financeira WHERE clinica_id = $1',

@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common'
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
 import { AcessoInterceptor } from './auditoria/acesso.interceptor'
 import { AuditoriaModule } from './auditoria/auditoria.module'
 import { AutenticacaoModule } from './autenticacao/autenticacao.module'
@@ -13,6 +13,7 @@ import { FinanceiroModule } from './financeiro/financeiro.module'
 import { HojeModule } from './hoje/hoje.module'
 import { JornadaModule } from './jornada/jornada.module'
 import { RedacaoInterceptor } from './comum/redacao.interceptor'
+import { FiltroDeSessaoDeSuporte } from './comum/sessao-de-suporte.filtro'
 import { PacientesModule } from './pacientes/pacientes.module'
 import { PainelGuard } from './painel/painel.guard'
 import { PainelModule } from './painel/painel.module'
@@ -86,6 +87,13 @@ import { TarefasModule } from './tarefas/tarefas.module'
     // uma mudança silenciosa de significado.
     { provide: APP_INTERCEPTOR, useClass: RedacaoInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AcessoInterceptor },
+    /**
+     * A tradução de `SessaoDeSuporteNaoAssina` para 403, num lugar só (D-13).
+     *
+     * `@Catch` com o tipo exato: nenhuma outra exceção passa por ele, e o
+     * tratamento de todo o resto continua sendo o do Nest.
+     */
+    { provide: APP_FILTER, useClass: FiltroDeSessaoDeSuporte },
   ],
 })
 export class AppModule {}

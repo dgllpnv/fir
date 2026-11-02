@@ -20,7 +20,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 
@@ -41,7 +41,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
 }
 
 type LinhaDePessoa = {
@@ -78,7 +78,11 @@ export class AcessoService {
       const r = await c.query<LinhaDePessoa>(
         `${SELECT_PESSOA} ORDER BY ativo DESC, admin DESC, nome`,
       )
-      return { pessoas: r.rows.map((l) => paraSaida(l, ctx.ator)) }
+      // `''` na SESSÃO DE SUPORTE (D-13): o operador não é nenhuma destas
+      // pessoas, então `euMesma` é falso em todas — e a tela não esconde
+      // ação nenhuma dele. Emprestar um id marcaria a linha de uma
+      // funcionária como "você".
+      return { pessoas: r.rows.map((l) => paraSaida(l, pessoaDoAtor(ctx.ator) ?? '')) }
     })
   }
 
@@ -105,7 +109,11 @@ export class AcessoService {
         const novo = dados.acesso.admin
           ? { admin: true, perfilId: null }
           : { admin: false, perfilId: dados.acesso.perfilId }
-        exigirDominio(podeTrocarAcesso(alvo, ctx.ator, novo, equipe))
+        // `''` quando é o operador: ele não é o alvo, então a guarda "não
+        // rebaixe a si mesma" não o alcança — e a de "a clínica nunca fica
+        // sem administradora ativa" continua valendo para ele como para
+        // qualquer um.
+        exigirDominio(podeTrocarAcesso(alvo, pessoaDoAtor(ctx.ator) ?? '', novo, equipe))
 
         if (novo.perfilId !== null) {
           /**
@@ -125,7 +133,7 @@ export class AcessoService {
       }
 
       if (dados.ativo !== undefined && dados.ativo !== alvo.ativo) {
-        exigirDominio(podeDesativar(alvo, ctx.ator, equipe, dados.ativo))
+        exigirDominio(podeDesativar(alvo, pessoaDoAtor(ctx.ator) ?? '', equipe, dados.ativo))
       }
 
       /**
@@ -180,7 +188,7 @@ export class AcessoService {
 
       // Nada de `registrar()` à mão: o trigger `registrar_auditoria` (0004) já
       // gravou quem, quando e de → para.
-      return paraSaida(r.rows[0]!, ctx.ator)
+      return paraSaida(r.rows[0]!, pessoaDoAtor(ctx.ator) ?? '')
     })
   }
 

@@ -93,6 +93,35 @@ chave estável dele volta a ser usável (o índice único é parcial).
 
 A **cadeia de criação** (D-10): superadmin → cria a clínica e a administradora dela; admin → cria a equipe. A cadeia de **"esqueci a senha"** é a mesma, ao contrário: pessoa → o admin redefine; admin → o superadmin redefine; superadmin → **comando na VPS**, por quem tem SSH, gravado na trilha.
 
+### `Sessão de suporte`
+
+A sessão **do produto** que carrega um `Operador` em vez de uma `Pessoa` — é por ela que o
+superadmin abre o sistema de uma clínica já logado, com privilégio de administradora (D-13).
+
+`sessoes` ganhou `operador_id`, `pessoa_id` ficou anulável, e um `CHECK` exige **exatamente um dos
+dois**: nunca nenhum, nunca os dois. Não é um segundo tipo de sessão — é a mesma linha, com outro
+sujeito.
+
+**Invariantes:**
+- **O operador NUNCA vira uma `Pessoa` da clínica.** Nenhuma linha em `pessoas` nasce disto, e por
+  isso ele não aparece em lista de equipe, em seletor de responsável, em contagem de pessoas, em
+  meta nem em banco de horas. Um booleano em `pessoas` já teria perdido o modelo (D-5, restrição 1).
+- **Toda escrita dele cai na `auditoria` DAQUELA clínica com `ator_tipo = 'operador'`** e o id dele,
+  pela trigger — jamais atribuída a uma pessoa. `app.pessoa_id` carrega `operador:<uuid>`, que é a
+  sentinela que a 0013 já ensinou à trigger.
+- **Uma clínica por vez.** A sessão fixa `app.clinica_id` daquela clínica, como qualquer um: nada de
+  `BYPASSRLS`, nada de sessão que alcance duas clínicas. Trocar de clínica é outra sessão.
+- **A tela diz que é ela.** O casco do produto mostra, de forma permanente, a faixa dourada do
+  painel. Uma sessão que parece a de uma administradora faz quem a usa agir achando que é a clínica
+  agindo.
+- **Curta e revogável.** **Trinta minutos**, sem renovação, e `POST /v1/sair` a mata. Sair do painel
+  revoga **todas** as sessões de suporte vivas daquele operador (`revogar_sessoes_de_operador`), e
+  desativar o operador as derruba no instante seguinte — `resolver_sessao` exige `operadores.ativo`.
+
+**`eu.usuario` é `null` nela**, e isso é o desenho: não há pessoa. As telas que dependem de "quem
+sou eu" (filtro *Para mim*, responsável padrão, *Minhas metas*) mostram **vazio** — fingir que o
+operador é alguém poria o nome de uma funcionária numa ação que não foi dela.
+
 ### `Tarefa`
 Qualquer item da rotina: interna, contato, atendimento, pagamento ou sessão. É a entidade mais usada do produto.
 
@@ -416,6 +445,7 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 | **Série** (de conta) | O vínculo que torna uma conta mensal, com a âncora do dia |
 | **Âncora** | O dia original do vencimento (1–31), que sobrevive ao mês curto |
 | **Marcador de rotina** | O rótulo que liga uma tarefa à rotina que a criou |
+| **Sessão de suporte** | A sessão do PRODUTO que carrega um `Operador` em vez de uma `Pessoa`. 30 min, revogável, com faixa permanente na tela |
 | **Perfil de acesso** | Conjunto de permissões por pilar |
 | **Pilar** | Dia a dia · Comercial · Financeiro · Processos · Pessoas · Gestão |
 | **Ficha de pessoa** | O registro de RH de quem trabalha na clínica, com ou sem login |

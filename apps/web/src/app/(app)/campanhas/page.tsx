@@ -14,8 +14,7 @@ import { sessaoAtual } from '@/lib/sessao'
  * novo em cada rota (regra 16). A tela é conveniência; quem protege é a API.
  */
 export default async function CampanhasPage() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'campanhas')) return <SemAcesso tela="Campanhas" />
   return <TelaCampanhas podeGerir={temPerm(quem, perfis, 'campanhas.gerir')} />
 }

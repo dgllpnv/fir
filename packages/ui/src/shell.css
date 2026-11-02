@@ -169,13 +169,50 @@
   border-bottom: 1px solid var(--line);
   padding-top: env(safe-area-inset-top, 0px);
 }
-.topbar .barra {
+/*
+ * **`.barra-do-topo`, e não `.barra`** — e o prefixo é correção de um defeito
+ * MEDIDO em 390 px, o mesmo que a faixa do painel sofreu (ver o cabeçalho de
+ * `superadmin.css`).
+ *
+ * `rotina.css` tem um `.barra` global: a barra de progresso da meta, com
+ * `height: 20px` e `overflow: hidden`. `.topbar .barra` tem especificidade
+ * maior, mas **não declarava `height`** — então a altura vinha do `.barra`
+ * global, e a barra de topo do produto media **21 px**. O botão "Menu", de
+ * 40 px, ficava com `top: -10px` e era cortado pelo `overflow: hidden`.
+ *
+ * Medido no navegador, em 390 px, numa sessão NORMAL (sem nada da D-13):
+ *   topbar  h 21 px        (esperado ~60 px)
+ *   .barra  h 20 px, overflow hidden
+ *   .botao-menu  top -10 px, cortado
+ *
+ * Nenhum teste quebrava: a classe existia, só no arquivo errado. É exatamente
+ * a classe de defeito que `colisoes.test.ts` nasceu para pegar, agora cobrada
+ * também para o produto.
+ */
+.topbar .barra-do-topo {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
   min-width: 0;
 }
+/*
+ * A FAIXA DE SUPORTE CEDE O LUGAR, e não o contrário (D-13).
+ *
+ * As duas são `position: sticky; top: 0`: no mesmo contêiner de rolagem, a
+ * segunda para exatamente embaixo da primeira e a faixa — que tem `z-index`
+ * maior — a esconderia. Medido em 390 px: "Menu" desaparecia atrás do dourado
+ * ao rolar a lista de tarefas.
+ *
+ * `--h-faixa-de-suporte` é declarada em `superadmin.css`, ao lado da faixa, e
+ * é o ÚNICO lugar com o número: lido dos dois lados, ele não pode divergir.
+ * Sem `[data-suporte='sim']` a regra não existe, e a sessão de uma pessoa
+ * continua exatamente como era.
+ */
+.shell[data-suporte='sim'] .topbar {
+  top: calc(var(--h-faixa-de-suporte) + env(safe-area-inset-top, 0px));
+}
+
 .topbar .marca { font-size: 22px; }
 .topbar .quem {
   margin-left: auto;

@@ -300,17 +300,53 @@ Isto **não re-litiga a decisão**. É o que a torna defensável.
 
 ---
 
+## D-13 · O superadmin entra no sistema da clínica logado — a sessão de suporte · 2026-11-02
+
+**O pedido:** no painel, a coluna *Sistema* abria `/entrar?clinica=CODIGO` numa aba nova e a pessoa digitava credencial de novo. O dono quer **clicar e já entrar no sistema da clínica, logado como superadmin, com privilégio de administradora e vendo tudo**.
+
+**O que muda:** a sessão do produto passa a poder carregar um **`Operador`** em vez de uma `Pessoa`. `sessoes.pessoa_id` ficou anulável, entrou `operador_id`, e um `CHECK` exige **exatamente um dos dois** (migration `0022`, forward-only, expand puro). É a *sessão de suporte*: uma linha de `sessoes` comum, na clínica dela, com outro sujeito.
+
+### Os cinco invariantes, e nenhum é negociável
+
+1. **O operador NUNCA vira uma `pessoa` da clínica.** Nenhum `INSERT INTO pessoas` acontece, e por isso ele não aparece em lista de equipe, em seletor de responsável, em contagem de pessoas, em meta nem em banco de horas — não por um `if` em cada tela, mas porque a linha não existe. A D-5 restrição 1 recusa o booleano `superadmin` em `pessoas` pela mesma razão: com ele, a mesma sessão passaria a poder sair do próprio tenant.
+2. **Toda escrita dele cai na `auditoria` DAQUELA clínica com `ator_tipo = 'operador'`** e o id dele, pela trigger — jamais atribuída a uma pessoa. `app.pessoa_id` carrega `operador:<uuid>`, a sentinela que a `0013` já ensinou à trigger. **Nada é chamado à mão.**
+3. **A RLS continua valendo, e é uma clínica por sessão.** A sessão fixa `app.clinica_id` daquela clínica, como qualquer um: nada de `BYPASSRLS`, nada de sessão que alcance duas clínicas. Trocar de clínica é **outra** sessão, e abrir a segunda não move a primeira.
+4. **Quem está usando SABE que é operador.** O casco do produto mostra, de forma permanente, a **faixa dourada do painel** — as mesmas classes, nenhuma regra de CSS duplicada. Uma sessão que parece a de uma administradora faz quem a usa agir achando que é a clínica agindo.
+5. **Curta e revogável: trinta minutos**, sem renovação por uso. O balcão precisa de trinta dias para **não** relogar; o suporte precisa de minutos para **olhar uma coisa**. `POST /v1/sair` a mata, sair do painel revoga **todas** as sessões de suporte vivas daquele operador, e desativar o operador as derruba na requisição seguinte.
+
+### A formulação que vale: **o acesso é total; o registro é obrigatório**
+
+A clínica não pode nos barrar, mas pode nos **ver**. É a mesma frase da D-10, agora com dado de negócio dentro.
+
+### Onde o acesso total PARA, e por que isso não o contradiz
+
+Trinta e tantas colunas do banco guardam *uma pessoa da clínica* (`criada_por`, `responsavel_id`, `lancado_por`). Onde a coluna é **anulável**, ela fica `null` — ninguém da clínica fez aquilo, e quem fez está na trilha. Onde ela é **`NOT NULL`**, a ação é **recusada com 403**: fechar o caixa, registrar um recebimento, definir a meta do mês, conduzir uma 1:1, criar tarefa e montar programa são **rituais da clínica**, feitos por quem trabalha nela. O suporte olha e conserta configuração; ele não faz a rotina da clínica em nome de ninguém. A tradução mora em **uma** função (`pessoaDoAtor` / `exigePessoa`, em `apps/api/src/banco/ator.ts`), nunca num `if` por rota.
+
+Pelo mesmo princípio, `eu.usuario` é **`null`** na sessão de suporte, e as telas de "quem sou eu" (filtro *Para mim*, responsável padrão, *Minhas metas*) mostram **vazio**. Mostrar vazio é resposta legítima; fingir que é alguém não é.
+
+### A consequência que precisa estar escrita
+
+Até aqui o painel **não lia dado de negócio**, e foi isso que o manteve defensável enquanto o DPA não existe (**P-10**). **Esta decisão cruza essa linha:** o operador passa a ver **paciente, dose e valor**. O dono decidiu com isso dito.
+
+Por consequência, **o DPA (P-3) passa a precisar de cláusula de acesso de suporte a dado de saúde** — base legal, finalidade, prazo, quem são os operadores nomeados, e o direito da clínica de auditar o que fizemos dentro dela (que a trilha já entrega). Sem essa cláusula, não há implantação.
+
+### Como derrubar
+
+Não derrube por conveniência. Seguram a decisão: `teste/sessao-de-operador.test.ts` (22 testes, Postgres real), `apps/api/src/painel/sessao-de-suporte.e2e.test.ts` (21 testes, borda HTTP) e `apps/web/src/components/faixa-de-suporte.test.ts` (12 testes, o sinal na tela). Os cinco invariantes têm prova por mutação registrada no relatório da branch.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |
 |---|---|---|---|
 | P-1 | **UX de sessão no balcão** — tempo de sessão, bloqueio de tela, reautenticação rápida. Consequência direta de D-3. **Metade resolvida por D-5**: com trilha de auditoria, "quem fez o quê" deixa de depender de quem logou. Resta o outro lado — uma sessão de 30 dias num computador de balcão atribui a ação à pessoa errada, e nenhuma trilha corrige isso se ela registra sempre o mesmo nome | dono + `product-rotina-clinica` | fechamento do épico 1 |
 | P-2 | **Hospedagem para dado de saúde** — host no Brasil ou garantias contratuais equivalentes. D-4 resolveu onde roda hoje, não se isso satisfaz a avaliação de impacto | dono + `especialista-lgpd-saude` | implantação da primeira clínica |
-| P-3 | **DPA com cada clínica** — a clínica é controladora, nós somos operadores. Não existe implantação sem contrato de tratamento | dono (jurídico) | implantação da primeira clínica |
+| P-3 | **DPA com cada clínica** — a clínica é controladora, nós somos operadores. Não existe implantação sem contrato de tratamento. **D-13 ampliou o escopo (2026-11-02):** o DPA passa a precisar de **cláusula de acesso de suporte a dado de saúde** — base legal, finalidade, prazo, os operadores nomeados e o direito da clínica de auditar o que fizemos dentro dela. Antes da D-13 o painel só tratava identidade, e a cláusula era teórica; agora o acesso **existe de fato** | dono (jurídico) | implantação da primeira clínica |
 | P-4 | **Modelo comercial** — por clínica, por usuário ou por unidade. Define quais cotas precisam ser deriváveis desde já | dono | épico 12 (mas as contagens, desde o épico 1) |
 | P-5 | **Janela de migração das 4 clínicas** — qual clínica primeiro, que dia, quanto tempo de v20 em paralelo | dono + cada clínica | épico 9 |
 | P-6 | **Perfil "Consultoria"** com visão de várias clínicas: existe no produto ou não | dono | épico 12 |
 | P-7 | **Integração com agenda** — validar com Amigo e Support Health se sincronizam e o que vai no compromisso. Construir contra formato suposto é construir duas vezes | dono + clínicas | épico 10 |
 | P-8 | **Domínio e certificado** do ambiente de produção. **D-10 reduziu o escopo:** ele já não bloqueia o e-mail (não há e-mail), e o EasyPanel dá subdomínio com TLS válido. Sobra a **marca** — e um item de segurança que não existia: **se um CDN entrar na frente do Traefik, a allowlist de IP do painel falha ABERTA sem mudar de cor** (ADR 0008). Conferência obrigatória no dia da virada | dono | primeiro deploy |
 | ~~P-9~~ | ~~**SMTP**~~ — **ENCERRADA por D-10 (2026-10-27).** O e-mail saiu do produto: não há convite, não há recuperação por e-mail, não há `nodemailer`. O Mailpit continua no compose para um dia de notificação, **sem código que o chame**. Ela deixou de bloquear qualquer coisa, não só o desenvolvimento | — | nada |
-| P-10 | **Concessão de acesso do operador a dado clínico.** O painel entregue em 2026-10-28 implementa **acesso total com registro obrigatório** (D-10), que é o que a decisão pede. O que ele NÃO implementa é a concessão com motivo, prazo e revogação (D-5, restrições 2 e 4). Enquanto o painel só tratar **identidade**, isso é defensável; **deixa de ser no dia em que ele ler ficha de paciente**, e aí o retrofit custa o mesmo que a D-5 descreveu para a trilha. Ver ADR 0008 | dono + `especialista-lgpd-saude` | leitura de dado de negócio pelo painel (épico 12) |
+| P-10 | **Concessão de acesso do operador a dado clínico. A LINHA FOI CRUZADA em 2026-11-02 (D-13):** o painel agora abre o sistema da clínica e o operador vê paciente, dose e valor. O que segura hoje é *acesso total com registro obrigatório* mais **sessão de trinta minutos e revogável**; o que continua faltando é a concessão com **motivo, prazo e aprovação** (D-5, restrições 2 e 4). Deixou de ser teórico. O painel entregue em 2026-10-28 implementa **acesso total com registro obrigatório** (D-10), que é o que a decisão pede. O que ele NÃO implementa é a concessão com motivo, prazo e revogação (D-5, restrições 2 e 4). Enquanto o painel só tratar **identidade**, isso é defensável; **deixa de ser no dia em que ele ler ficha de paciente**, e aí o retrofit custa o mesmo que a D-5 descreveu para a trilha. Ver ADR 0008 | dono + `especialista-lgpd-saude` | leitura de dado de negócio pelo painel (épico 12) |

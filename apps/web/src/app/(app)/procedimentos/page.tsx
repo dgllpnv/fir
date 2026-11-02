@@ -12,8 +12,7 @@ import { sessaoAtual } from '@/lib/sessao'
  * adesão vai sugerir.
  */
 export default async function Procedimentos() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'config')) return <SemAcesso tela="Procedimentos" />
   return <TelaProcedimentos />
 }

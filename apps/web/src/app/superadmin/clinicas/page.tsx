@@ -1,6 +1,6 @@
 'use client'
 
-import type { ClinicaCriada } from '@fir/contracts'
+import type { ClinicaCriada, ClinicaNaLista, SessaoDeSuporteCriada } from '@fir/contracts'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
@@ -118,24 +118,22 @@ export default function Clinicas() {
                     )}
                   </td>
                   <td className="coluna-acao">
-                    {/* **O link da clínica** — o mesmo que a recepção dela usa
-                        (`GUIA-INSTALACAO.md` da v20). Ele pré-seleciona a
-                        clínica na tela de entrada; ninguém digita o código.
+                    {/* **ENTRAR NO SISTEMA DELA, logado** — D-13.
 
-                        `<a>` e não `<Link>`: sai do painel para o produto, que
-                        é outra árvore de layout, e abre em aba nova porque
-                        quem alterna entre clínicas testando não quer perder o
-                        painel. `rel="noopener"` por hábito, mesmo na mesma
-                        origem. */}
-                    <a
-                      className="link"
-                      href={`/entrar?clinica=${encodeURIComponent(c.codigo)}`}
-                      target="_blank"
-                      rel="noopener"
-                      title={`Abre a tela de entrada já com a clínica ${c.codigo} escolhida`}
-                    >
-                      abrir o sistema dela
-                    </a>
+                        Era um `<a href="/entrar?clinica=CODIGO">`, e a pessoa
+                        digitava credencial de novo: credencial de uma PESSOA
+                        da clínica, que o operador não tem e não pode ter. Hoje
+                        o clique abre uma **sessão de suporte** (o superadmin
+                        dentro da clínica, com acesso total e registro
+                        obrigatório) e a aba nova nasce logada.
+
+                        `<button>` e não `<a>`: é um `POST` que CRIA uma
+                        credencial e revoga a anterior. Um link seria
+                        pré-buscável pelo navegador, e passar o mouse sobre ele
+                        abriria sessão numa clínica que ninguém escolheu — com
+                        a linha de trilha dentro dela dizendo que o operador
+                        entrou. */}
+                    <BotaoDeSuporte clinica={c} />
                   </td>
                 </tr>
               ))}
@@ -308,5 +306,70 @@ function FormularioDeClinica({
         </button>
       </form>
     </details>
+  )
+}
+
+/**
+ * O botão que abre a sessão de suporte e leva para o sistema da clínica.
+ *
+ * ## A ordem é: criar a sessão, DEPOIS abrir a aba
+ *
+ * `window.open` antes da resposta abriria uma aba que cai em `/entrar` — o
+ * cookie ainda não existe. Depois, o `Set-Cookie` já chegou e a aba nova nasce
+ * logada. O preço é que o `window.open` acontece fora do gesto do usuário, e
+ * alguns navegadores o barram como pop-up: por isso, quando `open` devolve
+ * `null`, a tela **diz onde a pessoa deve clicar** em vez de não fazer nada.
+ *
+ * ## Ela confirma a clínica, sempre
+ *
+ * `design.md` §4: toda ação confirma o que aconteceu. "Agi na clínica errada"
+ * é o defeito que o painel pode causar, e o custo de nomeá-la é uma frase.
+ */
+function BotaoDeSuporte({ clinica }: { clinica: ClinicaNaLista }) {
+  const [estado, setEstado] = useState<'pronto' | 'abrindo' | 'bloqueado'>('pronto')
+  const [erro, setErro] = useState('')
+
+  async function abrir() {
+    setEstado('abrindo')
+    setErro('')
+    try {
+      await chamar<SessaoDeSuporteCriada>(
+        `v1/superadmin/clinicas/${clinica.id}/sessao-de-suporte`,
+        { method: 'POST' },
+      )
+      const aba = window.open('/hoje', '_blank', 'noopener')
+      setEstado(aba === null ? 'bloqueado' : 'pronto')
+    } catch (x) {
+      setEstado('pronto')
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="link"
+        onClick={() => void abrir()}
+        disabled={estado === 'abrindo' || !clinica.ativa}
+        title={
+          clinica.ativa
+            ? `Entra no sistema de ${clinica.codigo} logado como operador, por 30 minutos`
+            : 'Clínica desativada: não há sessão a abrir'
+        }
+      >
+        {estado === 'abrindo' ? 'Entrando…' : 'entrar no sistema dela'}
+      </button>
+      {estado === 'bloqueado' ? (
+        <small className="muted">
+          A sessão está aberta. O navegador bloqueou a aba nova —{' '}
+          <a className="link" href="/hoje" target="_blank" rel="noopener">
+            abra o sistema de {clinica.codigo}
+          </a>
+          .
+        </small>
+      ) : null}
+      {erro === '' ? null : <small className="muted">{erro}</small>}
+    </>
   )
 }

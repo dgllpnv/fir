@@ -12,7 +12,7 @@ import {
   Injectable,
   UnprocessableEntityException,
 } from '@nestjs/common'
-import type { PessoaId } from '../banco/ator'
+import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -53,7 +53,7 @@ import {
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -153,8 +153,8 @@ export class MovimentosService {
               obs: d.obs,
               pacienteId: d.pacienteId,
               procedimentoId: d.procedimentoId ?? null,
-              aplicadoPorId: d.aplicadoPorId ?? ctx.ator,
-              criadoPor: ctx.ator,
+              aplicadoPorId: d.aplicadoPorId ?? pessoaDoAtor(ctx.ator),
+              criadoPor: pessoaDoAtor(ctx.ator),
             })
           ).id,
         )
@@ -172,7 +172,7 @@ export class MovimentosService {
                 lote,
                 motivo: 'Sobra de frasco aberto',
                 obs: d.obs,
-                criadoPor: ctx.ator,
+                criadoPor: pessoaDoAtor(ctx.ator),
               })
             ).id,
           )
@@ -194,7 +194,7 @@ export class MovimentosService {
               custo: d.tipo === 'entrada' ? (d.custo ?? null) : null,
               motivo: 'motivo' in d ? d.motivo : '',
               obs: d.obs,
-              criadoPor: ctx.ator,
+              criadoPor: pessoaDoAtor(ctx.ator),
             })
           ).id,
         )

@@ -81,6 +81,34 @@
    * mesmo nos dois.
    */
   --bad-on-gold: #7a2416;
+
+/*
+ * A ALTURA DA FAIXA DE SUPORTE — um número, dois leitores (D-13).
+ *
+ * `superadmin.css` desenha a faixa; `shell.css` desloca a barra de topo do
+ * PRODUTO por baixo dela quando a sessão é de suporte. As duas são
+ * `position: sticky; top: 0`, e sem o deslocamento o botão "Menu" fica
+ * escondido atrás do dourado ao rolar — medido em 390 px.
+ *
+ * Mora aqui, e não na folha da faixa, porque uma `:root` em `superadmin.css`
+ * é uma regra sem classe nenhuma, e `colisoes.test.ts` a reprova com razão:
+ * ela alcança o documento inteiro. Token compartilhado mora no arquivo de
+ * tokens.
+ *
+ * **É um PISO para o primeiro pintar, não a verdade.** A verdade é medida em
+ * tempo de execução por `FaixaDeSuporte` (`ResizeObserver`), e sobrescreve
+ * esta variável no `documentElement`. O motivo está medido: em 390 px a faixa
+ * embrulha em três linhas e mede **128 px**; com o número fixo de 72 px a
+ * barra de topo do produto ficava ATRÁS do dourado e o botão "Menu"
+ * desaparecia ao rolar. Qualquer número aqui é um palpite sobre quantas linhas
+ * o texto ocupa — e ele muda com o nome do operador e com o corpo de fonte do
+ * sistema.
+ *
+ * O valor é o do caso mais alto medido, para que o primeiro quadro erre para
+ * MAIS espaço (barra de topo um pouco abaixo) e nunca para menos (barra de
+ * topo escondida).
+ */
+  --h-faixa-de-suporte: 128px;
 }
 
 /* Tema escuro é par de primeira classe. O seletor manual vence nos dois sentidos. */
@@ -108,6 +136,11 @@
     --bad-soft: #3d1f18;
     color-scheme: dark;
   }
+}
+
+@media (min-width: 720px) {
+  /* Uma linha só: a faixa deixa de embrulhar, como a do painel. Medido: 55 px. */
+  :root { --h-faixa-de-suporte: 55px; }
 }
 
 :root[data-theme='dark'] {

@@ -7,6 +7,7 @@ import {
   type PessoaNoPainel,
   type PessoasDoPainel,
   type SenhaRedefinida,
+  type SessaoDeSuporteCriada,
   Uuid,
 } from '@fir/contracts'
 import {
@@ -22,7 +23,12 @@ import {
   Param,
   Post,
   Req,
+  Res,
 } from '@nestjs/common'
+import type { FastifyReply } from 'fastify'
+import { DURACAO_SESSAO_DE_SUPORTE_MS } from '../autenticacao/sessao'
+import { NOME_DO_COOKIE } from '../autenticacao/sessao.guard'
+import { SessaoDeSuporteService } from './sessao-de-suporte.service'
 import type { ContextoDoPainel, RequisicaoComPainel } from './contexto-do-painel'
 import {
   ClinicaDesativada,
@@ -49,6 +55,7 @@ export class PainelClinicasController {
   constructor(
     @Inject(PainelClinicasService) private readonly clinicas: PainelClinicasService,
     @Inject(PainelPessoasService) private readonly pessoas: PainelPessoasService,
+    @Inject(SessaoDeSuporteService) private readonly suporte: SessaoDeSuporteService,
   ) {}
 
   @Get()
@@ -78,6 +85,54 @@ export class PainelClinicasController {
       }
       throw e
     }
+  }
+
+  /**
+   * ABRE O SISTEMA DA CLÍNICA — a sessão de suporte (D-13).
+   *
+   * Um `POST` e não um `GET`, e a razão não é estética: ela **cria** uma
+   * credencial e revoga a anterior. Um `GET` seria pré-buscável pelo
+   * navegador, e passar o mouse sobre o link na lista de clínicas abriria
+   * sessão numa clínica que ninguém escolheu — com a linha de trilha dentro
+   * dela afirmando que o operador entrou.
+   *
+   * ## O que ela devolve, e o que ela PÕE
+   *
+   * O corpo é o mínimo (a clínica e o prazo). O que importa é o `Set-Cookie`
+   * do **cookie do produto** — é ele que faz a aba nova nascer logada. Mesmos
+   * atributos do `/v1/entrar`, com um prazo de trinta minutos em vez de trinta
+   * dias.
+   *
+   * `sameSite: 'lax'` e não `'strict'` como o cookie do painel: a aba nova é
+   * uma navegação de topo vinda do painel, e com `strict` o cookie não
+   * acompanharia o primeiro `GET` da página — a pessoa cairia em `/entrar`
+   * depois de clicar em "entrar logado".
+   *
+   * ## A consequência que precisa estar dita
+   *
+   * O cookie do produto é **um por navegador** (`__Host-`, `Path=/`). Abrir
+   * uma sessão de suporte SUBSTITUI o cookie de qualquer sessão de produto
+   * que esse navegador tivesse. No computador do operador isso é o que se
+   * quer; é por isso que ele não é o computador da clínica.
+   */
+  @Post(':clinicaId/sessao-de-suporte')
+  @HttpCode(HttpStatus.CREATED)
+  async abrirSessaoDeSuporte(
+    @Param('clinicaId') clinicaId: string,
+    @Req() req: RequisicaoComPainel,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<SessaoDeSuporteCriada> {
+    const painel = painelDe(req)
+    const clinica = await this.resolver(clinicaId)
+    const { token, saida } = await this.suporte.abrir(clinica, painel.ator)
+    res.setCookie(NOME_DO_COOKIE, token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: Math.floor(DURACAO_SESSAO_DE_SUPORTE_MS / 1000),
+    })
+    return saida
   }
 
   @Get(':clinicaId/pessoas')

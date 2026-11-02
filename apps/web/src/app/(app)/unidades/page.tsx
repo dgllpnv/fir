@@ -11,8 +11,7 @@ import { sessaoAtual } from '@/lib/sessao'
  * atendimento é parte de atender —, mas a tela que CADASTRA é configuração.
  */
 export default async function Unidades() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'config')) return <SemAcesso tela="Unidades" />
   return <TelaUnidades />
 }

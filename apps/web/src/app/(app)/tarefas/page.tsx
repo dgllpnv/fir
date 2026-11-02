@@ -14,13 +14,12 @@ import { sessaoAtual } from '@/lib/sessao'
  * `escopo=equipe` sem a permissão, e é ele quem manda.
  */
 export default async function Tarefas() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem, minhaPessoaId } = await sessaoAtual()
   const podeEquipe = temPerm(quem, perfis, 'tarefas.equipe')
   const podeReceber = temPerm(quem, perfis, 'receber')
   return (
     <TelaTarefas
-      eu={eu.usuario.id}
+      eu={minhaPessoaId}
       podeEquipe={podeEquipe}
       podeReceber={podeReceber}
       podeValores={temPerm(quem, perfis, 'valores')}

@@ -12,6 +12,7 @@ import { PainelPessoasService } from './painel-pessoas.service'
 import { PainelController } from './painel.controller'
 import { PainelGuard } from './painel.guard'
 import { PainelService } from './painel.service'
+import { SessaoDeSuporteService } from './sessao-de-suporte.service'
 
 /**
  * O painel do superadmin. Módulo próprio, controlador próprio, cookie
@@ -28,6 +29,7 @@ import { PainelService } from './painel.service'
     PainelService,
     PainelClinicasService,
     PainelPessoasService,
+    SessaoDeSuporteService,
     PainelGuard,
     provedorDeRelogio,
     {

@@ -1,6 +1,7 @@
 import { SENHA_MAX, canonizarUsuario } from '@fir/domain'
 import { z } from 'zod'
 import { DiaCivil, Uuid } from './comum'
+import { OperadorPublico } from './superadmin'
 
 export const EntrarEntrada = z.object({
   // A clínica entra aqui, no contrato, e não lida solta do corpo no
@@ -70,25 +71,63 @@ export const ClinicaPublica = z.object({
 })
 export type ClinicaPublica = z.infer<typeof ClinicaPublica>
 
-/** O que `GET /v1/eu` devolve. A tela monta o menu a partir de `perfis`. */
-export const EuSaida = z.object({
-  usuario: PessoaPublica,
-  clinica: ClinicaPublica,
-  perfis: z.array(PerfilPublico),
-  /**
-   * **O dia de negócio, do SERVIDOR, no fuso da clínica** (regra 24).
-   *
-   * Toda tela que precisa saber "que dia é hoje" — o `max` de um campo de
-   * data, o agrupamento de contas vencidas, o mês corrente da Visão do mês —
-   * lê daqui. O relógio do navegador não decide isso, e o do servidor web
-   * tampouco: é um terceiro relógio, e a clínica que abre às 23h55 veria o
-   * dia virar antes dela.
-   *
-   * Vem em `/v1/eu` porque toda página já resolve a sessão; uma rota só para
-   * perguntar a data seria uma ida a mais em cada navegação.
-   */
-  hoje: DiaCivil,
-})
+/**
+ * O que `GET /v1/eu` devolve. A tela monta o menu a partir de `perfis`.
+ *
+ * ## `usuario` É ANULÁVEL, e isso é a decisão D-13
+ *
+ * A sessão do produto pode carregar um **`Operador`** em vez de uma
+ * `Pessoa` — é a *sessão de suporte*, por onde o superadmin abre o sistema
+ * da clínica já logado. Nela **não existe pessoa**, e `usuario` é `null`.
+ *
+ * A alternativa era devolver uma pessoa fabricada com o nome do operador, e
+ * ela foi recusada: `eu.usuario.id` é usado como "quem sou eu" em cinco
+ * telas (filtro *Para mim*, responsável padrão, *Minhas metas*), e um id
+ * inventado ali poria o nome de uma funcionária real — ou um id que não
+ * existe — numa ação que não é dela. **Mostrar vazio é resposta legítima;
+ * fingir que é alguém não é.**
+ *
+ * O `superRefine` cobra o XOR no CONTRATO, do mesmo jeito que o `CHECK
+ * sessao_tem_um_sujeito` o cobra no banco: os dois nulos seriam uma sessão
+ * sem sujeito, e os dois preenchidos deixariam "quem está agindo" com duas
+ * respostas.
+ */
+export const EuSaida = z
+  .object({
+    usuario: PessoaPublica.nullable(),
+    /**
+     * O OPERADOR do painel, presente **só** na sessão de suporte (D-13).
+     *
+     * Ele está aqui para a tela poder dizer, de forma permanente, que aquela
+     * sessão é do painel. Uma sessão de suporte que parece a de uma
+     * administradora normal faz quem a usa agir achando que é a clínica agindo.
+     */
+    operador: OperadorPublico.nullable(),
+    clinica: ClinicaPublica,
+    perfis: z.array(PerfilPublico),
+    /**
+     * **O dia de negócio, do SERVIDOR, no fuso da clínica** (regra 24).
+     *
+     * Toda tela que precisa saber "que dia é hoje" — o `max` de um campo de
+     * data, o agrupamento de contas vencidas, o mês corrente da Visão do mês —
+     * lê daqui. O relógio do navegador não decide isso, e o do servidor web
+     * tampouco: é um terceiro relógio, e a clínica que abre às 23h55 veria o
+     * dia virar antes dela.
+     *
+     * Vem em `/v1/eu` porque toda página já resolve a sessão; uma rota só para
+     * perguntar a data seria uma ida a mais em cada navegação.
+     */
+    hoje: DiaCivil,
+  })
+  .superRefine((v, ctx) => {
+    if ((v.usuario === null) === (v.operador === null)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'A sessão tem exatamente um sujeito: uma pessoa OU um operador — nunca os dois, nunca nenhum.',
+      })
+    }
+  })
 export type EuSaida = z.infer<typeof EuSaida>
 
 export const EntrarSaida = EuSaida

@@ -222,7 +222,16 @@ export type MovimentoParaGravar = {
   readonly contagemId?: string | null
   /** A NOTA que trouxe esta entrada. Só em `tipo = 'entrada'`. */
   readonly notaId?: string | null
-  readonly criadoPor: PessoaId
+  /**
+   * Quem escreveu o movimento — `null` quando não foi uma pessoa da clínica.
+   *
+   * `movimentos_de_estoque.criado_por` é ANULÁVEL, e a D-13 deu um segundo
+   * ocupante honesto para o `null`: a **sessão de suporte** do operador.
+   * Nenhuma pessoa da clínica criou aquele movimento, e quem criou está na
+   * `auditoria` dela com `ator_tipo = 'operador'`. Inventar um id aqui
+   * assinaria o movimento com o nome de uma funcionária.
+   */
+  readonly criadoPor: PessoaId | null
 }
 
 /**

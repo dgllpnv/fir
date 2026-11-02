@@ -34,7 +34,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import type pg from 'pg'
-import type { PessoaId } from '../banco/ator'
+import { exigePessoa, pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -73,7 +73,7 @@ import { type RealizadoPorIndicador, realizadoDosIndicadores } from './indicador
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
   readonly fuso: string
 }
 
@@ -148,7 +148,11 @@ export class MetasService {
         await c.query<LinhaDeFichaDaMeta>(
           `SELECT id, nome, cargo, pessoa_id FROM fichas_de_pessoa
             WHERE pessoa_id = $1 AND excluida_em IS NULL`,
-          [ctx.ator],
+          // `pessoaDoAtor` e não `ctx.ator`: na sessão de suporte (D-13) não
+          // há pessoa, `null` não casa com ficha nenhuma, e a resposta é
+          // `temFicha: false` — "Minhas metas" do operador sai VAZIA. É o que
+          // se quer: ele não tem meta, e mostrar a de alguém seria pior.
+          [pessoaDoAtor(ctx.ator)],
         )
       ).rows[0]
       if (f === undefined) {
@@ -162,7 +166,7 @@ export class MetasService {
         mes,
         hoje,
       })
-      const metas = linhas.map((l) => montarMeta(l, realizado.get(ctx.ator)))
+      const metas = linhas.map((l) => montarMeta(l, realizado.get(pessoaDoAtor(ctx.ator) ?? '')))
       return {
         mes,
         temFicha: true,
@@ -220,7 +224,7 @@ export class MetasService {
           dados.indicador,
           dados.nome,
           alvo.toString(),
-          ctx.ator,
+          pessoaDoAtor(ctx.ator),
         ],
       )
       if (r.rowCount === 0) {
@@ -326,7 +330,7 @@ export class MetasService {
            ON CONFLICT (clinica_id, ficha_id, mes, indicador, nome)
              WHERE excluida_em IS NULL
              DO NOTHING`,
-          [dados.de, para, ctx.ator],
+          [dados.de, para, pessoaDoAtor(ctx.ator)],
         )
         return { copiadas: r.rowCount ?? 0, naOrigem: Number(origem.rows[0]!.n) }
       },
@@ -378,7 +382,9 @@ export class MetasService {
           dados.fichaId,
           dados.data,
           dados.mes,
-          ctx.ator,
+          // `conversas_1a1.por_id` e NOT NULL: conduzir uma 1:1 e ritual
+          // da clinica, e a sessao de suporte nao a conduz (D-13).
+          exigePessoa(ctx.ator),
           dados.fortes,
           dados.desenvolver,
           dados.combinados,
@@ -389,7 +395,7 @@ export class MetasService {
       const combinados = emLinhas(dados.combinados)
       if (combinados.length === 0) return 0
 
-      const responsavel = f.pessoa_id ?? ctx.ator
+      const responsavel = f.pessoa_id ?? exigePessoa(ctx.ator)
       const prazo = somarDias(hoje, DIAS_DO_COMBINADO)
       let criadas = 0
       for (const combinado of combinados) {
@@ -400,7 +406,7 @@ export class MetasService {
            VALUES ($1, $2, $3, $4, $5::date, 'normal', 'aberta', '[]', '', $6, '')`,
           [
             ctx.clinicaId,
-            ctx.ator,
+            exigePessoa(ctx.ator),
             responsavel,
             // O prefixo é o dela, e ele é o que torna a tarefa legível meses
             // depois, quando ninguém lembra de qual 1:1 o combinado saiu.
@@ -461,7 +467,7 @@ export class MetasService {
            ON CONFLICT (clinica_id, marcador, prazo)
              WHERE marcador IS NOT NULL AND excluida_em IS NULL
              DO NOTHING`,
-          [ctx.clinicaId, ctx.ator, r.descricao, prazo, r.marcador],
+          [ctx.clinicaId, exigePessoa(ctx.ator), r.descricao, prazo, r.marcador],
         )
         criadas += feito.rowCount ?? 0
       }

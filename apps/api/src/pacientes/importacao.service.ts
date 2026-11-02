@@ -2,7 +2,7 @@ import type { ImportarPacientes, LinhaDeImportacao, ResultadoDaImportacao } from
 import { diaCivil, type Relogio } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
-import type { Ator } from '../banco/ator'
+import { pessoaDoAtor, type Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
@@ -295,7 +295,7 @@ export class ImportacaoDePacientesService {
         linhas.map((l) => l.aniversario),
         linhas.map((l) => l.ultimaConsulta),
         unidadeId,
-        typeof ator === 'string' ? ator : null,
+        pessoaDoAtor(ator),
       ],
     )
     return r.rowCount ?? 0

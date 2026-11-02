@@ -9,7 +9,7 @@ import type {
 import { diaCivil, type Relogio, type SaldoDoPaciente, somarDias, TIPOS } from '@fir/domain'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import type pg from 'pg'
-import type { Ator } from '../banco/ator'
+import { pessoaDoAtor, type Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
@@ -213,7 +213,7 @@ export class PacientesService {
             unidade,
             ultima,
             dados.obs,
-            typeof ator === 'string' ? ator : null,
+            pessoaDoAtor(ator),
           ],
         )
         id = r.rows[0]!.id

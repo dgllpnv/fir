@@ -217,6 +217,18 @@
 .superadmin-faixa .botao-faixa svg { width: 16px; height: 16px; flex: none; }
 .superadmin-faixa .botao-faixa:hover { background: var(--on-gold); color: var(--gold); }
 .superadmin-faixa .botao-faixa:disabled { opacity: 0.55; cursor: default; }
+/*
+ * ALVO DE TOQUE no celular. Medido em 390 px: 34 px de altura, que é alvo de
+ * caneta — `design.md` §1 pede o contrário, porque quem usa a ferramenta está
+ * com a mão ocupada. No computador 34 px bastam (é mouse), e a faixa fica mais
+ * baixa; abaixo de 720 px ela cresce o que precisar.
+ *
+ * Vale para a faixa do painel E para a faixa da sessão de suporte do produto
+ * (D-13), que veste as mesmas classes — uma regra, dois lugares.
+ */
+@media (max-width: 719px) {
+  .superadmin-faixa .botao-faixa { min-height: 44px; }
+}
 /* O foco da base é um `outline` dourado — sobre a faixa dourada ele
    desapareceria. Aqui o contorno é escuro, pela mesma razão de todo o resto. */
 .superadmin-faixa :focus-visible { outline-color: var(--on-gold); }

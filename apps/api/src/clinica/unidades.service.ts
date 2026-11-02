@@ -1,6 +1,6 @@
 import type { EditarUnidade, ListaDeUnidades, SalvarUnidade, UnidadeNaLista } from '@fir/contracts'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
-import type { PessoaId } from '../banco/ator'
+import type { Ator, PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 
@@ -17,7 +17,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 
 type Contexto = {
   readonly clinicaId: ClinicaId
-  readonly ator: PessoaId
+  readonly ator: Ator
 }
 
 type LinhaDeUnidade = { id: string; nome: string; endereco: string; ativa: boolean }

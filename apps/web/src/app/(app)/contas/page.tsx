@@ -11,15 +11,14 @@ import { sessaoAtual } from '@/lib/sessao'
  * tela nunca chega a conhecê-la.
  */
 export default async function Contas() {
-  const { eu, perfis } = await sessaoAtual()
-  const quem = { admin: eu.usuario.admin, perfilId: eu.usuario.perfilId ?? '' }
+  const { eu, perfis, quem, minhaPessoaId } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'contas')) return <SemAcesso tela="Contas a pagar" />
   return (
     <TelaContas
       hoje={eu.hoje}
       mes={eu.hoje.slice(0, 7)}
       podeGerir={temPerm(quem, perfis, 'contas.gerir')}
-      euId={eu.usuario.id}
+      euId={minhaPessoaId}
     />
   )
 }
