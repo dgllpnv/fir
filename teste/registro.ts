@@ -516,6 +516,11 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'movimentos_de_estoque',
   'motivos_de_perda',
   'notas_de_entrada',
+  // O épico 9 (0021): a chave de idempotência da migração da v20. Ela tem
+  // `clinica_id` e por isso entra na convenção inteira — RLS, FORCE, policy e
+  // trigger — mesmo não sendo lida por rota nenhuma. É exatamente a tabela que
+  // uma lista mantida à mão esqueceria: ninguém a vê na tela.
+  'origens_da_v20',
   'pacientes',
   'procedimentos',
   'programas',

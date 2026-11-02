@@ -387,10 +387,15 @@ export class PainelService {
      * sem olhar caixa nenhum). Divergência consciente, como a do `saldo` que
      * não é clampado em zero.
      *
-     * `forma = ''` não acontece: `DINHEIRO_QUE_ENTROU` exige `valor > 0`, e o
-     * `CHECK recebimento_forma_so_com_dinheiro` garante que valor positivo tem
-     * forma. A `coalesce` para "Não informada" é o cinto do dado MIGRADO
-     * (épico 9), que não passou por esse `CHECK`.
+     * `forma = ''` ACONTECE, e o épico 9 confirmou: a v20 só passou a pedir a
+     * forma na v17, e `migrarPagamentos()` grava `''` de propósito. O `CASE`
+     * para "Não informada" era "o cinto do dado migrado" e passou a ser o
+     * caminho normal dele — a migration 0021 relaxou
+     * `recebimento_forma_so_com_dinheiro` justamente para aceitar o fato.
+     * Aqui ele APARECE, com nome, porque este bloco é informativo e já está
+     * atrás do corte do caixa fechado; o que ele **não** pode fazer é entrar no
+     * esperado de um caixa ABERTO, e é disso que `NA_GAVETA` cuida no
+     * `caixa.service`.
      */
     /**
      * **Os parâmetros destas duas consultas são PRÓPRIOS, e não `args`.**

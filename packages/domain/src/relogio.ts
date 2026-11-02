@@ -73,6 +73,36 @@ export function diaCivil(instante: Date, fuso: string): string {
   return `${p['year']}-${p['month']}-${p['day']}`
 }
 
+/**
+ * O instante UTC de um relógio de parede `dia` + `HH:mm` **no fuso da clínica**.
+ *
+ * Existe para o épico 9: a v20 grava `criadaEm`, `concluidaEm` e `criadoEm`
+ * com `Utilities.formatDate(…, 'America/Bahia', …)`, ou seja o arquivo tem a
+ * hora LOCAL da clínica sem marcador de fuso. Montá-la com `new Date(texto)`
+ * a interpretaria como UTC e deslocaria o histórico inteiro de três horas —
+ * e o deslocamento muda o DIA de tudo o que foi lançado antes das 03:00
+ * (regra 22).
+ *
+ * As duas passadas são as mesmas de `inicioDoDia`, pela mesma razão: o
+ * deslocamento depende do instante, e o palpite pode cair do outro lado de
+ * uma mudança de horário de verão. Bahia teve horário de verão até 2012 e
+ * **há dado migrado desse período** nas clínicas; com uma passada só, uma
+ * hora de 2011 entraria com uma hora de erro.
+ *
+ * Hora inexistente (o salto para o horário de verão) **não** é corrigida para
+ * frente aqui, diferente de `inicioDoDia`: `01:30` num dia em que o relógio
+ * pulou de 00:00 para 01:00 nunca foi gravado pela v20 — ela formatou a hora
+ * a partir de um instante que existiu. O que esta função garante é a volta
+ * exata para qualquer hora que exista.
+ */
+export function instanteLocal(dia: string, hora: string, fuso: string): Date {
+  const [a, m, d] = dia.split('-').map(Number)
+  const [hh, mm] = hora.split(':').map(Number)
+  const comoUtc = Date.UTC(a ?? 1970, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0, 0)
+  const primeiro = new Date(comoUtc - deslocamentoMinutos(new Date(comoUtc), fuso) * 60_000)
+  return new Date(comoUtc - deslocamentoMinutos(primeiro, fuso) * 60_000)
+}
+
 /** O instante UTC em que o dia civil começa no fuso da clínica. */
 export function inicioDoDia(dia: string, fuso: string): Date {
   const [a, m, d] = dia.split('-').map(Number)

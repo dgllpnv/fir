@@ -144,9 +144,32 @@ describe('D-9 — a linha existe', () => {
     ).rejects.toThrow(/recebimento_valor_nao_negativo/)
   })
 
-  it('forma preenchida com valor ZERO é recusada, e forma vazia com valor é também', async () => {
-    // A bicondicional. Sem ela, "Pix" num recebimento de zero faria o caixa
-    // (se algum dia parasse de filtrar) mostrar um Pix que ninguém fez.
+  /**
+   * **A BICONDICIONAL PERDEU UMA METADE, E A OUTRA É A QUE IMPORTA.**
+   *
+   * Era `CHECK ((valor > 0) = (forma <> ''))`. A migration 0021 (épico 9) a
+   * trocou por `CHECK (forma = '' OR valor > 0)`, e as duas metades têm
+   * histórias diferentes:
+   *
+   * **A que FICA — forma preenchida exige dinheiro.** É a medida: não existe
+   * forma de pagamento para dinheiro que não se moveu, e "Pix" num recebimento
+   * de R$ 0,00 apareceria como um Pix que ninguém fez no primeiro lugar que
+   * parasse de filtrar.
+   *
+   * **A que CAIU — dinheiro exige forma.** Era uma suposição, e o dado real das
+   * três clínicas a refutou: a v20 só passou a pedir a forma de pagamento na
+   * v17, e `migrarPagamentos()` grava `formaPagamento: ''` de propósito em todo
+   * valor que converteu. Com a metade de pé, 64 recebimentos de uma clínica não
+   * entrariam no banco — e inventar uma forma para eles faria a conferência do
+   * caixa comparar a gaveta com um Pix que ninguém fez, que é exatamente o que
+   * a outra metade existe para impedir.
+   *
+   * **O que a D-9 perde com isso: nada.** A venda a prazo é `valor = 0`, e
+   * `DINHEIRO_QUE_ENTROU` (`valor > 0`) já a exclui sozinho. O que o caixa
+   * ganhou foi um filtro PRÓPRIO, `NA_GAVETA`, cobrado em
+   * `teste/dinheiro-que-entrou.test.ts`. Ver ADR 0009.
+   */
+  it('forma preenchida com valor ZERO é recusada — e dinheiro SEM forma é aceito (ADR 0009)', async () => {
     const inserir = (valor: string, forma: string) =>
       c.migrate.query(
         `INSERT INTO recebimentos
@@ -155,7 +178,10 @@ describe('D-9 — a linha existe', () => {
         [c.clinica, c.pacientes['ana'], c.pessoas['beatriz'], valor, forma],
       )
     await expect(inserir('0', 'Pix')).rejects.toThrow(/recebimento_forma_so_com_dinheiro/)
-    await expect(inserir('120000', '')).rejects.toThrow(/recebimento_forma_so_com_dinheiro/)
+
+    // O dado MIGRADO: dinheiro que entrou, forma que a v20 nunca registrou.
+    const r = await inserir('120000', '')
+    expect(r.rowCount).toBe(1)
   })
 })
 

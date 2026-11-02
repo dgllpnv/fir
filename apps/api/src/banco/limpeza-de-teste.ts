@@ -125,6 +125,13 @@ export async function apagarOperadorDeTeste(cliente: pg.Client, operadorId: stri
  * que as chaves estrangeiras permitem apagar.
  */
 const EM_ORDEM_DE_APAGAR = [
+  // A PRIMEIRA, e por um motivo: `origens_da_v20` (0021) referencia só
+  // `clinicas`, mas o `id_interno` dela aponta por CONVENÇÃO para linhas de
+  // tudo o que vem abaixo — sem FK, de propósito, porque o destino é uma
+  // tabela diferente por entidade. Apagá-la antes mantém o laço legível: a
+  // ordem aqui é a das chaves estrangeiras, e esta linha não tem nenhuma para
+  // obedecer.
+  'origens_da_v20',
   // Filho antes de pai: `recebimentos` aponta para `tarefas`, `pacientes` e
   // (desde a 0010) `programas`.
   'recebimentos',

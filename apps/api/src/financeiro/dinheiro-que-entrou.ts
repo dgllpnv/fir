@@ -35,9 +35,45 @@
  * Cola no `WHERE` de quem pergunta "quanto DINHEIRO entrou". Pressupõe a
  * tabela `recebimentos` aliasada como `r`.
  *
- * A segunda metade é redundante com a primeira enquanto
- * `recebimento_forma_so_com_dinheiro` existir — e está aqui exatamente por
- * isso: ela é a asserção de que as duas colunas contam a mesma história, e
- * cai junto se alguém relaxar a constraint.
+ * ## A SEGUNDA METADE CAIU, E ELA MESMA PREVIU ISSO
+ *
+ * Até o épico 9 isto era `r.valor > 0 AND r.forma <> ''`, com a nota de que a
+ * segunda metade "é a asserção de que as duas colunas contam a mesma história,
+ * e cai junto se alguém relaxar a constraint". A constraint foi relaxada na
+ * migration 0021, e a asserção caiu — **porque o dado real das três clínicas a
+ * refutou**: a v20 só passou a pedir a forma de pagamento na v17, e
+ * `migrarPagamentos()` grava `formaPagamento: ''` de propósito em todo valor
+ * convertido. São 64 recebimentos de uma clínica e 1 de cada uma das outras
+ * duas, com dinheiro que ENTROU e forma que ninguém registrou.
+ *
+ * Com a segunda metade, esses 64 pagamentos sairiam da receita, do LTV e da
+ * Visão do mês — e a conferência da regra 28 reprovaria a clínica por uma
+ * receita que o migrador não perdeu: a consulta a escondeu.
+ *
+ * **A D-9 continua inteira sem ela.** A venda a prazo é `valor = 0`; `valor >
+ * 0` sozinho já a exclui. A metade que caiu nunca separou nada — ela só
+ * concordava.
  */
-export const DINHEIRO_QUE_ENTROU = `r.valor > 0 AND r.forma <> ''`
+export const DINHEIRO_QUE_ENTROU = `r.valor > 0`
+
+/**
+ * **O QUE ESTÁ NA GAVETA** — o filtro do caixa do dia, POR FORMA.
+ *
+ * É a string antiga de `DINHEIRO_QUE_ENTROU`, com o nome que ela sempre
+ * mereceu. A diferença entre as duas perguntas é física:
+ *
+ *   *"quanto entrou"*  → receita, LTV, Visão do mês. Inclui o pagamento cuja
+ *   forma a v20 não registrou: o dinheiro entrou.
+ *
+ *   *"quanto deveria estar em cada forma"* → o caixa do dia, que compara o
+ *   esperado com o que a recepção CONTOU, forma por forma. Um pagamento sem
+ *   forma não tem linha de gaveta contra a qual ser conferido; incluí-lo
+ *   criaria um grupo de nome vazio no esperado, e a conferência acusaria uma
+ *   diferença que ninguém causou — a recepcionista procuraria por uma hora um
+ *   erro que ela não cometeu.
+ *
+ * Nenhuma linha escrita PELO PRODUTO cai nessa diferença: `recebimentos.service`
+ * exige a forma quando há valor. A diferença existe só para o dado migrado, e
+ * só nos dias que já passaram.
+ */
+export const NA_GAVETA = `r.valor > 0 AND r.forma <> ''`

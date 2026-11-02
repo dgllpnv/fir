@@ -45,6 +45,35 @@ const AREAS = ['apps/api/src']
 const FILTRO = '${DINHEIRO_QUE_ENTROU}'
 
 /**
+ * **O FILTRO DO CAIXA, que é mais ESTREITO — e por que ele existe (épico 9).**
+ *
+ * Até a migração das clínicas, `DINHEIRO_QUE_ENTROU` era
+ * `r.valor > 0 AND r.forma <> ''`, e a nota original dizia que a segunda
+ * metade "cai junto se alguém relaxar a constraint". A migration 0021 a
+ * relaxou, porque o dado real das três clínicas refutou a suposição: a v20 só
+ * passou a pedir a forma de pagamento na v17, e `migrarPagamentos()` grava
+ * `formaPagamento: ''` de propósito. São 64 recebimentos de uma clínica e 1 de
+ * cada uma das outras duas com dinheiro que ENTROU e forma que ninguém
+ * registrou.
+ *
+ * A pergunta se partiu em duas, e as duas continuam sendo UMA constante cada:
+ *
+ *   `DINHEIRO_QUE_ENTROU` (`valor > 0`) — receita, LTV, Visão do mês, lista do
+ *   dia, funil, painel. A D-9 continua inteira: a venda a prazo é `valor = 0`.
+ *
+ *   `NA_GAVETA` (`valor > 0 AND forma <> ''`) — só o CAIXA DO DIA, que confere
+ *   forma por forma contra o que a recepção contou. Um pagamento sem forma não
+ *   tem linha de gaveta contra a qual ser conferido.
+ *
+ * Ver `docs/adr/0009-conversao-de-valor-na-migracao.md`.
+ */
+const FILTRO_DA_GAVETA = '${NA_GAVETA}'
+
+/** Carrega UM dos dois — nunca nenhum. */
+const temFiltro = (texto: string): boolean =>
+  texto.includes(FILTRO) || texto.includes(FILTRO_DA_GAVETA)
+
+/**
  * Uma consulta que **soma ou lista o valor recebido**, em texto de SQL.
  *
  * `sum(r.valor)` e `r.valor::text AS valor` são as duas formas em que a
@@ -120,7 +149,7 @@ describe('D-9 — o filtro do dinheiro que entrou', () => {
     const faltando = producao
       .filter((x) => SOMA_OU_LISTA.test(x.texto))
       .filter((x) => FORA_DA_VARREDURA[x.rel] === undefined)
-      .filter((x) => !x.texto.includes(FILTRO))
+      .filter((x) => !temFiltro(x.texto))
       .map((x) => x.rel)
 
     expect(faltando).toEqual([])
@@ -131,8 +160,11 @@ describe('D-9 — o filtro do dinheiro que entrou', () => {
     // arquivo que perde a consulta inteira numa refatoração e sai da varredura
     // por não casar mais com o padrão — e aí "nenhum faltando" passa a ser
     // verdade por ausência.
-    const comFiltro = new Set(producao.filter((x) => x.texto.includes(FILTRO)).map((x) => x.rel))
+    const comFiltro = new Set(producao.filter((x) => temFiltro(x.texto)).map((x) => x.rel))
     for (const caminho of [
+      // O caixa carrega `NA_GAVETA`, que é o MESMO filtro de antes do épico 9
+      // com o nome que ele sempre mereceu — e o `it` abaixo cobra que seja
+      // justamente ele, e não o mais largo.
       'apps/api/src/financeiro/caixa.service.ts',
       'apps/api/src/financeiro/recebimentos.service.ts',
       'apps/api/src/financeiro/visao-do-mes.service.ts',
@@ -147,16 +179,48 @@ describe('D-9 — o filtro do dinheiro que entrou', () => {
     }
   })
 
-  it('o filtro é UMA constante, e ela exige valor E forma', () => {
+  it('são DUAS constantes, num arquivo só, e cada uma diz o que diz', () => {
     const fonte = readFileSync(
       join(RAIZ, 'apps/api/src/financeiro/dinheiro-que-entrou.ts'),
       'utf8',
     )
-    // As duas metades. A segunda é redundante com a primeira enquanto
-    // `recebimento_forma_so_com_dinheiro` existir, e está lá exatamente por
-    // isso: ela cai junto se alguém relaxar a constraint.
-    expect(fonte).toContain('r.valor > 0')
-    expect(fonte).toContain(`r.forma <> ''`)
+    // "Quanto entrou" é `valor > 0`, e é ele que exclui a venda a prazo.
+    expect(fonte).toContain('DINHEIRO_QUE_ENTROU = `r.valor > 0`')
+    // "O que está na gaveta" exige a forma, porque é por forma que a
+    // recepção conta a gaveta.
+    expect(fonte).toContain(`NA_GAVETA = \`r.valor > 0 AND r.forma <> ''\``)
+  })
+
+  /**
+   * **O CAIXA usa o filtro ESTREITO, e nenhum outro lugar usa.**
+   *
+   * As duas metades deste teste, e cada uma mata um erro:
+   *
+   *  - o caixa com o filtro LARGO poria um pagamento sem forma no esperado,
+   *    num grupo de nome vazio, e a conferência acusaria uma diferença que
+   *    ninguém causou — o pior caso descrito na própria constante;
+   *  - a RECEITA com o filtro estreito esconderia 64 pagamentos migrados de
+   *    uma clínica, e a conferência da regra 28 reprovaria por uma receita que
+   *    o migrador não perdeu: a consulta a escondeu.
+   */
+  it('o filtro ESTREITO é exclusivo do caixa do dia', () => {
+    const naGaveta = producao
+      .filter((x) => x.texto.includes(FILTRO_DA_GAVETA))
+      .map((x) => x.rel)
+    expect(naGaveta).toEqual(['apps/api/src/financeiro/caixa.service.ts'])
+
+    const caixa = producao.find((x) => x.rel === 'apps/api/src/financeiro/caixa.service.ts')!
+    expect(caixa.texto).not.toContain(FILTRO)
+
+    // E a RECEITA e o LTV usam o largo, nunca o estreito.
+    for (const rel of [
+      'apps/api/src/pacientes/pacientes.service.ts',
+      'apps/api/src/financeiro/visao-do-mes.service.ts',
+    ]) {
+      const arquivo = producao.find((x) => x.rel === rel)!
+      expect(arquivo.texto, `${rel} tem de usar o filtro LARGO`).toContain(FILTRO)
+      expect(arquivo.texto).not.toContain(FILTRO_DA_GAVETA)
+    }
   })
 
   it('o SALDO continua FORA — ele soma o que a paciente deve', () => {
@@ -165,5 +229,6 @@ describe('D-9 — o filtro do dinheiro que entrou', () => {
     // D-9 perderia a razão de existir. A exceção é deliberada, e este teste é
     // o que a torna uma decisão em vez de um esquecimento.
     expect(saldo.texto).not.toContain(FILTRO)
+    expect(saldo.texto).not.toContain(FILTRO_DA_GAVETA)
   })
 })
