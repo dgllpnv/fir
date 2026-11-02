@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CHAVE_DA_CLINICA,
-  CLINICA_DE_DESENVOLVIMENTO,
+  SEM_CLINICA,
   clinicaDoParametro,
   clinicaInicial,
   resolverClinica,
@@ -67,8 +67,8 @@ describe('qual clínica a tela abre', () => {
   it('memória fora da forma canônica não pré-seleciona nada', () => {
     // `localStorage` é escrevível por qualquer script da origem e sobrevive a
     // versões antigas da tela. Passa pelo mesmo portão do parâmetro.
-    expect(clinicaInicial('', 'NÃO VALE')).toBe(CLINICA_DE_DESENVOLVIMENTO)
-    expect(clinicaInicial('', null)).toBe(CLINICA_DE_DESENVOLVIMENTO)
+    expect(clinicaInicial('', 'NÃO VALE')).toBe(SEM_CLINICA)
+    expect(clinicaInicial('', null)).toBe(SEM_CLINICA)
   })
 
   it('a chave da memória é estável — trocá-la esquece a clínica de 4 clínicas', () => {
@@ -82,8 +82,27 @@ describe('qual clínica a tela abre', () => {
     expect(resolverClinica('?clinica=demo', null)).toEqual({ codigo: 'demo', origem: 'link' })
     expect(resolverClinica('', 'demo')).toEqual({ codigo: 'demo', origem: 'memoria' })
     expect(resolverClinica('', null)).toEqual({
-      codigo: CLINICA_DE_DESENVOLVIMENTO,
+      codigo: SEM_CLINICA,
       origem: 'padrao',
     })
+  })
+})
+
+describe('o padrão não chuta clínica nenhuma', () => {
+  it('sem link e sem memória, o campo nasce VAZIO', () => {
+    // Era `demo`, e em produção isso preenchia uma clínica que não existe
+    // lá: a pessoa digitava a senha certa e recebia "usuário ou senha
+    // incorretos". Medido pelo dono, na tela de produção.
+    expect(clinicaInicial('', null)).toBe('')
+    expect(clinicaInicial('', 'NÃO VALE')).toBe('')
+    expect(clinicaInicial('?outra=coisa', null)).toBe('')
+  })
+
+  it('e o link e a memória continuam vencendo o vazio', () => {
+    expect(clinicaInicial('?clinica=raphaella', null)).toBe('raphaella')
+    expect(clinicaInicial('', 'suzana')).toBe('suzana')
+    // O link vence a memória: quem abriu o endereço de outra clínica quis a
+    // outra clínica.
+    expect(clinicaInicial('?clinica=joice', 'suzana')).toBe('joice')
   })
 })

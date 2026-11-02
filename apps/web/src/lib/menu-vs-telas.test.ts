@@ -48,3 +48,22 @@ describe('o menu não mente sobre quais telas existem', () => {
     }
   })
 })
+
+describe('o painel do superadmin não cai no catch-all do produto', () => {
+  it('existe uma página índice em /superadmin', () => {
+    // Medido em produção, pelo dono: sem ela, `/superadmin` não casa com rota
+    // nenhuma do painel e cai em `(app)/[...rota]` — grupo de rota não
+    // acrescenta segmento, então aquele arquivo responde por qualquer caminho
+    // solto. O catch-all resolve sessão DE CLÍNICA, não acha, e desvia para
+    // `/entrar`.
+    //
+    // O efeito era pior que um 404: quem digitava o endereço do painel caía na
+    // tela de entrada do sistema da clínica, via o campo de clínica, e não
+    // tinha como saber que estava no lugar errado.
+    const indice = join(APP, '..', 'superadmin', 'page.tsx')
+    expect(
+      existsSync(indice),
+      '/superadmin sem page.tsx cai no catch-all do produto e desvia para /entrar',
+    ).toBe(true)
+  })
+})

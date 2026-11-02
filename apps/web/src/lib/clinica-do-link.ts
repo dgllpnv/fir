@@ -23,13 +23,20 @@ import { canonizarUsuario, ehErro, validarUsuario } from '@fir/domain'
 export const CHAVE_DA_CLINICA = 'fir.clinica'
 
 /**
- * O código que a tela oferece quando não há link nem memória.
+ * O que a tela oferece quando não há link nem memória: **nada**.
  *
- * `demo` é a clínica de desenvolvimento e de demonstração. Ela não é palpite
- * sobre a clínica de ninguém: numa máquina de desenvolvimento é sempre a
- * certa, e em produção quem tem o link nunca chega aqui.
+ * Era `'demo'`, com o argumento de que "em produção quem tem o link nunca
+ * chega aqui". **Medido em produção: chega.** O dono abriu a tela sem link,
+ * o campo nasceu preenchido com `demo` — clínica que só existe na máquina de
+ * desenvolvimento —, ele digitou a senha certa e recebeu *"usuário ou senha
+ * incorretos"*. A mensagem estava certa e era inútil: o errado era o campo
+ * que já veio preenchido.
+ *
+ * Campo vazio obriga a digitar, e digitar é o que faz a pessoa reparar no
+ * que está digitando. Um palpite errado custa uma das cinco tentativas por
+ * quinze minutos e esconde a causa.
  */
-export const CLINICA_DE_DESENVOLVIMENTO = 'demo'
+export const SEM_CLINICA = ''
 
 /**
  * O código canônico, ou `''` quando o que veio não é um código de clínica.
@@ -94,7 +101,7 @@ export function resolverClinica(busca: string, guardada: string | null): Clinica
   const daMemoria = codigoDeClinicaOuVazio(guardada)
   if (daMemoria !== '') return { codigo: daMemoria, origem: 'memoria' }
 
-  return { codigo: CLINICA_DE_DESENVOLVIMENTO, origem: 'padrao' }
+  return { codigo: SEM_CLINICA, origem: 'padrao' }
 }
 
 /** Só o código. Atalho para quem não precisa da origem. */
