@@ -43,7 +43,11 @@ Na ordem em que eu tentaria: `firmare.com.br` · `firmare.app` · `usefirmare.co
 
 **O que eu faço depois:** troco duas variáveis, subo de novo, e o Traefik emite o certificado sozinho. Cerca de dez minutos.
 
-## 2 · Provedor de e-mail
+## ~~2 · Provedor de e-mail~~ — **ENCERRADO (D-10, 2026-10-27)**
+
+**Não há mais e-mail no produto.** Você trocou e-mail por usuário e senha: o superadmin cria os admins das clínicas, e cada admin cria a equipe dela. Não existe convite, não existe recuperação por e-mail, e não há `nodemailer` no código. O texto abaixo fica como registro do que a decisão tornou desnecessário.
+
+### O que era
 
 **O que destrava:** hoje ninguém cria conta. Sem isso, nenhuma clínica cadastra a própria equipe — nem no ensaio da migração.
 
@@ -53,9 +57,11 @@ Na ordem em que eu tentaria: `firmare.com.br` · `firmare.app` · `usefirmare.co
 
 **Depende do item 1:** o provedor precisa de um domínio seu para verificar.
 
-## 3 · Onde a VPS fica fisicamente — **e aqui o FIR é diferente do Mavia**
+## ~~3 · Onde a VPS fica fisicamente~~ — **MEDIDO E DECIDIDO (D-11, 2026-11-02)**
 
-A VPS é Hostinger, `2.24.79.49`. **Eu não consegui confirmar a região**: tentei acessar por SSH e o modo de permissão desta sessão bloqueou. Isso não aparece em documento nenhum do Mavia.
+A VPS é Hostinger, `2.24.79.49`, e fica em **Boston, Estados Unidos** — confirmado por SSH, não suposto. Você decidiu deixá-la lá (*"não importe com a localização, deixe ela lá, só garanta que vai funcionar"*).
+
+**O que sobra disso não é infraestrutura, é contrato:** transferência internacional de dado de saúde exige base legal e garantias registradas, e isso virou **cláusula obrigatória do DPA** (item 4). O resto do texto abaixo fica como registro do porquê.
 
 **Por que importa aqui e não importava lá:** o Mavia guarda dado financeiro. O FIR guarda **dado de saúde de paciente** — dose aplicada, lote, procedimento. É dado sensível do art. 11 da LGPD, e transferência internacional tem regra própria.
 
