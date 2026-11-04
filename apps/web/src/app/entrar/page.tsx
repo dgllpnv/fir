@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 /* O olho mora em `lib/icones` desde que a entrada do PAINEL passou a usar o
    mesmo: duas cópias do mesmo traço divergem na primeira correção. */
@@ -25,20 +25,6 @@ import { clinicaGuardada, lembrarClinica, resolverClinica } from '@/lib/clinica-
  */
 export default function Entrar() {
   const router = useRouter()
-  /**
-   * `?sessao=encerrada` — **a frase que P-1 tornou obrigatória.**
-   *
-   * Com a sessão de 30 dias ninguém via esta tela duas vezes, e um desvio
-   * mudo para `/entrar` era defensável. Agora a sessão termina no fim do dia
-   * da clínica e a recepcionista encontra esta tela TODA MANHÃ: sem a frase,
-   * ela conclui que a ferramenta a deslogou sozinha, e um sistema que parece
-   * instável é um sistema que ninguém deixa aberto.
-   *
-   * Quem chega sem cookie nenhum — primeira visita, ou clicou em Sair — não
-   * vê nada. Não houve surpresa, e explicar o óbvio é ruído na tela de quem
-   * está com o telefone tocando.
-   */
-  const expirou = useSearchParams().get('sessao') === 'encerrada'
   const [clinica, setClinica] = useState('')
   /**
    * `true` quando a clínica veio do link ou da memória do aparelho — e aí o
@@ -137,13 +123,9 @@ export default function Entrar() {
         </div>
 
         <div className="cartao">
-          {expirou ? (
-            <p className="aviso-de-sessao" role="status">
-              <b>O dia de trabalho foi encerrado.</b> A sessão termina ao fim de cada dia, de
-              propósito: é o que faz o registro de quem fez cada coisa apontar para a pessoa
-              certa. Entre de novo para continuar.
-            </p>
-          ) : null}
+          <Suspense fallback={null}>
+            <AvisoDeSessaoEncerrada />
+          </Suspense>
           {doLink ? (
             /* A clínica já está resolvida. Ela continua visível — quem entra
                precisa saber em qual clínica vai entrar —, mas não ocupa um
@@ -243,5 +225,40 @@ export default function Entrar() {
         </div>
       </form>
     </main>
+  )
+}
+
+/**
+ * `?sessao=encerrada` — **a frase que P-1 tornou obrigatória.**
+ *
+ * Com a sessão de 30 dias ninguém via esta tela duas vezes, e um desvio mudo
+ * para `/entrar` era defensável. Agora a sessão termina no fim do dia da
+ * clínica e a recepcionista encontra esta tela TODA MANHÃ: sem a frase, ela
+ * conclui que a ferramenta a deslogou sozinha — e um sistema que parece
+ * instável é um sistema que ninguém deixa aberto.
+ *
+ * Quem chega sem cookie nenhum — primeira visita, ou clicou em Sair — não vê
+ * nada. Não houve surpresa, e explicar o óbvio é ruído na tela de quem está
+ * com o telefone tocando.
+ *
+ * **Por que é um componente separado, e não um `useSearchParams` na página.**
+ * `useSearchParams` tira o componente inteiro da pré-renderização, e o
+ * `next build` recusa: *"useSearchParams() should be wrapped in a suspense
+ * boundary at page /entrar"*. Medido — o build de produção quebrou.
+ *
+ * Envolver a página toda num `Suspense` resolveria o build e pioraria a tela:
+ * a entrada é a primeira coisa que a recepcionista vê, e ela passaria a
+ * aparecer depois da hidratação. Isolando só o aviso, o formulário continua
+ * pré-renderizado e o `fallback={null}` não pisca nada — a frase simplesmente
+ * aparece, e só para quem precisa dela.
+ */
+function AvisoDeSessaoEncerrada() {
+  if (useSearchParams().get('sessao') !== 'encerrada') return null
+  return (
+    <p className="aviso-de-sessao" role="status">
+      <b>O dia de trabalho foi encerrado.</b> A sessão termina ao fim de cada dia, de propósito: é
+      o que faz o registro de quem fez cada coisa apontar para a pessoa certa. Entre de novo para
+      continuar.
+    </p>
   )
 }

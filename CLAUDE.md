@@ -210,7 +210,11 @@ pnpm db:migrate
 pnpm db:seed
 ```
 
-Antes de dizer que algo está pronto: `pnpm typecheck && pnpm test`. Sem exceção.
+Antes de dizer que algo está pronto: **`pnpm typecheck && pnpm test && pnpm build`**. Sem exceção.
+
+**O `build` entrou na lista porque a falta dele custou um deploy.** Em 2026-11-04 a suíte passou com 2.474 testes, o `typecheck` e o `lint` limpos — e o `next build` quebrou na VPS: `useSearchParams()` numa página sem `Suspense` é erro de pré-renderização, e **nada antes do build o vê**. Dizer "verde" sem ter rodado o build é afirmar sobre um comando que não foi executado.
+
+Pior: o `outputs` do `turbo.json` listava só `dist/**`, então o build do `web` (que sai em `.next/`) era cacheado **sem nenhuma saída registrada** — um acerto de cache reportava sucesso sem restaurar nada. Corrigido junto; é o tipo de defeito que esconde o próximo.
 
 **Produção:** mesma VPS do Mavia, **ao lado e nunca dentro** da orquestração do EasyPanel — containers comuns descobertos pelo Traefik por label, Postgres próprio, rede de dados sem rota de saída, só o `web` encarando a internet. Detalhe em `.claude/agents/sre-devops-vps.md` e no padrão de `infra/producao/` do Mavia.
 
