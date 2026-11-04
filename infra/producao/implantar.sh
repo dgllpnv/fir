@@ -162,10 +162,24 @@ set +a
 # Traefik também o recusaria, e três linhas de shell no lugar certo poupam a
 # viagem.
 IPS_DO_PAINEL=${IPS_DO_PAINEL:-127.0.0.1/32}
+# **IPv4 e IPv6.** A primeira versão só aceitava IPv4, e o deploy recusou
+# `0.0.0.0/0,::/0` — a forma de abrir o painel que o próprio script diz, vinte
+# linhas abaixo, que não vai recusar. Medido em produção, no dia em que o dono
+# pediu para abrir o painel para a PO testar: o deploy parou no passo 2 e a
+# mensagem acusava de inválida uma lista que estava certa.
+#
+# Abrir para a internet exige as DUAS famílias: o Traefik atende em IPv6 e um
+# `0.0.0.0/0` sozinho deixaria de fora quem chega por IPv6 — que num celular em
+# rede móvel é o caminho comum. Uma allowlist que bloqueia metade dos clientes
+# ao ser "aberta" é o meio-caminho que ninguém depura, porque funciona na
+# máquina de quem testou.
+cidr4='[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}'
+cidr6='[0-9A-Fa-f:]+/[0-9]{1,3}'
 if ! printf '%s' "$IPS_DO_PAINEL" \
-   | grep -Eq '^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}(,[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2})*$'; then
+   | grep -Eq "^($cidr4|$cidr6)(,($cidr4|$cidr6))*$"; then
   echo "ERRO: IPS_DO_PAINEL não é uma lista de CIDRs válida: '$IPS_DO_PAINEL'" >&2
   echo "      Formato: 203.0.113.7/32  ou  203.0.113.7/32,198.51.100.0/24" >&2
+  echo "      Aberto para todos, deliberadamente: 0.0.0.0/0,::/0" >&2
   echo "      Para fechar o painel para todos: 127.0.0.1/32" >&2
   exit 1
 fi
