@@ -19,6 +19,15 @@ cd infra/producao && bash implantar.sh
 ./redefinir-superadmin.sh <usuario> "Nome"   # cria o PRIMEIRO operador
 ```
 
+**Os dois `docker build` não são opcionais, e o `implantar.sh` passou a cobrá-los.**
+Ele recusa quando uma imagem é mais antiga que o último commit que mexeu nas
+entradas dela (`apps/api` ou `apps/web`, mais `packages/` e o lockfile). Sem
+essa guarda, rodar só o segundo comando fazia as oito asserções passarem e o
+container seguir com a imagem anterior — `docker compose up` imprime `Running`
+em vez de `Started`, numa linha que ninguém lê como erro. Um commit que mexe
+só na API não exige reconstruir o `web`: a comparação é por app, não com
+`HEAD`.
+
 `implantar.sh` é idempotente: rodar duas vezes não recria segredo, não reaplica
 migration e não perde dado. Ele faz os passos 1 a 5 abaixo e termina com oito
 asserções — **um deploy que não é verificado não é um deploy**.
