@@ -202,6 +202,51 @@ done
 echo "==> allowlist do painel: $IPS_DO_PAINEL"
 
 # ---------------------------------------------------------------------------
+# 2.5 · a imagem é do commit que está aqui?
+# ---------------------------------------------------------------------------
+# **O deploy que mente.** Este script não constrói imagem — o README manda
+# construir antes, em dois comandos. Quem roda só o segundo vê as oito
+# asserções passarem, lê "FIR em https://…" e vai embora convencido de que
+# implantou. O que subiu foi a imagem anterior, e o `docker compose up` nem
+# recria o container: ele imprime `Running` em vez de `Started`, numa linha
+# que ninguém lê como erro porque não é erro.
+#
+# Medido aqui, com o dono esperando: o deploy "passou" e nada do código novo
+# estava na VPS. O custo de descobrir isso depois é alto porque o sintoma é a
+# ausência de uma mudança — não há erro para procurar, só uma tela que
+# continua igual, e a primeira suspeita recai sobre o código.
+#
+# A comparação é entre o instante da imagem e o do commit de `HEAD`. Não é
+# perfeita: um `git reset` para um commit ANTIGO com imagem nova passa. Mas o
+# caso que acontece de verdade é o oposto — código novo, imagem velha — e é
+# esse que ela recusa.
+if [ -d ../../.git ]; then
+  commit_em=$(git -C ../.. log -1 --format=%cI 2>/dev/null || echo '')
+  for imagem in fir/api:mais-recente fir/web:mais-recente; do
+    imagem_em=$(docker image inspect "$imagem" --format '{{.Created}}' 2>/dev/null || echo '')
+    if [ -z "$imagem_em" ]; then
+      echo "ERRO: a imagem $imagem não existe. Construa antes:" >&2
+      echo "      nice -n 19 docker build -f apps/api/Dockerfile -t fir/api:mais-recente ." >&2
+      echo "      nice -n 19 docker build -f apps/web/Dockerfile -t fir/web:mais-recente ." >&2
+      exit 1
+    fi
+    # Comparação em epoch: `date -d` lê os dois formatos ISO.
+    if [ -n "$commit_em" ] \
+       && [ "$(date -d "$imagem_em" +%s)" -lt "$(date -d "$commit_em" +%s)" ]; then
+      echo "ERRO: $imagem é ANTERIOR ao commit de HEAD." >&2
+      echo "      imagem: $imagem_em" >&2
+      echo "      commit: $commit_em  ($(git -C ../.. log -1 --format=%h%x20%s))" >&2
+      echo "      Reconstrua antes de implantar — senão o deploy sobe o código antigo" >&2
+      echo "      e termina dizendo que deu certo:" >&2
+      echo "      cd ../.. && nice -n 19 docker build -f apps/api/Dockerfile -t fir/api:mais-recente ." >&2
+      echo "                 nice -n 19 docker build -f apps/web/Dockerfile -t fir/web:mais-recente ." >&2
+      exit 1
+    fi
+  done
+  echo "==> imagens em dia com $(git -C ../.. log -1 --format=%h)"
+fi
+
+# ---------------------------------------------------------------------------
 # 3 · dados
 # ---------------------------------------------------------------------------
 # O `10-papeis.sh` roda **aqui**, uma vez, na criação do volume, e é ele que
