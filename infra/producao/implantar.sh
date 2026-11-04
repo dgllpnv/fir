@@ -216,34 +216,60 @@ echo "==> allowlist do painel: $IPS_DO_PAINEL"
 # ausência de uma mudança — não há erro para procurar, só uma tela que
 # continua igual, e a primeira suspeita recai sobre o código.
 #
-# A comparação é entre o instante da imagem e o do commit de `HEAD`. Não é
-# perfeita: um `git reset` para um commit ANTIGO com imagem nova passa. Mas o
-# caso que acontece de verdade é o oposto — código novo, imagem velha — e é
-# esse que ela recusa.
+# A comparação é entre o instante da imagem e o do **último commit que tocou
+# as entradas daquela imagem** — não o de `HEAD`.
+#
+# **Isso foi medido, e a primeira versão estava errada.** Ela comparava com
+# `HEAD`, e recusou um deploy correto: o commit mexia só na API, o build do
+# `web` ficou inteiro em cache, e uma imagem reaproveitada **mantém o
+# `Created` antigo**. Resultado — a guarda que existia para impedir deploy de
+# código velho impediu o deploy do código novo, e saiu antes do `compose up`.
+# Um app que não mudou não precisa de imagem nova, e dizer o contrário
+# obrigaria a reconstruir os dois a cada commit de um.
+#
+# Os caminhos de cada app incluem `packages/` e o lockfile porque os dois
+# entram nos dois builds: uma mudança em `packages/domain` muda o bundle do
+# `web` mesmo sem ninguém tocar em `apps/web`.
+#
+# Não é perfeita: um `git reset` para um commit ANTIGO com imagem nova passa.
+# Mas o caso que acontece de verdade é o oposto — código novo, imagem velha —
+# e é esse que ela recusa.
 if [ -d ../../.git ]; then
-  commit_em=$(git -C ../.. log -1 --format=%cI 2>/dev/null || echo '')
-  for imagem in fir/api:mais-recente fir/web:mais-recente; do
-    imagem_em=$(docker image inspect "$imagem" --format '{{.Created}}' 2>/dev/null || echo '')
+  verificar_imagem() {
+    nome=$1
+    shift
+    imagem_em=$(docker image inspect "$nome" --format '{{.Created}}' 2>/dev/null || echo '')
     if [ -z "$imagem_em" ]; then
-      echo "ERRO: a imagem $imagem não existe. Construa antes:" >&2
+      echo "ERRO: a imagem $nome não existe. Construa antes:" >&2
       echo "      nice -n 19 docker build -f apps/api/Dockerfile -t fir/api:mais-recente ." >&2
       echo "      nice -n 19 docker build -f apps/web/Dockerfile -t fir/web:mais-recente ." >&2
       exit 1
     fi
+    commit_em=$(git -C ../.. log -1 --format=%cI -- "$@" 2>/dev/null || echo '')
+    # Sem commit tocando estes caminhos não há o que comparar — repositório
+    # recém-clonado com histórico raso, por exemplo. Avisar e seguir é certo:
+    # recusar o deploy por falta de histórico seria pior que o risco.
+    [ -n "$commit_em" ] || return 0
     # Comparação em epoch: `date -d` lê os dois formatos ISO.
-    if [ -n "$commit_em" ] \
-       && [ "$(date -d "$imagem_em" +%s)" -lt "$(date -d "$commit_em" +%s)" ]; then
-      echo "ERRO: $imagem é ANTERIOR ao commit de HEAD." >&2
+    if [ "$(date -d "$imagem_em" +%s)" -lt "$(date -d "$commit_em" +%s)" ]; then
+      echo "ERRO: $nome é ANTERIOR ao último commit que mexeu nela." >&2
       echo "      imagem: $imagem_em" >&2
-      echo "      commit: $commit_em  ($(git -C ../.. log -1 --format=%h%x20%s))" >&2
+      echo "      commit: $commit_em" >&2
+      echo "              $(git -C ../.. log -1 --format=%h%x20%s -- "$@")" >&2
       echo "      Reconstrua antes de implantar — senão o deploy sobe o código antigo" >&2
       echo "      e termina dizendo que deu certo:" >&2
       echo "      cd ../.. && nice -n 19 docker build -f apps/api/Dockerfile -t fir/api:mais-recente ." >&2
       echo "                 nice -n 19 docker build -f apps/web/Dockerfile -t fir/web:mais-recente ." >&2
       exit 1
     fi
-  done
-  echo "==> imagens em dia com $(git -C ../.. log -1 --format=%h)"
+  }
+
+  COMUNS="packages pnpm-lock.yaml package.json pnpm-workspace.yaml turbo.json"
+  # shellcheck disable=SC2086
+  verificar_imagem fir/api:mais-recente apps/api $COMUNS
+  # shellcheck disable=SC2086
+  verificar_imagem fir/web:mais-recente apps/web $COMUNS
+  echo "==> imagens em dia com o que mudou em cada uma"
 fi
 
 # ---------------------------------------------------------------------------
