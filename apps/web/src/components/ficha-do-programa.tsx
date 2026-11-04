@@ -359,7 +359,7 @@ function AcoesDeGestao({
     setErro(null)
     setOcupado(true)
     try {
-      await chamar(`v1/programas/${id}`, { method: '' })
+      await chamar(`v1/programas/${id}`, { method: 'DELETE' })
       router.push('/programas')
     } catch (e) {
       // A MENSAGEM DO SERVIDOR INTEIRA. Ela já diz "Estorne-os antes de

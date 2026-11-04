@@ -86,8 +86,10 @@ export class ImportacaoDeItensService {
         const r = await c.query<{ id: string; criado: boolean; mexeu: boolean }>(
           `INSERT INTO itens_de_estoque
              (clinica_id, nome, codigo, categoria, medida, minimo, custo,
-              local_id, unidade_id, responsavel_id, controla_validade, criado_por)
-           VALUES ($1, $2, $3, $4, coalesce(nullif($5, ''), 'un.'), $6, $7, $8, $9, $10, true, $11)
+              local_id, unidade_id, responsavel_id, controla_validade,
+              alta_rotatividade, criado_por)
+           VALUES ($1, $2, $3, $4, coalesce(nullif($5, ''), 'un.'), $6, $7, $8, $9, $10,
+                   $11, $12, $13)
            ON CONFLICT (clinica_id, nome_chave) WHERE excluido_em IS NULL
            DO UPDATE SET
              codigo         = coalesce(nullif(itens_de_estoque.codigo, ''), excluded.codigo),
@@ -116,6 +118,11 @@ export class ImportacaoDeItensService {
             localId,
             d.unidadeId ?? null,
             d.responsavelId ?? pessoaDoAtor(ctx.ator),
+            // Só no `VALUES`: as duas não entram no `DO UPDATE SET` nem no seu
+            // `WHERE`, porque a importação não completa booleano — ver o
+            // comentário de `LinhaDeItemImportado` em `contracts`.
+            l.controlaValidade,
+            l.altaRotatividade,
             pessoaDoAtor(ctx.ator),
           ],
         )

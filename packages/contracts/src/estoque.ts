@@ -320,6 +320,24 @@ export const LinhaDeItemImportado = z
     local: z.string().trim().max(40).default(''),
     minimo: quantidadeEmTexto.nullish(),
     custo: dinheiroEmTexto.nullish(),
+    /**
+     * As duas colunas de sim/não da planilha modelo, e elas valem **só na
+     * criação**.
+     *
+     * Medido no protótipo (`case "importarItensEstoque"`): a lista de `comp()`
+     * — o que a reimportação completa — tem `codigo`, `categoria`, `localId`,
+     * `custo` e `minimo`, e **não tem estas duas**. Um item que já existe
+     * atravessa a importação com o sim/não que a clínica escolheu na tela,
+     * qualquer que seja o da planilha. Completar um booleano seria impossível
+     * de fazer direito: `false` não é "vazio", é uma resposta.
+     *
+     * `controlaValidade` ausente vale **`true`**, não `false` — é a linha
+     * `x.controlaValidade===undefined ? true : !!x.controlaValidade` do
+     * protótipo. Medicamento sem validade controlada é o padrão errado numa
+     * clínica.
+     */
+    altaRotatividade: z.boolean().default(false),
+    controlaValidade: z.boolean().default(true),
   })
   .strict()
 export type LinhaDeItemImportado = z.infer<typeof LinhaDeItemImportado>

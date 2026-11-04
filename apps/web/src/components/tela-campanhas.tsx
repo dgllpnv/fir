@@ -13,7 +13,10 @@ import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
-import { diaCurto, plural } from '@/lib/formato'
+import { lerTabelaDeCampanha, type Lidas } from '@/lib/campanha-importada'
+import { dataDoDiaCivil, diaCurto, plural } from '@/lib/formato'
+import { baixarModeloDeCampanha } from '@/lib/modelos'
+import { lerTabela } from '@/lib/planilha'
 import { Carregando, Erro, Toast, Vazio } from './estados'
 
 /**
@@ -342,7 +345,12 @@ function Importar({
   const [prazo, setPrazo] = useState(campanha.fim)
   const [responsavelId, setResponsavelId] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [lendo, setLendo] = useState(false)
+  const [doArquivo, setDoArquivo] = useState<Lidas | null>(null)
+  const [nomeDoArquivo, setNomeDoArquivo] = useState('')
+  const [erroDoArquivo, setErroDoArquivo] = useState<string | null>(null)
   const equipe = useDados<ListaDaEquipe>(aberto ? 'v1/equipe' : null)
+  const pessoas = equipe.dados?.equipe ?? []
 
   if (!aberto) {
     return (
@@ -352,7 +360,7 @@ function Importar({
     )
   }
 
-  const linhas = texto
+  const coladas = texto
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l !== '')
@@ -363,6 +371,59 @@ function Importar({
       const [nome = '', telefone = '', aniversario = ''] = l.split(/[;\t,]/).map((x) => x.trim())
       return { nome, telefone, aniversario, prazo, responsavelId, obs: '' }
     })
+
+  /**
+   * As linhas do ARQUIVO já trazem prazo e responsável por linha. Reaplicar o
+   * padrão da caixa aqui apagaria a coluna da planilha — e a planilha modelo
+   * promete essa coluna por escrito.
+   */
+  const linhas = doArquivo === null ? coladas : doArquivo.linhas
+
+  async function escolherArquivo(arquivo: File | undefined) {
+    setErroDoArquivo(null)
+    if (arquivo === undefined) {
+      setDoArquivo(null)
+      setNomeDoArquivo('')
+      return
+    }
+    if (responsavelId === '') {
+      setErroDoArquivo('Escolha o responsável padrão antes de ler a planilha.')
+      return
+    }
+    setLendo(true)
+    try {
+      const tabela = await lerTabela(arquivo, '')
+      if (tabela === null) {
+        setErroDoArquivo('Não consegui ler a planilha. Salve como .csv ou cole as linhas abaixo.')
+        return
+      }
+      const lidas = lerTabelaDeCampanha(tabela, { prazo, responsavelId, equipe: pessoas })
+      if ('erro' in lidas) {
+        setErroDoArquivo(lidas.erro)
+        return
+      }
+      setDoArquivo(lidas)
+      setNomeDoArquivo(arquivo.name)
+    } catch {
+      setErroDoArquivo('Não consegui ler a planilha. Salve como .csv ou cole as linhas abaixo.')
+    } finally {
+      setLendo(false)
+    }
+  }
+
+  async function baixarModelo() {
+    setErroDoArquivo(null)
+    try {
+      await baixarModeloDeCampanha({
+        campanha: campanha.nome,
+        prazo: dataDoDiaCivil(prazo),
+        nascimentoExemplo: new Date(1984, 2, 12),
+        equipe: pessoas.map((u) => ({ nome: u.nome, funcao: u.funcao ?? '' })),
+      })
+    } catch {
+      setErroDoArquivo('Não consegui gerar a planilha modelo.')
+    }
+  }
 
   const enviar = async () => {
     setEnviando(true)
@@ -399,11 +460,55 @@ function Importar({
         opcionais. Quem já é paciente é reaproveitado — nada do cadastro é sobrescrito, só o que
         está vazio é completado.
       </p>
+      <div className="modelo">
+        <span className="nota">
+          <b>Não tem a lista pronta?</b> Baixe a planilha modelo, preencha e suba em lote.
+        </span>
+        <button type="button" className="btn ghost" onClick={() => void baixarModelo()}>
+          Baixar planilha modelo
+        </button>
+      </div>
+
       <label className="campo">
-        Lista
+        Arquivo da planilha (.xlsx, .xls ou .csv)
+        <input
+          type="file"
+          accept=".xlsx,.xls,.csv,text/csv"
+          disabled={enviando || lendo}
+          onChange={(e) => void escolherArquivo(e.target.files?.[0])}
+        />
+      </label>
+      {nomeDoArquivo === '' ? null : (
+        <p className="nota">
+          Lendo de <b>{nomeDoArquivo}</b>: {plural(linhas.length, 'linha', 'linhas')}. O prazo e o
+          responsável de cada linha vem da planilha; onde a coluna estiver vazia, valem os padrões
+          escolhidos abaixo.
+        </p>
+      )}
+      {doArquivo === null || doArquivo.responsaveisDesconhecidos.length === 0 ? null : (
+        <p className="nota" role="status">
+          <b>Não reconheci na equipe:</b> {doArquivo.responsaveisDesconhecidos.join(', ')}. Essas
+          linhas vão para o responsável padrão. Ninguém é criado por uma planilha.
+        </p>
+      )}
+      {doArquivo === null || doArquivo.prazosIlegiveis === 0 ? null : (
+        <p className="nota" role="status">
+          {plural(doArquivo.prazosIlegiveis, 'linha', 'linhas')} com prazo que não deu para ler:
+          valeu o prazo padrão. Use dd/mm/aaaa.
+        </p>
+      )}
+      {erroDoArquivo === null ? null : (
+        <p className="campo" role="alert">
+          <span className="erro">{erroDoArquivo}</span>
+        </p>
+      )}
+
+      <label className="campo">
+        ou cole as linhas aqui
         <textarea
           rows={5}
           value={texto}
+          disabled={doArquivo !== null}
           onChange={(e) => setTexto(e.target.value)}
           placeholder={'Marta Alves; 71 99999-0000; 1980-05-12\nRosa Lima'}
         />
@@ -446,9 +551,9 @@ function Importar({
           type="button"
           className="btn"
           onClick={enviar}
-          disabled={enviando || responsavelId === '' || linhas.length === 0}
+          disabled={enviando || lendo || responsavelId === '' || linhas.length === 0}
         >
-          Importar {linhas.length === 0 ? '' : plural(linhas.length, 'linha', 'linhas')}
+          {lendo ? 'Lendo…' : `Importar ${linhas.length === 0 ? '' : plural(linhas.length, 'linha', 'linhas')}`}
         </button>
         <button type="button" className="link" onClick={() => setAberto(false)}>
           Cancelar

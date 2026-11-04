@@ -7,6 +7,7 @@ import {
   type ExclusaoDeTarefa,
   ExcluirTarefa,
   type ListaDeTarefas,
+  type TarefaParaEditar,
   type TarefasAfetadas,
 } from '@fir/contracts'
 import {
@@ -65,6 +66,25 @@ export class TarefasController {
     const c = req.contexto!
     exigirEscopo(c, dados.data.escopo, [dados.data.responsavelId, dados.data.solicitanteId])
     return this.consulta.listar(c.clinicaId, c.ator, c.clinicaFuso, leitorDe(c), dados.data)
+  }
+
+  /**
+   * UMA tarefa, na forma completa — o que o painel de edição precisa.
+   *
+   * Vive aqui, e não num `pacienteId` a mais no filtro da lista, porque a
+   * lista é recortada por ESCOPO (`meu`, `solicitei`, `equipe`) e a ficha do
+   * paciente mostra as tarefas dele independentemente de quem é o
+   * responsável. Um filtro de paciente na lista responderia menos do que a
+   * ficha já mostra, e o botão de editar ficaria cego justamente na tarefa de
+   * outra pessoa — que é a que mais se precisa corrigir.
+   */
+  @Get(':id')
+  async uma(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<TarefaParaEditar> {
+    const c = req.contexto!
+    return this.consulta.uma(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id)
   }
 
   @Post()

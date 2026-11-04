@@ -5,17 +5,21 @@ import type {
   ListaDeTarefas,
   RespostaDeHoje,
   TarefaNaLista,
+  TarefaParaEditar,
 } from '@fir/contracts'
 import {
+  type Autor,
   diaCivil,
+  ehOk,
   fimDoMes,
   janela,
+  podeEditar,
   type Relogio,
   somarDias,
   somarMeses,
   TIPO_SESSAO,
 } from '@fir/domain'
-import { Inject, Injectable } from '@nestjs/common'
+import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import type pg from 'pg'
 import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
@@ -267,6 +271,57 @@ export class ConsultaDeTarefasService {
         total: Number(r.rows[0]?.total ?? 0),
         hoje,
       }
+    })
+  }
+
+  /**
+   * UMA tarefa, pelo id, na forma completa.
+   *
+   * **Por que existe.** A ficha do paciente mostra o histórico num modelo de
+   * leitura enxuto (`TarefaNaFicha`) — o suficiente para a linha do tempo, e
+   * de propósito: a ficha não precisa carregar orçamento, série nem pagamento
+   * de cada tarefa para desenhar uma tabela. Mas o painel de edição precisa da
+   * tarefa inteira, e a PO pediu o botão de editar ali: *"na parte de Tarefas
+   * de paciente, precisa ter um botão de editar"*.
+   *
+   * A alternativa era engordar `TarefaNaFicha` até caber o formulário, e aí
+   * toda abertura de ficha pagaria o preço do que só o clique de editar usa.
+   *
+   * **A autorização é `podeEditar`, a MESMA do `PATCH`.** Não é conveniência:
+   * se a leitura fosse mais frouxa que a escrita, a tela abriria o formulário
+   * preenchido com o orçamento e o pagamento de uma tarefa que a pessoa não
+   * pode salvar — mostrando o valor, que é justamente o que a redação de
+   * campos existe para impedir (regra 17).
+   */
+  async uma(
+    clinicaId: ClinicaId,
+    ator: Ator,
+    fuso: string,
+    autor: Autor,
+    id: string,
+  ): Promise<TarefaParaEditar> {
+    const hoje = this.hojeDaClinica(fuso)
+    return this.banco.naClinica(clinicaId, ator, async (c) => {
+      const r = await c.query<LinhaDeTarefa>(`${SELECT_TAREFA} AND t.id = $3`, [
+        clinicaId,
+        hoje,
+        id,
+      ])
+      const linha = r.rows[0]
+      if (linha === undefined) throw new NotFoundException('Tarefa não encontrada.')
+      // `podeEditar` só pode falhar por falta de acesso — não há estado de
+      // tarefa que impeça LER. Daí o 403 direto, em vez de uma quarta cópia do
+      // `exigirAutorizacao` que também traduz conflito.
+      const r2 = podeEditar(
+        {
+          solicitanteId: linha.solicitante_id,
+          responsavelId: linha.responsavel_id,
+          status: linha.status,
+        },
+        autor,
+      )
+      if (!ehOk(r2)) throw new ForbiddenException(r2.erro.mensagem)
+      return { tarefa: paraSaida(linha), hoje }
     })
   }
 

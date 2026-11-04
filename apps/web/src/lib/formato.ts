@@ -109,3 +109,16 @@ export function linkDeWhatsApp(telefone: string | null): string | null {
 /** "1 tarefa" / "3 tarefas", sem o "(s)" que ninguém escreve à mão. */
 export const plural = (n: number, um: string, varios: string): string =>
   `${n} ${n === 1 ? um : varios}`
+
+/**
+ * `aaaa-mm-dd` → `Date` no fuso de quem está olhando.
+ *
+ * `new Date('2026-12-01')` seria meia-noite **UTC**, e no Brasil o Excel
+ * mostraria 30/11 na célula de exemplo da planilha modelo — a data que a
+ * usuária copiaria para as linhas dela estaria um dia atrás. Serve só para
+ * APRESENTAR numa planilha; data de negócio continua vindo do servidor.
+ */
+export function dataDoDiaCivil(dia: string): Date {
+  const [a = '1970', m = '01', d = '01'] = dia.split('-')
+  return new Date(Number(a), Number(m) - 1, Number(d))
+}

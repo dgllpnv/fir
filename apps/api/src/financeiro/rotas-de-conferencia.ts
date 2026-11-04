@@ -485,6 +485,11 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'Lista de tarefas. O pagamento embutido aparece POR TAREFA; não há soma por forma nem por dia.',
   },
   {
+    caminho: '/v1/tarefas/:id',
+    razao:
+      'UMA tarefa, para preencher o painel de edição. Carrega o pagamento e o orçamento DAQUELA tarefa — um registro, nunca um agregado de dia, e portanto nada que o fechamento de caixa fosse conferir.',
+  },
+  {
     caminho: '/v1/contas',
     razao:
       'Contas A PAGAR. É dinheiro que SAI, e o caixa confere o que entrou — nenhuma das duas listas alcança a outra.',

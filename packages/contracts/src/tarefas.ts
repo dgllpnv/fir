@@ -387,6 +387,20 @@ export const TarefasAfetadas = z.object({
 })
 export type TarefasAfetadas = z.infer<typeof TarefasAfetadas>
 
+/**
+ * UMA tarefa, com o dia de HOJE na clínica.
+ *
+ * `hoje` vem junto porque o painel de edição o usa como teto da data de
+ * realização, e **data de negócio nunca vem do relógio do cliente** (regra
+ * 24). A lista já devolve `hoje` pelo mesmo motivo; quem abre o painel por um
+ * caminho que não é a lista — a ficha do paciente — precisa dele igual.
+ */
+export const TarefaParaEditar = z.object({
+  tarefa: TarefaNaLista,
+  hoje: DiaCivil,
+})
+export type TarefaParaEditar = z.infer<typeof TarefaParaEditar>
+
 export const ExclusaoDeTarefa = z.object({ id: Uuid, ids: z.array(Uuid) })
 export type ExclusaoDeTarefa = z.infer<typeof ExclusaoDeTarefa>
 

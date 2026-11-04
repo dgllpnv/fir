@@ -4,6 +4,7 @@ import type {
   DesativacaoDePaciente,
   FichaDoPaciente as Ficha,
   TarefaNaFicha,
+  TarefaParaEditar,
 } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
 import { useState } from 'react'
@@ -13,6 +14,7 @@ import { diaEmTexto, linkDeWhatsApp, plural } from '@/lib/formato'
 import { ICONE_WHATSAPP, inicial } from '@/lib/icones'
 import { Carregando, Erro, Toast } from './estados'
 import { FormularioDePaciente } from './formulario-de-paciente'
+import { PainelDeEdicao } from './painel-de-edicao'
 
 /**
  * A ficha — cadastro, indicadores e a linha do tempo das tarefas.
@@ -32,6 +34,29 @@ export function FichaDoPaciente({ id, podeGerir }: { id: string; podeGerir: bool
   const [confirmando, setConfirmando] = useState(false)
   const [recado, setRecado] = useState<string | null>(null)
   const [desativando, setDesativando] = useState(false)
+  /**
+   * A tarefa que o painel de edição está editando, com o `hoje` do servidor.
+   *
+   * Carregada no clique, não junto da ficha: o histórico de uma paciente
+   * antiga tem dezenas de tarefas, e trazer a forma completa de todas para
+   * desenhar uma tabela de quatro colunas seria pagar o preço do que só um
+   * clique usa.
+   */
+  const [emEdicao, setEmEdicao] = useState<TarefaParaEditar | null>(null)
+  const [abrindo, setAbrindo] = useState(false)
+
+  async function abrirEdicao(tarefaId: string) {
+    setAbrindo(true)
+    try {
+      setEmEdicao(await chamar<TarefaParaEditar>(`v1/tarefas/${tarefaId}`))
+    } catch (e) {
+      // Inclui o 403 de quem não é responsável nem solicitante e não tem
+      // `tarefas.equipe`: a frase vem do domínio, uma vez.
+      setRecado(e instanceof Error ? e.message : 'Não consegui abrir a tarefa.')
+    } finally {
+      setAbrindo(false)
+    }
+  }
 
   async function desativar() {
     setDesativando(true)
@@ -195,11 +220,14 @@ export function FichaDoPaciente({ id, podeGerir }: { id: string; podeGerir: bool
                   <th>Tipo</th>
                   <th>O quê</th>
                   <th>Situação</th>
+                  <th>
+                    <span className="sr-apenas">Editar</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {p.tarefas.map((t) => (
-                  <LinhaDoHistorico key={t.id} tarefa={t} />
+                  <LinhaDoHistorico key={t.id} tarefa={t} aoEditar={() => void abrirEdicao(t.id)} />
                 ))}
               </tbody>
             </table>
@@ -236,13 +264,33 @@ export function FichaDoPaciente({ id, podeGerir }: { id: string; podeGerir: bool
         )
       ) : null}
 
+      {emEdicao === null ? null : (
+        <PainelDeEdicao
+          tarefa={emEdicao.tarefa}
+          hoje={emEdicao.hoje}
+          aoFechar={() => setEmEdicao(null)}
+          aoSalvar={(aviso) => {
+            setEmEdicao(null)
+            setRecado(aviso)
+            recarregar()
+          }}
+        />
+      )}
+
+      {abrindo ? <p className="nota">Abrindo a tarefa…</p> : null}
       {carregando ? <p className="nota">Atualizando…</p> : null}
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
   )
 }
 
-function LinhaDoHistorico({ tarefa: t }: { tarefa: TarefaNaFicha }) {
+function LinhaDoHistorico({
+  tarefa: t,
+  aoEditar,
+}: {
+  tarefa: TarefaNaFicha
+  aoEditar: () => void
+}) {
   const quando = t.concluidaEm === null ? t.prazo : t.concluidaEm.slice(0, 10)
   return (
     <tr>
@@ -263,6 +311,18 @@ function LinhaDoHistorico({ tarefa: t }: { tarefa: TarefaNaFicha }) {
         ) : (
           <span className="pill alerta">Em aberto</span>
         )}
+      </td>
+      <td>
+        {/*
+          O botão existe para TODA tarefa do histórico, inclusive concluída:
+          corrigir o resultado de um contato de ontem é exatamente o caso que a
+          PO trouxe. Quem não pode editar descobre pelo SERVIDOR — a rota usa a
+          mesma `podeEditar` do `PATCH`, e a tela mostra o 403 em vez de
+          esconder o botão com uma segunda cópia da regra de permissão.
+        */}
+        <button type="button" className="link" onClick={aoEditar}>
+          Editar
+        </button>
       </td>
     </tr>
   )

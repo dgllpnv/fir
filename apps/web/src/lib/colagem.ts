@@ -1,4 +1,5 @@
 import type { LinhaDeImportacao } from '@fir/contracts'
+import { celula, mapear, type Apelidos } from './colunas'
 
 /**
  * Texto colado da planilha → linhas do contrato de importação.
@@ -61,6 +62,74 @@ export function lerColagem(texto: string): LinhaDeImportacao[] {
     const telefone = campo(1)
     const aniversario = campo(2)
     const ultimaConsulta = campo(3)
+    fora.push({
+      nome,
+      ...(telefone === undefined ? {} : { telefone }),
+      ...(aniversario === undefined ? {} : { aniversario }),
+      ...(ultimaConsulta === undefined ? {} : { ultimaConsulta }),
+    })
+  }
+  return fora
+}
+
+/* ── PLANILHA (arquivo) ─────────────────────────────────────────────────── */
+
+/**
+ * Os títulos que a planilha modelo e as exportações comuns usam.
+ *
+ * `nascimento` antes de `ultimaConsulta` porque os dois casam `data`, e quem
+ * reivindica primeiro leva — ver o comentário de `Apelidos` em `colunas.ts`.
+ * Aqui a ordem é mais específico → mais genérico.
+ */
+const APELIDOS_DE_PACIENTE: Apelidos = [
+  ['ultimaConsulta', ['ultima consulta', 'data da ultima consulta', 'ultimo atendimento', 'ultima visita']],
+  ['aniversario', ['data de nascimento', 'nascimento', 'aniversario', 'data nasc', 'nasc']],
+  ['telefone', ['telefone', 'celular', 'whatsapp', 'fone', 'contato']],
+  ['nome', ['nome completo', 'nome do paciente', 'nome', 'paciente']],
+]
+
+/** A ordem da nossa planilha modelo, para quem colou sem o cabeçalho. */
+const POSICAO_DE_PACIENTE = { nome: 0, telefone: 1, aniversario: 2, ultimaConsulta: 3 }
+
+/**
+ * Planilha lida de arquivo → linhas do contrato.
+ *
+ * Mesma saída de `lerColagem`, de propósito: a tela envia um corpo só, e o
+ * servidor não sabe (nem precisa saber) se a lista veio de um `.xlsx` ou de um
+ * `Ctrl+V`. Duas formas de corpo seriam duas validações, e a segunda é a que
+ * envelhece.
+ *
+ * Data segue como TEXTO, como no caminho da colagem: quem interpreta
+ * `dd/mm/aaaa` é o servidor, uma vez.
+ */
+export function lerTabelaDePacientes(
+  tabela: readonly (readonly string[])[],
+): LinhaDeImportacao[] | { erro: string } {
+  const m = mapear(tabela, APELIDOS_DE_PACIENTE, POSICAO_DE_PACIENTE, [
+    'nome',
+    'paciente',
+    'telefone',
+    'celular',
+  ])
+  if ('erro' in m) return m
+  if (m.indices['nome'] === undefined || m.indices['nome'] < 0) {
+    return {
+      erro:
+        'Não encontrei a coluna com o nome do paciente. Use a planilha modelo ou deixe o nome na primeira coluna.',
+    }
+  }
+
+  const fora: LinhaDeImportacao[] = []
+  for (const linha of m.corpo) {
+    const nome = celula(linha, m.indices, 'nome')
+    if (nome === '') continue
+    const opcional = (k: string): string | undefined => {
+      const v = celula(linha, m.indices, k)
+      return v === '' ? undefined : v
+    }
+    const telefone = opcional('telefone')
+    const aniversario = opcional('aniversario')
+    const ultimaConsulta = opcional('ultimaConsulta')
     fora.push({
       nome,
       ...(telefone === undefined ? {} : { telefone }),

@@ -9,6 +9,7 @@ import { AbaAnalise } from './estoque/aba-analise'
 import { AbaContagens } from './estoque/aba-contagens'
 import { EntradaPelaNota } from './estoque/entrada-pela-nota'
 import { FormularioDeItem } from './estoque/formulario-de-item'
+import { ImportarItens } from './estoque/importar-itens'
 import { FormularioDeMovimento } from './estoque/formulario-de-movimento'
 import { LeitorDeCodigo } from './estoque/leitor-de-codigo'
 import { ListaDeEtiquetas } from './estoque/etiquetas'
@@ -131,6 +132,7 @@ function AbaItens({
     | { tipo: 'locais' }
     | { tipo: 'codigo' }
     | { tipo: 'etiquetas' }
+    | { tipo: 'importar' }
   >(null)
 
   if (itens.carregando) return <Carregando linhas={4} />
@@ -249,6 +251,13 @@ function AbaItens({
             >
               Cadastrar item
             </button>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => setPainel({ tipo: 'importar' })}
+            >
+              Importar itens
+            </button>
             <button type="button" className="btn ghost" onClick={() => setPainel({ tipo: 'nota' })}>
               Entrada pela nota
             </button>
@@ -282,6 +291,18 @@ function AbaItens({
             com o filtro &ldquo;sem contagem inicial&rdquo;, e conte o que há hoje no estoque.
           </span>
         </div>
+      ) : null}
+
+      {painel?.tipo === 'importar' ? (
+        <ImportarItens
+          itens={(itens.dados?.itens ?? []).map((i) => ({ nome: i.nome, codigo: i.codigo }))}
+          aoFechar={() => setPainel(null)}
+          aoImportar={(r) => {
+            setPainel(null)
+            avisar(r)
+            atualizar()
+          }}
+        />
       ) : null}
 
       {painel?.tipo === 'item' ? (

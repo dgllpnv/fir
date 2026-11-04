@@ -402,3 +402,34 @@
   line-height: 1.5;
   color: var(--muted);
 }
+
+/*
+ * A FAIXA DA PLANILHA MODELO — nas três caixas de importação.
+ *
+ * Fica acima do seletor de arquivo de propósito: quem não tem a lista
+ * exportada precisa ver a saída ANTES de encarar um campo de arquivo que não
+ * sabe preencher. É a ordem do protótipo (`modelobox`), e ela resolve a
+ * pergunta que a PO fez em voz alta: *"e quem não tem a planilha?"*.
+ *
+ * Em 390 px as duas partes empilham — a frase não aperta o botão até ele
+ * virar duas linhas de uma palavra.
+ */
+.modelo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--gold);
+  border-radius: var(--r);
+  background: var(--gold-soft);
+  color: var(--on-gold-soft);
+}
+
+.modelo > .nota {
+  margin: 0;
+  flex: 1 1 14rem;
+  color: inherit;
+}
