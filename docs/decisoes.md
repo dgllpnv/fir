@@ -375,6 +375,40 @@ Seguram a decisão: `podeExcluirPessoa` em `packages/domain/src/pessoa.ts` (6 te
 
 ---
 
+## D-15 · Importação por planilha, editar tarefa — e editar programa, que não tem resposta no protótipo
+
+**Data:** 2026-11-04 · **Origem:** seis itens relatados pela PO · **Estado:** cinco resolvidos no protótipo, um aberto
+
+### O que o protótipo respondeu, e foi feito sem perguntar
+
+| Item da PO | O que o protótipo diz | O que foi feito |
+|---|---|---|
+| Excluir programa dá erro | — (era defeito nosso) | `{ method: '' }`; o `fetch` recusa método vazio. Corrigido, com varredura que pega a classe |
+| Importar lista de itens, com modelo | `importarItensEstoque`, caixa de duas etapas, `baixarModeloEst` | Caixa de duas etapas (ler → conferir) e planilha modelo com aba Instruções |
+| Modelo na campanha | `baixarModelo(c)`, 7 colunas, aba Equipe | Modelo igual, e as colunas Responsável/Prazo/Observação passaram a ser honradas |
+| Botão importar no estoque | `#bimpest` na barra de ações | Botão na barra, atrás de `estoque.gerir` como no protótipo |
+| Editar tarefa de paciente | `editarTarefa` + "Editar tarefa" no cartão | Botão na linha do histórico, abrindo o painel que já existia |
+
+### O que o protótipo NÃO responde: **editar programa**
+
+Medido, não deduzido: o `demoApiBase` tem `criarAdesao`, `encerrarAdesao` e `excluirAdesao`. **Não existe `editarAdesao`.** A ficha do programa oferece Encerrar e Excluir, e "Editar tarefa" — que é da tarefa da sessão, não do programa.
+
+Então o pedido é **produto novo**, e é decisão sua. As opções, e o que cada uma custa:
+
+| Opção | O que permite | O preço |
+|---|---|---|
+| **a. Nada** (como o protótipo) | Errou o programa? Excluir e montar de novo — e D-8 já proíbe excluir programa com sessão paga | A clínica que errou o nome do programa depois da primeira sessão paga não tem saída nenhuma |
+| **b. Editar só o que não move dinheiro nem estoque** (recomendada) | Nome, observação, responsável, datas das sessões ainda não realizadas | Precisa dizer o que acontece com sessão já concluída: ela não se move. É a fatia pequena que resolve o caso real (nome errado, responsável que saiu) |
+| **c. Editar tudo, inclusive valor e quantidade de sessões** | Qualquer correção | Mexe em valor de programa com pagamento lançado e em insumo já baixado. Cada um deles é um recálculo de saldo em aberto e um movimento de estoque compensatório — e é a porta pela qual a receita do mês muda sem ninguém ver |
+
+**Recomendação: b.** Resolve o que a PO está vivendo (corrigir um cadastro) sem abrir a porta que a regra 3 e a regra 12 existem para manter fechada. O **c** não é impossível, é um épico próprio, com compensação de estoque e recálculo de saldo.
+
+### Como derrubar
+
+O excluir está preso por `metodo-http.test.ts` (varredura com prova por mutação). As importações, por `colunas.test.ts` (8), `campanha-importada.test.ts` (13) e `itens-importados.test.ts` (12). O editar tarefa, por `uma-tarefa.test.ts` (6, incluindo "a mesma pessoa que leva 403 na leitura leva 403 na escrita").
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |
@@ -389,3 +423,4 @@ Seguram a decisão: `podeExcluirPessoa` em `packages/domain/src/pessoa.ts` (6 te
 | P-8 | **Domínio e certificado** do ambiente de produção. **D-10 reduziu o escopo:** ele já não bloqueia o e-mail (não há e-mail), e o EasyPanel dá subdomínio com TLS válido. Sobra a **marca** — e um item de segurança que não existia: **se um CDN entrar na frente do Traefik, a allowlist de IP do painel falha ABERTA sem mudar de cor** (ADR 0008). Conferência obrigatória no dia da virada | dono | primeiro deploy |
 | ~~P-9~~ | ~~**SMTP**~~ — **ENCERRADA por D-10 (2026-10-27).** O e-mail saiu do produto: não há convite, não há recuperação por e-mail, não há `nodemailer`. O Mailpit continua no compose para um dia de notificação, **sem código que o chame**. Ela deixou de bloquear qualquer coisa, não só o desenvolvimento | — | nada |
 | P-10 | **Concessão de acesso do operador a dado clínico. A LINHA FOI CRUZADA em 2026-11-02 (D-13):** o painel agora abre o sistema da clínica e o operador vê paciente, dose e valor. O que segura hoje é *acesso total com registro obrigatório* mais **sessão de trinta minutos e revogável**; o que continua faltando é a concessão com **motivo, prazo e aprovação** (D-5, restrições 2 e 4). Deixou de ser teórico. O painel entregue em 2026-10-28 implementa **acesso total com registro obrigatório** (D-10), que é o que a decisão pede. O que ele NÃO implementa é a concessão com motivo, prazo e revogação (D-5, restrições 2 e 4). Enquanto o painel só tratar **identidade**, isso é defensável; **deixa de ser no dia em que ele ler ficha de paciente**, e aí o retrofit custa o mesmo que a D-5 descreveu para a trilha. Ver ADR 0008 | dono + `especialista-lgpd-saude` | leitura de dado de negócio pelo painel (épico 12) |
+| P-11 | **Editar programa** — o protótipo não tem `editarAdesao`, então é produto novo (ver D-15). Três opções escritas lá, com recomendação: **b**, editar só o que não move dinheiro nem estoque. A PO pediu o botão; sem a decisão, a clínica que errou o cadastro depois da primeira sessão paga não tem saída, porque D-8 proíbe excluir | dono + `product-rotina-clinica` | o botão de editar na aba Programas |
