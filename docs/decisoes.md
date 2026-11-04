@@ -454,11 +454,58 @@ Então a decisão é **operacional**: cada admin de clínica entra em **Usuário
 
 ---
 
+## D-17 · A sessão do balcão termina no fim do dia da clínica
+
+**Data:** 2026-11-04 · **Origem:** P-1, aberta desde o épico 1 · **Estado:** resolvida — opção **3** escolhida pelo dono
+
+### O que estava errado, com o número
+
+A sessão durava **30 dias**. O preço não era segurança: quem sai da clínica perde o acesso na hora, porque a resolução de contexto filtra `AND ativo` — medido, e em produção não existe pessoa excluída e ativa.
+
+O preço era **atribuição**, e ele atacava justamente a trilha de auditoria que a D-5 existe para construir. Num computador de recepção que três pessoas usam, uma sessão de 30 dias atribui **um mês inteiro de ações a quem entrou primeiro**. A trilha fica precisa e errada — pior que trilha nenhuma, porque todo mundo confia nela. E dói onde mais importa: quem fechou o caixa, quem aplicou a dose, quem mexeu num salário.
+
+**Medido em produção:** a conta `admin.teste` tinha **211 sessões válidas**, a mais antiga de dois dias antes, todas boas por mais um mês. Nada revogava nada.
+
+### A regra, exatamente
+
+`fimDaSessaoDoBalcao(agora, fuso)` em `packages/domain`: **o fim do dia da clínica, nunca passando de 12 horas e nunca menos de 1 hora.**
+
+| Entra às | Termina | Quem manda |
+|---|---|---|
+| 08h00 | 20h00 | o **teto** de 12 h — e ele cobre o expediente inteiro |
+| 14h00 | meia-noite | a **fronteira do dia**; sem ela, ficaria até as 2h e o turno da manhã herdaria a sessão da tarde |
+| 00h01 | 12h01 | o **teto**; sem ele, entrar depois da meia-noite daria quase 24 h pela porta dos fundos |
+| 23h55 | 00h55 | o **piso** de 1 h; sem ele, a pessoa abre o sistema e é desconectada em cinco minutos |
+
+**Não há renovação por uso.** Deslizar o prazo a cada requisição é como uma sessão de 12 horas fica viva uma semana, com uma aba esquecida recarregando sozinha — e aí a atribuição volta a cobrir mais de um turno.
+
+**Entrar de novo não revoga as sessões anteriores**, de propósito: a recepção usa o sistema no balcão e na sala de trás, e revogar na entrada derrubaria a outra máquina. Com o prazo de um dia, o acúmulo se limita sozinho — era o prazo de 30 dias que transformava isso em 211 credenciais vivas.
+
+### O que atravessa é a DURAÇÃO, não o instante — e isso custou 759 testes
+
+A primeira versão gravava o instante calculado na aplicação. **A suíte caiu em 759 testes de uma vez**, e a razão vale em produção também: quem julga a validade é `expira_em > now()`, o relógio do **Postgres**, e quem calculava o fim era o relógio da **aplicação**. Nos testes o relógio da aplicação é congelado num dia passado, então toda sessão nascia vencida.
+
+Em produção os dois relógios estão a milissegundos de distância e nada apareceria — até o dia de um desvio de NTP, e aí a clínica inteira não entraria. Agora o domínio decide **quanto tempo** e o banco aplica ao próprio instante: um relógio julga.
+
+### A tela, porque a regra sem ela é um defeito
+
+O desvio para `/entrar` era **mudo**. Com 30 dias ninguém via aquela tela duas vezes; com um dia, a recepcionista a encontra **toda manhã** — e sem explicação conclui que a ferramenta a deslogou sozinha. Um sistema que parece instável é um sistema que ninguém deixa aberto.
+
+Agora `sessaoAtual` distingue **sem cookie** (primeira visita, ou clicou em Sair — nenhuma frase, não houve surpresa) de **cookie que venceu** (`?sessao=encerrada`, com a frase que diz que é de propósito e por quê). O nome do cookie passou a existir nos dois lados, e uma varredura impede a divergência silenciosa — se os nomes divergirem, a frase desaparece sem nenhum erro em lugar nenhum.
+
+**O cookie morre com a sessão.** O `maxAge` era 30 dias fixos; um cookie mais longo que a sessão faz o navegador mandar credencial que o servidor já recusa.
+
+### Como derrubar
+
+`sessao-do-balcao.test.ts` (13 testes: property-based em 6 fusos, mais as bordas construídas à mão — gerador uniforme não acha virada de horário de verão nem minuto de meia-noite) e cinco testes ponta a ponta em `autenticacao.e2e.test.ts`. **Cinco provas por mutação:** tirar o teto, tirar o piso, tirar a fronteira do dia, divergir o cookie do banco, e voltar aos 30 dias — cada uma mata testes diferentes.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |
 |---|---|---|---|
-| P-1 | **UX de sessão no balcão** — tempo de sessão, bloqueio de tela, reautenticação rápida. Consequência direta de D-3. **Metade resolvida por D-5**: com trilha de auditoria, "quem fez o quê" deixa de depender de quem logou. Resta o outro lado — uma sessão de 30 dias num computador de balcão atribui a ação à pessoa errada, e nenhuma trilha corrige isso se ela registra sempre o mesmo nome | dono + `product-rotina-clinica` | fechamento do épico 1 |
+| ~~P-1~~ | ~~**UX de sessão no balcão**~~ — **ENCERRADA por D-17 (2026-11-04).** O dono escolheu a opção 3: sessão terminando no fim do dia da clínica, com teto de 12 h e piso de 1 h. Implementada, com 18 testes e cinco provas por mutação | — | nada |
 | P-2 | **Hospedagem para dado de saúde** — host no Brasil ou garantias contratuais equivalentes. D-4 resolveu onde roda hoje, não se isso satisfaz a avaliação de impacto | dono + `especialista-lgpd-saude` | implantação da primeira clínica |
 | P-3 | **DPA com cada clínica** — a clínica é controladora, nós somos operadores. Não existe implantação sem contrato de tratamento. **D-13 ampliou o escopo (2026-11-02):** o DPA passa a precisar de **cláusula de acesso de suporte a dado de saúde** — base legal, finalidade, prazo, os operadores nomeados e o direito da clínica de auditar o que fizemos dentro dela. Antes da D-13 o painel só tratava identidade, e a cláusula era teórica; agora o acesso **existe de fato** | dono (jurídico) | implantação da primeira clínica |
 | P-4 | **Modelo comercial** — por clínica, por usuário ou por unidade. Define quais cotas precisam ser deriváveis desde já | dono | épico 12 (mas as contagens, desde o épico 1) |

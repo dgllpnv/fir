@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 /* O olho mora em `lib/icones` desde que a entrada do PAINEL passou a usar o
@@ -25,6 +25,20 @@ import { clinicaGuardada, lembrarClinica, resolverClinica } from '@/lib/clinica-
  */
 export default function Entrar() {
   const router = useRouter()
+  /**
+   * `?sessao=encerrada` — **a frase que P-1 tornou obrigatória.**
+   *
+   * Com a sessão de 30 dias ninguém via esta tela duas vezes, e um desvio
+   * mudo para `/entrar` era defensável. Agora a sessão termina no fim do dia
+   * da clínica e a recepcionista encontra esta tela TODA MANHÃ: sem a frase,
+   * ela conclui que a ferramenta a deslogou sozinha, e um sistema que parece
+   * instável é um sistema que ninguém deixa aberto.
+   *
+   * Quem chega sem cookie nenhum — primeira visita, ou clicou em Sair — não
+   * vê nada. Não houve surpresa, e explicar o óbvio é ruído na tela de quem
+   * está com o telefone tocando.
+   */
+  const expirou = useSearchParams().get('sessao') === 'encerrada'
   const [clinica, setClinica] = useState('')
   /**
    * `true` quando a clínica veio do link ou da memória do aparelho — e aí o
@@ -123,6 +137,13 @@ export default function Entrar() {
         </div>
 
         <div className="cartao">
+          {expirou ? (
+            <p className="aviso-de-sessao" role="status">
+              <b>O dia de trabalho foi encerrado.</b> A sessão termina ao fim de cada dia, de
+              propósito: é o que faz o registro de quem fez cada coisa apontar para a pessoa
+              certa. Entre de novo para continuar.
+            </p>
+          ) : null}
           {doLink ? (
             /* A clínica já está resolvida. Ela continua visível — quem entra
                precisa saber em qual clínica vai entrar —, mas não ocupa um

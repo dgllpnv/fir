@@ -59,6 +59,10 @@ beforeAll(async () => {
   // Conta dedicada à medição do caminho de SUCESSO, para que o piso seja
   // medido nas quatro saídas de `entrar` e não só nas três de erro.
   await criar('Conta Piso', 'conta.piso', 'senha-da-conta-piso')
+  // Conta PRÓPRIA para a suíte da sessão do balcão: entrar seis vezes com
+  // `juliana` gastaria o limite de cinco tentativas das suítes que medem
+  // justamente o limite, e elas passariam a falhar por vizinhança.
+  await criar('Conta Sessao', 'conta.sessao', SENHA_DA_SESSAO)
   // E outra para a saída "senha errada" do mesmo teste: `conta.tempo.existe`
   // já chega lá com cinco falhas gastas pelo teste de oráculo de tempo, e a
   // sexta tentativa responderia 429 em vez de 401.
@@ -78,6 +82,8 @@ afterAll(async () => {
   await migrate.end()
   await app.close()
 })
+
+const SENHA_DA_SESSAO = 'senha-da-conta-sessao'
 
 const entrar = (senha: string) =>
   request(app.getHttpServer())
@@ -439,5 +445,117 @@ describe('POST /v1/entrar — limite por origem', () => {
     // `Retry-After` existe para o cliente não insistir às cegas — e para que
     // o navegador da recepção não entre em laço de nova tentativa.
     expect(Number(r.headers['retry-after'])).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * A SESSÃO DO BALCÃO, ponta a ponta — P-1.
+ *
+ * O domínio já está provado (`sessao-do-balcao.test.ts`, 13 testes com
+ * property-based e as bordas construídas à mão). O que falta provar é **a
+ * fiação**: que a linha de `sessoes` recebe a duração do domínio, e que o
+ * cookie recebe a MESMA. As duas podiam divergir sem nenhum teste reclamar.
+ */
+describe('a sessão do balcão termina no fim do dia (P-1)', () => {
+  const segundosDoCookie = (r: { headers: Record<string, string> }): number => {
+    const cookie = cookieDaResposta(r).find((c) => c.startsWith('__Host-fir-sessao='))
+    expect(cookie, 'nenhum cookie de sessão na resposta').toBeDefined()
+    const m = /Max-Age=(\d+)/i.exec(cookie!)
+    expect(m, `sem Max-Age no cookie: ${cookie}`).not.toBeNull()
+    return Number(m![1])
+  }
+
+  const segundosDaLinha = async (): Promise<number> => {
+    const r = await migrate.query<{ s: string }>(
+      `SELECT extract(epoch FROM (expira_em - now()))::text AS s
+         FROM sessoes
+        WHERE clinica_id = $1 AND revogada_em IS NULL
+        ORDER BY criada_em DESC LIMIT 1`,
+      [clinica],
+    )
+    expect(r.rowCount, 'nenhuma sessão gravada').toBe(1)
+    return Number(r.rows[0]!.s)
+  }
+
+  const HORA = 3600
+
+  it('NÃO são mais 30 dias: a sessão dura entre 1 e 12 horas', async () => {
+    // O número que a P-1 corrigiu. Medido em produção antes: uma conta com
+    // 211 sessões válidas, todas boas por um mês, e a trilha de auditoria
+    // atribuindo um mês de ações a quem entrou primeiro.
+    const r = await entrarComo('conta.sessao', SENHA_DA_SESSAO)
+    expect(r.statusCode).toBe(200)
+
+    const naLinha = await segundosDaLinha()
+    expect(naLinha).toBeGreaterThan(HORA - 60)
+    expect(naLinha).toBeLessThanOrEqual(12 * HORA)
+    // E muito longe de 30 dias, para que a asserção acuse um retorno ao
+    // comportamento antigo e não só um ajuste de minutos.
+    expect(naLinha).toBeLessThan(13 * HORA)
+  })
+
+  it('O COOKIE MORRE COM A SESSÃO — a mesma duração nos dois', async () => {
+    // Se o cookie durasse mais, o navegador mandaria credencial que o
+    // servidor já recusa: a pessoa abriria o sistema, veria a tela de entrada
+    // sem explicação, e concluiria que a ferramenta a deslogou sozinha.
+    // Se durasse menos, perderia a sessão antes do fim do expediente.
+    const r = await entrarComo('conta.sessao', SENHA_DA_SESSAO)
+    const noCookie = segundosDoCookie(r)
+    const naLinha = await segundosDaLinha()
+    expect(Math.abs(noCookie - naLinha), `cookie ${noCookie}s, linha ${naLinha}s`)
+      .toBeLessThanOrEqual(5)
+  })
+
+  it('a sessão criada VALE — a regra não pode nascer impedindo o trabalho', async () => {
+    // A metade que dá dentes. Um cálculo de duração errado para o passado
+    // passaria nas duas asserções de limite acima se elas olhassem só o
+    // módulo, e deixaria a clínica inteira sem entrar.
+    const r = await entrarComo('conta.sessao', SENHA_DA_SESSAO)
+    const cookie = cookieDaResposta(r)
+    await request(app.getHttpServer()).get('/v1/eu').set('Cookie', cookie).expect(200)
+  })
+
+  it('NÃO há renovação por uso: usar a sessão não empurra o prazo', async () => {
+    // Deslizar o prazo a cada requisição é como uma sessão de 12 horas fica
+    // viva uma semana, com uma aba esquecida recarregando sozinha — e aí a
+    // atribuição volta a cobrir mais de um turno.
+    const r = await entrarComo('conta.sessao', SENHA_DA_SESSAO)
+    const cookie = cookieDaResposta(r)
+    const antes = await migrate.query<{ e: string }>(
+      `SELECT expira_em::text AS e FROM sessoes
+        WHERE clinica_id = $1 ORDER BY criada_em DESC LIMIT 1`,
+      [clinica],
+    )
+    await request(app.getHttpServer()).get('/v1/eu').set('Cookie', cookie).expect(200)
+    await request(app.getHttpServer()).get('/v1/eu').set('Cookie', cookie).expect(200)
+    const depois = await migrate.query<{ e: string }>(
+      `SELECT expira_em::text AS e FROM sessoes
+        WHERE clinica_id = $1 ORDER BY criada_em DESC LIMIT 1`,
+      [clinica],
+    )
+    expect(depois.rows[0]!.e).toBe(antes.rows[0]!.e)
+  })
+
+  it('a duração respeita o FUSO da clínica, não o do servidor', async () => {
+    // Regra 22. O legado fixou `America/Bahia` num `const`; aqui o fuso é
+    // propriedade da clínica, e duas clínicas em fusos diferentes têm fins de
+    // dia diferentes. A asserção é sobre a FORMA de depender do fuso: trocar
+    // o fuso da clínica muda a duração, a menos que o teto de 12 h esteja
+    // mandando nas duas — e por isso o teste aceita as duas saídas, mas exige
+    // que ambas continuem dentro dos limites.
+    await migrate.query(`UPDATE clinicas SET fuso = 'Pacific/Chatham' WHERE id = $1`, [clinica])
+    try {
+      const r = await entrarComo('conta.sessao', SENHA_DA_SESSAO)
+      expect(r.statusCode).toBe(200)
+      const naLinha = await segundosDaLinha()
+      expect(naLinha).toBeGreaterThan(HORA - 60)
+      expect(naLinha).toBeLessThanOrEqual(12 * HORA)
+      await request(app.getHttpServer())
+        .get('/v1/eu')
+        .set('Cookie', cookieDaResposta(r))
+        .expect(200)
+    } finally {
+      await migrate.query(`UPDATE clinicas SET fuso = 'America/Bahia' WHERE id = $1`, [clinica])
+    }
   })
 })

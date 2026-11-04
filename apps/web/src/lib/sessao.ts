@@ -46,10 +46,29 @@ export type Sessao = {
  * layout e página é a dívida do legado (a mesma regra escrita três vezes, já
  * divergentes) começando de novo.
  */
+/**
+ * O cookie da sessao. Nomeado aqui para distinguir **duas coisas diferentes**
+ * que davam o mesmo desvio mudo para `/entrar`:
+ *
+ *  - **sem cookie** — primeira visita, ou quem clicou em Sair. A tela de
+ *    entrada normal, sem explicacao nenhuma, porque nao houve surpresa.
+ *  - **com cookie e 401** — a sessao do dia terminou (P-1). Aqui a pessoa
+ *    PRECISA de uma frase: ela abriu o sistema de manha, viu a tela de
+ *    entrada e, sem explicacao, conclui que a ferramenta a deslogou sozinha.
+ *
+ * Colapsar as duas foi o estado anterior, e ele era defensavel enquanto a
+ * sessao durava 30 dias — ninguem via a tela de entrada duas vezes. Com a
+ * sessao terminando todo dia, a frase deixou de ser cortesia.
+ */
+const NOME_DO_COOKIE = '__Host-fir-sessao'
+
 export const sessaoAtual = cache(async (): Promise<Sessao> => {
-  const cabecalho = (await cookies()).toString()
+  const jarra = await cookies()
+  const cabecalho = jarra.toString()
+  const tinhaCookie = jarra.get(NOME_DO_COOKIE) !== undefined
   const r = await fetch(`${API}/v1/eu`, { headers: { cookie: cabecalho }, cache: 'no-store' })
-  if (!r.ok) redirect('/entrar')
+  // `encerrada` é um rótulo, não dado pessoal: nada de PII em query string.
+  if (!r.ok) redirect(tinhaCookie ? '/entrar?sessao=encerrada' : '/entrar')
 
   const eu = (await r.json()) as EuSaida
 

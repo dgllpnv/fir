@@ -262,7 +262,7 @@ O que essa fatia resolveu, e como:
 | **P-2** | Hospedagem para dado de saúde — Brasil ou garantias equivalentes | dono + `especialista-lgpd-saude` |
 | **P-3** | **DPA com cada clínica** — elas são controladoras, nós operadores | dono (jurídico) |
 | **P-5** | Janela de migração: qual clínica primeiro, que dia, quanto tempo em paralelo | dono + cada clínica |
-| **P-1** | UX de sessão no balcão | dono + `product-rotina-clinica` |
+| ~~**P-1**~~ | ~~UX de sessão no balcão~~ — **resolvida (D-17)**: a sessão termina no fim do dia da clínica | resolvido |
 
 ## O relógio que corre sozinho
 

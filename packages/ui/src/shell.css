@@ -433,3 +433,22 @@
   flex: 1 1 14rem;
   color: inherit;
 }
+
+/*
+ * O AVISO DE SESSÃO ENCERRADA — na tela de entrada, e só quando houve um
+ * cookie que venceu (P-1).
+ *
+ * Tom de atenção, não de erro: nada deu errado, o dia acabou. Vermelho aqui
+ * faria a recepcionista achar que perdeu trabalho, numa tela que ela vai ver
+ * todas as manhãs.
+ */
+.aviso-de-sessao {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-radius: var(--r);
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  font-size: 14px;
+  line-height: 1.45;
+}

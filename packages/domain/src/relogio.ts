@@ -186,3 +186,62 @@ export function fimDoMes(mes: string): string {
   const t = new Date(Date.UTC(a ?? 1970, m ?? 1, 0))
   return `${t.getUTCFullYear()}-${dois(t.getUTCMonth() + 1)}-${dois(t.getUTCDate())}`
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * A SESSÃO DO BALCÃO — P-1, decidida pelo dono em 2026-11-04
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** Doze horas: o teto, para quem entra de madrugada. */
+const TETO_DA_SESSAO_MS = 12 * 60 * 60 * 1000
+
+/** Uma hora: o piso, para quem entra às 23h55. */
+const PISO_DA_SESSAO_MS = 60 * 60 * 1000
+
+/**
+ * Quando a sessão do balcão termina: **no fim do dia da clínica**, nunca
+ * passando de 12 horas e nunca menos de 1 hora.
+ *
+ * ## Por que o dia da clínica, e não um prazo deslizante
+ *
+ * A sessão durava **30 dias**, e o preço não era segurança — quem sai da
+ * clínica perde o acesso na hora, porque a resolução de contexto filtra
+ * `AND ativo`. O preço era **atribuição**, e ele atacava justamente a trilha
+ * de auditoria que a D-5 existe para construir.
+ *
+ * Num computador de recepção que três pessoas usam, uma sessão de 30 dias
+ * atribui **um mês inteiro de ações a quem entrou primeiro**. A trilha fica
+ * precisa e errada — pior do que trilha nenhuma, porque todo mundo confia
+ * nela. E dói exatamente onde mais importa: quem fechou o caixa, quem aplicou
+ * a dose, quem mexeu num salário.
+ *
+ * Medido em produção antes da correção: uma única conta tinha **211 sessões
+ * válidas**, a mais antiga de dois dias antes, todas boas por mais um mês.
+ *
+ * Um prazo deslizante de 12 horas resolveria o número e não resolveria o
+ * problema: quem entra às 14h ficaria logado até as 2h da manhã, e o turno da
+ * manhã seguinte herdaria a sessão da tarde anterior. **A fronteira tem de
+ * ser o dia**, para que cada dia de trabalho comece com uma entrada — que é a
+ * granularidade com que a clínica de fato pergunta "quem fez isso".
+ *
+ * ## Os dois limites, e por que existem
+ *
+ * **Teto de 12 horas.** Sem ele, entrar à meia-noite e um daria uma sessão de
+ * quase 24 horas — o caso que a regra existe para impedir, pela porta dos
+ * fundos.
+ *
+ * **Piso de 1 hora.** Sem ele, entrar às 23h55 daria uma sessão de cinco
+ * minutos: a pessoa abre o sistema para registrar uma coisa e é desconectada
+ * no meio. Clínica com atendimento à noite faz isso, e uma sessão que morre
+ * ao nascer transforma a regra em defeito. A atribuição segue limitada a uma
+ * hora, que é o que importa.
+ *
+ * **Não há renovação por uso.** Deslizar o prazo a cada requisição é como uma
+ * sessão de 12 horas fica viva uma semana, com uma aba esquecida recarregando
+ * sozinha. É a mesma razão escrita na sessão de suporte.
+ */
+export function fimDaSessaoDoBalcao(agora: Date, fuso: string): Date {
+  const fimDoDia = inicioDoDia(somarDias(diaCivil(agora, fuso), 1), fuso).getTime()
+  const teto = agora.getTime() + TETO_DA_SESSAO_MS
+  const piso = agora.getTime() + PISO_DA_SESSAO_MS
+  return new Date(Math.max(piso, Math.min(fimDoDia, teto)))
+}

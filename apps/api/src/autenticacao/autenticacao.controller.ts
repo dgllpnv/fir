@@ -22,7 +22,6 @@ import type { RequisicaoComContexto } from '../comum/contexto'
 import { AutenticacaoService, CredencialInvalida, LimiteDeTentativas } from './autenticacao.service'
 import { FilaCheia, RETRY_AFTER_FILA_CHEIA } from './concorrencia'
 import { LimitePorOrigem } from './limite-por-origem'
-import { DURACAO_SESSAO_MS } from './sessao'
 import { NOME_DO_COOKIE } from './sessao.guard'
 
 /**
@@ -93,7 +92,7 @@ export class AutenticacaoController {
     }
 
     try {
-      const { eu, token } = await this.auth.entrar(
+      const { eu, token, duracaoMs } = await this.auth.entrar(
         dados.data.clinica,
         dados.data.usuario,
         dados.data.senha,
@@ -107,7 +106,23 @@ export class AutenticacaoController {
         secure: true,
         sameSite: 'lax',
         path: '/',
-        maxAge: Math.floor(DURACAO_SESSAO_MS / 1000),
+        // **O cookie morre com a sessão, e não um minuto depois** (P-1).
+        //
+        // O `maxAge` era 30 dias fixos. Com a sessão terminando no fim do dia
+        // da clínica, um `maxAge` maior faria o navegador guardar e enviar um
+        // cookie que o servidor já recusa: a pessoa abriria o sistema de
+        // manhã, veria a tela de entrada sem nenhuma explicação, e concluiria
+        // que "deslogou sozinho". A conta é a MESMA do `expira_em` da linha
+        // de `sessoes`, feita uma vez no serviço.
+        //
+        // `Math.ceil` e não `floor`: arredondar para baixo faria o cookie
+        // vencer até um segundo ANTES da sessão, e o último segundo do
+        // expediente não é hora de perder a sessão por arredondamento.
+        //
+        // É a MESMA duração que o `INSERT` manda ao Postgres — ver o
+        // comentário longo em `autenticacao.service.ts` sobre por que o que
+        // atravessa é a duração e não o instante.
+        maxAge: Math.ceil(duracaoMs / 1000),
       })
       return eu
     } catch (e) {

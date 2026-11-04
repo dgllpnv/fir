@@ -1,8 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
 
-/** Trinta dias. O balcão não pode relogar a cada hora — ver pendência P-1. */
-export const DURACAO_SESSAO_MS = 30 * 24 * 60 * 60 * 1000
-
 /**
  * TRINTA MINUTOS — a sessão de suporte do operador (D-13).
  *

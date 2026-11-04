@@ -3,6 +3,7 @@ import {
   avaliarSenha,
   diaCivil,
   ehErro,
+  fimDaSessaoDoBalcao,
   temPerm,
   type ChaveDePermissao,
   type ErroDeDominio,
@@ -18,7 +19,7 @@ import { inteiroDoAmbiente } from '../comum/ambiente'
 import type { ContextoDaRequisicao, PerfilComChave } from '../comum/contexto'
 import { semaforoArgon2 } from './concorrencia'
 import { conferirSenha, hashDeSenha } from './senha'
-import { DURACAO_SESSAO_MS, hashDoToken, limiteExcedido, novoToken } from './sessao'
+import { hashDoToken, limiteExcedido, novoToken } from './sessao'
 
 export class CredencialInvalida extends Error {}
 export class LimiteDeTentativas extends Error {}
@@ -206,7 +207,7 @@ export class AutenticacaoService {
     codigoClinica: string,
     usuario: string,
     senha: string,
-  ): Promise<{ eu: EuSaida; token: string }> {
+  ): Promise<{ eu: EuSaida; token: string; duracaoMs: number }> {
     const inicio = performance.now()
     try {
       return await this.entrarSemPiso(codigoClinica, usuario, senha)
@@ -224,7 +225,7 @@ export class AutenticacaoService {
     codigoClinica: string,
     usuario: string,
     senha: string,
-  ): Promise<{ eu: EuSaida; token: string }> {
+  ): Promise<{ eu: EuSaida; token: string; duracaoMs: number }> {
     const clinica = await this.clinicaPorCodigo(codigoClinica)
 
     /**
@@ -404,10 +405,38 @@ export class AutenticacaoService {
       if (!ok || !pessoa) return { tipo: 'invalida' as const }
 
       const { token, hash } = novoToken()
+      /**
+       * **O FIM DA SESSÃO VEM DO DOMÍNIO, no fuso da CLÍNICA** (P-1).
+       *
+       * `now() + intervalo` não serviria: o fim é o fim do dia da clínica, e
+       * uma clínica em `America/Manaus` tem meia-noite uma hora depois de uma
+       * em `America/Bahia`. O legado fixou `America/Bahia` num `const`; o fuso
+       * é propriedade da clínica (regra 22).
+       *
+       * **O que atravessa é a DURAÇÃO, não o instante — e isso foi medido.**
+       * A primeira versão gravava o instante calculado aqui. A suíte caiu em
+       * 759 testes de uma vez, e a razão é a que importa em produção também:
+       * quem julga a validade é `expira_em > now()`, o **relógio do
+       * Postgres**, e quem calculava o fim era o relógio da aplicação. Nos
+       * testes o relógio da aplicação é congelado num dia passado, então toda
+       * sessão nascia vencida e a API respondia 401 em tudo.
+       *
+       * Em produção os dois relógios estão a milissegundos de distância e
+       * nada apareceria — até o dia de um desvio de NTP, e aí a clínica
+       * inteira não entraria. Dois relógios decidindo a mesma coisa é um
+       * defeito que espera.
+       *
+       * Então o domínio decide **quanto tempo** (1 a 12 horas, pela fronteira
+       * do dia da clínica) e o banco aplica isso ao próprio instante. Um
+       * relógio julga; o mesmo número vai para o cookie, e o cookie não
+       * sobrevive à sessão.
+       */
+      const agora = this.relogio.agora()
+      const duracaoMs = fimDaSessaoDoBalcao(agora, clinica.fuso).getTime() - agora.getTime()
       await c.query(
         `INSERT INTO sessoes (clinica_id, pessoa_id, token_hash, expira_em)
          VALUES ($1, $2, $3, now() + ($4 || ' milliseconds')::interval)`,
-        [clinica.id, pessoa.id, hash, String(DURACAO_SESSAO_MS)],
+        [clinica.id, pessoa.id, hash, String(duracaoMs)],
       )
 
       const perfis = await lerPerfis(c)
@@ -415,6 +444,7 @@ export class AutenticacaoService {
       return {
         tipo: 'ok' as const,
         token,
+        duracaoMs,
         eu: {
           usuario: pessoaPublica(pessoa),
           // `null` SEMPRE nesta rota: quem entra por `/v1/entrar` é uma
