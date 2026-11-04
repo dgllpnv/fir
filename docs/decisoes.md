@@ -377,7 +377,7 @@ Seguram a decisão: `podeExcluirPessoa` em `packages/domain/src/pessoa.ts` (6 te
 
 ## D-15 · Importação por planilha, editar tarefa — e editar programa, que não tem resposta no protótipo
 
-**Data:** 2026-11-04 · **Origem:** seis itens relatados pela PO · **Estado:** cinco resolvidos no protótipo, um aberto
+**Data:** 2026-11-04 · **Origem:** seis itens relatados pela PO · **Estado:** resolvida — os cinco de paridade, e a opção **b** escolhida pelo dono para o sexto
 
 ### O que o protótipo respondeu, e foi feito sem perguntar
 
@@ -403,9 +403,54 @@ Então o pedido é **produto novo**, e é decisão sua. As opções, e o que cad
 
 **Recomendação: b.** Resolve o que a PO está vivendo (corrigir um cadastro) sem abrir a porta que a regra 3 e a regra 12 existem para manter fechada. O **c** não é impossível, é um épico próprio, com compensação de estoque e recálculo de saldo.
 
+### **O dono escolheu b.** O que isso virou, exatamente
+
+`PATCH /v1/programas/:id`, com `@Exige('programas.gerir')` — a mesma permissão de encerrar e excluir. A fronteira teve de ser traduzida para o nosso esquema, porque "nome" e "observação" não existiam nele:
+
+| Pedido | No nosso esquema | Como |
+|---|---|---|
+| nome | **não existe, e não passou a existir** | a identidade é `procedimento_nome`, congelado na montagem (lição D-2): renomear no catálogo não reescreve o tratamento de quem está em curso. O que a tela chama de nome é `rotulo_sessao`, **e esse muda** |
+| observação | coluna nova `programas.observacao` (migration `0024`) | é o "por que este programa é assim": dose reduzida, paciente viaja em janeiro. Hoje isso mora na cabeça de quem montou |
+| responsável | `itens_do_programa.responsavel_id`, **e reaponta as sessões em aberto** | é o caso real — a funcionária saiu e as nove aplicações futuras estão no nome dela. A sessão **realizada** não se move: reescrever o responsável de um atendimento que aconteceu muda a história clínica e troca o dono de um recebimento que entrou |
+| datas das sessões não realizadas | **já funcionava** | a sessão é uma tarefa. Medido: o `DELETE` de tarefa recusa sessão (`SESSAO_NAO_SE_EXCLUI`), o `PATCH` não. Pôr uma segunda forma de mexer na mesma data criaria duas telas que discordam sobre a série |
+
+**O que ela recusa, com 400 que nomeia o campo:** `valor`, `sessoes`, `intervaloDias`, `inicio`, `dose`, `insumo`, `modoDeCobranca`, `pacienteId`. O `.strict()` do contrato é quem garante — e a alternativa (ignorar campo desconhecido) é pior que o 400: a tela acharia que salvou o valor e o próximo fechamento diria outro número.
+
+**Nenhuma coluna nova para afrouxá-los, de propósito.** A ausência de um `programas.editado_valor_em` é o que torna "o valor não muda" uma afirmação sobre o esquema, e não uma convenção que o endpoint número quarenta esquece.
+
+Programa **encerrado** aceita a correção e devolve `sessoesRepontadas: 0`. Recusar impediria a correção justamente do registro que vai ficar; o zero diz, sem uma segunda regra, que não havia o que mover.
+
 ### Como derrubar
 
-O excluir está preso por `metodo-http.test.ts` (varredura com prova por mutação). As importações, por `colunas.test.ts` (8), `campanha-importada.test.ts` (13) e `itens-importados.test.ts` (12). O editar tarefa, por `uma-tarefa.test.ts` (6, incluindo "a mesma pessoa que leva 403 na leitura leva 403 na escrita").
+A edição de programa está presa por `editar-programa.e2e.test.ts` (21 testes), e as duas regras que importam foram **provadas por mutação**: tirar `status = 'aberta'` do reapontamento mata "a sessão realizada não se move"; tirar o `.strict()` do item mata as sete recusas. O excluir está preso por `metodo-http.test.ts` (varredura com prova por mutação). As importações, por `colunas.test.ts` (8), `campanha-importada.test.ts` (13) e `itens-importados.test.ts` (12). O editar tarefa, por `uma-tarefa.test.ts` (6, incluindo "a mesma pessoa que leva 403 na leitura leva 403 na escrita").
+
+---
+
+## D-16 · Quem define a senha da equipe das clínicas reais
+
+**Data:** 2026-11-04 · **Estado:** resolvida, e **já existia**
+
+A migração trouxe 9 pessoas da Suzana, 8 da Raphaella e 7 da Joice **sem senha**: o PIN da v20 não atravessa (D-10 trocou PIN por senha, e um PIN de 4 dígitos não é hash de senha). Faltava decidir quem define o primeiro acesso de cada uma.
+
+**Decisão do dono: o admin de cada clínica.** Não o superadmin, e não um lote de senhas geradas por nós.
+
+### Por que isso é a resposta certa, e não só a conveniente
+
+O superadmin definindo a senha de 24 pessoas obrigaria a transmitir 24 segredos por fora — WhatsApp, papel, o que estivesse à mão —, e cada canal desses é onde a senha sobrevive ao primeiro acesso. O admin da clínica está **na sala** com a pessoa: ele redefine, lê a provisória na tela, a pessoa entra e troca. O segredo não viaja.
+
+E é a divisão que D-10 já desenhou: o painel cuida de **clínica e identidade**; o acesso de quem trabalha na clínica é da clínica.
+
+### Medido: isto já funcionava
+
+Não houve código novo. `POST /v1/pessoas/:id/senha` existe desde o épico 1, com `@Exige('config')`, e a tela **Usuários e acessos** já a chama — a provisória aparece no modal (D-14), com 72 horas de prazo. O que estava preso por teste:
+
+- *"o admin NÃO escolhe a senha de outra pessoa"* — o corpo é vazio de propósito; o servidor gera
+- *"a pessoa nasce ATIVA, com senha provisória e prazo de 72 horas"*
+- *"a trilha diz QUEM redefiniu, e não guarda a senha"*
+- *"nenhuma rota devolve `senha_hash`, nunca"*
+- *"a excluída não é mais ALVO de nada: editar e redefinir senha dão 404"*
+
+Então a decisão é **operacional**: cada admin de clínica entra em **Usuários e acessos**, redefine a senha de cada pessoa da equipe e entrega a provisória ali, pessoalmente.
 
 ---
 
@@ -423,4 +468,4 @@ O excluir está preso por `metodo-http.test.ts` (varredura com prova por mutaç�
 | P-8 | **Domínio e certificado** do ambiente de produção. **D-10 reduziu o escopo:** ele já não bloqueia o e-mail (não há e-mail), e o EasyPanel dá subdomínio com TLS válido. Sobra a **marca** — e um item de segurança que não existia: **se um CDN entrar na frente do Traefik, a allowlist de IP do painel falha ABERTA sem mudar de cor** (ADR 0008). Conferência obrigatória no dia da virada | dono | primeiro deploy |
 | ~~P-9~~ | ~~**SMTP**~~ — **ENCERRADA por D-10 (2026-10-27).** O e-mail saiu do produto: não há convite, não há recuperação por e-mail, não há `nodemailer`. O Mailpit continua no compose para um dia de notificação, **sem código que o chame**. Ela deixou de bloquear qualquer coisa, não só o desenvolvimento | — | nada |
 | P-10 | **Concessão de acesso do operador a dado clínico. A LINHA FOI CRUZADA em 2026-11-02 (D-13):** o painel agora abre o sistema da clínica e o operador vê paciente, dose e valor. O que segura hoje é *acesso total com registro obrigatório* mais **sessão de trinta minutos e revogável**; o que continua faltando é a concessão com **motivo, prazo e aprovação** (D-5, restrições 2 e 4). Deixou de ser teórico. O painel entregue em 2026-10-28 implementa **acesso total com registro obrigatório** (D-10), que é o que a decisão pede. O que ele NÃO implementa é a concessão com motivo, prazo e revogação (D-5, restrições 2 e 4). Enquanto o painel só tratar **identidade**, isso é defensável; **deixa de ser no dia em que ele ler ficha de paciente**, e aí o retrofit custa o mesmo que a D-5 descreveu para a trilha. Ver ADR 0008 | dono + `especialista-lgpd-saude` | leitura de dado de negócio pelo painel (épico 12) |
-| P-11 | **Editar programa** — o protótipo não tem `editarAdesao`, então é produto novo (ver D-15). Três opções escritas lá, com recomendação: **b**, editar só o que não move dinheiro nem estoque. A PO pediu o botão; sem a decisão, a clínica que errou o cadastro depois da primeira sessão paga não tem saída, porque D-8 proíbe excluir | dono + `product-rotina-clinica` | o botão de editar na aba Programas |
+| ~~P-11~~ | ~~**Editar programa**~~ — **ENCERRADA por D-15 (2026-11-04).** O dono escolheu a opção **b**: editar só o que não move dinheiro nem estoque. Implementada, com 21 testes e duas provas por mutação | — | nada |

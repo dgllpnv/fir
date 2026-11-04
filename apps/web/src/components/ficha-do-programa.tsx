@@ -11,6 +11,7 @@ import {
   corpoDaSessao,
   type DadosDaSessao,
 } from '@/components/programas/cartao-de-sessao'
+import { EdicaoDoPrograma } from '@/components/programas/edicao-do-programa'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
@@ -185,6 +186,8 @@ export function FichaDoProgramaNaTela({ id, podeReceber, podeGerir }: Props) {
         <AcoesDeGestao
           id={d.id}
           encerrado={d.situacao === 'encerrado'}
+          itens={d.itens}
+          observacao={d.observacao}
           aoMudar={(aviso) => {
             setRecado(aviso)
             ficha.recarregar()
@@ -323,10 +326,14 @@ const semAviso = (t: ItemNaFicha['agenda'][number]): SessaoNaAgenda => ({
 function AcoesDeGestao({
   id,
   encerrado,
+  itens,
+  observacao,
   aoMudar,
 }: {
   id: string
   encerrado: boolean
+  itens: readonly ItemNaFicha[]
+  observacao: string
   aoMudar: (aviso: string) => void
 }) {
   const router = useRouter()
@@ -425,6 +432,18 @@ function AcoesDeGestao({
         </div>
       ) : (
         <div className="botoes">
+          {/*
+            EDITAR vem primeiro, e ANTES de encerrar: é a ação que a clínica
+            vai usar — corrigir um rótulo ou um responsável — e deixá-la ao
+            lado de "Excluir" daria às duas o mesmo peso num alvo de toque de
+            390 px.
+          */}
+          <EdicaoDoPrograma
+            id={id}
+            itens={itens}
+            observacao={observacao}
+            aoMudar={aoMudar}
+          />
           {encerrado ? null : (
             <button type="button" className="btn ghost" onClick={() => setEncerrando(true)}>
               Encerrar programa

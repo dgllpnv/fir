@@ -1,9 +1,11 @@
 import {
   ConsultaDeProgramas,
+  EditarPrograma,
   EncerrarPrograma,
   type FichaDoPrograma,
   MontarPrograma,
   type PainelDeProgramas,
+  type ProgramaEditadoNaSaida,
   type ProgramaEncerradoNaSaida,
   type ProgramaMontadoNaSaida,
 } from '@fir/contracts'
@@ -19,6 +21,7 @@ import {
   Inject,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   Req,
@@ -139,6 +142,36 @@ export class ProgramasController {
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     const c = req.contexto!
     return this.programas.encerrar(
+      { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
+      id,
+      dados.data,
+    )
+  }
+
+  /**
+   * **A fatia que não move dinheiro nem estoque** (D-15, opção b).
+   *
+   * `@Exige('programas.gerir')` — a mesma de encerrar e excluir. Trocar o
+   * responsável de nove sessões futuras é mexer na agenda da clínica, e quem
+   * só tem `programas` acompanha o tratamento sem redesenhá-lo.
+   *
+   * O 400 de `.strict()` é parte do contrato aqui: mandar `valor` ou `sessoes`
+   * recebe uma recusa que **nomeia o campo**. A alternativa — ignorar o campo
+   * desconhecido — faria a tela achar que salvou o valor, e o próximo
+   * fechamento diria outro número.
+   */
+  @Patch(':id')
+  @HttpCode(HttpStatus.OK)
+  @Exige('programas.gerir')
+  async editar(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() corpo: unknown,
+  ): Promise<ProgramaEditadoNaSaida> {
+    const dados = EditarPrograma.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.programas.editar(
       { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
       id,
       dados.data,

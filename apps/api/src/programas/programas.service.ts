@@ -1,7 +1,9 @@
 import type {
+  EditarPrograma,
   EncerrarPrograma,
   ItemNoPrograma,
   MontarPrograma,
+  ProgramaEditadoNaSaida,
   ProgramaEncerradoNaSaida,
   ProgramaMontadoNaSaida,
 } from '@fir/contracts'
@@ -188,6 +190,104 @@ export class ProgramasService {
         motivoEncerramento: motivo.slice(0, 260),
         sessoesCanceladas: canceladas.rows.map((x) => x.id),
       }
+    })
+  }
+
+  /**
+   * **EDITAR — a fatia que não move dinheiro nem estoque** (D-15, opção b).
+   *
+   * O que esta função NÃO toca é o que ela é: `valor_centavos`, `sessoes`,
+   * `intervalo_dias`, `inicio`, `dose` e `insumo_*` não aparecem em nenhum
+   * `UPDATE` daqui, e o `.strict()` do contrato garante que mandá-los dá 400
+   * nomeando o campo em vez de ser ignorado em silêncio.
+   *
+   * **Trocar o responsável de um item reaponta as sessões EM ABERTO dele.**
+   * Esse é o caso real — a funcionária saiu da clínica e as nove aplicações
+   * futuras estão no nome dela. Reapontar só o cadastro deixaria a agenda
+   * apontando para quem não trabalha mais ali, e o "Para mim" de ninguém
+   * mostraria as sessões.
+   *
+   * **A sessão REALIZADA não se move.** `status = 'aberta'` no `WHERE` é a
+   * regra: quem aplicou a dose do dia 12 aplicou, e reescrever o responsável
+   * de um atendimento que aconteceu é reescrever a história clínica — além de
+   * mudar de dono um recebimento que já entrou.
+   *
+   * **`rotuloSessao` muda; o nome do procedimento não.** O nome é congelado na
+   * montagem (lição D-2): renomear no catálogo não reescreve o tratamento de
+   * quem está em curso. O rótulo é rótulo.
+   *
+   * Programa **encerrado** aceita a edição, e devolve `sessoesRepontadas: 0`.
+   * Recusar seria impedir a correção justamente do registro que vai ficar — e
+   * o zero diz, sem precisar de uma segunda regra, que não havia o que mover.
+   */
+  async editar(
+    ctx: Contexto,
+    id: string,
+    dados: EditarPrograma,
+  ): Promise<ProgramaEditadoNaSaida> {
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      await carregarPrograma(c, id)
+
+      if (dados.observacao !== undefined) {
+        await c.query('UPDATE programas SET observacao = $2 WHERE id = $1', [
+          id,
+          dados.observacao,
+        ])
+      }
+
+      if (dados.unidadeId !== undefined) {
+        await c.query('UPDATE programas SET unidade_id = $2 WHERE id = $1', [
+          id,
+          dados.unidadeId ?? null,
+        ])
+      }
+
+      let repontadas = 0
+      for (const item of dados.itens ?? []) {
+        if (item.responsavelId === undefined && item.rotuloSessao === undefined) continue
+
+        // A pessoa tem de existir, estar ATIVA e não estar excluída — a mesma
+        // conferência de `PATCH /v1/tarefas/:id`. Sem ela, a agenda de nove
+        // sessões iria para quem saiu da clínica, que é exatamente o defeito
+        // que a troca de responsável existe para corrigir.
+        if (item.responsavelId !== undefined) {
+          const r = await c.query<{ ativo: boolean }>(
+            'SELECT ativo FROM pessoas WHERE id = $1 AND excluida_em IS NULL',
+            [item.responsavelId],
+          )
+          if (r.rowCount === 0 || r.rows[0]!.ativo !== true) {
+            throw new BadRequestException('Escolha alguém que está na equipe hoje.')
+          }
+        }
+
+        const alterado = await c.query<{ id: string }>(
+          `UPDATE itens_do_programa
+              SET responsavel_id = coalesce($3, responsavel_id),
+                  rotulo_sessao  = coalesce($4, rotulo_sessao)
+            WHERE programa_id = $1 AND chave = $2
+            RETURNING id`,
+          [id, item.chave, item.responsavelId ?? null, item.rotuloSessao ?? null],
+        )
+        // Chave que não existe é 404 e não silêncio: a tela mandou um item que
+        // este programa não tem, e seguir adiante gravaria metade do pedido.
+        if (alterado.rowCount === 0) {
+          throw new NotFoundException(`O programa não tem o item "${item.chave}".`)
+        }
+
+        if (item.responsavelId !== undefined) {
+          const reapontadas = await c.query<{ id: string }>(
+            `UPDATE tarefas
+                SET responsavel_id = $3
+              WHERE programa_id = $1 AND item_chave = $2
+                AND status = 'aberta' AND excluida_em IS NULL
+              RETURNING id`,
+            [id, item.chave, item.responsavelId],
+          )
+          repontadas += reapontadas.rowCount ?? 0
+        }
+      }
+
+      return { id, sessoesRepontadas: repontadas }
     })
   }
 

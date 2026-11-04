@@ -303,6 +303,74 @@ export const EncerrarPrograma = z
   .strict()
 export type EncerrarPrograma = z.infer<typeof EncerrarPrograma>
 
+/**
+ * `PATCH /v1/programas/:id` — **a fatia que não move dinheiro nem estoque**.
+ *
+ * Decisão D-15, opção b. O protótipo não responde a este pedido: ele tem
+ * `criarAdesao`, `encerrarAdesao` e `excluirAdesao`, e **não tem**
+ * `editarAdesao`. A fronteira abaixo foi escolhida, e é a razão de o schema
+ * ser `.strict()`:
+ *
+ * **O que entra.** `observacao` do programa, `unidadeId`, e por item o
+ * `responsavelId` e o `rotuloSessao`.
+ *
+ * **O que fica de fora, e o `.strict()` é quem garante.** `valor`, `sessoes`,
+ * `intervaloDias`, `inicio`, `dose`, `insumo` e `modoDeCobranca` não são
+ * campos deste corpo. Mandá-los dá **400 nomeando o campo**, não um
+ * `UPDATE` silencioso do resto:
+ *
+ *  · `valor` e `sessoes` mudam o saldo em aberto, que é derivado e agrupado
+ *    por adesão (regra 5). Editá-los sem recalcular o abatimento faria a
+ *    cobrança pedir um número e o fechamento mostrar outro.
+ *  · `dose` e `insumo` mudam o que se baixa do estoque, e uma sessão já
+ *    realizada baixou a dose antiga (regra 12: movimento é append-only).
+ *  · `inicio` e `intervaloDias` reprogramariam a agenda em cascata, e isso
+ *    não existe aqui. A data de UMA sessão não realizada já é editável: ela é
+ *    uma tarefa, e `PATCH /v1/tarefas/:id` a edita.
+ *
+ * **Não há `nome`.** A identidade do programa é `procedimentoNome`, congelado
+ * na montagem (lição D-2): renomear no catálogo não reescreve a história de
+ * quem está em tratamento. `rotuloSessao` é rótulo, e esse muda.
+ *
+ * `chave` e não índice: a tela manda o item por nome, e um array reordenado
+ * no caminho não troca o responsável de dois itens entre si.
+ */
+export const EditarItemDoPrograma = z
+  .object({
+    chave: z.string().trim().min(1).max(20),
+    responsavelId: Uuid.optional(),
+    rotuloSessao: z.string().trim().min(1).max(40).optional(),
+  })
+  .strict()
+export type EditarItemDoPrograma = z.infer<typeof EditarItemDoPrograma>
+
+export const EditarPrograma = z
+  .object({
+    observacao: z.string().trim().max(300).optional(),
+    unidadeId: Uuid.nullish(),
+    itens: z.array(EditarItemDoPrograma).max(20).optional(),
+  })
+  .strict()
+  .refine(
+    (d) => d.observacao !== undefined || d.unidadeId !== undefined || d.itens !== undefined,
+    { message: 'Nada a alterar.' },
+  )
+export type EditarPrograma = z.infer<typeof EditarPrograma>
+
+/**
+ * A resposta de `PATCH /v1/programas/:id`.
+ *
+ * `sessoesRepontadas` existe para a tela poder DIZER o número: trocar o
+ * responsável de um item reaponta as sessões **em aberto** dele, e um "salvo"
+ * mudo deixaria a recepção sem saber se as nove sessões futuras foram ou não.
+ * Zero também é resposta — num programa encerrado não há o que reapontar.
+ */
+export const ProgramaEditadoNaSaida = z.object({
+  id: Uuid,
+  sessoesRepontadas: z.number().int(),
+})
+export type ProgramaEditadoNaSaida = z.infer<typeof ProgramaEditadoNaSaida>
+
 /* =========================================================================
  * AS SAÍDAS
  * ========================================================================= */
@@ -600,6 +668,8 @@ export const FichaDoPrograma = z.object({
   modoDeCobranca: z.enum(['avulso', 'saldo']),
   situacao: z.enum(SITUACOES_DO_PROGRAMA),
   motivoEncerramento: z.string().nullable(),
+  /** O "por que este programa é assim" (D-15 b). Dado de saúde (regra 18). */
+  observacao: z.string(),
   unidadeId: Uuid.nullable(),
   tarefaDeOrigemId: Uuid.nullable(),
   realizadas: z.number().int(),

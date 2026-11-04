@@ -64,6 +64,7 @@ type LinhaDePrograma = {
   paciente_telefone: string
   situacao: string
   motivo_encerramento: string | null
+  observacao: string
   modo_de_cobranca: 'avulso' | 'saldo'
   unidade_id: string | null
   inicio: string
@@ -103,7 +104,7 @@ type LinhaDePrograma = {
  */
 const SELECT_PROGRAMA = `
   SELECT p.id, p.paciente_id, pa.nome AS paciente_nome, pa.telefone AS paciente_telefone,
-         p.situacao, p.motivo_encerramento, p.modo_de_cobranca, p.unidade_id,
+         p.situacao, p.motivo_encerramento, p.observacao, p.modo_de_cobranca, p.unidade_id,
          p.inicio::text AS inicio, p.tarefa_de_origem_id,
          coalesce(i.nomes, '') AS procedimentos,
          coalesce(i.rotulo, 'Sessão') AS rotulo_sessao,
@@ -374,6 +375,7 @@ export class LeituraDeProgramasService {
         modoDeCobranca: p.modo_de_cobranca,
         situacao,
         motivoEncerramento: p.motivo_encerramento,
+        observacao: p.observacao,
         unidadeId: p.unidade_id,
         tarefaDeOrigemId: p.tarefa_de_origem_id,
         realizadas: feitas.length,
