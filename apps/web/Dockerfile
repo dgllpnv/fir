@@ -93,4 +93,21 @@ EXPOSE 4810
 # O `standalone` emite o servidor no caminho do app dentro do monorepo, e não
 # na raiz — consequência de `outputFileTracingRoot` apontar para a raiz do
 # workspace, que é o que faz `packages/` entrar no rastreamento.
+# ---------------------------------------------------------------------------
+# O SELO DO COMMIT
+# ---------------------------------------------------------------------------
+# **Por que a imagem carrega o commit, e por que isso substituiu uma
+# comparação de datas.** O `implantar.sh` precisa saber se a imagem é do código
+# que está no disco. A primeira tentativa comparou o `Created` da imagem com a
+# data do commit, e **recusou dois deploys corretos**: quando um commit não
+# muda as entradas de um app, o Docker reaproveita a imagem e **preserva o
+# `Created` antigo` — a imagem está certa e a data diz que está velha.
+#
+# Identidade não tem esse problema. O `ARG` muda a cada commit, então esta
+# última camada (e só ela) é reconstruída; o resto vem do cache. O selo diz a
+# verdade sobre de onde a imagem veio, e o deploy compara uma coisa com ela
+# mesma em vez de inferir de um relógio.
+ARG FIR_COMMIT=desconhecido
+LABEL fir.commit=$FIR_COMMIT
+
 CMD ["node", "apps/web/server.js"]

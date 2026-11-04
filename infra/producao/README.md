@@ -4,29 +4,23 @@ Na mesma VPS do Mavia, **ao lado e nunca dentro** da orquestração do
 EasyPanel: containers comuns, descobertos pelo Traefik por label, Postgres
 próprio, rede de dados sem rota de saída, só o `web` encarando a internet.
 
-## O deploy, em dois comandos
+## O deploy, em um comando
 
 ```bash
 ssh root@2.24.79.49
 cd /opt/fir/repo && git fetch origin && git reset --hard origin/fundacao
-
-# `nice` porque o build compete com o Chatwoot e o WhatsApp de clientes de
-# OUTROS negócios na mesma máquina.
-nice -n 19 docker build -f apps/api/Dockerfile -t fir/api:mais-recente .
-nice -n 19 docker build -f apps/web/Dockerfile -t fir/web:mais-recente .
-
 cd infra/producao && bash implantar.sh
 ./redefinir-superadmin.sh <usuario> "Nome"   # cria o PRIMEIRO operador
 ```
 
-**Os dois `docker build` não são opcionais, e o `implantar.sh` passou a cobrá-los.**
-Ele recusa quando uma imagem é mais antiga que o último commit que mexeu nas
-entradas dela (`apps/api` ou `apps/web`, mais `packages/` e o lockfile). Sem
-essa guarda, rodar só o segundo comando fazia as oito asserções passarem e o
-container seguir com a imagem anterior — `docker compose up` imprime `Running`
-em vez de `Started`, numa linha que ninguém lê como erro. Um commit que mexe
-só na API não exige reconstruir o `web`: a comparação é por app, não com
-`HEAD`.
+**`implantar.sh` constrói as imagens.** Era em dois comandos, e o segundo
+sozinho mentia: as oito asserções passavam, ele imprimia "FIR em https://…", e
+o container seguia com a imagem anterior — `docker compose up` escreve
+`Running` em vez de `Started`, numa linha que ninguém lê como erro. Duas
+guardas por timestamp tentaram cobrir isso e **recusaram deploys corretos**,
+porque imagem reaproveitada do cache preserva o `Created` antigo. Agora cada
+imagem carrega `LABEL fir.commit` e o deploy compara identidade com o `HEAD` do
+disco; construir ali acaba com a pergunta "você lembrou de construir?".
 
 `implantar.sh` é idempotente: rodar duas vezes não recria segredo, não reaplica
 migration e não perde dado. Ele faz os passos 1 a 5 abaixo e termina com oito

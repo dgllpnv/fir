@@ -202,74 +202,71 @@ done
 echo "==> allowlist do painel: $IPS_DO_PAINEL"
 
 # ---------------------------------------------------------------------------
-# 2.5 · a imagem é do commit que está aqui?
+# 2.5 · as imagens — construídas AQUI, e conferidas pelo selo do commit
 # ---------------------------------------------------------------------------
-# **O deploy que mente.** Este script não constrói imagem — o README manda
-# construir antes, em dois comandos. Quem roda só o segundo vê as oito
-# asserções passarem, lê "FIR em https://…" e vai embora convencido de que
-# implantou. O que subiu foi a imagem anterior, e o `docker compose up` nem
-# recria o container: ele imprime `Running` em vez de `Started`, numa linha
-# que ninguém lê como erro porque não é erro.
+# **Duas versões disto recusaram deploys corretos. Esta é a terceira, e ela
+# remove a pergunta em vez de respondê-la melhor.**
 #
-# Medido aqui, com o dono esperando: o deploy "passou" e nada do código novo
-# estava na VPS. O custo de descobrir isso depois é alto porque o sintoma é a
-# ausência de uma mudança — não há erro para procurar, só uma tela que
-# continua igual, e a primeira suspeita recai sobre o código.
+# O problema original: este script não construía imagem. O README mandava
+# construir antes, em dois comandos, e quem rodava só o segundo via as oito
+# asserções passarem, lia "FIR em https://…" e ia embora — com o container
+# servindo a imagem anterior. O `docker compose up` imprime `Running` em vez de
+# `Started`, numa linha que ninguém lê como erro porque não é erro.
 #
-# A comparação é entre o instante da imagem e o do **último commit que tocou
-# as entradas daquela imagem** — não o de `HEAD`.
+# A primeira guarda comparou o `Created` da imagem com a data do commit.
+# Recusou um deploy correto: o commit mexia só na API, o build do `web` ficou
+# inteiro em cache, e **imagem reaproveitada preserva o `Created` antigo**.
 #
-# **Isso foi medido, e a primeira versão estava errada.** Ela comparava com
-# `HEAD`, e recusou um deploy correto: o commit mexia só na API, o build do
-# `web` ficou inteiro em cache, e uma imagem reaproveitada **mantém o
-# `Created` antigo**. Resultado — a guarda que existia para impedir deploy de
-# código velho impediu o deploy do código novo, e saiu antes do `compose up`.
-# Um app que não mudou não precisa de imagem nova, e dizer o contrário
-# obrigaria a reconstruir os dois a cada commit de um.
+# A segunda comparou por app, com os caminhos de entrada de cada um. Recusou
+# outro deploy correto: o commit mexia em `turbo.json` — que É entrada do build
+# — sem mudar nada que entre na imagem. Cache de novo, timestamp velho de novo.
 #
-# Os caminhos de cada app incluem `packages/` e o lockfile porque os dois
-# entram nos dois builds: uma mudança em `packages/domain` muda o bundle do
-# `web` mesmo sem ninguém tocar em `apps/web`.
+# A lição é que **timestamp é a pergunta errada**. O que se quer saber não é
+# "a imagem é recente", é "a imagem é DESTE código" — e isso é identidade.
+# Cada Dockerfile recebe `ARG FIR_COMMIT` e grava `LABEL fir.commit`; o `ARG`
+# muda a cada commit, então só a última camada é reconstruída e o resto vem do
+# cache.
 #
-# Não é perfeita: um `git reset` para um commit ANTIGO com imagem nova passa.
-# Mas o caso que acontece de verdade é o oposto — código novo, imagem velha —
-# e é esse que ela recusa.
-if [ -d ../../.git ]; then
-  verificar_imagem() {
-    nome=$1
-    shift
-    imagem_em=$(docker image inspect "$nome" --format '{{.Created}}' 2>/dev/null || echo '')
-    if [ -z "$imagem_em" ]; then
-      echo "ERRO: a imagem $nome não existe. Construa antes:" >&2
-      echo "      nice -n 19 docker build -f apps/api/Dockerfile -t fir/api:mais-recente ." >&2
-      echo "      nice -n 19 docker build -f apps/web/Dockerfile -t fir/web:mais-recente ." >&2
-      exit 1
-    fi
-    commit_em=$(git -C ../.. log -1 --format=%cI -- "$@" 2>/dev/null || echo '')
-    # Sem commit tocando estes caminhos não há o que comparar — repositório
-    # recém-clonado com histórico raso, por exemplo. Avisar e seguir é certo:
-    # recusar o deploy por falta de histórico seria pior que o risco.
-    [ -n "$commit_em" ] || return 0
-    # Comparação em epoch: `date -d` lê os dois formatos ISO.
-    if [ "$(date -d "$imagem_em" +%s)" -lt "$(date -d "$commit_em" +%s)" ]; then
-      echo "ERRO: $nome é ANTERIOR ao último commit que mexeu nela." >&2
-      echo "      imagem: $imagem_em" >&2
-      echo "      commit: $commit_em" >&2
-      echo "              $(git -C ../.. log -1 --format=%h%x20%s -- "$@")" >&2
-      echo "      Reconstrua antes de implantar — senão o deploy sobe o código antigo" >&2
-      echo "      e termina dizendo que deu certo:" >&2
-      echo "      cd ../.. && nice -n 19 docker build -f apps/api/Dockerfile -t fir/api:mais-recente ." >&2
-      echo "                 nice -n 19 docker build -f apps/web/Dockerfile -t fir/web:mais-recente ." >&2
-      exit 1
-    fi
-  }
+# E construir aqui acaba com a classe inteira de defeito: não há mais "você
+# lembrou de construir?". `nice -n 19` porque o build compete com o Chatwoot e
+# o WhatsApp de clientes de OUTROS negócios na mesma máquina.
+COMMIT=$(git -C ../.. rev-parse HEAD 2>/dev/null || echo '')
 
-  COMUNS="packages pnpm-lock.yaml package.json pnpm-workspace.yaml turbo.json"
-  # shellcheck disable=SC2086
-  verificar_imagem fir/api:mais-recente apps/api $COMUNS
-  # shellcheck disable=SC2086
-  verificar_imagem fir/web:mais-recente apps/web $COMUNS
-  echo "==> imagens em dia com o que mudou em cada uma"
+if [ -n "$COMMIT" ]; then
+  echo "==> construindo as imagens de ${COMMIT:0:7}"
+  for app in api web; do
+    nice -n 19 docker build \
+      --build-arg "FIR_COMMIT=$COMMIT" \
+      -f "../../apps/$app/Dockerfile" \
+      -t "fir/$app:mais-recente" ../.. >/dev/null
+  done
+
+  # A conferência, DEPOIS do build: o selo da imagem é o commit do disco.
+  # Falhar aqui significa que o build não produziu o que se pediu — e aí
+  # seguir para o `compose up` seria subir código que ninguém escolheu.
+  for app in api web; do
+    selo=$(docker image inspect "fir/$app:mais-recente" \
+             --format '{{index .Config.Labels "fir.commit"}}' 2>/dev/null || echo '')
+    if [ "$selo" != "$COMMIT" ]; then
+      echo "ERRO: fir/$app:mais-recente não é deste commit." >&2
+      echo "      selo da imagem: ${selo:-<ausente>}" >&2
+      echo "      commit no disco: $COMMIT" >&2
+      echo "      O build acima não produziu o que se pediu. Não vou subir." >&2
+      exit 1
+    fi
+  done
+  echo "==> imagens seladas com ${COMMIT:0:7}"
+else
+  # Sem repositório git não há commit para selar. Acontece em cópia por
+  # tarball; avisar e seguir é certo, porque recusar o deploy por falta de
+  # histórico seria pior que o risco.
+  echo "==> sem repositório git aqui; usando as imagens que já existem"
+  for app in api web; do
+    docker image inspect "fir/$app:mais-recente" >/dev/null 2>&1 || {
+      echo "ERRO: a imagem fir/$app:mais-recente não existe e não há git para construí-la." >&2
+      exit 1
+    }
+  done
 fi
 
 # ---------------------------------------------------------------------------

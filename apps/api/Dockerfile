@@ -138,4 +138,21 @@ HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
 # Sem `--enable-source-maps`: o `sourcemap: 'inline'` do bundle já resolve, e a
 # flag duplicaria o custo de memória — numa VPS compartilhada com a produção de
 # outros negócios isso não é detalhe.
+# ---------------------------------------------------------------------------
+# O SELO DO COMMIT
+# ---------------------------------------------------------------------------
+# **Por que a imagem carrega o commit, e por que isso substituiu uma
+# comparação de datas.** O `implantar.sh` precisa saber se a imagem é do código
+# que está no disco. A primeira tentativa comparou o `Created` da imagem com a
+# data do commit, e **recusou dois deploys corretos**: quando um commit não
+# muda as entradas de um app, o Docker reaproveita a imagem e **preserva o
+# `Created` antigo` — a imagem está certa e a data diz que está velha.
+#
+# Identidade não tem esse problema. O `ARG` muda a cada commit, então esta
+# última camada (e só ela) é reconstruída; o resto vem do cache. O selo diz a
+# verdade sobre de onde a imagem veio, e o deploy compara uma coisa com ela
+# mesma em vez de inferir de um relógio.
+ARG FIR_COMMIT=desconhecido
+LABEL fir.commit=$FIR_COMMIT
+
 CMD ["node", "api.js"]
