@@ -48,7 +48,21 @@ function temPadrao(s: string): boolean {
  */
 const SEMPRE_BLOQUEADO = ['firmare']
 
-export type ContextoDeSenha = { readonly contexto: readonly string[] }
+export type ContextoDeSenha = {
+  readonly contexto: readonly string[]
+  /**
+   * De quem é a senha que está sendo julgada. Muda **uma frase**, e a frase
+   * errada custa uma ligação para o suporte.
+   *
+   * `propria` (padrão) — a pessoa trocando a sua: *"o seu nome nem o seu
+   * usuário"*. `deOutra` — um admin redefinindo a de alguém: aí "o seu nome"
+   * é mentira, e o admin lê a recusa, confere que o nome DELE não está na
+   * senha, e conclui que a ferramenta está quebrada. Medido em produção na
+   * primeira hora da D-18: `admin.teste-2026` recusado com *"nem o seu
+   * usuário"* para quem não é `admin.teste`.
+   */
+  readonly dono?: 'propria' | 'deOutra'
+}
 
 /**
  * Os pedaços de contexto que valem comparar: a entrada inteira, dobrada e sem
@@ -95,7 +109,7 @@ function pedacosDoContexto(contexto: readonly string[]): string[] {
  */
 export function avaliarSenha(
   senha: string,
-  { contexto }: ContextoDeSenha,
+  { contexto, dono = 'propria' }: ContextoDeSenha,
 ): Result<void, ErroDeDominio> {
   // Pontos de código, não unidades UTF-16: `'🙂'.length` é 2, e com `.length`
   // seis emoji passariam por doze caracteres com um sexto da entropia.
@@ -121,7 +135,10 @@ export function avaliarSenha(
     if (nua.includes(alvo))
       return erro({
         codigo: 'CONTEXTO',
-        mensagem: 'A senha não pode conter o nome da clínica, o seu nome nem o seu usuário.',
+        mensagem:
+          dono === 'propria'
+            ? 'A senha não pode conter o nome da clínica, o seu nome nem o seu usuário.'
+            : 'A senha não pode conter o nome da clínica, nem o nome ou o usuário da pessoa.',
       })
   }
 

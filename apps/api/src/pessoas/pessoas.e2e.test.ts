@@ -463,7 +463,33 @@ describe('POST /v1/pessoas/:id/senha', () => {
     const id = await comUsuario('gisele.matos')
     const r = await redefinir(admin, id, 'gisele.matos-2026')
     expect(r.status, JSON.stringify(r.body)).toBe(422)
-    expect(String(r.body.message)).toContain('não pode conter')
+
+    // **E a frase fala DA PESSOA, não de quem digita.** Medido em produção na
+    // primeira hora da D-18: a recusa dizia "nem o SEU usuário" para um admin
+    // que não é `gisele.matos`. Ele confere que o nome dele não está na senha
+    // e conclui que a ferramenta está quebrada — uma ligação para o suporte
+    // por causa de um pronome.
+    expect(String(r.body.message)).toBe(
+      'A senha não pode conter o nome da clínica, nem o nome ou o usuário da pessoa.',
+    )
+  })
+
+  it('e a troca PRÓPRIA continua dizendo "o seu nome" — a frase é por fluxo', async () => {
+    // A outra metade: um `dono` só, aplicado aos dois casos, trocaria uma
+    // frase errada por outra.
+    const id = await comUsuario('julia.campos')
+    const prov = await redefinir(admin, id).expect(200)
+    const entrou = await entrarComo('julia.campos', prov.body.senhaProvisoria as string).expect(200)
+    const cookie = entrou.headers['set-cookie'] as unknown as string[]
+
+    const r = await request(app.getHttpServer())
+      .post('/v1/eu/senha')
+      .set('Cookie', cookie)
+      .send({ atual: prov.body.senhaProvisoria, nova: 'julia.campos-2026' })
+    expect(r.status, JSON.stringify(r.body)).toBe(422)
+    expect(String(r.body.message)).toBe(
+      'A senha não pode conter o nome da clínica, o seu nome nem o seu usuário.',
+    )
   })
 
   it('campo desconhecido no corpo é 400, nomeando o campo', async () => {

@@ -102,7 +102,8 @@ export async function provisoriaEscolhida(
   escolhida: string,
   contexto: readonly string[],
 ): Promise<Provisoria> {
-  const juizo = avaliarSenha(escolhida, { contexto })
+  // `deOutra`: a frase da recusa fala do nome DA PESSOA, nao de quem digita.
+  const juizo = avaliarSenha(escolhida, { contexto, dono: 'deOutra' })
   if (ehErro(juizo)) throw new SenhaFraca(juizo.erro)
 
   const hash = await semaforoArgon2.executar(() => hashDeSenha(escolhida))
