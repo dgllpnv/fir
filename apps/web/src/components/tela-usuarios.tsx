@@ -195,13 +195,23 @@ function AbaPessoas({
                 pessoas.recarregar()
               }}
               aoRedefinir={(s) => {
-                setProvisoria({
-                  nome: p.nome,
-                  usuario: p.usuario,
-                  senha: s.senhaProvisoria,
-                  expiraEm: s.senhaProvisoriaExpiraEm,
-                })
-                aoAvisar(`Senha de ${p.nome} redefinida. As sessões dela foram encerradas.`)
+                // `senhaProvisoria === null` é o servidor dizendo "quem
+                // redefiniu ESCOLHEU a senha, e já a sabe". Abrir o modal
+                // "anote esta senha" aí seria ruído — ele existe porque a
+                // gerada não pode ser recuperada depois.
+                if (s.senhaProvisoria !== null) {
+                  setProvisoria({
+                    nome: p.nome,
+                    usuario: p.usuario,
+                    senha: s.senhaProvisoria,
+                    expiraEm: s.senhaProvisoriaExpiraEm,
+                  })
+                }
+                aoAvisar(
+                  s.senhaProvisoria === null
+                    ? `Senha de ${p.nome} trocada. As sessões dela foram encerradas, e ela vai ter de escolher outra no primeiro acesso.`
+                    : `Senha de ${p.nome} redefinida. As sessões dela foram encerradas.`,
+                )
                 pessoas.recarregar()
               }}
             />
@@ -312,6 +322,15 @@ function FormularioDePessoa({
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
   const [confirmandoSenha, setConfirmandoSenha] = useState(false)
+  /**
+   * A senha que QUEM REDEFINE escolheu, ou `''` para o servidor gerar.
+   *
+   * Vazio é o padrão de propósito: a gerada tem 40 bits e é ditável por
+   * telefone, e é a escolha certa para quem não está na frente da pessoa.
+   * Escolher existe porque a gerada **se perdia** — ela aparece uma vez, e
+   * quem fechou o modal antes de anotar não tinha como recuperá-la.
+   */
+  const [senhaEscolhida, setSenhaEscolhida] = useState('')
   const [confirmandoExclusao, setConfirmandoExclusao] = useState(false)
 
   /**
@@ -404,8 +423,18 @@ function FormularioDePessoa({
     setErro(null)
     setOcupado(true)
     try {
-      const s = await chamar<SenhaRedefinida>(`v1/pessoas/${p.id}/senha`, { method: 'POST' })
+      const escolhida = senhaEscolhida.trim()
+      const s = await chamar<SenhaRedefinida>(`v1/pessoas/${p.id}/senha`, {
+        method: 'POST',
+        // Corpo só quando há escolha: o caminho de gerar continua mandando
+        // `{}`, como sempre mandou.
+        ...(escolhida === '' ? {} : { body: JSON.stringify({ senha: escolhida }) }),
+      })
       setConfirmandoSenha(false)
+      setSenhaEscolhida('')
+      // Quem decide abrir o modal é o CHAMADOR, olhando
+      // `senhaProvisoria === null`. Decidir aqui espalharia a mesma regra por
+      // duas telas, e a segunda é a que fica velha.
       aoRedefinir?.(s)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não consegui redefinir a senha.')
@@ -562,7 +591,9 @@ function FormularioDePessoa({
               onClick={() => void redefinirSenha()}
               disabled={ocupado}
             >
-              Confirmar: gerar senha nova
+              {senhaEscolhida.trim() === ''
+                ? 'Confirmar: gerar senha nova'
+                : 'Confirmar: usar esta senha'}
             </button>
             <button type="button" className="link" onClick={() => setConfirmandoSenha(false)}>
               Deixar como está
@@ -582,10 +613,31 @@ function FormularioDePessoa({
         )}
       </div>
       {confirmandoSenha ? (
-        <p className="nota">
-          A senha atual deixa de valer e <b>as sessões abertas dela caem</b>. A nova aparece aqui,
-          uma vez.
-        </p>
+        <>
+          <label className="campo">
+            Senha nova <small>(deixe vazio para o sistema gerar)</small>
+            <input
+              type="text"
+              autoComplete="off"
+              maxLength={200}
+              value={senhaEscolhida}
+              placeholder="Em branco = o sistema gera e mostra aqui"
+              onChange={(e) => setSenhaEscolhida(e.target.value)}
+            />
+          </label>
+          <p className="nota">
+            A senha atual deixa de valer e <b>as sessões abertas dela caem</b>.
+            {senhaEscolhida.trim() === '' ? (
+              <> A nova aparece aqui, uma vez — anote antes de fechar.</>
+            ) : (
+              <>
+                {' '}
+                Ela entra como <b>provisória</b>: {p?.nome ?? 'a pessoa'} vai ter de trocá-la no
+                primeiro acesso, porque você também a conhece.
+              </>
+            )}
+          </p>
+        </>
       ) : null}
 
       {/* A confirmação é um MODAL, e ela DIZ O QUE ACONTECE — ver

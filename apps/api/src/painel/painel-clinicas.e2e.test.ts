@@ -374,6 +374,49 @@ describe('o superadmin alcança as pessoas de QUALQUER clínica', () => {
       .expect(200)
   })
 
+  it('o superadmin pode ESCOLHER a senha — e ela não volta na resposta', async () => {
+    // Decisão do dono em 2026-11-04: a gerada se perdia (aparece uma vez, e
+    // quem fechou o modal antes de anotar não tinha como recuperá-la). A
+    // escolhida continua provisória, com as mesmas 72 h: quem a digitou passa
+    // a conhecê-la, então ela é bilhete de entrada, não a senha da pessoa.
+    const nova = await criarClinicaOk()
+    const r = await http()
+      .post(`/v1/superadmin/clinicas/${nova.id}/pessoas/${nova.admin.id}/senha`)
+      .set('Cookie', painel)
+      .send({ senha: 'pergaminho-azulejo-bussola' })
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect(r.body.senhaProvisoria, 'a escolhida não deve voltar na resposta').toBeNull()
+    expect(JSON.stringify(r.body)).not.toContain('pergaminho-azulejo-bussola')
+
+    // A metade que importa: ela AUTENTICA de verdade.
+    await http()
+      .post('/v1/entrar')
+      .send({ clinica: nova.codigo, usuario: 'helena', senha: 'pergaminho-azulejo-bussola' })
+      .expect(200)
+
+    // E continua provisória, cobrada pelo guard.
+    const l = await migrate.query<{ p: boolean }>(
+      'SELECT senha_provisoria AS p FROM pessoas WHERE id = $1',
+      [nova.admin.id],
+    )
+    expect(l.rows[0]!.p).toBe(true)
+  })
+
+  it('senha fraca pelo painel é 422, e a anterior continua valendo', async () => {
+    const nova = await criarClinicaOk()
+    const r = await http()
+      .post(`/v1/superadmin/clinicas/${nova.id}/pessoas/${nova.admin.id}/senha`)
+      .set('Cookie', painel)
+      .send({ senha: '12345678' })
+    expect(r.status, JSON.stringify(r.body)).toBe(422)
+
+    // Um 422 que ainda assim tivesse gravado o hash seria pior que um 200.
+    await http()
+      .post('/v1/entrar')
+      .send({ clinica: nova.codigo, usuario: 'helena', senha: nova.admin.senhaProvisoria })
+      .expect(200)
+  })
+
   it('a clínica vê TODA ação do operador dentro dela, com ator_tipo operador', async () => {
     const nova = await criarClinicaOk()
     const antes = await migrate.query<{ n: number }>(

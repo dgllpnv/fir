@@ -3,7 +3,12 @@ import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../banco/banco.service'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import type { ContextoDaRequisicao } from '../comum/contexto'
-import { gerarProvisoria, inserirPessoa, redefinirSenhaDePessoa } from './escrita-de-pessoa'
+import {
+  gerarProvisoria,
+  inserirPessoa,
+  provisoriaEscolhida,
+  redefinirSenhaDePessoa,
+} from './escrita-de-pessoa'
 
 /**
  * O ADMIN DA CLÍNICA cria pessoa e redefine senha — e nunca vê.
@@ -55,14 +60,36 @@ export class PessoasService {
   }
 
   /**
-   * Redefine a senha de OUTRA pessoa — e quem redefine nunca vê a senha que a
-   * pessoa tinha, porque ela nunca existiu em lugar nenhum além do hash.
+   * Redefine a senha de OUTRA pessoa — gerada pelo servidor **ou escolhida por
+   * quem redefine** (decisão do dono, 2026-11-04).
+   *
+   * Quem redefine nunca vê a senha que a pessoa tinha: ela nunca existiu em
+   * lugar nenhum além do hash. O que mudou é poder DITAR a nova — porque a
+   * gerada se perdia: ela aparece uma vez e quem fechou o modal antes de
+   * anotar não tinha como recuperá-la.
+   *
+   * **A escolhida continua provisória.** Quem a digitou passa a conhecê-la,
+   * então ela é um bilhete de entrada e não a senha da pessoa.
+   *
+   * O CONTEXTO da regra de força é o de quem vai USAR a senha, não de quem a
+   * digitou: proibir o nome da clínica, o nome e o usuário **dela**. Um admin
+   * escolhendo `joice2026` para a Joice é exatamente o caso, e ele só é pego
+   * se o nome da pessoa-alvo entrar no contexto.
    */
   async redefinirSenha(
     contexto: ContextoDaRequisicao,
     pessoaId: string,
+    escolhida?: string,
   ): Promise<SenhaRedefinida> {
-    const provisoria = await gerarProvisoria(this.relogio.agora())
+    const agora = this.relogio.agora()
+    const provisoria =
+      escolhida === undefined
+        ? await gerarProvisoria(agora)
+        : await provisoriaEscolhida(agora, escolhida, [
+            contexto.clinicaCodigo,
+            contexto.clinicaNome,
+            ...(await this.contextoDaPessoa(contexto, pessoaId)),
+          ])
 
     await this.banco.naClinica(contexto.clinicaId, contexto.ator, (c) =>
       redefinirSenhaDePessoa(c, pessoaId, provisoria),
@@ -74,10 +101,33 @@ export class PessoasService {
       senhaProvisoriaExpiraEm: provisoria.expiraEm.toISOString(),
     }
   }
+
+  /**
+   * Nome e usuário da pessoa-alvo, para a regra de força.
+   *
+   * `excluida_em IS NULL` aqui também: sem o filtro, redefinir a senha de quem
+   * a clínica excluiu LERIA o nome dela para montar o contexto, e a recusa
+   * seguinte viria de `redefinirSenhaDePessoa`. Devolver vazio e deixar o
+   * `UPDATE` recusar mantém o 404 como a única resposta desse caminho.
+   */
+  private async contextoDaPessoa(
+    contexto: ContextoDaRequisicao,
+    pessoaId: string,
+  ): Promise<string[]> {
+    const r = await this.banco.naClinica(contexto.clinicaId, contexto.ator, (c) =>
+      c.query<{ nome: string; usuario: string }>(
+        'SELECT nome, usuario FROM pessoas WHERE id = $1 AND excluida_em IS NULL',
+        [pessoaId],
+      ),
+    )
+    const l = r.rows[0]
+    return l === undefined ? [] : [l.nome, l.usuario]
+  }
 }
 
 export {
   PerfilNaoExiste,
+  SenhaFraca,
   PessoaNaoExiste,
   PROVISORIA_VALE_MS,
   UsuarioJaExiste,

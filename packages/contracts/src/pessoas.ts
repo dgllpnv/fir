@@ -1,6 +1,7 @@
 import {
   type ChaveDePermissao,
   PERMS,
+  SENHA_MAX,
   canonizarUsuario,
   ehErro,
   validarUsuario,
@@ -81,12 +82,51 @@ export const PessoaCriada = z.object({
 })
 export type PessoaCriada = z.infer<typeof PessoaCriada>
 
-/** O que a redefinição devolve: a nova provisória, e nada da pessoa. */
+/**
+ * O corpo de `POST /v1/pessoas/:id/senha` e da rota gêmea do painel.
+ *
+ * **`senha` opcional, e as duas formas são legítimas** — decisão do dono em
+ * 2026-11-04, revertendo o corpo vazio que havia antes:
+ *
+ *  - **sem `senha`** — o servidor gera quatro palavras ditáveis por telefone.
+ *    É o caminho de quem está longe da pessoa.
+ *  - **com `senha`** — quem redefine escolhe. É o caminho do balcão, e existe
+ *    porque a gerada *se perdia*: ela aparece uma vez, e quem fechou o modal
+ *    antes de anotar não tem como recuperá-la. O relato foi exatamente esse.
+ *
+ * **A senha escolhida continua PROVISÓRIA**, com as mesmas 72 horas. Isso não
+ * é zelo: quem a digitou passa a conhecê-la, então ela ainda não é a senha da
+ * pessoa — é um bilhete de entrada. A obrigação de trocar no primeiro acesso é
+ * o que mantém verdadeira a frase "ninguém além dela sabe a senha dela", e é
+ * dela que depende a trilha de auditoria apontar para a pessoa certa.
+ *
+ * **A mesma regra de força da troca própria.** Uma senha escolhida por outra
+ * pessoa não é mais confiável por ter sido escolhida — `avaliarSenha` julga as
+ * duas igual, com o mesmo contexto (nome da clínica, nome e usuário de quem
+ * vai usá-la).
+ */
+export const RedefinirSenha = z
+  .object({ senha: z.string().min(1).max(SENHA_MAX).optional() })
+  .strict()
+export type RedefinirSenha = z.infer<typeof RedefinirSenha>
+
+/**
+ * O que a redefinição devolve.
+ *
+ * **`senhaProvisoria` é `null` quando quem redefiniu ESCOLHEU a senha.** Não é
+ * economia de bytes: ecoar de volta uma cadeia que o cliente acabou de enviar
+ * a põe no corpo de uma resposta — e daí no log do proxy, no histórico do
+ * navegador e em qualquer ferramenta que registre tráfego — sem informar nada
+ * a ninguém. Quem digitou já sabe.
+ *
+ * `null` também é o que diz à tela para **não abrir o modal**: mostrar "anote
+ * esta senha" para quem acabou de escolhê-la é ruído, e o modal existe
+ * justamente porque a gerada não pode ser recuperada depois.
+ */
 export const SenhaRedefinida = PessoaCriada.pick({
   id: true,
-  senhaProvisoria: true,
   senhaProvisoriaExpiraEm: true,
-})
+}).extend({ senhaProvisoria: z.string().nullable() })
 export type SenhaRedefinida = z.infer<typeof SenhaRedefinida>
 
 /**

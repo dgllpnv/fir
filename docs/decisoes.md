@@ -501,6 +501,49 @@ Agora `sessaoAtual` distingue **sem cookie** (primeira visita, ou clicou em Sair
 
 ---
 
+## D-18 · Quem redefine a senha pode DITÁ-LA
+
+**Data:** 2026-11-04 · **Origem:** relato do dono — *"a senha está se perdendo"* · **Estado:** resolvida
+
+### O que estava errado, e não era segurança
+
+A redefinição tinha **corpo vazio de propósito**: o servidor gerava quatro palavras e as mostrava **uma vez**. Quem fechou o modal antes de anotar não tinha como recuperá-las — e a senha simplesmente se perdia, obrigando a redefinir de novo e a torcer para anotar a tempo. Numa clínica de quatro pessoas no balcão, isso acontece toda semana.
+
+### A decisão
+
+`POST /v1/pessoas/:id/senha` e a rota gêmea do painel passam a aceitar `senha` **opcional**:
+
+| Corpo | Comportamento | Para quem |
+|---|---|---|
+| `{}` | o servidor gera quatro palavras ditáveis por telefone | quem está **longe** da pessoa |
+| `{"senha": "…"}` | quem redefine escolhe | quem está **no balcão**, ao lado dela |
+
+O caminho antigo não mudou uma linha no cliente — `{}` continua gerando.
+
+### As três coisas que não mudaram, e são o que torna isso seguro
+
+**1. A senha escolhida continua PROVISÓRIA, com as mesmas 72 horas.** Não é zelo: quem a digitou passa a conhecê-la, então ela ainda não é a senha da pessoa — é um **bilhete de entrada**. A obrigação de trocar no primeiro acesso é o que mantém verdadeira a frase *"ninguém além dela sabe a senha dela"*, e é dela que depende a trilha de auditoria apontar para a pessoa certa. Sem isso, a D-17 (sessão de um dia) resolveria metade do problema de atribuição e a outra metade voltaria pela senha compartilhada.
+
+**2. A mesma regra de força da troca própria.** Uma senha escolhida *por outra pessoa* não é mais confiável por ter sido escolhida — ao contrário: um humano escolhendo senha para outro escreve `joice2026`. `avaliarSenha` julga as duas igual, e **o contexto é de quem vai USAR a senha** (nome da clínica, nome e usuário dela), não de quem digitou. É isso que pega `joice2026` para a Joice.
+
+**3. A regra vem ANTES do hash.** `hashDeSenha` custa 19 MiB e ~25 ms e é o recurso que o semáforo protege. Hashear primeiro daria a quem tem sessão de admin um jeito de consumir o semáforo inteiro com senhas que nunca seriam aceitas.
+
+### A escolhida NÃO volta na resposta
+
+`senhaProvisoria: null`. Ecoar de volta uma cadeia que o cliente acabou de enviar a põe no corpo de uma resposta — e daí no log do proxy e no histórico do navegador — **sem informar nada a ninguém**. Quem digitou já sabe.
+
+E o `null` é também o que diz à tela para **não abrir o modal**: "anote esta senha" para quem acabou de escolhê-la é ruído, e o modal existe justamente porque a gerada não pode ser recuperada depois.
+
+### A assimetria que ficou
+
+**Criar** pessoa continua sem aceitar senha escolhida — o dono decidiu sobre a *troca*. O teste que guardava a fronteira foi renomeado para dizer isso (`CRIAR pessoa não aceita senha escolhida — só a TROCA aceita`) em vez de afirmar uma regra que já não vale inteira. **A mesma perda acontece na criação**, e fechar essa metade é uma decisão de uma linha.
+
+### Como derrubar
+
+Sete testes em `pessoas.e2e.test.ts` e dois em `painel-clinicas.e2e.test.ts`. **Três provas por mutação:** ecoar a escolhida de volta, julgar depois do hash, e deixar de marcar como provisória — cada uma mata testes diferentes. E a varredura `identidade.test.ts` pegou a caixa nova do painel usando `.painel` do produto, que é classe do outro sistema de design.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

@@ -7,6 +7,7 @@ import {
   type PessoaCriadaNoPainel,
   type PessoaNoPainel,
   type PessoasDoPainel,
+  RedefinirSenha,
   type SenhaRedefinida,
   type SessaoDeSuporteCriada,
   Uuid,
@@ -19,6 +20,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Inject,
   NotFoundException,
@@ -41,7 +43,13 @@ import {
   type ClinicaResolvida,
 } from './painel-clinicas.service'
 import { PainelPessoasService } from './painel-pessoas.service'
-import { PerfilNaoExiste, PessoaNaoExiste, UsuarioJaExiste } from '../pessoas/escrita-de-pessoa'
+import {
+  PerfilNaoExiste,
+  PessoaNaoExiste,
+  SenhaFraca,
+  UsuarioJaExiste,
+} from '../pessoas/escrita-de-pessoa'
+import { primeiroErro } from '../tarefas/tarefas.controller'
 import { SoOperador } from './so-operador.decorator'
 
 /**
@@ -250,23 +258,49 @@ export class PainelClinicasController {
   }
 
   /**
-   * Redefine a senha de uma pessoa da clínica. Corpo vazio **de propósito**:
-   * não há o que escolher — nem a senha, nem o prazo. O servidor gera e
-   * devolve uma vez.
+   * Redefine a senha de uma pessoa da clínica.
+   *
+   * **`senha` no corpo é opcional** (decisão do dono, 2026-11-04). Sem ela, o
+   * servidor gera quatro palavras ditáveis por telefone — o caminho de quem
+   * está longe da pessoa. Com ela, o superadmin escolhe, porque a gerada *se
+   * perdia*: aparece uma vez, e quem fechou o modal antes de anotar não tinha
+   * como recuperá-la.
+   *
+   * A escolhida continua **provisória**, com as mesmas 72 horas: quem a
+   * digitou passa a conhecê-la, então ela é bilhete de entrada e não a senha
+   * da pessoa.
+   *
+   * O prazo continua não sendo escolha de ninguém.
    */
   @Post(':clinicaId/pessoas/:pessoaId/senha')
   @HttpCode(HttpStatus.OK)
   async redefinirSenha(
     @Param('clinicaId') clinicaId: string,
     @Param('pessoaId') pessoaId: string,
+    @Body() corpo: unknown,
     @Req() req: RequisicaoComPainel,
   ): Promise<SenhaRedefinida> {
     const painel = painelDe(req)
     const clinica = await this.resolver(clinicaId)
+
+    // `?? {}` para que quem não escolhe a senha siga mandando corpo nenhum.
+    const dados = RedefinirSenha.safeParse(corpo ?? {})
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+
     try {
-      return await this.pessoas.redefinirSenha(clinica, painel.ator, uuidOu404(pessoaId))
+      return await this.pessoas.redefinirSenha(
+        clinica,
+        painel.ator,
+        uuidOu404(pessoaId),
+        dados.data.senha,
+      )
     } catch (e) {
       if (e instanceof PessoaNaoExiste) throw new NotFoundException('Pessoa não encontrada.')
+      // 422: o corpo está bem formado, a senha é que não serve. Mesmo status e
+      // mesma frase de domínio da troca própria.
+      if (e instanceof SenhaFraca) {
+        throw new HttpException(e.message, HttpStatus.UNPROCESSABLE_ENTITY)
+      }
       throw e
     }
   }

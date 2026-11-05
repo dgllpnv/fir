@@ -6,6 +6,7 @@ import {
   type PessoaCriada,
   type PessoaNaLista,
   SalvarPerfis,
+  RedefinirSenha,
   type SenhaRedefinida,
   Uuid,
 } from '@fir/contracts'
@@ -17,6 +18,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Inject,
   NotFoundException,
@@ -34,6 +36,7 @@ import { AcessoService } from './acesso.service'
 import {
   PerfilNaoExiste,
   PessoaNaoExiste,
+  SenhaFraca,
   PessoasService,
   UsuarioJaExiste,
 } from './pessoas.service'
@@ -175,6 +178,7 @@ export class PessoasController {
   @HttpCode(HttpStatus.OK)
   async redefinirSenha(
     @Param('id') id: string,
+    @Body() corpo: unknown,
     @Req() req: RequisicaoComContexto,
   ): Promise<SenhaRedefinida> {
     const pessoaId = Uuid.safeParse(id)
@@ -182,10 +186,22 @@ export class PessoasController {
     // 404 para um uuid válido inexistente distingue os dois para quem sonda.
     if (!pessoaId.success) throw new NotFoundException('Pessoa não encontrada.')
 
+    // `?? {}` porque a tela que NÃO escolhe a senha não manda corpo nenhum, e
+    // `undefined` não passa por um schema `.strict()`. O caminho antigo
+    // continua valendo sem mudar uma linha no cliente.
+    const dados = RedefinirSenha.safeParse(corpo ?? {})
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+
     try {
-      return await this.pessoas.redefinirSenha(req.contexto!, pessoaId.data)
+      return await this.pessoas.redefinirSenha(req.contexto!, pessoaId.data, dados.data.senha)
     } catch (e) {
       if (e instanceof PessoaNaoExiste) throw new NotFoundException('Pessoa não encontrada.')
+      // 422 e não 400: o corpo está bem formado, a senha é que não serve — e a
+      // frase vem do DOMÍNIO, a mesma que a troca própria mostra. É o mesmo
+      // status de `POST /v1/eu/senha`, porque é a mesma recusa.
+      if (e instanceof SenhaFraca) {
+        throw new HttpException(e.message, HttpStatus.UNPROCESSABLE_ENTITY)
+      }
       throw e
     }
   }

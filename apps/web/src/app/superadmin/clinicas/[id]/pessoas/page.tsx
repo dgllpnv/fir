@@ -52,6 +52,17 @@ export default function PessoasDaClinica() {
   const [editando, setEditando] = useState<PessoaNoPainel | null>(null)
   /** Quem está na caixa de confirmação de exclusão. `null` = ninguém. */
   const [excluindo, setExcluindo] = useState<PessoaNoPainel | null>(null)
+  /** A pessoa cuja senha está sendo redefinida, com a caixa aberta. */
+  const [redefinindo, setRedefinindo] = useState<PessoaNoPainel | null>(null)
+  /**
+   * A senha que o superadmin escolheu, ou `''` para o servidor gerar.
+   *
+   * Vazio é o padrão: a gerada tem 40 bits e é ditável por telefone, e é a
+   * escolha certa para quem não está na frente da pessoa. Escolher existe
+   * porque a gerada **se perdia** — aparece uma vez, e quem fechou o modal
+   * antes de anotar não tinha como recuperá-la.
+   */
+  const [senhaEscolhida, setSenhaEscolhida] = useState('')
 
   const base = `v1/superadmin/clinicas/${id}/pessoas`
 
@@ -80,20 +91,32 @@ export default function PessoasDaClinica() {
     recarregarPainel()
   }
 
-  async function redefinir(p: PessoaNoPainel) {
+  async function redefinir(p: PessoaNoPainel, escolhida: string) {
     setErro('')
     try {
+      const senha = escolhida.trim()
       const r = await chamar<SenhaRedefinida>(`${base}/${p.id}/senha`, {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify(senha === '' ? {} : { senha }),
       })
-      setProvisoria({
-        nome: p.nome,
-        usuario: p.usuario,
-        senha: r.senhaProvisoria,
-        expiraEm: r.senhaProvisoriaExpiraEm,
-      })
-      setRecado(`Senha de ${p.nome} redefinida. As sessões dela foram encerradas.`)
+      setRedefinindo(null)
+      setSenhaEscolhida('')
+      // `senhaProvisoria === null` é o servidor dizendo "você escolheu, já
+      // sabe". O modal existe porque a GERADA não pode ser recuperada depois;
+      // abri-lo para a escolhida seria ruído.
+      if (r.senhaProvisoria !== null) {
+        setProvisoria({
+          nome: p.nome,
+          usuario: p.usuario,
+          senha: r.senhaProvisoria,
+          expiraEm: r.senhaProvisoriaExpiraEm,
+        })
+      }
+      setRecado(
+        r.senhaProvisoria === null
+          ? `Senha de ${p.nome} trocada. As sessões dela foram encerradas, e ela vai ter de escolher outra no primeiro acesso.`
+          : `Senha de ${p.nome} redefinida. As sessões dela foram encerradas.`,
+      )
       setTentativa((n) => n + 1)
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
@@ -196,8 +219,16 @@ export default function PessoasDaClinica() {
                   >
                     {editando?.id === p.id ? 'Fechar' : 'Editar'}
                   </button>
-                  <button type="button" className="link" onClick={() => void redefinir(p)}>
-                    Redefinir senha
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => {
+                      setRedefinindo(redefinindo?.id === p.id ? null : p)
+                      setSenhaEscolhida('')
+                    }}
+                    aria-expanded={redefinindo?.id === p.id}
+                  >
+                    {redefinindo?.id === p.id ? 'Cancelar' : 'Redefinir senha'}
                   </button>
                   <button type="button" className="link" onClick={() => setExcluindo(p)}>
                     Excluir
@@ -207,6 +238,60 @@ export default function PessoasDaClinica() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {redefinindo === null ? null : (
+        <div className="superadmin-dossie" role="group" aria-label="Redefinir senha">
+          {/* `superadmin-dossie`, e não `painel`: o painel tem identidade
+              própria, e `identidade.test.ts` acusa classe do produto usada
+              aqui — foi assim que a faixa dele virou, uma vez, uma barra de
+              progresso de 8 px. */}
+          <b>Redefinir a senha de {redefinindo.nome}</b>
+          <label className="campo">
+            Senha nova <small>(deixe vazio para o sistema gerar)</small>
+            <input
+              type="text"
+              autoComplete="off"
+              maxLength={200}
+              value={senhaEscolhida}
+              placeholder="Em branco = o sistema gera e mostra aqui"
+              onChange={(e) => setSenhaEscolhida(e.target.value)}
+            />
+          </label>
+          <p className="nota">
+            A senha atual deixa de valer e <b>as sessões abertas dela caem</b>.
+            {senhaEscolhida.trim() === '' ? (
+              <> A nova aparece aqui, uma vez — anote antes de fechar.</>
+            ) : (
+              <>
+                {' '}
+                Ela entra como <b>provisória</b>: {redefinindo.nome} vai ter de trocá-la no
+                primeiro acesso, porque você também a conhece.
+              </>
+            )}
+          </p>
+          <div className="botoes">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void redefinir(redefinindo, senhaEscolhida)}
+            >
+              {senhaEscolhida.trim() === ''
+                ? 'Gerar senha nova'
+                : 'Usar esta senha'}
+            </button>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setRedefinindo(null)
+                setSenhaEscolhida('')
+              }}
+            >
+              Deixar como está
+            </button>
+          </div>
+        </div>
       )}
 
       {/*

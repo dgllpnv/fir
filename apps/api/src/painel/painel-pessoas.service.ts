@@ -25,6 +25,7 @@ import {
   inserirPessoa,
   PerfilNaoExiste,
   PessoaNaoExiste,
+  provisoriaEscolhida,
   redefinirSenhaDePessoa,
 } from '../pessoas/escrita-de-pessoa'
 import type { ClinicaResolvida } from './painel-clinicas.service'
@@ -145,8 +146,17 @@ export class PainelPessoasService {
     clinica: ClinicaResolvida,
     ator: OperadorId,
     pessoaId: string,
+    escolhida?: string,
   ): Promise<SenhaRedefinida> {
-    const provisoria = await gerarProvisoria(this.relogio.agora())
+    const agora = this.relogio.agora()
+    const provisoria =
+      escolhida === undefined
+        ? await gerarProvisoria(agora)
+        : await provisoriaEscolhida(agora, escolhida, [
+            clinica.codigo,
+            clinica.nome,
+            ...(await this.contextoDaPessoa(clinica, ator, pessoaId)),
+          ])
 
     await this.banco.comoPainel(clinica.id, ator, (c) =>
       redefinirSenhaDePessoa(c, pessoaId, provisoria),
@@ -157,6 +167,28 @@ export class PainelPessoasService {
       senhaProvisoria: provisoria.senha,
       senhaProvisoriaExpiraEm: provisoria.expiraEm.toISOString(),
     }
+  }
+
+  /**
+   * Nome e usuário da pessoa-alvo, para a regra de força.
+   *
+   * O contexto é de quem vai USAR a senha, não de quem a digitou: um
+   * superadmin escolhendo `joice2026` para a Joice só é pego se o nome dela
+   * entrar na conta.
+   */
+  private async contextoDaPessoa(
+    clinica: ClinicaResolvida,
+    ator: OperadorId,
+    pessoaId: string,
+  ): Promise<string[]> {
+    const r = await this.banco.comoPainel(clinica.id, ator, (c) =>
+      c.query<{ nome: string; usuario: string }>(
+        'SELECT nome, usuario FROM pessoas WHERE id = $1 AND excluida_em IS NULL',
+        [pessoaId],
+      ),
+    )
+    const l = r.rows[0]
+    return l === undefined ? [] : [l.nome, l.usuario]
   }
 
   /**

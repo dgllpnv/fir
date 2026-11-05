@@ -1,4 +1,4 @@
-import { gerarSenhaProvisoria } from '@fir/domain'
+import { avaliarSenha, ehErro, gerarSenhaProvisoria, type ErroDeDominio } from '@fir/domain'
 import type pg from 'pg'
 import { semaforoArgon2 } from '../autenticacao/concorrencia'
 import { hashDeSenha } from '../autenticacao/senha'
@@ -35,10 +35,35 @@ export class PerfilNaoExiste extends Error {}
 export class PessoaNaoExiste extends Error {}
 
 export type Provisoria = {
-  /** A senha EM CLARO. Atravessa para o hash e para a resposta, e acaba. */
-  readonly senha: string
+  /**
+   * A senha EM CLARO, **ou `null` quando quem redefiniu a escolheu**.
+   *
+   * `null` é o que impede a senha escolhida de voltar na resposta: ecoar de
+   * volta o que o cliente acabou de enviar a põe no corpo de uma resposta — e
+   * daí no log do proxy e no histórico do navegador — sem informar nada a
+   * ninguém. Quem digitou já sabe. A gerada, ao contrário, **tem** de
+   * atravessar: é a única vez que ela existe fora do hash.
+   */
+  readonly senha: string | null
   readonly hash: string
   readonly expiraEm: Date
+}
+
+/**
+ * A provisória **gerada** — `senha` nunca é `null` aqui.
+ *
+ * O tipo estreito existe para a CRIAÇÃO de pessoa, que sempre gera: sem ele o
+ * `PessoaCriada.senhaProvisoria` (que é `string`, não `string | null`) exigiria
+ * um `!` ou um `as` em três lugares, e cada um deles seria uma afirmação sem
+ * prova de que aquele caminho não escolhe a senha.
+ */
+export type ProvisoriaGerada = Provisoria & { readonly senha: string }
+
+/** Recusa de senha fraca, com a frase do DOMÍNIO. */
+export class SenhaFraca extends Error {
+  constructor(readonly erroDeDominio: ErroDeDominio) {
+    super(erroDeDominio.mensagem)
+  }
 }
 
 /**
@@ -48,10 +73,40 @@ export type Provisoria = {
  * seguraria uma conexão sem usá-la durante ~25 ms de Argon2. Medido na
  * revisão da branch: 445 de 900 logins responderam 500 por pool esgotado.
  */
-export async function gerarProvisoria(agora: Date): Promise<Provisoria> {
+export async function gerarProvisoria(agora: Date): Promise<ProvisoriaGerada> {
   const senha = gerarSenhaProvisoria()
   const hash = await semaforoArgon2.executar(() => hashDeSenha(senha))
   return { senha, hash, expiraEm: new Date(agora.getTime() + PROVISORIA_VALE_MS) }
+}
+
+/**
+ * A provisória **escolhida** por quem redefine (decisão do dono, 2026-11-04).
+ *
+ * Continua provisória, com as mesmas 72 horas: quem a digitou passa a
+ * conhecê-la, então ela é um bilhete de entrada, não a senha da pessoa. A
+ * obrigação de trocar no primeiro acesso é o que mantém verdadeira a frase
+ * "ninguém além dela sabe a senha dela" — e é dela que depende a trilha de
+ * auditoria apontar para a pessoa certa.
+ *
+ * **A REGRA VEM ANTES DO HASH, e esta ordem é a invariante** — a mesma de
+ * `trocarAPropriaSenha`. `hashDeSenha` custa 19 MiB e ~25 ms, e é o recurso
+ * que o semáforo protege: hashear primeiro e julgar depois entregaria a quem
+ * tem sessão de admin um jeito de consumir o semáforo inteiro com senhas que
+ * nunca seriam aceitas — e colocaria a senha recusada dentro do Argon2 antes
+ * de qualquer decisão sobre ela.
+ *
+ * `senha: null` na saída. Ver o comentário de `Provisoria`.
+ */
+export async function provisoriaEscolhida(
+  agora: Date,
+  escolhida: string,
+  contexto: readonly string[],
+): Promise<Provisoria> {
+  const juizo = avaliarSenha(escolhida, { contexto })
+  if (ehErro(juizo)) throw new SenhaFraca(juizo.erro)
+
+  const hash = await semaforoArgon2.executar(() => hashDeSenha(escolhida))
+  return { senha: null, hash, expiraEm: new Date(agora.getTime() + PROVISORIA_VALE_MS) }
 }
 
 export type LinhaDePessoaCriada = {

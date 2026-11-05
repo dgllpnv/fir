@@ -56,8 +56,11 @@ let adminDaOutra: string[]
 const criarPessoa = (sessao: string[], corpo: Record<string, unknown>) =>
   request(app.getHttpServer()).post('/v1/pessoas').set('Cookie', sessao).send(corpo)
 
-const redefinir = (sessao: string[], id: string) =>
-  request(app.getHttpServer()).post(`/v1/pessoas/${id}/senha`).set('Cookie', sessao).send({})
+const redefinir = (sessao: string[], id: string, senha?: string) =>
+  request(app.getHttpServer())
+    .post(`/v1/pessoas/${id}/senha`)
+    .set('Cookie', sessao)
+    .send(senha === undefined ? {} : { senha })
 
 beforeAll(async () => {
   migrate = new pg.Client({ connectionString: URL_MIG })
@@ -204,10 +207,19 @@ describe('POST /v1/pessoas', () => {
     }
   })
 
-  it('o admin NÃO escolhe a senha de outra pessoa', async () => {
-    // Um campo `senha` aceito aqui reabre o defeito inteiro: o admin passaria
-    // a conhecer a credencial da equipe de forma DURÁVEL — na cabeça dele,
-    // não numa resposta HTTP efêmera.
+  it('CRIAR pessoa não aceita senha escolhida — só a TROCA aceita', async () => {
+    // **A assimetria é deliberada, e o dono decidiu só metade dela em
+    // 2026-11-04:** `POST /v1/pessoas/:id/senha` passou a aceitar `senha`,
+    // porque a gerada se perdia; `POST /v1/pessoas` continua recusando.
+    //
+    // Enquanto for assim, este teste é o que impede a criação de ganhar o
+    // campo por descuido — e não por decisão. Se o dono estender a escolha à
+    // criação, este teste muda junto; até lá ele guarda a fronteira que
+    // existe de fato.
+    //
+    // Em nenhum dos dois casos o admin conhece a senha de forma DURÁVEL: a
+    // escolhida nasce provisória, com 72 horas, e a pessoa é obrigada a
+    // trocá-la no primeiro acesso.
     const r = await criarPessoa(admin, {
       nome: 'Bia',
       usuario: 'bia',
@@ -370,5 +382,101 @@ describe('POST /v1/pessoas/:id/senha', () => {
     expect(t.rows[0]!.ator_id).toBe(helena)
     expect(t.rows[0]!.para['senha_hash']).toBe('[oculto]')
     expect(JSON.stringify(t.rows[0])).not.toContain(r.body.senhaProvisoria)
+  })
+
+  /* ── A SENHA ESCOLHIDA POR QUEM REDEFINE (decisão do dono, 2026-11-04) ── */
+
+  const comUsuario = async (usuario: string): Promise<string> => {
+    const r = await criarPessoa(admin, { nome: `Pessoa ${usuario}`, usuario, perfilId: perfilRec })
+    expect(r.status, JSON.stringify(r.body)).toBe(201)
+    return r.body.id as string
+  }
+
+  const entrarComo = (usuario: string, senha: string) =>
+    request(app.getHttpServer()).post('/v1/entrar').send({ clinica: codigo, usuario, senha })
+
+  it('a senha ESCOLHIDA passa a valer — é o ponto do pedido', async () => {
+    const id = await comUsuario('carla.menezes')
+    const r = await redefinir(admin, id, 'nevoeiro-tangerina-pilar')
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+
+    // A metade que importa: ela AUTENTICA. Um 200 que não trocasse a senha
+    // deixaria a recepção convencida de que trocou.
+    const entrou = await entrarComo('carla.menezes', 'nevoeiro-tangerina-pilar')
+    expect(entrou.status, JSON.stringify(entrou.body)).toBe(200)
+  })
+
+  it('a escolhida NÃO volta na resposta — quem digitou já sabe', async () => {
+    // Ecoar de volta o que o cliente enviou põe a senha no corpo de uma
+    // resposta, e daí no log do proxy e no histórico do navegador, sem
+    // informar nada a ninguém (regra 21).
+    const id = await comUsuario('dora.neves')
+    const r = await redefinir(admin, id, 'relampago-cravo-urubu')
+    expect(r.body.senhaProvisoria).toBeNull()
+    expect(JSON.stringify(r.body)).not.toContain('relampago-cravo-urubu')
+  })
+
+  it('a escolhida continua PROVISÓRIA, com prazo — ela não é a senha da pessoa', async () => {
+    // O invariante que sustenta a trilha de auditoria: quem digitou a senha a
+    // conhece, então ela é bilhete de entrada. Sem a obrigação de trocar, a
+    // frase "ninguém além dela sabe a senha dela" deixa de ser verdade e a
+    // trilha volta a poder apontar para a pessoa errada.
+    const id = await comUsuario('elisa.prado')
+    const r = await redefinir(admin, id, 'cachoeira-bussola-trevo')
+    expect(r.body.senhaProvisoriaExpiraEm).toBeTruthy()
+
+    const l = await migrate.query<{ provisoria: boolean; expira: Date | null }>(
+      'SELECT senha_provisoria AS provisoria, senha_provisoria_expira_em AS expira FROM pessoas WHERE id = $1',
+      [id],
+    )
+    expect(l.rows[0]!.provisoria).toBe(true)
+    expect(l.rows[0]!.expira).not.toBeNull()
+
+    // E o guard cobra: entrar funciona, mas rota de negócio responde 409 até
+    // a troca.
+    const entrou = await entrarComo('elisa.prado', 'cachoeira-bussola-trevo').expect(200)
+    const cookie = entrou.headers['set-cookie'] as unknown as string[]
+    const tarefas = await request(app.getHttpServer()).get('/v1/tarefas').set('Cookie', cookie)
+    expect(tarefas.status).toBe(409)
+  })
+
+  it('senha fraca é 422 com a frase do DOMÍNIO, e a senha antiga continua valendo', async () => {
+    const id = await comUsuario('fabia.rocha')
+    const antes = await redefinir(admin, id).expect(200)
+
+    for (const fraca of ['123', 'senha', '12345678', 'aaaaaaaaaaaa']) {
+      const r = await redefinir(admin, id, fraca)
+      expect(r.status, `${fraca}: ${JSON.stringify(r.body)}`).toBe(422)
+    }
+
+    // A metade que dá dentes: um 422 que ainda assim tivesse gravado o hash
+    // seria pior que um 200.
+    const entrou = await entrarComo('fabia.rocha', antes.body.senhaProvisoria as string)
+    expect(entrou.status, 'a senha anterior deixou de valer depois de um 422').toBe(200)
+  })
+
+  it('a senha com o NOME DA PESSOA-ALVO é recusada, não com o de quem digita', async () => {
+    // O contexto da regra de força é de quem vai USAR a senha. Um admin
+    // escolhendo `joice2026` para a Joice só é pego se o nome dela entrar na
+    // conta — e é justamente o que um humano escolhe quando precisa de uma
+    // senha "fácil de lembrar" para outra pessoa.
+    const id = await comUsuario('gisele.matos')
+    const r = await redefinir(admin, id, 'gisele.matos-2026')
+    expect(r.status, JSON.stringify(r.body)).toBe(422)
+    expect(String(r.body.message)).toContain('não pode conter')
+  })
+
+  it('campo desconhecido no corpo é 400, nomeando o campo', async () => {
+    const id = await comUsuario('hilda.soares')
+    const r = await redefinir(admin, id).send({ senha: 'nevoeiro-tangerina-pilar', prazo: 999 })
+    expect(r.status).toBe(400)
+    expect(String(r.body.message)).toContain('prazo')
+  })
+
+  it('corpo VAZIO continua gerando — o caminho antigo não mudou', async () => {
+    const id = await comUsuario('irene.bastos')
+    const r = await redefinir(admin, id).expect(200)
+    expect(typeof r.body.senhaProvisoria).toBe('string')
+    expect((r.body.senhaProvisoria as string).split('-')).toHaveLength(4)
   })
 })
