@@ -15,7 +15,9 @@
     "./gestao.css": "./src/gestao.css",
     "./ajuda.css": "./src/ajuda.css",
     "./modal.css": "./src/modal.css",
-    "./superadmin.css": "./src/superadmin.css"
+    "./superadmin.css": "./src/superadmin.css",
+    "./carteira.css": "./src/carteira.css",
+    "./portal.css": "./src/portal.css"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

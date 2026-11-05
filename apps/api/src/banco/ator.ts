@@ -106,7 +106,7 @@ export const operadorIdDeFonteConfiavel = (id: string): OperadorId => ({ tipo: '
 /** O tipo do ator que não é ninguém. Existe para quem precisa citá-lo. */
 export type Sistema = typeof SISTEMA
 
-export type Ator = PessoaId | OperadorId | Sistema
+export type Ator = PessoaId | OperadorId | UsuarioPortalId | Sistema
 
 /**
  * A sentinela que a trigger `registrar_auditoria` (0013) entende, ao lado de
@@ -114,6 +114,49 @@ export type Ator = PessoaId | OperadorId | Sistema
  * tipo de propósito.
  */
 export const PREFIXO_OPERADOR = 'operador:'
+
+/**
+ * A sentinela do terceiro ator (G5, ADR 0016) — o `Usuário de Gestão`
+ * escrevendo em tabela da carteira. `registrar_auditoria()`,
+ * `registrar_auditoria_carteira_cliente()` e `registrar_auditoria_do_painel()`
+ * (migration 0032) já reconhecem este prefixo desde a 0025; esta constante só
+ * passa a ser USADA do lado TypeScript com G5 (`BancoService.
+ * nasTabelasDaCarteiraComoUsuarioDeGestao`). Não vira um `UsuarioDeGestaoId`
+ * tipado como `OperadorId` por enquanto — o único chamador é aquele método, e
+ * criar um tipo nominal para um único uso seria cerimônia sem o ganho que
+ * justificou `OperadorId` (35 chamadores, D-13).
+ */
+export const PREFIXO_USUARIO_GESTAO = 'usuario_gestao:'
+
+/**
+ * O QUARTO ATOR (G6, ADR 0018) — o `Usuário do portal`, lendo dado comercial
+ * do lado do Cliente Firmare. Diferente de `UsuarioDeGestaoId` (que não
+ * chegou a existir tipado, porque nunca escreveu nada até agora), este
+ * PRECISA de tipo próprio: o registro de acesso (ADR 0017 §5) exige gravar
+ * `ator_tipo = 'usuario_portal'` em `auditoria`, via `AuditoriaService.
+ * registrarAcesso`, que recebe um `Ator` — sem este tipo, não haveria como
+ * `atorEmColunas` distinguir um `Usuário do portal` de uma `Pessoa`.
+ */
+declare const marcaDeUsuarioPortal: unique symbol
+
+export type UsuarioPortalId = {
+  readonly tipo: 'usuario_portal'
+  readonly id: string
+  readonly [marcaDeUsuarioPortal]?: true
+}
+
+/**
+ * A ÚNICA porta de entrada de um `UsuarioPortalId`. O `as` mora aqui, uma
+ * vez. O único chamador legítimo é `PortalService.contextoDoToken`, onde o
+ * `Usuário do portal` vem do HASH do cookie `__Host-fir-portal`.
+ */
+export const usuarioPortalIdDeFonteConfiavel = (id: string): UsuarioPortalId => ({
+  tipo: 'usuario_portal',
+  id,
+})
+
+/** A sentinela do quarto ator — `registrar_auditoria()` já a reconhece desde a migration 0034. */
+export const PREFIXO_USUARIO_PORTAL = 'usuario_portal:'
 
 /**
  * A sentinela que o banco entende para "o sistema" — ver o cabeçalho de
@@ -131,12 +174,13 @@ export const SISTEMA_NO_BANCO = 'sistema'
 export const atorParaOBanco = (ator: Ator): string => {
   // `typeof === 'string'` PRIMEIRO, e não `=== SISTEMA` primeiro: a pessoa é
   // o caso de toda requisição do balcão, e a ordem deixa a leitura do mais
-  // comum ao mais raro. Os três ramos cobrem a união inteira — não há "senão".
+  // comum ao mais raro. Os quatro ramos cobrem a união inteira — não há "senão".
   if (typeof ator === 'string') return ator
   // `ator.tipo` e não `ator === SISTEMA`: é o DISCRIMINANTE que estreita a
-  // união para o compilador, e é ele que torna estes três ramos totais — sem
-  // "senão", sem `as`.
+  // união para o compilador, e é ele que torna estes quatro ramos totais —
+  // sem "senão", sem `as`.
   if (ator.tipo === 'sistema') return SISTEMA_NO_BANCO
+  if (ator.tipo === 'usuario_portal') return `${PREFIXO_USUARIO_PORTAL}${ator.id}`
   return `${PREFIXO_OPERADOR}${ator.id}`
 }
 
@@ -155,9 +199,13 @@ export const atorParaOBanco = (ator: Ator): string => {
  */
 export const atorEmColunas = (
   ator: Ator,
-): { readonly tipo: 'pessoa' | 'operador' | 'sistema'; readonly id: string | null } => {
+): {
+  readonly tipo: 'pessoa' | 'operador' | 'usuario_portal' | 'sistema'
+  readonly id: string | null
+} => {
   if (typeof ator === 'string') return { tipo: 'pessoa', id: ator }
   if (ator.tipo === 'sistema') return { tipo: 'sistema', id: null }
+  if (ator.tipo === 'usuario_portal') return { tipo: 'usuario_portal', id: ator.id }
   return { tipo: 'operador', id: ator.id }
 }
 

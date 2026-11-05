@@ -18,6 +18,20 @@ Uma linha por classe de dado pessoal:
 
 As demais classes já conhecidas, do protótipo e da v20 — nome, telefone, aniversário, histórico de contato, valor pago, saldo, **dose, produto, lote e aplicação por paciente**, salário, contrato, admissão, férias, documento com validade, banco de horas, foto de nota fiscal.
 
+### Carteira comercial da Firmare (ADR 0011, 0012, 0013 — 2026-11-05)
+
+| Dado | Finalidade | Base legal | Titular | Prazo | Ação no fim |
+|---|---|---|---|---|---|
+| `uso_diario_cliente` — contagens agregadas (`usuarios_cadastrados`, `usuarios_ativos`, tarefas/rotinas/orçamentos). **Nunca nome de funcionária** (ADR 0013 §2) | Acompanhar adoção da ferramenta pela clínica-cliente | Art. 7º, IX (legítimo interesse) | A clínica-cliente, agregado — não há pessoa identificável | **2 anos**, mesmo horizonte de indicador de desempenho comercial | Eliminação da linha, job privilegiado |
+| `campanhas_carteira` — receita agregada por campanha, por clínica (só `receita`; `investimento`/`receita_continuada` fora da fatia, ADR 0013 §5). Suprimida (agrupada em "Outras campanhas") abaixo de 5 orçamentos pagos (ADR 0013 §4) | Monitorar performance comercial que a clínica contratou | Art. 7º, V (execução do contrato de consultoria) | A clínica-cliente | **2 anos** | Eliminação da linha, job privilegiado |
+| `usuarios_gestao` — identidade do ator interno da Firmare (nome, `escopo`, `grupo_id`) | Autenticar quem acessa a carteira e atribuir o que fez | Art. 7º, V (contrato de trabalho) | **Nós**, não a clínica | Enquanto houver vínculo, mais 5 anos (mesmo horizonte de `operadores`) | Desativação, nunca exclusão |
+| `grupos`, `historico_grupo_da_clinica` | Registro comercial de tenancy (quem é dono de quem) e trilha de quem teve visão de qual clínica | Art. 7º, V (execução de contrato) | A clínica-cliente | Enquanto o vínculo existir, mais 5 anos (mesmo horizonte da trilha de escrita) | Nunca exclusão — é a prova de "quem tinha acesso quando" |
+| Trilha de ACESSO da carteira (`auditoria`, `ator_tipo = 'usuario_gestao'`) | "Quem da Firmare olhou o agregado desta clínica" (ADR 0013 §7) | Art. 7º, II e IX | A clínica-cliente | **1 ano**, mesmo prazo da trilha de acesso geral | Eliminação da linha, job privilegiado |
+| Trilha de ACESSO do Portal do Grupo (`auditoria`, `ator_tipo = 'usuario_portal'`) | "Quando o cliente olhou o próprio agregado comercial" (ADR 0017) — uma linha por clínica, nunca agregada; grava mesmo para leitura puramente comercial, não só dado de saúde | Art. 7º, II e IX | A clínica-cliente | **1 ano**, mesmo prazo da trilha de acesso geral | Eliminação da linha, job privilegiado |
+
+**`diagnosticos` e `transcricoes` do protótipo não entram nesta tabela** porque
+não entram em nenhum épico (ADR 0013 §1) — ficam fora até avaliação própria.
+
 ### O ganho de minimização da D-10, e por que ele precisa estar escrito
 
 **`pessoas.email` deixou de existir.** O produto parou de coletar o e-mail da

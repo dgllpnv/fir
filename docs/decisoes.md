@@ -544,6 +544,32 @@ Sete testes em `pessoas.e2e.test.ts` e dois em `painel-clinicas.e2e.test.ts`. **
 
 ---
 
+## D-19 · A Carteira Comercial roda em paralelo ao épico 9 — qualifica a D-2, não a revoga
+
+**Data:** 2026-11-05 · **Origem:** instrução direta do dono, em conversa, para construir a "Carteira Comercial da Firmare" por completo (G1-G6) · **Estado:** decidida, achado de processo registrado
+
+### O achado que motivou este registro
+
+A D-2 (2026-10-23) estabeleceu que a primeira entrega é a paridade com o protótipo e a migração das 4 clínicas reais, e que "escopo que atrasa a paridade passa pelo `product-rotina-clinica` e a decisão é do dono". Nesta sessão, o dono instruiu a construção completa da Carteira Comercial (G1 a G6) sem que essa instrução passasse por uma entrada aqui — uma violação de processo, não de intenção: o CLAUDE.md exige que "toda decisão não-óbvia vira ADR/decisão registrada", e uma instrução verbal que reordena prioridade é exatamente esse caso. Um levantamento do `engenheiro-migracao` (2026-11-05) trouxe isso à tona: a paridade de código está em 58/59 ações, mas o trabalho de MIGRAÇÃO de verdade (importador ensaiado contra dado real, relatório de conferência, janela de corte) não começou, e D0 (autenticação fraca da v20 em produção, com dado de saúde real) segue como a única dívida "cujo relógio corre sozinho".
+
+### A decisão
+
+Confrontado com a escolha entre pausar a Carteira e redirecionar para o épico 9, ou registrar o paralelismo e seguir — **o dono escolheu registrar a decisão e continuar a Carteira.**
+
+A D-2 não é revogada: a migração das 4 clínicas continua sendo a entrega com prazo real, e nada na Carteira pode canibalizar o que ela ainda precisa (P-5, o primeiro ensaio de importação, o relatório de conferência). A D-2 é **qualificada**: construir a Carteira em paralelo é escopo autorizado, não um desvio silencioso.
+
+### O que isso não resolve, e continua pendente
+
+- **P-5** (escolher a clínica e a janela de migração com o dono) segue sem ação.
+- **D0** (autenticação fraca da v20) segue com o relógio correndo — este registro não a mitiga.
+- Nenhum trabalho de migração real (importador, conferência, corte) começou nesta sessão.
+
+### Gatilho para revisitar
+
+Se a Carteira consumir o próximo ciclo inteiro de novo (como consumiu este), ou se o dono notar que o épico 9 segue parado por mais de uma sessão de trabalho, isso deixa de ser paralelismo saudável e vira o adiamento que a D-2 original existia para evitar — nesse ponto, a prioridade volta ao `product-rotina-clinica` para decisão explícita, não para suposição.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

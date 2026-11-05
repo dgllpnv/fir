@@ -46,3 +46,23 @@ export function formatarQuantidade(
   const numero = decimais === '' ? `${inteiros}` : `${inteiros},${decimais}`
   return `${negativa ? '-' : ''}${numero} ${unidade}`
 }
+
+/**
+ * Um `PercentualCentesimos` (`@fir/domain`) na tela: `1000` → `"10,00%"`.
+ *
+ * Mesmo motivo de `formatarDinheiro` ser dos dois `bigint`: a `Indicador da
+ * carteira` de unidade `%` (G3) guarda o percentual em centésimos de ponto —
+ * nunca ponto flutuante, regra 8 — e a divisão por 100 para exibir duas casas
+ * é FORMATAÇÃO de tela, não a conta que a regra 17 reserva ao servidor.
+ *
+ * `null` é "sem permissão" ou "ainda sem lançamento", igual aos outros dois
+ * formatadores — nunca "0,00%".
+ */
+export function formatarPercentual(centesimos: bigint | null | undefined): string {
+  if (centesimos === null || centesimos === undefined) return '—'
+  const negativo = centesimos < 0n
+  const abs = negativo ? -centesimos : centesimos
+  const inteiros = abs / 100n
+  const decimais = (abs % 100n).toString().padStart(2, '0')
+  return `${negativo ? '-' : ''}${inteiros},${decimais}%`
+}

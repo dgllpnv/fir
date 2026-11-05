@@ -1,0 +1,274 @@
+/*
+ * O PORTAL DO GRUPO — quarto espaço de identidade, ao lado do produto, do
+ * painel do superadmin e da carteira comercial. ADRs 0017, 0018.
+ *
+ * Sistema de identidade PRÓPRIO: embora reaproveite classes genéricas
+ * (`.cartao`, `.pill`, `.btn`, `.num`…) e a MESMA estrutura de casco/faixa da
+ * carteira, nenhuma classe daqui reaproveita `carteira.css` — são públicos
+ * diferentes (o cliente da Firmare, não a equipe interna), e o dia em que um
+ * dos dois mudar de forma não pode arrastar o outro.
+ *
+ * Cor própria para não confundir com a carteira nem com o painel: a faixa do
+ * portal usa `--surface` com borda `--gold`, igual à da carteira em peso
+ * visual (nenhuma das duas administra nada), mas o rótulo "Portal do grupo"
+ * já distingue as duas o bastante para não precisar de uma segunda cor.
+ */
+
+.portal {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.portal-faixa {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface);
+  border-bottom: 2px solid var(--gold);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.portal-faixa-barra {
+  display: flex;
+  align-items: center;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+  padding: 10px max(16px, calc((100vw - 1080px) / 2));
+  font-size: 13px;
+}
+
+.portal-aqui {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.1;
+  color: var(--gold-ink);
+}
+
+.portal-aqui small {
+  display: block;
+  font-family: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.portal-onde {
+  margin: 0;
+  color: var(--muted);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.portal-onde b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.portal-quem {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.portal-corpo {
+  min-width: 0;
+}
+
+/* A porta (entrar) — mesma caixa centrada do produto, do painel e da carteira. */
+.portal-porta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.portal-selo {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--gold-ink);
+  background: var(--gold-soft);
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  padding: 3px 11px;
+}
+
+/*
+ * A LEITURA AGREGADA — `apps/web/src/app/portal/clientes/page.tsx`.
+ *
+ * Cartão-lista, não tabela: 390 px é o caso principal, e uma tabela de seis
+ * colunas rola na horizontal antes da segunda linha (`design.md` §1).
+ */
+.portal-clientes {
+  display: grid;
+  gap: 18px;
+}
+
+.portal-lista {
+  display: grid;
+  gap: 12px;
+}
+
+/* Um `Cliente Firmare` no escopo `grupo` — recolhido por padrão (`design.md`
+   "campo raro fica recolhido" aplicado aqui à DENSIDADE: com várias clínicas
+   na mesma tela, abrir todas de uma vez é rolar por uma parede de texto). */
+.portal-cartao-cliente {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0;
+}
+
+.portal-cartao-cliente > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  min-height: 44px;
+}
+.portal-cartao-cliente > summary::-webkit-details-marker { display: none; }
+.portal-cartao-cliente > summary::after {
+  content: "";
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--gold);
+  border-bottom: 2px solid var(--gold);
+  transform: rotate(45deg) translateY(-2px);
+}
+.portal-cartao-cliente[open] > summary::after { transform: rotate(-135deg) translateY(-2px); }
+
+.portal-nome-cliente {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.portal-produto {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* O corpo de um cliente — mesmo conteúdo, aberto direto no escopo `cliente`
+   (sem `<details>`, quando há só um) ou dentro do cartão recolhível acima. */
+.portal-ficha {
+  display: grid;
+  gap: 18px;
+  padding: 0 18px 18px;
+}
+
+.portal-cartao-cliente > .portal-ficha {
+  padding-top: 4px;
+}
+
+.portal-ciclo {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.portal-secao + .portal-secao {
+  margin-top: 0;
+}
+
+.portal-lista-interna {
+  display: grid;
+  gap: 8px;
+}
+
+.portal-linha {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.portal-linha:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.portal-linha-info {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 160px;
+}
+
+/* A meta precisa de uma segunda linha (período, valores, último lançamento)
+   além do título e do status — mesma razão de `.carteira-meta`. */
+.portal-meta {
+  display: grid;
+  gap: 6px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.portal-meta:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.portal-meta-cabecalho {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.portal-meta-linha {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+
+/* Uma reunião: data, resumo e encaminhamentos — texto corrido, não linha de
+   lista financeira (não há valor nem status para alinhar numa coluna). */
+.portal-reuniao {
+  display: grid;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.portal-reuniao:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.portal-reuniao-resumo {
+  margin: 0;
+  color: var(--ink);
+}
+.portal-reuniao-encaminhamentos {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* O erro de tela DÁ SAÍDA (`design.md` §4) — `ErroDoPortal`, `pecas.tsx`. */
+.portal-erro {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  border: 1px solid var(--bad);
+  border-radius: var(--r);
+  padding: 16px;
+  background: var(--surface);
+}
+.portal-erro p { margin: 0; color: var(--ink); }
+.portal-erro-acoes { display: flex; gap: 8px; flex-wrap: wrap; }

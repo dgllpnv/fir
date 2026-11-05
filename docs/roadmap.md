@@ -110,6 +110,34 @@ Previsão de compra a partir das sessões programadas · rastreabilidade por lot
 
 ---
 
+## Carteira Comercial da Firmare — trilha paralela
+
+Produto novo, **não é paridade com o protótipo da clínica**: é a ferramenta com que a
+própria Firmare gerencia o portfólio de clínicas-cliente (`Grupo`, `Cliente Firmare`,
+`Usuário de Gestão`). Corre no mesmo monorepo, com numeração própria (G0–G7), governada
+por `docs/superpowers/plans/2026-11-05-plano-integracao-firmare-gestao.md` e pelas
+ADRs 0011–0018. Não entra nas 59 ações de `docs/paridade.md` — nenhuma relação com o
+`demoApiBase` do protótipo da PO, que é 100% sobre a operação de uma clínica.
+
+**Decidido pelo dono:** a Carteira só entra em produção depois que o épico 9 (migração
+das 4 clínicas) fechar — mas constrói-se agora, em paralelo, porque não compete pelo
+mesmo código (G1b, a única fatia que tocaria `Clinica`, está explicitamente adiada até
+o fim literal do épico 9).
+
+| Fase | Entrega | Estado |
+|---|---|---|
+| **G0 — Gate de risco** | ADRs 0011, 0012, 0013 aceitas | ✅ Concluído |
+| **G1a — Fundação** | `grupos`, `usuarios_gestao` com `Escopo`, RLS própria, auditoria com `ator_tipo='usuario_gestao'` | ✅ Entregue e verificado |
+| **G1b — `grupo_id` em `Clinica`** | Vira denormalização opcional; não bloqueia mais nada | Adiado até o fim literal do épico 9 |
+| **G2 — Carteira (Cliente Firmare)** | Leitura e escrita de `Grupo`/`Cliente Firmare`/`Usuário de Gestão`, isolamento cross-grupo provado | ✅ Entregue. **Falta:** tela de listagem de `Usuário de Gestão` (hoje só há criação) |
+| **G3 — Metas comerciais e lançamentos** | `Cobrança do Cliente Firmare`, `Mensalidade`, `Benefício de indicação`, `Indicador`/`Meta`/`Lançamento` | ✅ Entregue. **Em aberto:** as quatro decisões de arredondamento/proporção/estorno/NF-e da ADR 0015 são provisórias — confirmação do dono pendente. `Meta interna da carteira` (quota por `Usuário de Gestão`, churn-alvo) foi **cortada desta fatia por decisão explícita do spec** (nada no protótipo a pede); reabre se o dono pedir. **Ver dívida nova sobre redação de valores** |
+| **G4 — Telemetria e campanha** | `uso_diario_cliente`, `campanhas_carteira`, job idempotente por fuso da clínica | ✅ Entregue. **Pendências já documentadas no plano:** `faltas_recontatadas` sempre 0 (falta cruzar falta com reagendamento posterior — ticket próprio), `tarefas_vencidas_abertas` usa `prazo <= dia` (confirmar se deveria ser `<`), cron fixo `06:00 UTC` (não por fuso de clínica). **Ver dívida nova sobre o worker sem registro em `infra/`** |
+| **G5 — Rotina interna + funil de prospecção** | `leads_comerciais`, `tarefas_internas`, `rotinas_internas`, `checkins_internos`, cadeia `lead → Cliente Firmare (sem clínica) → clínica` | ✅ Entregue. **Em aberto:** três decisões provisórias da ADR 0016 (checkin qualitativo, visibilidade "todos veem tudo no grupo", rótulo "Arquivar") pendentes de confirmação do dono. Catálogo de motivo de perda de lead foi **decisão deliberada de não construir agora** (volume baixo); reabre se o volume justificar. **Ver dívida nova sobre paginação** |
+| **G6 — Portal do grupo** | 🟡 **Em implementação agora, por outra frente** — não tocar nos arquivos dela. Base legal e fronteira de dado operacional já decididas (ADR 0017, ADR 0018) | 🟡 Em andamento |
+| **G7 — Deploy VPS** | Rota Traefik dedicada para `carteira` (autenticação + rate limit por conta e por origem — nunca allowlist de IP fixo, decisão do dono registrada na D3b) | ⬜ Não começou. Depende de G1a-G2-G4 (prontos) e de G3/G5/G6 (G6 ainda em andamento) |
+
+---
+
 ## O que não está no roadmap, e por quê
 
 | Ideia | Por que fora |

@@ -72,8 +72,9 @@ describe('a varredura olhou o painel inteiro', () => {
     expect(nomes).toContain('faixa.tsx')
     expect(nomes).toContain('contexto.tsx')
     expect(nomes).toContain('pecas.tsx')
-    // As quatro telas: entrar, trocar-senha, clínicas e pessoas.
-    expect(PAINEL.filter((f) => f.nome === 'page.tsx').length).toBe(5)
+    // As seis telas: entrar, trocar-senha, clínicas, pessoas, grupos e
+    // usuários de gestão (mais a porta `/superadmin`, que é a sétima).
+    expect(PAINEL.filter((f) => f.nome === 'page.tsx').length).toBe(7)
   })
 })
 

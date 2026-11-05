@@ -481,6 +481,389 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 
 ---
 
+## Carteira comercial da Firmare (integração com o Firmare Gestão)
+
+**Estado: gate de risco concluído, 2026-11-05.** Modelado em `/grill-with-docs`
+com o dono (duas rodadas), revisado por `arquiteto-dominio`, `arquiteto-solucao`,
+`especialista-contas-assinatura`, `especialista-seguranca-appsec`,
+`especialista-lgpd-saude`, `validador-numeros` e `product-rotina-clinica`. Ver
+`docs/superpowers/plans/2026-11-05-plano-integracao-firmare-gestao.md` e as ADRs
+0011, 0012, 0013.
+
+### `Grupo`
+Vínculo comercial **estável** entre a Firmare e um conjunto de `Clinica`s da mesma
+rede, franquia ou grupo médico — fato de tenancy, não concessão. **Toda `Clinica`
+tem `grupo_id NOT NULL`** e pertence a **exatamente um grupo por vez** (nunca dois
+simultâneos — decidido no grilling: evita a ambiguidade de duas redes concorrentes
+enxergando a mesma clínica). As 4 clínicas de hoje migram para um grupo **singleton**
+com o próprio nome cada uma — nunca um grupo "Firmare" genérico compartilhado;
+juntar clínicas no mesmo grupo é sempre uma ação comercial deliberada depois (venda
+de rede), nunca o estado inicial. Mudar uma clínica de grupo é `UPDATE grupo_id`,
+nunca duplica linha, e grava em `Histórico de grupo da clínica`.
+
+**Criado e gerido só pelo superadmin (`Operador`).** Decidido no grilling: o
+superadmin cria o grupo, cria/vincula clínicas a ele, e atribui o usuário
+responsável — **nunca** um fluxo de convite de dentro do grupo. Isso fecha, num
+único ponto de entrada, a exigência de concessão registrada da pendência P-12.
+
+### `Histórico de grupo da clínica`
+Append-only: de/para grupo, quando, por quem (`operador_id`), motivo. Responde
+"quem tinha visão desta clínica" numa auditoria de LGPD — mesmo espírito de regra
+20 (trilha append-only em escrita que afeta quem acessa dado de negócio).
+
+### `Escopo`
+Atributo do `Usuário de Gestão` (nunca uma linha de `Grupo`): `geral` (todas as
+clínicas — é o superadmin/`Operador`, que já enxerga tudo por definição, sem
+precisar de associação a um grupo "GERAL" fictício) ou `grupo` (só as clínicas
+daquele `Grupo`). `CHECK (escopo = 'grupo') = (grupo_id IS NOT NULL)`.
+
+### `Usuário de Gestão`
+O ator da carteira comercial da Firmare — **nem `Operador`** (que é binário,
+por-sessão, sem noção de "quais clínicas"), **nem `Pessoa`** (que pertence a uma
+clínica). Vive em tabela própria (`usuarios_gestao`). **Renomeado de "Colaboradora
+Firmare"** (nome provisório do primeiro rascunho) para o termo que o próprio dono
+usa — regra do topo deste arquivo: nome no código = nome na UI = nome do dono.
+
+**Invariantes, decididas no grilling:**
+- **Vê o grupo para o qual foi criado** (`Escopo = grupo`) — nunca escolhe nem
+  muda de grupo sozinho.
+- **Tem visualização total do próprio grupo, mas NUNCA cria usuário algum** — nem
+  `Pessoa` de clínica, nem outro `Usuário de Gestão`. Só o `Operador` cria e
+  atribui. Isso é mais restritivo que o rascunho original do `arquiteto-solucao`
+  (que previa o responsável do grupo convidando o resto da equipe) — o dono
+  decidiu pela via mais simples e mais auditável.
+- **A tela de criar/editar usuário é separada e explícita entre `Pessoa` (clínica)
+  e `Usuário de Gestão` (carteira)** — nunca o mesmo formulário com um campo a
+  mais. É requisito explícito do dono: evitar o superadmin confundir as duas
+  audiências na mesma tela.
+
+### `Cliente Firmare`
+O registro comercial de quem contrata a consultoria. Existe **antes** de haver
+`Clinica` (funil de prospecção) e pode existir **sem nunca haver** uma. Ligado por
+`clinica_id` anulável e único — preenchido no dia do onboarding no FIR Clinic.
+
+### `Concessão de consultoria`
+Acesso **individual e temporário** de um ator da Firmare ao dado **operacional**
+de **uma** `Clinica` (dose, paciente, dinheiro granular) — prazo, motivo, revogável
+pela clínica. **Decidido no grilling: fica fechado por enquanto.** Ninguém da
+Firmare lê dado operacional de paciente hoje — só o agregado que `Grupo` entrega.
+Reabre o dia em que alguém pedir isso de fato; não construir o desenho antes do
+pedido real.
+
+### `Campanha da carteira`
+**Decidido na Rodada 2 do grilling:** "uma tela, duas fontes" — sincronizada
+(job diário, nunca consulta ao vivo cruzando RLS) do `CampanhasModule` da
+clínica quando há `clinica_id`; lançada à mão quando não há.
+
+**Fechado pelo gate de risco (ADR 0013):** só `receita` sincroniza — é o único
+campo que existe de verdade em `CampanhasModule` hoje, já em `Dinheiro`.
+`investimento` e `receita_continuada` (do protótipo, calculados com aritmética
+de ponto flutuante do legado) ficam fora até existirem como feature própria do
+domínio FIR. Campanha com menos de 5 orçamentos pagos nunca aparece
+individualizada — entra agrupada em "Outras campanhas" (risco de
+reidentificação por N pequeno). Receita de grupo com mais de uma clínica é
+**sempre** quebrada por clínica, soma sempre explícita — nunca um total
+borrado sozinho (mesma regra 5, agora aplicada à carteira).
+
+### `Criar clínica`, unificado
+**Decidido na Rodada 2:** a criação de `Clinica` deixa de ser uma tela separada do
+painel de identidade do superadmin — passa a viver na mesma tela de carteira que
+cria `Grupo` e vincula clínica a grupo. **Fechado pelo gate (product-rotina-clinica):**
+a migration que adiciona `grupo_id NOT NULL` em `Clinica` só é aplicada depois
+do fim literal do épico 9 (corte das 4 clínicas + janela de v20 em paralelo
+encerrada) — nunca no meio dele. O resto da fundação (`Grupo`, `usuarios_gestao`,
+`Escopo`, lógica de permissão em `packages/domain`) não depende disso e pode ser
+construído antes.
+
+### RLS da carteira (ADR 0012)
+`campanhas_carteira`, `uso_diario_cliente` e `clientes_carteira` têm `grupo_id`
+como coluna própria (nunca leem `clinica_id` cruzado). Política `USING
+(app_pode_ver_grupo(grupo_id))` — a decisão (`geral` vê tudo; `grupo` vê só o
+próprio) mora **dentro da função**, nunca como `OR` na cláusula da policy
+(`teste/isolamento-de-clinica.test.ts` já proíbe `OR` ali, por mutação viva —
+mesma forma de `temPerm`, "uma função só"). `fir_carteira` nunca tem
+`BYPASSRLS`; os dois jobs escrevem como `fir_app`, uma clínica de cada vez,
+resolvendo `grupo_id` a partir de `clientes_carteira.clinica_id` — nunca
+aceitando `grupo_id` nem `clinica_id` como parâmetro de requisição do
+`Usuário de Gestão`.
+
+### Prospecção e rotina interna (G5)
+
+**Estado: implementado e ativo em produção** (`ProspeccaoCarteiraModule` fiado
+em `carteira.module.ts`). ADR 0016
+(emenda à ADR 0011 item 2: o `Usuário de Gestão`, dentro do próprio escopo,
+cria e edita dado operacional da carteira — nunca `Grupo`/`Usuário de
+Gestão`/`Cliente Firmare` do zero). Ver
+`docs/superpowers/plans/g5-spec-rotina-interna-funil.md`.
+
+- **`Lead comercial`** — um prospect do funil B2B (`leads_comerciais`), tabela
+  PRÓPRIA de `Cliente Firmare` (a maioria não tem `grupo_id`; colapsar as duas
+  recriaria o padrão "grupo sentinela" já recusado). Etapas:
+  `novo → contato → reuniao → proposta → espera → ganho | perdido`. `ganho`
+  cria uma linha nova em `clientes_carteira`, com `clinica_id NULL` e
+  `status='onboarding'` — é por isso que `clientes_carteira.clinica_id` virou
+  **nullable** (migration 0032), com `CHECK (status = 'onboarding' OR
+  clinica_id IS NOT NULL)`. `perdido` exige motivo em texto livre, obrigatório
+  no servidor. "Excluir" um lead na tela é **"Arquivar"** — nunca `DELETE`
+  (regra 20/27); um lead já convertido nunca é arquivado.
+- **`Interação do lead`** — histórico append-only de contato (`interacoes_do_lead`).
+- **`Tarefa interna`/`Rotina interna`** — o análogo de `Tarefa`/`Marcador de
+  rotina` para a equipe Firmare sobre a carteira, SEM a `Jornada` de nove
+  etapas (três estados: `pendente`\|`concluida`\|`cancelada`). O
+  `rotina_interna_id` é o `Marcador de rotina interna`, idempotente por
+  `UNIQUE (rotina_interna_id, prazo, cliente_carteira_id)` nas tarefas vivas.
+- **`Checkin interno`** — qualitativo nesta fatia (nota + `saude_cliente`),
+  **sem** `meta_id`/`valor` (G3, fora de escopo). `Saúde do cliente` é sempre
+  DERIVADA do checkin mais recente, nunca um campo em `clientes_carteira`.
+  Editável só na semana ISO corrente — o endpoint de criação sempre grava a
+  semana calculada pelo SERVIDOR (nunca aceita uma semana do cliente), e a
+  edição por id recusa quando a semana do registro não é mais a corrente.
+- **O achado crítico do ADR 0016 (item 2):** `grupo_id` e
+  `responsavel_usuario_gestao_id` NUNCA vêm crus do corpo da requisição.
+  `packages/domain/src/prospeccao.ts` (`resolverGrupoDeEscrita`,
+  `validarResponsavelDoMesmoGrupo`) é a PRIMEIRA camada; a RLS por
+  `app_pode_ver_grupo` é a segunda, nunca a única (regra 19). Testado por
+  `apps/api/src/carteira/prospeccao/prospeccao-carteira.e2e.test.ts` —
+  payload manipulado, consulta direta ao banco confirmando zero linhas.
+- **Nenhuma tabela nova de G5 tem `clinica_id`** — todas auditam via
+  `auditoria_do_painel`, por um trigger próprio (`registrar_auditoria_do_painel`,
+  migration 0032) desde o primeiro commit da tabela, porque a varredura
+  automática de `auditoria-inescapavel.test.ts` não as alcança sozinha (ela
+  varre por `clinica_id`). `clientes_carteira` ganhou um trigger PRÓPRIO
+  (`registrar_auditoria_carteira_cliente`) pela mesma razão, na outra direção:
+  ela TEM `clinica_id`, mas ele agora pode ser `NULL`.
+
+### O que nunca entra na carteira
+`diagnosticos` e `transcricoes` do protótipo ficam fora de **todos** os épicos
+(G1 a G6), por exclusão explícita (ADR 0013 §1) — podem conter fala de equipe
+clínica mencionando paciente, dado de saúde por via indireta (art. 11).
+
+### `Indicador da carteira`
+Uma **métrica de negócio** definida para um `Cliente Firmare`: nome, unidade
+(`"R$"` · `"un"` · `"%"`, conjunto fechado por enquanto) e direção de melhoria
+(`maior_melhor`/`menor_melhor`). É a **definição**, nunca um valor — ex.:
+"Faturamento semanal" (unidade R$), "Novos pacientes no mês" (unidade un).
+Ver `docs/superpowers/plans/g3-spec-metas-e-lancamentos.md` §1 e ADR 0015.
+
+**Não confundir com** indicador de desempenho interno de RH (não existe hoje).
+
+### `Lançamento de indicador`
+Uma **medição pontual** de um `Indicador da carteira`, datada por `referência`
+(período — dia, semana), com `valor`, observação opcional e quem lançou
+(`Usuário de Gestão`). **Idempotente por `(indicador_id, referência)`**:
+relançar a mesma semana **corrige** o valor na mesma linha (nunca duplica), e
+a correção vai para a auditoria (quem, quando, de → para) — o valor é visível
+no portal do cliente (G6), que tem o direito de saber que mudou depois de
+publicado.
+
+**Falso cognato, explícito:** isto **não é** um lançamento financeiro, nem
+`Recebimento`, nem `Conta a pagar`, nem a `Cobrança do Cliente Firmare` abaixo.
+É um número que a equipe Firmare registra sobre o **negócio do cliente** — pode
+nem ser dinheiro (ex.: contagem de pacientes). O protótipo da Firmare Gestão já
+usa a palavra "lançamento" com este sentido (coleção `lancamentos`); o termo
+novo cunhado por este épico é exatamente `Cobrança do Cliente Firmare`, para
+não brigar pelo mesmo nome.
+
+**Invariante de tipo:** se `unidade = "R$"`, o valor é `Dinheiro` (centavos,
+`bigint`), nunca `number`/`NUMERIC`; se `unidade ∈ {"un","%"}`, é inteiro
+simples (percentual em centésimos — regra 8 aplicada a percentual do mesmo
+jeito que a quantidade). Duas colunas (`valor_centavos`, `valor_inteiro`),
+`CHECK` garante que só a coerente com a unidade do indicador está preenchida
+— a mesma disciplina se repete em `metas` (`valor_meta`, `valor_inicial`), não
+só em `lancamentos_de_indicador`.
+
+### `Meta comercial do cliente`
+Um alvo posto por um `Usuário de Gestão` sobre **um** `Indicador da carteira`
+de **um** `Cliente Firmare`: valor-alvo, sentido de melhora, prazo, status
+(`em_andamento`/`concluída`). **O progresso é sempre derivado** do último
+`Lançamento de indicador` da série (ou da fonte configurada) no momento da
+leitura — nunca um campo `valor_atual` persistido e sincronizado à mão (o
+protótipo faz isso hoje; aqui é a mesma classe de erro vetada para saldo de
+estoque, regra 11, e para saldo em aberto, regra 5).
+
+Sem nenhum lançamento ainda, mostra "Aguardando o primeiro lançamento"
+(comportamento do protótipo, preservado).
+
+### `Meta interna da carteira`
+Um alvo da **própria equipe Firmare** sobre a carteira inteira ou sobre um
+`Usuário de Gestão` (ex.: "fechar 3 Clientes Firmare novos este trimestre",
+"manter churn abaixo de 5%"). Reaproveita a mesma estrutura de
+`Indicador`/`Meta`/`Lançamento`, mas com `cliente_carteira_id` **nulo** e
+escopo `geral` ou por `usuario_gestao_id`. Conceito novo, sem equivalente no
+protótipo — entrega não obrigatória de G3.
+
+**Não confundir com** `Meta comercial do cliente` (que é sobre um cliente, não
+sobre a equipe Firmare). **Invariante:** soma de indicador `unidade="R$"`
+entre clientes de grupos diferentes nunca aparece num card único — a lista de
+clientes e valores vai ao lado da soma, e a soma é sempre recalculada sobre o
+mesmo array de linhas devolvido, nunca uma segunda consulta (mesma regra 6 do
+CLAUDE.md, já aplicada a `campanhas_carteira` por ADR 0013 §6).
+
+### `Cobrança do Cliente Firmare`
+O registro de **dinheiro real que a Firmare fatura de um `Cliente Firmare`**
+numa competência (mês): um por `(cliente_carteira_id, competência)`, valor em
+`Dinheiro` (centavos), vencimento, status (`aberto`/`pago`/`cancelado`),
+quando foi pago. Gerado por job mensal idempotente (regra 26, mesmo padrão de
+`uso_diario_cliente`, G4). Termo **cunhado deliberadamente** para não usar
+"lançamento" aqui — ver o falso cognato acima.
+
+**Invariantes:**
+- **Snapshot no momento da geração:** `valor_centavos` é cópia da
+  `Mensalidade` vigente **naquele instante**, nunca recalculado do valor
+  atual depois — corrige um defeito real do protótipo (`painelMensalidades()`
+  sempre lê o valor atual da mensalidade para desenhar qualquer mês passado,
+  reescrevendo silenciosamente o histórico quando o valor muda).
+- **Job idempotente por valor, não só por contagem de linhas:** `INSERT ...
+  ON CONFLICT (cliente_carteira_id, competencia) DO NOTHING`, nunca `DO
+  UPDATE` — rodar o job três vezes no mesmo dia, com a mensalidade alterada
+  entre a 1ª e a 3ª execução, não muda o valor já gravado.
+- **Marcar como paga é ação manual**, com registro de quem e quando (regra
+  20) — não há conciliação bancária automática nesta fatia.
+- **Visão de grupo nunca colapsa:** um `Usuário de Gestão` com `escopo=grupo`
+  sobre um grupo com mais de um `Cliente Firmare` vê uma linha por cliente,
+  nunca um total só (regra 6/ADR 0013 §6, agora sobre dinheiro de verdade).
+- **Desativar um `Cliente Firmare` não apaga nem altera cobrança já gerada**
+  — soft-state só muda o que acontece daqui para frente.
+- **Redigida sem `valores`:** nenhuma resposta de API devolve
+  `valor_centavos` (de `Cobrança`, de indicador `unidade="R$"`, de
+  `Meta.valor_meta` monetário, ou de `Mensalidade`) para quem não tem a
+  permissão `valores` — o ponto único de redação (regra 17) cobre as tabelas
+  novas.
+- **Arredondamento de `Benefício de indicação`:** decisão provisória de
+  engenharia (ADR 0015, pendente de confirmação do dono) — o desconto
+  arredonda **para cima** (nunca a favor de a Firmare cobrar mais que o
+  percentual exato), por `percentual_centesimos` inteiro (nunca `number`
+  perto de `Dinheiro`, regra 1). `desconto + cobrança = mensalidade cheia`,
+  sempre, property-based.
+
+### `Mensalidade`
+O valor vigente, em `Dinheiro`, que um `Cliente Firmare` paga por competência
+— propriedade do `Cliente Firmare` (`clientes_carteira.mensalidade_centavos`),
+nunca de `Grupo` (decisão do dono). Mudar o valor afeta `Cobrança`s **futuras**;
+as já geradas guardam o valor **da época** (ver invariante de snapshot acima).
+
+### `Benefício de indicação`
+Desconto aplicado a **uma** `Cobrança do Cliente Firmare` futura, concedido
+por indicação de um lead convertido. Hoje, no protótipo, texto livre ("10% de
+desconto na mensalidade seguinte"); aqui, `percentual_centesimos` (inteiro,
+`bigint`, 0–10000, onde `1000` = 10,00%) — nunca `TEXT` com parsing depois, e
+nunca `number` perto de `Dinheiro`. Consumir um benefício e criar a `Cobrança`
+com desconto aplicado é **uma única transação**: o benefício é consumido **no
+máximo uma vez**, mesmo com o job de geração rodando três vezes no mesmo dia.
+
+---
+
+### `Lead comercial`
+Um prospect do funil de vendas B2B da Firmare — uma clínica ou médico ainda
+sem contrato. Vive em `leads_comerciais`. **Nunca** é um `Cliente Firmare`:
+tem campos que só fazem sentido antes do fechamento (`temperatura`, `origem`,
+`próximo_contato`) e nenhum dos que só fazem sentido depois (`status` de
+onboarding, `Mensalidade`). Nasce **sem `grupo_id`** na imensa maioria dos
+casos (prospect avulso, sem grupo ainda); pode nascer já com `grupo_id` só
+quando é expansão de uma rede já cliente. Ver
+`docs/superpowers/plans/g5-spec-rotina-interna-funil.md` §1, §6.1 e ADR 0016.
+
+**Por que não é a mesma linha que `Cliente Firmare`:** `clientes_carteira.
+grupo_id` é `NOT NULL` desde a migration `0026`; tornar essa coluna nullable
+destruiria a garantia que toda a RLS de G1-G4 assume, e inventar um grupo
+"placeholder" para todo lead é exatamente o padrão "grupo GERAL"/"clínica
+sentinela" já recusado por escrito (ADR 0011, migration `0002`). Mesma razão
+estrutural que mantém `Pessoa` e `Ficha de pessoa` em tabelas separadas.
+
+**Etapa do lead** (nunca uma `Jornada` de nove etapas — esse maquinário é do
+agendamento clínico): `novo` → `contato` → `reuniao` → `proposta` → `espera`
+(aguardando o prospect, não é regressão) → **`ganho`** (terminal) ou
+**`perdido`** (terminal, motivo obrigatório no servidor). Passos livres, não
+máquina de estados rígida.
+
+**Invariantes:**
+- **Conversão do lead:** só `ganho` cria uma linha **nova** em
+  `clientes_carteira` (nunca reaproveita linha existente, regra 27) — mesma
+  transação grava `etapa='ganho'`, `cliente_carteira_id` e `fechado_em`.
+  Convertido, `clinica_id` nasce `NULL`, `status='onboarding'` (enum
+  reaproveitado, sem quinto estado novo). Repetir a conversão não duplica
+  (idempotência, regra 26).
+- **Nunca há exclusão física** (regra 20/27), mesmo o protótipo fazendo
+  `DELETE`. "Excluir" na tela é **arquivar** (`arquivado_em`, nunca remove a
+  linha) — divergência deliberada do protótipo. Lead já convertido não pode
+  ser arquivado nem reaberto para gerar um segundo `Cliente Firmare` (regra
+  27: nunca se recria o que já existe).
+- **Quem cria:** qualquer `Usuário de Gestão`, dentro do próprio escopo —
+  emenda textual à ADR 0011 (ver ADR 0016 §1): "só o Operador cria" vale para
+  `Grupo`/`Usuário de Gestão` (identidade/tenancy), nunca para dado
+  operacional do dia a dia da carteira (`Lead comercial`, `Tarefa interna`,
+  `Rotina interna`, `Checkin interno`, `Interação do lead`).
+- **`grupo_id` nunca vem do corpo da requisição.** Para `escopo=grupo`, o
+  servidor grava `app_grupo_id()` da sessão; um `grupo_id` de payload só é
+  aceito quando idêntico ao da própria sessão, ou quando quem cria tem
+  `escopo=geral` — qualquer outro valor é recusado **no servidor**, antes do
+  `INSERT` (RLS é a segunda camada, regra 19, nunca a única).
+
+### `Interação do lead`
+Um registro **append-only** de contato com o prospect (canal, nota, por quem,
+quando) — `interacoes_do_lead`. Nunca editável nem apagável; é o histórico que
+justifica "por que perdemos esse".
+
+### `Tarefa interna`
+O item de rotina da **equipe Firmare** sobre a carteira — análogo, para
+dentro, da `Tarefa` da FIR Clinic. Vive em `tarefas_internas`: responsável
+(`Usuário de Gestão`), prazo, prioridade, status (`pendente`\|`concluida`\|
+`cancelada`), e opcionalmente um `cliente_carteira_id` ou `lead_comercial_id`
+ao qual se refere.
+
+**Não confundir com** a `Tarefa` do domínio FIR: `Tarefa interna` **nunca**
+anda por uma `Jornada` de nove etapas — esse maquinário existe para o
+agendamento clínico (paciente faltando, confirmando, pagando), não para "ligar
+para o cliente X". Só três estados, deliberadamente mais simples.
+
+### `Rotina interna`
+A definição recorrente que gera `Tarefa interna` sozinha — o análogo do
+**`Marcador de rotina`** já existente no domínio FIR, generalizado para a
+carteira. Vive em `rotinas_internas`: título, responsável padrão, frequência,
+**`Escopo de aplicação`**, passos (checklist), `ativa`.
+
+### `Marcador de rotina interna`
+O mesmo mecanismo do `Marcador de rotina` do domínio FIR, reaproveitado: toda
+`Tarefa interna` nascida de uma `Rotina interna` carrega `rotina_interna_id` +
+`prazo`, com `UNIQUE (rotina_interna_id, prazo, cliente_carteira_id)` entre as
+vivas (`cliente_carteira_id` nullable para rotina `global`) — é o que torna a
+geração idempotente (rodar o job duas vezes não duplica a tarefa). Não é um
+conceito novo; é o mesmo conceito, outra tabela.
+
+### `Escopo de aplicação` (de uma `Rotina interna`)
+`global` — a rotina gera **uma** tarefa, sem cliente associado (ex.: "revisar
+backlog de leads da semana") — ou `por_cliente` — gera **uma tarefa por
+`Cliente Firmare` ativo** visível no grupo do responsável (ex.: "ligar para
+cliente que não loga há 10 dias").
+
+**Não confundir com** `Escopo` do `Usuário de Gestão` (`geral`/`grupo`, já no
+glossário acima) — são dois conceitos de "escopo" diferentes, um sobre quem
+vê o quê, outro sobre como uma rotina se multiplica em tarefas.
+
+### `Checkin interno`
+O registro de que o ritual periódico de acompanhamento de um `Cliente
+Firmare` aconteceu: quando, por quem, nota, e uma leitura pontual de
+`Saúde do cliente`. Vive em `checkins_internos`, `UNIQUE (cliente_carteira_id,
+semana)` — editável só até o fim daquela semana (mesma disciplina de "um
+fechamento por dia" do `Caixa do dia`, aplicada à semana aqui).
+
+**Divergência deliberada do protótipo, registrada em ADR 0016:** o protótipo
+liga `checkin` a `meta_id` e `valor` (lançamento semanal de KPI). Aqui o
+`Checkin interno` **não carrega valor numérico de meta** — é qualitativo, sem
+`meta_id`. Isso evita modelar uma FK para uma tabela de G3 ainda não decidida,
+e evita o `valor` nu do protótipo (às vezes R$, às vezes percentual, sem
+unidade declarada — exatamente a ambiguidade que a regra de `valor` nu
+proíbe). Fica pronto para G3 estender com `meta_id` nullable depois (coluna a
+mais, não refação de tabela).
+
+### `Saúde do cliente` (derivada)
+O status qualitativo (`bom`\|`atencao`\|`critico`) de um `Cliente Firmare`,
+lido do `Checkin interno` mais recente — **nunca um campo mutável** em
+`clientes_carteira` que alguém edita direto na ficha (mesma forma de "derivado,
+nunca campo", regra 11/5, aplicada aqui por analogia).
+
+---
+
 ## Onde a regra deste arquivo já foi quebrada
 
 A regra do topo — *termo novo entra aqui primeiro, e só depois vira código* — foi invertida uma

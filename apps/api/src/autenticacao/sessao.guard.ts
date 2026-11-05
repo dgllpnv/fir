@@ -9,6 +9,8 @@ import { Reflector } from '@nestjs/core'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { PUBLICO } from '../autorizacao/publico.decorator'
 import { SO_OPERADOR } from '../painel/so-operador.decorator'
+import { SO_USUARIO_DE_GESTAO } from '../carteira/so-usuario-de-gestao.decorator'
+import { SO_USUARIO_DO_PORTAL } from '../carteira/portal/so-usuario-do-portal.decorator'
 import { AutenticacaoService } from './autenticacao.service'
 
 export const NOME_DO_COOKIE = '__Host-fir-sessao'
@@ -64,6 +66,30 @@ export class SessaoGuard implements CanActivate {
       ctx.getClass(),
     ])
     if (soOperador === true) return true
+
+    /**
+     * ROTA DE CARTEIRA: mesma saída do painel, mesma razão — quem a protege é
+     * o `CarteiraGuard`, e o `Usuário de Gestão` não é uma pessoa de clínica
+     * nenhuma (ADR 0011). `req.contexto` fica vazio de propósito.
+     */
+    const soCarteira = this.reflector.getAllAndOverride<boolean | undefined>(SO_USUARIO_DE_GESTAO, [
+      ctx.getHandler(),
+      ctx.getClass(),
+    ])
+    if (soCarteira === true) return true
+
+    /**
+     * ROTA DO PORTAL DO GRUPO: mesma saída do painel/carteira, mesma razão —
+     * quem a protege é o `PortalGuard`, e o `Usuário do portal` não é uma
+     * pessoa de clínica nenhuma (G6, ADR 0018). `req.contexto` fica vazio de
+     * propósito; `RedacaoInterceptor` usa `req.portal` como segunda fonte de
+     * `pode` (ADR 0017 §3).
+     */
+    const soPortal = this.reflector.getAllAndOverride<boolean | undefined>(SO_USUARIO_DO_PORTAL, [
+      ctx.getHandler(),
+      ctx.getClass(),
+    ])
+    if (soPortal === true) return true
 
     const req = ctx
       .switchToHttp()

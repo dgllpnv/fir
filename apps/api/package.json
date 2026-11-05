@@ -15,6 +15,9 @@
   "//build": "NÃO declare um script `build` aqui. O bundle de produção é `node construir.mjs`, e o Dockerfile o invoca direto. Como `teste` depende de `@fir/api`, um script `build` entra no `dependsOn: [\"^build\"]` de `typecheck` e `test` do turbo.json — e aí a suíte inteira passa a exigir um bundle de produção para rodar, falhando em qualquer máquina com extensão de editor que edite node_modules (ver a guarda em construir.mjs).",
   "scripts": {
     "dev": "tsx watch src/main.ts",
+    "dev:worker:uso-diario": "tsx watch src/carteira/jobs/worker-uso-diario.ts",
+    "dev:worker:cobrancas": "tsx watch src/carteira/financeiro/worker-cobrancas.ts",
+    "dev:workers": "node dev-workers.mjs",
     "db:migrate": "tsx migrar.ts",
     "db:seed": "tsx semear.ts",
     "test": "vitest run",
@@ -28,7 +31,9 @@
     "@nestjs/core": "^12.2.0",
     "@nestjs/platform-fastify": "^12.2.0",
     "@node-rs/argon2": "^2.2.2",
+    "bullmq": "^5",
     "fastify": "^5.12.7",
+    "ioredis": "^5",
     "pg": "^8",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"

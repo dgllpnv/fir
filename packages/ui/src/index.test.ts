@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatarDinheiro, formatarQuantidade } from './index'
+import { formatarDinheiro, formatarPercentual, formatarQuantidade } from './index'
 
 describe('formatarDinheiro', () => {
   it('formata centavos em pt-BR', () => {
@@ -46,5 +46,23 @@ describe('formatarQuantidade', () => {
   it('zero e null são distintos', () => {
     expect(formatarQuantidade(0n, 'ampola')).toBe('0 ampola')
     expect(formatarQuantidade(null, 'ampola')).toBe('—')
+  })
+})
+
+describe('formatarPercentual', () => {
+  it('centésimos de ponto percentual, sempre com duas casas', () => {
+    expect(formatarPercentual(1000n)).toBe('10,00%')
+    expect(formatarPercentual(50n)).toBe('0,50%')
+    expect(formatarPercentual(0n)).toBe('0,00%')
+    expect(formatarPercentual(10000n)).toBe('100,00%')
+  })
+
+  it('negativo leva o sinal na frente', () => {
+    expect(formatarPercentual(-250n)).toBe('-2,50%')
+  })
+
+  it('null é "—": sem permissão, ou ainda sem lançamento', () => {
+    expect(formatarPercentual(null)).toBe('—')
+    expect(formatarPercentual(undefined)).toBe('—')
   })
 })

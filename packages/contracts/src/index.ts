@@ -16,6 +16,14 @@ export * from './equipe'
 // existir, e `CONTEXT.md` já registrava a proibição — renomeá-lo foi mais
 // barato que conviver com dois `painel` querendo dizer coisas opostas.
 export * from './superadmin'
+// A carteira comercial da Firmare (ADRs 0011, 0012, 0013): terceiro espaço de
+// identidade, ao lado de `pessoas` (produto) e `operadores` (superadmin).
+export * from './carteira'
+export * from './cobranca-carteira'
+export * from './prospeccao'
+// O Portal do Grupo (G6, ADRs 0017/0018): QUARTO espaço de identidade, do
+// lado do Cliente Firmare — nunca da Firmare.
+export * from './portal-grupo'
 export * from './estoque'
 // `./metas` é exportado, e a rota que o entrega AINDA NÃO EXISTE.
 //

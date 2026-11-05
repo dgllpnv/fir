@@ -4,3 +4,10 @@ packages:
   - 'teste'
 allowBuilds:
   esbuild: true
+  # `msgpackr-extract` é um binário nativo OPCIONAL de `msgpackr` (dependência
+  # transitiva de `bullmq`/`ioredis`, G4): acelera encode/decode, mas
+  # `msgpackr` cai para a implementação pura em JS sem ele — sem perda de
+  # correção, só de performance. `false`: não rodamos build script nativo de
+  # uma dependência transitiva sem necessidade — mesma cautela de
+  # supply-chain do resto do arquivo.
+  msgpackr-extract: false

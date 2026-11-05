@@ -17,6 +17,11 @@ import { FiltroDeSessaoDeSuporte } from './comum/sessao-de-suporte.filtro'
 import { PacientesModule } from './pacientes/pacientes.module'
 import { PainelGuard } from './painel/painel.guard'
 import { PainelModule } from './painel/painel.module'
+import { CarteiraGuard } from './carteira/carteira.guard'
+import { CarteiraModule } from './carteira/carteira.module'
+import { CarteiraFinanceiroModule } from './carteira/financeiro/carteira-financeiro.module'
+import { PortalGuard } from './carteira/portal/portal.guard'
+import { CarteiraPortalModule } from './carteira/portal/portal.module'
 import { CampanhasModule } from './campanhas/campanhas.module'
 import { PainelGeralModule } from './painel-geral/painel.module'
 import { PessoasModule } from './pessoas/pessoas.module'
@@ -32,6 +37,9 @@ import { TarefasModule } from './tarefas/tarefas.module'
     PacientesModule,
     PessoasModule,
     PainelModule,
+    CarteiraModule,
+    CarteiraFinanceiroModule,
+    CarteiraPortalModule,
     // O épico 8: as campanhas e o Painel geral da CLÍNICA.
     // `PainelGeralModule` não tem relação com `PainelModule`, que é o do
     // SUPERADMIN — ver a nota em `painel-geral/painel.module.ts`.
@@ -66,6 +74,15 @@ import { TarefasModule } from './tarefas/tarefas.module'
     // outros — uma rota de painel sem guard não entrega UMA clínica,
     // entrega todas.
     { provide: APP_GUARD, useClass: PainelGuard },
+    // MESMO NÍVEL do `PainelGuard`, logo depois: rota de carteira também não
+    // tem `req.contexto`, e os guards de clínica nada têm a dizer sobre ela.
+    // Global pela mesma razão — uma rota de carteira sem guard não entrega
+    // um grupo, entrega todos.
+    { provide: APP_GUARD, useClass: CarteiraGuard },
+    // MESMO NÍVEL, quarto ator: rota do Portal do Grupo também não tem
+    // `req.contexto` (G6, ADR 0018) — uma rota do portal sem guard não
+    // entrega um grupo, entrega todos.
+    { provide: APP_GUARD, useClass: PortalGuard },
     // ENTRE os dois, e não depois: quem está preso pela senha provisória tem
     // de receber 409 em TODA rota de negócio, inclusive nas que o perfil dele
     // não alcança. Depois de `AutorizacaoGuard`, a resposta seria 403 numa

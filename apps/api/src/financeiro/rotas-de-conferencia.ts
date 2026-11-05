@@ -264,6 +264,46 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     razao: 'A ficha de uma pessoa, com os mesmos campos da lista acima.',
   },
   { caminho: '/v1/eu', razao: 'Quem é você, a clínica e os perfis. Nenhum valor, nenhum dia.' },
+  {
+    caminho: '/v1/carteira/eu',
+    razao:
+      'Quem é o Usuário de Gestão da carteira: usuário, nome, escopo e grupo. ' +
+      'Nenhum valor, nenhum dia, nenhuma clínica.',
+  },
+  {
+    caminho: '/v1/superadmin/grupos',
+    razao: 'Os grupos cadastrados: id, nome, ativo. Nenhum valor, nenhum dia, nenhuma clínica.',
+  },
+  {
+    caminho: '/v1/superadmin/usuarios-gestao',
+    razao:
+      'As contas da carteira: usuário, nome, escopo, grupo e se já fez o ' +
+      'primeiro acesso. Nenhuma contagem de cliente, de login nem de ação — ' +
+      'é administração de conta, não medida de atividade. Nenhum valor, ' +
+      'nenhum dia.',
+  },
+  {
+    caminho: '/v1/carteira/clientes',
+    razao:
+      'Os Cliente Firmare visíveis ao Usuário de Gestão: nome, produto, ' +
+      'status comercial. Nenhum valor, nenhum "esperado" de caixa nem de ' +
+      'contagem — RLS por grupo (ADR 0012), não por janela de tempo.',
+  },
+  {
+    caminho: '/v1/portal/eu',
+    razao:
+      'Quem é o Usuário do portal (G6): usuário, nome, escopo, cliente/grupo. ' +
+      'Nenhum valor, nenhum dia, nenhuma clínica.',
+  },
+  {
+    caminho: '/v1/portal/clientes',
+    razao:
+      'O Portal do Grupo: metas, campanhas, cobrança, materiais, documentos e ' +
+      'reuniões de cada Cliente Firmare visível ao Usuário do portal. Nenhum ' +
+      '"esperado" de caixa nem de contagem — RLS por grupo/cliente (ADR 0018), ' +
+      'não por janela de tempo, e `Cobrança do Cliente Firmare` é dinheiro já ' +
+      'fechado (competência faturada), nunca um dia em aberto.',
+  },
   { caminho: '/v1/clinica', razao: 'Nome, código e fuso da clínica.' },
   { caminho: '/v1/equipe', razao: 'As pessoas ativas, para os seletores. Nenhum valor.' },
   { caminho: '/v1/unidades', razao: 'As unidades da clínica. Nenhum valor.' },
@@ -506,5 +546,56 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     caminho: '/v1/jornada',
     razao:
       'O funil por etapa. Soma valor de ORÇAMENTO, que não é receita e não está na gaveta (regra 4).',
+  },
+  // ---------------------------------------------------------------------
+  // G5 — funil de prospecção e rotina interna da equipe Firmare.
+  { caminho: '/v1/carteira/leads', razao: 'O funil de prospecção. Nenhum valor, nenhum agregado de dia — etapa, temperatura, origem.' },
+  { caminho: '/v1/carteira/leads/:id/interacoes', razao: 'Histórico append-only de contato com o prospect. Texto, sem valor.' },
+  { caminho: '/v1/carteira/rotinas-internas', razao: 'As definições de rotina interna da equipe Firmare. Nenhum valor, nenhum dia.' },
+  { caminho: '/v1/carteira/tarefas-internas', razao: 'As tarefas da equipe Firmare sobre a carteira. Nenhum valor, nenhum agregado de dia.' },
+  { caminho: '/v1/carteira/clientes/:id/checkins', razao: 'O histórico de checkins de um Cliente Firmare — qualitativo nesta fatia (nota + saúde), sem meta_id nem valor (G3, fora de escopo).' },
+  // ---------------------------------------------------------------------
+  // G3 — indicadores, metas comerciais e a cobrança do Cliente Firmare (ADR
+  // 0015). As três DEVOLVEM dinheiro (mensalidade, desconto, valor, valorMeta,
+  // valorInicial — redigidos pela regra 17, não pela conferência às cegas) e
+  // mesmo assim ficam FORA da conferência: a regra 6/14 protege o AGREGADO
+  // de um dia cujo caixa (ou contagem) pode estar aberto, e nenhuma delas é
+  // isso.
+  //
+  // `Cobrança` é dívida/fato mensal já ocorrido (mesma classificação de
+  // `/v1/programas` e `/v1/contas` acima: dinheiro que entra ou sai por
+  // competência, nunca o esperado de uma gaveta). `Lançamento de indicador` é
+  // medição do NEGÓCIO DO CLIENTE (pode nem ser dinheiro da Firmare), sem
+  // recorte de forma de pagamento. `Meta comercial` é alvo + progresso
+  // derivado, sem recorte de dia nem de forma.
+  // ---------------------------------------------------------------------
+  {
+    caminho: '/v1/carteira/indicadores',
+    razao:
+      'A lista de Indicadores da carteira — definição (nome, unidade), sem ' +
+      'valor nenhum nesta rota. O último lançamento de cada um vem na rota ' +
+      'de lançamentos, abaixo.',
+  },
+  {
+    caminho: '/v1/carteira/indicadores/:id/lancamentos',
+    razao:
+      'As medições de um Indicador da carteira — podem ser R$, mas é o ' +
+      'NEGÓCIO DO CLIENTE (ex.: faturamento da clínica), sem recorte de forma ' +
+      'de pagamento nem de caixa. Redigido pela regra 17, não pela regra 6.',
+  },
+  {
+    caminho: '/v1/carteira/metas',
+    razao:
+      'As metas comerciais do cliente: alvo e o ÚLTIMO lançamento, sempre ' +
+      'derivado. Nenhum agregado de dia, nenhuma forma de pagamento.',
+  },
+  {
+    caminho: '/v1/carteira/cobrancas',
+    razao:
+      'A Cobrança do Cliente Firmare por competência (mês) — dívida/fato já ' +
+      'gerado pelo job, nunca o esperado de uma gaveta de hoje. `somaValor` ' +
+      'é a soma das MESMAS linhas da resposta (achado 1, ADR 0015), não um ' +
+      'segundo SELECT — e por isso não é o "esperado" que a regra 6 proíbe: ' +
+      'ele nunca antecipa uma contagem que alguém ainda vai fazer.',
   },
 ]

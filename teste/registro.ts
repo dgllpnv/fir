@@ -460,6 +460,91 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
       'resultadoEmDinheiro',
     ],
   },
+
+  /**
+   * G3 — A CARTEIRA COMERCIAL: indicadores, metas comerciais e a cobrança do
+   * Cliente Firmare (ADR 0015).
+   *
+   * Hoje nenhum `Usuário de Gestão` tem a chave `valores` — a carteira ainda
+   * não tem perfil de permissão granular (só `escopo`, ADR 0012) — e o
+   * `RedacaoInterceptor` falha FECHADO quando `req.contexto` não existe
+   * (rotas de carteira populam `req.carteira`, nunca `req.contexto`). Isso
+   * apaga os quatro campos abaixo para TODO `Usuário de Gestão`, sempre, até
+   * que a carteira ganhe sua própria chave `valores` — registrado aqui porque
+   * é exatamente essa promessa que `redacao-de-valores.test.ts` cobra.
+   *
+   * `valor` (do `Lançamento de indicador` `unidade="R$"`) já está coberto por
+   * `DINHEIRO_DA_TAREFA` e outras entradas acima — não precisa de nome novo.
+   */
+  {
+    metodo: 'GET',
+    caminho: '/v1/carteira/indicadores/:id/lancamentos',
+    camposDeDinheiro: ['valor'],
+  },
+  {
+    metodo: 'POST',
+    caminho: '/v1/carteira/indicadores/:id/lancamentos',
+    camposDeDinheiro: ['valor'],
+  },
+  {
+    metodo: 'GET',
+    caminho: '/v1/carteira/metas',
+    camposDeDinheiro: ['valorMeta', 'valorInicial', 'valor'],
+  },
+  {
+    metodo: 'POST',
+    caminho: '/v1/carteira/metas',
+    camposDeDinheiro: ['valorMeta', 'valorInicial', 'valor'],
+  },
+  {
+    metodo: 'GET',
+    caminho: '/v1/carteira/cobrancas',
+    camposDeDinheiro: ['mensalidade', 'desconto', 'valor', 'somaValor'],
+  },
+  {
+    metodo: 'POST',
+    caminho: '/v1/carteira/cobrancas/:id/marcar-pago',
+    camposDeDinheiro: ['mensalidade', 'desconto', 'valor'],
+  },
+  /**
+   * "Desfazer" (critério 2.2.9 do spec G3) — mesma forma de `marcar-pago`:
+   * devolve a MESMA `CobrancaCarteiraNaLista`, logo os mesmos três campos.
+   */
+  {
+    metodo: 'POST',
+    caminho: '/v1/carteira/cobrancas/:id/desfazer-pago',
+    camposDeDinheiro: ['mensalidade', 'desconto', 'valor'],
+  },
+  /**
+   * `POST /v1/carteira/beneficios` cria um `Benefício de indicação`
+   * (`BeneficioDeIndicacaoNaLista`): `percentualCentesimos` NÃO é dinheiro —
+   * é percentual, mesma classe de `minimo`/quantidade de estoque (regra do
+   * comentário do épico 6, acima) — e a resposta não tem campo monetário
+   * nenhum. Sem entrada de `camposDeDinheiro` por isso; a rota ainda existe
+   * de verdade, e `rotas-protegidas.test.ts` confere pela varredura do
+   * `AppModule`, não por este registro.
+   */
+
+  /**
+   * G6 — O PORTAL DO GRUPO (ADRs 0017, 0018).
+   *
+   * `GET /v1/portal/clientes` é a única rota que de fato lê dinheiro: devolve
+   * `MetaComercialNaLista` (`valorMeta`/`valorInicial`/`valor` do lançamento),
+   * `CobrancaCarteiraNaLista` (`mensalidade`/`desconto`/`valor`) e
+   * `CampanhaNoPortal` (`resultadoEmDinheiro`) — as TRÊS formas já registradas
+   * acima para `/v1/carteira/...`, agora atravessando para um QUARTO ator.
+   *
+   * Diferente da carteira (nota acima, "hoje nenhum Usuário de Gestão tem a
+   * chave valores"), o `Usuário do portal` SEMPRE vê estes campos — ADR 0017
+   * §3, confirmada pela ADR 0018: ele é o titular do próprio dinheiro, não um
+   * colega de quem esconder salário. `RedacaoInterceptor` usa `req.portal`
+   * como segunda fonte de `pode` (sempre `true`) precisamente por isto.
+   */
+  {
+    metodo: 'GET',
+    caminho: '/v1/portal/clientes',
+    camposDeDinheiro: ['valorMeta', 'valorInicial', 'valor', 'mensalidade', 'desconto', 'resultadoEmDinheiro'],
+  },
 ]
 
 /**
@@ -503,6 +588,11 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'documentos_da_pessoa',
   'ferias_da_pessoa',
   'fichas_de_pessoa',
+  // A carteira comercial da Firmare (0025, G1a — ADRs 0011/0012). APPEND-ONLY
+  // (como `auditoria`): mudar de grupo de novo é linha nova, nunca UPDATE na
+  // antiga. `fir_app` não tem privilégio nenhum aqui (é tabela de
+  // `fir_carteira`) — a RLS entra mesmo assim, defesa em profundidade.
+  'historico_grupo_da_clinica',
   // O épico 5 (0010): o catálogo, o programa e os dois filhos deles.
   'insumos_do_procedimento',
   // O épico 6 (0015): o estoque. `movimentos_de_estoque` é APPEND-ONLY, e por
@@ -532,6 +622,90 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'tentativas_login',
   'unidades',
   'vinculos_de_nota',
+]
+
+/**
+ * Tabelas com `clinica_id` cuja RLS é por `grupo_id`, não por `clinica_id`
+ * (ADR 0012) — a carteira comercial da Firmare. `clinica_id` aqui é só a
+ * ligação com a `Clinica` real; quem rege o acesso é `app_pode_ver_grupo()`.
+ *
+ * Lista separada de `ENTIDADES_COM_CLINICA` de propósito: aquela exige que
+ * toda policy registrada contenha `app_clinica_id` e não tenha `OR` — exigir
+ * o mesmo aqui reprovaria toda tabela desta lista, que é exatamente o padrão
+ * novo que a carteira introduz. `teste/isolamento-de-clinica.test.ts` varre
+ * as duas listas juntas para "toda tabela com clinica_id" e "RLS
+ * habilitada/forçada", e só a de `ENTIDADES_COM_CLINICA` para o exame do
+ * texto da policy — esta lista tem o exame equivalente, trocando
+ * `app_clinica_id` por `app_pode_ver_grupo`.
+ */
+export const ENTIDADES_COM_CLINICA_POR_GRUPO: readonly string[] = ['clientes_carteira']
+
+/**
+ * G5 (migration 0032, ADR 0016): tabelas da carteira cuja RLS também é por
+ * `app_pode_ver_grupo(grupo_id)`, mas que NÃO têm `clinica_id` nenhum — nem
+ * nullable, nem `NOT NULL`. `leads_comerciais` é prospecção B2B, sem clínica
+ * associada na imensa maioria dos casos; as outras quatro são rotina interna
+ * da equipe Firmare, nunca dado de uma clínica específica.
+ *
+ * Lista PRÓPRIA, separada de `ENTIDADES_COM_CLINICA_POR_GRUPO`: aquela é
+ * descoberta pela varredura de `isolamento-de-clinica.test.ts` a partir da
+ * coluna `clinica_id` no catálogo — uma tabela sem essa coluna NUNCA
+ * apareceria lá, e colocá-la na mesma lista quebraria a igualdade exata que
+ * aquele teste exige entre "tabelas com `clinica_id`" e o registro. Esta
+ * lista é examinada por um `it` PRÓPRIO (mesmo exame de RLS/policy, sem a
+ * amarração à coluna) e pela trilha de auditoria dedicada (ADR 0016, item 4:
+ * `auditoria-inescapavel.test.ts` não alcança tabela sem `clinica_id`
+ * sozinha, porque ela varre exatamente por essa coluna).
+ */
+export const ENTIDADES_DA_CARTEIRA_SEM_CLINICA: readonly string[] = [
+  'leads_comerciais',
+  'interacoes_do_lead',
+  'rotinas_internas',
+  'tarefas_internas',
+  'checkins_internos',
+]
+
+/**
+ * G3 (migration 0031, ADRs 0011/0012/0013/0015): as seis tabelas do
+ * financeiro da carteira — `indicadores_carteira`, `lancamentos_de_indicador`,
+ * `metas_comerciais`, `beneficios_de_indicacao`, `cobrancas_do_cliente_firmare`
+ * e `auditoria_da_carteira`. Mesma classificação de
+ * `ENTIDADES_DA_CARTEIRA_SEM_CLINICA` (SEM `clinica_id` nenhum, RLS por
+ * `app_pode_ver_grupo(grupo_id)`) — achado 1 da revisão de código: nenhuma
+ * das seis estava nesta varredura, então a RLS delas nunca foi examinada por
+ * `isolamento-de-clinica.test.ts`, e a trilha delas nunca foi examinada por
+ * `auditoria-inescapavel.test.ts`.
+ *
+ * **Lista PRÓPRIA, não a mesma de G5**, porque a trilha é DIFERENTE: as cinco
+ * primeiras são auditadas por CÓDIGO DA APLICAÇÃO (`gravarAuditoriaDaCarteira`,
+ * `auditoria-da-carteira.ts`), nunca pelo trigger `registrar_auditoria_do_painel`
+ * que `ENTIDADES_DA_CARTEIRA_SEM_CLINICA` exige — porque `app.pessoa_id` das
+ * conexões da carteira é sempre `'sistema'` (`nasTabelasDaCarteiraComEscopo`),
+ * e gravar isso como "quem escreveu" mentiria. Exigir o trigger genérico aqui
+ * reprovaria as seis tabelas de propósito. A sexta, `auditoria_da_carteira`
+ * em si, é a PRÓPRIA trilha — auditá-la seria recursão infinita, mesma razão
+ * pela qual `auditoria` e `auditoria_do_painel` também não têm o trigger.
+ *
+ * O que CADA exame cobre:
+ *  - `isolamento-de-clinica.test.ts`: RLS forçada + policy por grupo sem OR
+ *    nas SEIS (mesmo exame de `ENTIDADES_DA_CARTEIRA_SEM_CLINICA`), mais um
+ *    exame PRÓPRIO de append-only (regra 20) só para `auditoria_da_carteira`
+ *    — sem UPDATE/DELETE/TRUNCATE para `fir_carteira`, mesmo padrão de
+ *    `auditoria_do_painel` (0030).
+ *  - `auditoria-inescapavel.test.ts`: confirma que NENHUMA das seis usa o
+ *    trigger genérico — by design, nunca por omissão — e que as DUAS formas
+ *    de trilha (trigger OU gravação explícita) continuam cobrindo toda
+ *    escrita: a explícita é exercitada pelos `*.e2e.test.ts` de cada serviço
+ *    (`cobrancas.e2e.test.ts`, `beneficios.e2e.test.ts`, etc.), que conferem
+ *    a linha em `auditoria_da_carteira` depois de cada escrita.
+ */
+export const ENTIDADES_DO_FINANCEIRO_DA_CARTEIRA_SEM_CLINICA: readonly string[] = [
+  'indicadores_carteira',
+  'lancamentos_de_indicador',
+  'metas_comerciais',
+  'beneficios_de_indicacao',
+  'cobrancas_do_cliente_firmare',
+  'auditoria_da_carteira',
 ]
 
 /**

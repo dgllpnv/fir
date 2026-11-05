@@ -12,6 +12,9 @@ REM    fir reset      derruba e APAGA os volumes (banco zerado)
 REM    fir status     estado dos servicos
 REM    fir logs       logs dos containers
 REM    fir psql       shell psql no banco local
+REM    fir workers    sobe os workers da carteira (G3 cobrancas, G4 uso
+REM                   diario) para testar manualmente - exige "fir infra"
+REM                   (ou "fir") rodando antes, para o Redis estar no ar
 REM
 REM  Portas: bloco 48xx. 47xx e do Mavia, que roda na mesma maquina.
 REM  A janela NAO fecha sozinha no duplo clique: todo caminho passa por :fim.
@@ -50,10 +53,11 @@ if /i "%ACAO%"=="reset"  goto :resetar
 if /i "%ACAO%"=="status" goto :status
 if /i "%ACAO%"=="logs"   goto :logs
 if /i "%ACAO%"=="psql"   goto :psql
+if /i "%ACAO%"=="workers" goto :workers
 
 echo.
 echo   Comando desconhecido: %ACAO%
-echo   Use: fir [up^|infra^|down^|reset^|status^|logs^|psql]
+echo   Use: fir [up^|infra^|down^|reset^|status^|logs^|psql^|workers]
 echo.
 set "CODIGO=1"
 goto :fim
@@ -185,10 +189,12 @@ echo    Mailpit     http://127.0.0.1:%PORTA_MAILPIT%   (a caixa de entrada local
 echo    Postgres    127.0.0.1:%PORTA_PG%    usuario: fir   senha: fir_local_dev
 echo    Redis       127.0.0.1:%PORTA_REDIS%
 echo.
-echo    Entre com:  demo@firmare.local
-echo    Senha:      firmare-demonstracao
+echo    Clinica:    demo   ^(Clinica Modelo^)
+echo    Usuario:    helena   ^(administradora^)   ou: beatriz, juliana, camila, patricia, rosa
+echo    Senha:      quatro-pedras-no-caminho   ^(igual para todas as pessoas acima^)
 echo.
 echo    Credenciais valem SO neste ambiente local. Nunca reutilize.
+echo    Nao ha superadmin ^(Operador^) semeado localmente.
 echo.
 echo    fir psql    abre o banco       fir logs     logs dos containers
 echo    fir down    derruba            fir reset    zera o banco
@@ -234,6 +240,27 @@ goto :fim
 
 :psql
 docker exec -it fir-postgres psql -U fir -d fir
+goto :fim
+
+REM ---------------------------------------------------------------------------
+REM Workers da carteira (G3, G4): processos irmaos da API, nao fazem parte do
+REM AppModule nem do "turbo run dev" (ver comentario no topo de
+REM apps/api/src/carteira/jobs/worker-uso-diario.ts). Para testar manualmente
+REM os jobs sem decorar o caminho de cada arquivo:
+REM
+REM   fir infra              (sobe o Redis; so precisa uma vez)
+REM   fir workers            (sobe os dois workers, com watch, ate Ctrl+C)
+REM
+REM Cada worker tambem roda sozinho, se so um dos dois interessar:
+REM   pnpm --filter @fir/api dev:worker:uso-diario
+REM   pnpm --filter @fir/api dev:worker:cobrancas
+:workers
+echo.
+echo   Subindo os workers da carteira (G3 cobrancas, G4 uso diario)...
+echo   Exige o Redis local no ar (rode "fir infra" antes, se ainda nao subiu).
+echo   Ctrl+C encerra os dois.
+echo.
+call pnpm --filter @fir/api dev:workers
 goto :fim
 
 REM ---------------------------------------------------------------------------

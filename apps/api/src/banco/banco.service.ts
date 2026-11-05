@@ -1,6 +1,13 @@
 import { Injectable, type OnModuleDestroy } from '@nestjs/common'
 import pg from 'pg'
-import { type Ator, type OperadorId, type Sistema, atorParaOBanco } from './ator'
+import {
+  type Ator,
+  type OperadorId,
+  type Sistema,
+  PREFIXO_USUARIO_GESTAO,
+  SISTEMA_NO_BANCO,
+  atorParaOBanco,
+} from './ator'
 import type { ClinicaId } from './clinica-id'
 
 /**
@@ -64,7 +71,52 @@ export class BancoService implements OnModuleDestroy {
     idle_in_transaction_session_timeout: 20_000,
   })
 
+  /**
+   * O pool da CARTEIRA — terceira conexão, autenticada como `fir_carteira`.
+   * Mesma razão de `poolDoPainel`: terceira identidade, nunca `SET ROLE`
+   * (ADR 0012).
+   *
+   * `max: 3`: mesmo raciocínio do painel — a equipe comercial é pequena
+   * perto do número de clínicas.
+   */
+  private readonly poolDaCarteira = new pg.Pool({
+    connectionString:
+      process.env['DATABASE_URL_CARTEIRA'] ??
+      'postgresql://fir_carteira:fir_local_dev@127.0.0.1:4832/fir',
+    max: 3,
+    connectionTimeoutMillis: 5_000,
+    idleTimeoutMillis: 30_000,
+    statement_timeout: 15_000,
+    idle_in_transaction_session_timeout: 20_000,
+  })
+
+  /**
+   * O pool do PORTAL DO GRUPO — quarta conexão, autenticada como
+   * `fir_portal` (G6, ADR 0018 §3). Mesma razão de `poolDaCarteira`: quarto
+   * ator, nunca `SET ROLE` sobre nenhum dos outros três.
+   *
+   * `max: 5`: população maior e mais variável que a equipe comercial interna
+   * (é o cliente externo de cada clínica), mas ainda pequena perto do
+   * produto — mesmo raciocínio de calibração que `limite-do-portal.ts` já
+   * registra para o teto de tentativas.
+   */
+  private readonly poolDoPortal = new pg.Pool({
+    connectionString:
+      process.env['DATABASE_URL_PORTAL'] ?? 'postgresql://fir_portal:fir_local_dev@127.0.0.1:4832/fir',
+    max: 5,
+    connectionTimeoutMillis: 5_000,
+    idleTimeoutMillis: 30_000,
+    statement_timeout: 15_000,
+    idle_in_transaction_session_timeout: 20_000,
+  })
+
   constructor() {
+    this.poolDoPortal.on('error', (erro) => {
+      console.error('[banco:portal] conexão ociosa do pool encerrada pelo servidor:', erro.message)
+    })
+    this.poolDaCarteira.on('error', (erro) => {
+      console.error('[banco:carteira] conexão ociosa do pool encerrada pelo servidor:', erro.message)
+    })
     this.poolDoPainel.on('error', (erro) => {
       console.error('[banco:painel] conexão ociosa do pool encerrada pelo servidor:', erro.message)
     })
@@ -200,6 +252,211 @@ export class BancoService implements OnModuleDestroy {
   }
 
   /**
+   * As tabelas da CARTEIRA — `grupos`, `usuarios_gestao`,
+   * `sessoes_de_carteira`, e (quando lidas) `clientes_carteira`/
+   * `campanhas_carteira`/`uso_diario_cliente`.
+   *
+   * `ator` é `Sistema` para o login (ninguém provou identidade ainda, mesmo
+   * raciocínio de `PainelService.entrarSemPiso`) ou `OperadorId` quando o
+   * superadmin cria grupo/cliente/usuário de gestão (ADR 0011: só ele cria).
+   * `UsuarioDeGestaoId` ainda não existe como ator — a leitura de dado
+   * agregado por um Usuário de Gestão não ESCREVE em tabela com trigger de
+   * auditoria (G4 é quem introduz isso, com `auditoria_da_carteira`).
+   */
+  async nasTabelasDaCarteira<T>(
+    ator: AtorDoPainel,
+    fn: (c: pg.PoolClient) => Promise<T>,
+  ): Promise<T> {
+    return this.emTransacao(this.poolDaCarteira, ator, fn)
+  }
+
+  /**
+   * As tabelas da carteira com RLS por `grupo_id`, quando quem escreve é o
+   * `Operador` (ex.: `criarClienteCarteira`) — nunca o `Usuário de Gestão`,
+   * que não cria `Cliente Firmare` (ADR 0011). Fixa `app.escopo = 'geral'`
+   * porque o Operador enxerga todo grupo, e `app.pessoa_id` com o ATOR real
+   * (não `sistema`) — é ele quem a trilha da CLÍNICA vinculada precisa ver
+   * (regra 20: quem, quando), e `nasTabelasDaCarteiraComEscopo` grava sempre
+   * `sistema` ali, porque foi desenhada para leitura, sem ator.
+   */
+  async nasTabelasDaCarteiraComoOperador<T>(
+    ator: OperadorId,
+    fn: (c: pg.PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const c = await this.poolDaCarteira.connect()
+    let erro: unknown
+    try {
+      await c.query('BEGIN')
+      await c.query('SELECT set_config($1, $2, true)', ['app.pessoa_id', atorParaOBanco(ator)])
+      await c.query('SELECT set_config($1, $2, true)', ['app.escopo', 'geral'])
+      await c.query('SELECT set_config($1, $2, true)', ['app.grupo_id', ''])
+      const r = await fn(c)
+      await c.query('COMMIT')
+      return r
+    } catch (e) {
+      erro = e
+      try {
+        await c.query('ROLLBACK')
+      } catch {
+        // engolido — ver `emTransacao`
+      }
+      throw e
+    } finally {
+      if (erro === undefined) c.release()
+      else c.release(erro instanceof Error ? erro : true)
+    }
+  }
+
+  /**
+   * As tabelas da carteira que têm RLS por `grupo_id` (ADR 0012) —
+   * `clientes_carteira`, `campanhas_carteira`, `uso_diario_cliente`. Fixa
+   * `app.escopo`/`app.grupo_id` ANTES de rodar, a partir do `Usuário de
+   * Gestão` da sessão (`CarteiraGuard`) — nunca de um parâmetro de
+   * requisição.
+   */
+  async nasTabelasDaCarteiraComEscopo<T>(
+    escopo: 'geral' | 'grupo',
+    grupoId: string | null,
+    fn: (c: pg.PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const c = await this.poolDaCarteira.connect()
+    let erro: unknown
+    try {
+      await c.query('BEGIN')
+      await c.query('SELECT set_config($1, $2, true)', ['app.pessoa_id', SISTEMA_NO_BANCO])
+      await c.query('SELECT set_config($1, $2, true)', ['app.escopo', escopo])
+      await c.query('SELECT set_config($1, $2, true)', ['app.grupo_id', grupoId ?? ''])
+      const r = await fn(c)
+      await c.query('COMMIT')
+      return r
+    } catch (e) {
+      erro = e
+      try {
+        await c.query('ROLLBACK')
+      } catch {
+        // engolido — ver `emTransacao`
+      }
+      throw e
+    } finally {
+      if (erro === undefined) c.release()
+      else c.release(erro instanceof Error ? erro : true)
+    }
+  }
+
+  /**
+   * As tabelas da carteira que têm RLS por `grupo_id`, quando quem ESCREVE é
+   * o próprio `Usuário de Gestão` (G5 — ADR 0016, emenda à ADR 0011 item 1):
+   * `leads_comerciais`, `interacoes_do_lead`, `rotinas_internas`,
+   * `tarefas_internas`, `checkins_internos`, e `clientes_carteira` quando o
+   * fechamento de um lead o cria.
+   *
+   * Fixa `app.pessoa_id = 'usuario_gestao:<id>'` — a trilha (`auditoria`/
+   * `auditoria_do_painel`, conforme a tabela) grava ESTE ator, nunca
+   * `sistema`: é a primeira vez que a carteira audita uma escrita de
+   * `Usuário de Gestão` de verdade (`nasTabelasDaCarteiraComEscopo`, acima,
+   * foi desenhada para LEITURA, sem ator — grava sempre `sistema`, porque
+   * nunca houve `INSERT`/`UPDATE` atrás dela até aqui).
+   *
+   * `app.escopo`/`app.grupo_id` vêm do PRÓPRIO `Usuário de Gestão` da sessão
+   * (`CarteiraGuard`), nunca de um parâmetro de requisição — é a mesma
+   * fonte de verdade de `nasTabelasDaCarteiraComEscopo`.
+   */
+  async nasTabelasDaCarteiraComoUsuarioDeGestao<T>(
+    usuarioDeGestao: { readonly id: string; readonly escopo: 'geral' | 'grupo'; readonly grupoId: string | null },
+    fn: (c: pg.PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const c = await this.poolDaCarteira.connect()
+    let erro: unknown
+    try {
+      await c.query('BEGIN')
+      await c.query('SELECT set_config($1, $2, true)', [
+        'app.pessoa_id',
+        `${PREFIXO_USUARIO_GESTAO}${usuarioDeGestao.id}`,
+      ])
+      await c.query('SELECT set_config($1, $2, true)', ['app.escopo', usuarioDeGestao.escopo])
+      await c.query('SELECT set_config($1, $2, true)', ['app.grupo_id', usuarioDeGestao.grupoId ?? ''])
+      const r = await fn(c)
+      await c.query('COMMIT')
+      return r
+    } catch (e) {
+      erro = e
+      try {
+        await c.query('ROLLBACK')
+      } catch {
+        // engolido — ver `emTransacao`
+      }
+      throw e
+    } finally {
+      if (erro === undefined) c.release()
+      else c.release(erro instanceof Error ? erro : true)
+    }
+  }
+
+  /**
+   * As tabelas de IDENTIDADE do portal — `usuarios_do_portal` (SELECT),
+   * `sessoes_do_portal`, `tentativas_do_portal` (G6, ADR 0018 §3). Nenhuma
+   * tem RLS — mesma forma de `usuarios_gestao`/`sessoes_de_carteira` —, e por
+   * isso esta transação não fixa `app.portal_grupo_id`/`app.portal_cliente_id`:
+   * é exatamente o login, antes de a identidade existir.
+   */
+  async nasTabelasDoPortal<T>(ator: Sistema, fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
+    return this.emTransacao(this.poolDoPortal, ator, fn)
+  }
+
+  /**
+   * As tabelas COMERCIAIS que o portal LÊ — `clientes_carteira`,
+   * `campanhas_carteira`, `indicadores_carteira`, `lancamentos_de_indicador`,
+   * `metas_comerciais`, `cobrancas_do_cliente_firmare`, `documentos_carteira`,
+   * `materiais_carteira`, `reunioes_comerciais` (G6, ADR 0018 §1-2). Fixa
+   * `app.portal_escopo`-equivalente (`app.portal_grupo_id`/`app.portal_
+   * cliente_id`) ANTES de rodar, a partir do `Usuário do portal` da sessão
+   * (`PortalGuard`) — nunca de um parâmetro de requisição.
+   *
+   * `ator` é `Sistema`: o portal é READ-ONLY de ponta a ponta (ADR 0018 §4) —
+   * não há escrita para assinar, e por isso nenhum `UsuarioPortalId` precisa
+   * passar por aqui. A trilha de ACESSO (regra 18) é gravada à parte, via
+   * `AuditoriaService.registrarAcesso` com o `UsuarioPortalId` de verdade,
+   * numa conexão `fir_app` dentro da clínica — nunca nesta.
+   */
+  async nasTabelasDaCarteiraComoPortal<T>(
+    usuarioDoPortal: {
+      readonly escopo: 'cliente' | 'grupo'
+      readonly clienteCarteiraId: string | null
+      readonly grupoId: string | null
+    },
+    fn: (c: pg.PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const c = await this.poolDoPortal.connect()
+    let erro: unknown
+    try {
+      await c.query('BEGIN')
+      await c.query('SELECT set_config($1, $2, true)', ['app.pessoa_id', SISTEMA_NO_BANCO])
+      await c.query('SELECT set_config($1, $2, true)', [
+        'app.portal_cliente_id',
+        usuarioDoPortal.clienteCarteiraId ?? '',
+      ])
+      await c.query('SELECT set_config($1, $2, true)', [
+        'app.portal_grupo_id',
+        usuarioDoPortal.grupoId ?? '',
+      ])
+      const r = await fn(c)
+      await c.query('COMMIT')
+      return r
+    } catch (e) {
+      erro = e
+      try {
+        await c.query('ROLLBACK')
+      } catch {
+        // engolido — ver `emTransacao`
+      }
+      throw e
+    } finally {
+      if (erro === undefined) c.release()
+      else c.release(erro instanceof Error ? erro : true)
+    }
+  }
+
+  /**
    * O corpo compartilhado: abre a transação, declara o ATOR, roda, e devolve
    * a conexão ao pool com o cuidado que `release(erro)` exige.
    *
@@ -245,7 +502,12 @@ export class BancoService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    await Promise.all([this.pool.end(), this.poolDoPainel.end()])
+    await Promise.all([
+      this.pool.end(),
+      this.poolDoPainel.end(),
+      this.poolDaCarteira.end(),
+      this.poolDoPortal.end(),
+    ])
   }
 }
 

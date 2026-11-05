@@ -34,6 +34,26 @@ CREATE ROLE fir_app     LOGIN PASSWORD 'fir_local_dev';
 -- existe", e o sintoma não aponta para a causa. Ver infra/README.md.
 CREATE ROLE fir_painel  LOGIN PASSWORD 'fir_local_dev';
 
+-- O QUARTO PAPEL: a carteira comercial da Firmare (migration 0025).
+--
+-- ADR 0012: SEM `BYPASSRLS` — mesma razão do `fir_painel`. Ele fixa
+-- `app.grupo_id`/`app.escopo` como qualquer um, nunca atravessa o isolamento
+-- por clínica quando opera dentro de uma (G2/G4).
+--
+-- ⚠️ Mesma regra do `fir_painel`: só nasce na CRIAÇÃO DO VOLUME. Depois de
+-- editar este arquivo, `fir reset` é obrigatório.
+CREATE ROLE fir_carteira LOGIN PASSWORD 'fir_local_dev';
+
+-- O QUINTO PAPEL: o Portal do Grupo (migration 0034, ADR 0018).
+--
+-- Mesma razão de `fir_carteira`, um ator mais: SEM `BYPASSRLS`. Ele fixa
+-- `app.portal_grupo_id`/`app.portal_cliente_id` como qualquer um, nunca
+-- atravessa o isolamento por grupo/cliente.
+--
+-- ⚠️ Mesma regra do `fir_painel`/`fir_carteira`: só nasce na CRIAÇÃO DO
+-- VOLUME. Depois de editar este arquivo, `fir reset` é obrigatório.
+CREATE ROLE fir_portal LOGIN PASSWORD 'fir_local_dev';
+
 GRANT ALL ON SCHEMA public TO fir_migrate;
 ALTER SCHEMA public OWNER TO fir_migrate;
 

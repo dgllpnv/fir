@@ -121,6 +121,34 @@ export async function apagarOperadorDeTeste(cliente: pg.Client, operadorId: stri
 }
 
 /**
+ * Desfaz o HISTÓRICO DE GRUPO de uma clínica de teste (migration 0025).
+ *
+ * Mesma forma de `apagarTrilhaDeTeste`: append-only nas duas camadas, e
+ * precisar desligar a trigger aqui é a prova de que ela funciona. Só
+ * `fir_migrate` consegue — o papel que o REVOKE (para `fir_app` e para
+ * `fir_carteira`) não alcança.
+ *
+ * Em PRODUÇÃO nada disto é apagado: mudar de grupo de novo é uma linha nova,
+ * nunca `DELETE` na antiga (ADR 0011/0012).
+ */
+export async function apagarHistoricoGrupoDeTeste(cliente: pg.Client, clinicaId: string): Promise<void> {
+  await cliente.query('BEGIN')
+  try {
+    await cliente.query(
+      'ALTER TABLE historico_grupo_da_clinica DISABLE TRIGGER historico_grupo_da_clinica_sem_update',
+    )
+    await cliente.query('DELETE FROM historico_grupo_da_clinica WHERE clinica_id = $1', [clinicaId])
+    await cliente.query(
+      'ALTER TABLE historico_grupo_da_clinica ENABLE TRIGGER historico_grupo_da_clinica_sem_update',
+    )
+    await cliente.query('COMMIT')
+  } catch (e) {
+    await cliente.query('ROLLBACK')
+    throw e
+  }
+}
+
+/**
  * As tabelas de negócio que uma clínica de teste deixa para trás, na ordem em
  * que as chaves estrangeiras permitem apagar.
  */

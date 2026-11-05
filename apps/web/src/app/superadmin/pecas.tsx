@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useId, useState, type KeyboardEvent } from 'react'
 import { filtrarClinicas, type ClinicaEscolhivel } from '@/lib/filtro-de-clinicas'
 
@@ -161,6 +162,38 @@ export function SeletorDeClinica({
         </ul>
       )}
     </div>
+  )
+}
+
+/**
+ * **AS TRÊS SEÇÕES DO PAINEL, SEMPRE NA MESMA ORDEM.**
+ *
+ * A carteira comercial (Grupo, Cliente Firmare, Usuário de Gestão — ADR 0011)
+ * trouxe duas telas novas, e sem navegação entre elas cada uma só se alcança
+ * digitando o endereço — o painel não tem menu nenhum hoje, porque nasceu com
+ * uma lista só. `aria-current="page"` é o que diz, sem cor nenhuma extra, onde
+ * a pessoa está — a mesma pergunta que a faixa já responde para a clínica.
+ */
+const SECOES: readonly { href: string; rotulo: string }[] = [
+  { href: '/superadmin/clinicas', rotulo: 'Clínicas' },
+  { href: '/superadmin/grupos', rotulo: 'Grupos' },
+  { href: '/superadmin/usuarios-gestao', rotulo: 'Usuários de gestão' },
+]
+
+export function NavDoPainel({ atual }: { atual: string }) {
+  return (
+    <nav className="superadmin-nav" aria-label="Seções do painel">
+      {SECOES.map((s) => (
+        <Link
+          key={s.href}
+          href={s.href}
+          className={s.href === atual ? 'link superadmin-nav-atual' : 'link'}
+          aria-current={s.href === atual ? 'page' : undefined}
+        >
+          {s.rotulo}
+        </Link>
+      ))}
+    </nav>
   )
 }
 

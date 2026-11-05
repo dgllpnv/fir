@@ -1,6 +1,13 @@
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { ENTIDADES_COM_CLINICA } from './registro'
+import {
+  ENTIDADES_COM_CLINICA,
+  ENTIDADES_COM_CLINICA_POR_GRUPO,
+  ENTIDADES_DA_CARTEIRA_SEM_CLINICA,
+  ENTIDADES_DO_FINANCEIRO_DA_CARTEIRA_SEM_CLINICA,
+} from './registro'
+
+const TODAS_COM_CLINICA = [...ENTIDADES_COM_CLINICA, ...ENTIDADES_COM_CLINICA_POR_GRUPO]
 
 const URL_MIG =
   process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'
@@ -102,12 +109,14 @@ describe('toda tabela de negócio está protegida', () => {
     )
     const noBanco = r.rows.map((x) => x.tablename).sort()
     // Se esta asserção falhar, alguém criou uma tabela com clinica_id e não a
-    // registrou. Acrescente ao registro — e confira que ela tem RLS.
-    expect(noBanco).toEqual([...ENTIDADES_COM_CLINICA].sort())
+    // registrou. Acrescente a ENTIDADES_COM_CLINICA (RLS por clinica_id) ou a
+    // ENTIDADES_COM_CLINICA_POR_GRUPO (RLS por grupo_id, ADR 0012) — e
+    // confira que ela tem RLS.
+    expect(noBanco).toEqual([...TODAS_COM_CLINICA].sort())
   })
 
   it('cada tabela registrada tem RLS habilitada E forçada', async () => {
-    for (const t of ENTIDADES_COM_CLINICA) {
+    for (const t of TODAS_COM_CLINICA) {
       const r = await migrate.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
         `SELECT c.relrowsecurity, c.relforcerowsecurity
            FROM pg_class c
@@ -141,7 +150,7 @@ describe('toda tabela de negócio está protegida', () => {
          JOIN pg_class mae   ON mae.oid   = i.inhparent
          JOIN pg_namespace n ON n.oid = mae.relnamespace
         WHERE n.nspname = 'public' AND mae.relname = ANY($1)`,
-      [[...ENTIDADES_COM_CLINICA, CANARIO_PARTICAO_MAE]],
+      [[...TODAS_COM_CLINICA, CANARIO_PARTICAO_MAE]],
     )
 
     // O piso não pode ser 0 (hoje não há partição de negócio nenhuma) — é 1,
@@ -220,6 +229,237 @@ describe('toda tabela de negócio está protegida', () => {
             `verdadeiro e permitir escrita em qualquer clínica (with_check = ${p.with_check})`,
         ).not.toMatch(/\bOR\b/)
       }
+    }
+  })
+
+  it('TODAS as policies de cada tabela por GRUPO chamam app_pode_ver_grupo — nunca OR inline', async () => {
+    // Mesmo exame do `it` acima, para o padrão novo da carteira (ADR 0012):
+    // `app_pode_ver_grupo()` carrega o `OR` DENTRO da função (geral vê tudo;
+    // grupo vê só o próprio) para que a CLÁUSULA DA POLICY nunca precise de
+    // `OR` — é a mesma defesa, um nível abaixo.
+    for (const t of ENTIDADES_COM_CLINICA_POR_GRUPO) {
+      const r = await migrate.query<{
+        policyname: string
+        qual: string | null
+        with_check: string | null
+        roles: string[]
+      }>(
+        'SELECT policyname, qual, with_check, roles::text[] AS roles FROM pg_policies WHERE schemaname = $1 AND tablename = $2',
+        ['public', t],
+      )
+      expect(r.rows.length, `${t} sem policy`).toBeGreaterThan(0)
+
+      // G6 (ADR 0018) acrescenta, a algumas destas tabelas, uma SEGUNDA
+      // policy restrita `TO fir_portal` — um quarto ator, com a MESMA forma
+      // um nível abaixo (`app_portal_pode_ver`, nunca `app_pode_ver_grupo`:
+      // o portal não tem `escopo='geral'`). O filtro abaixo isola a OUTRA
+      // policy (a de `fir_carteira`) para cobrar dela o texto certo —
+      // `app_pode_ver_grupo`, sem `OR`.
+      //
+      // CORREÇÃO (bloqueador de merge, achado do `revisor-codigo`, migration
+      // 0035): este filtro só examina o TEXTO da cláusula. Até a 0035, a
+      // policy de `fir_carteira` nascia SEM `TO` nenhum — que no Postgres
+      // significa `TO PUBLIC` — e por isso `fir_portal` TAMBÉM era sujeito a
+      // ela, compondo por OR com a `_portal`: exatamente o oposto do que um
+      // comentário antigo (em `0034_carteira_portal.sql`) e a leitura
+      // ingênua deste filtro sugeriam ("cada uma só se aplica ao papel que a
+      // declara" só é verdade DEPOIS que as duas policies têm `TO`
+      // explícito). Medido ao vivo: como `fir_portal`, fixando só
+      // `app.escopo = 'geral'` (sem `app.portal_*`), `SELECT * FROM
+      // clientes_carteira` devolvia as 26 linhas de todas as clínicas.
+      //
+      // Por isso o `roles` de CADA policy aqui é examinado por igualdade
+      // exata — nunca só "não contém fir_portal" — para que a tabela nunca
+      // mais volte a valer `PUBLIC` em silêncio. A prova COMPORTAMENTAL
+      // (conectar como `fir_portal` de verdade e medir o que o Postgres
+      // devolve, não o texto da policy) mora em
+      // `teste/portal-no-banco.test.ts`, describe "REGRESSÃO: fir_portal com
+      // app.escopo=geral" — é o teste que teria pego este bug antes do merge.
+      const doFirCarteira = r.rows.filter((p) => !p.roles.includes('fir_portal'))
+      expect(doFirCarteira.length, `${t} sem policy de fir_carteira`).toBeGreaterThan(0)
+
+      for (const p of doFirCarteira) {
+        expect(
+          p.roles,
+          `${t}: policy "${p.policyname}" não está restrita a fir_carteira (roles = ${JSON.stringify(
+            p.roles,
+          )}) — sem TO explícito ela vale PUBLIC, e fir_portal volta a ser sujeito a ela, compondo por OR com a "_portal"`,
+        ).toEqual(['fir_carteira'])
+        expect(p.qual, `${t}: policy "${p.policyname}" sem USING por grupo`).toContain(
+          'app_pode_ver_grupo',
+        )
+        expect(p.qual?.toUpperCase(), `${t}: policy "${p.policyname}" tem OR no USING`).not.toMatch(
+          /\bOR\b/,
+        )
+        expect(
+          p.with_check,
+          `${t}: policy "${p.policyname}" sem WITH CHECK por grupo`,
+        ).toContain('app_pode_ver_grupo')
+        expect(
+          p.with_check?.toUpperCase(),
+          `${t}: policy "${p.policyname}" tem OR no WITH CHECK`,
+        ).not.toMatch(/\bOR\b/)
+      }
+    }
+  })
+
+  it('as tabelas da carteira SEM clinica_id (G5) têm RLS forçada e policy por grupo, sem OR', async () => {
+    // Mesmo exame dos dois `it` acima, para `ENTIDADES_DA_CARTEIRA_SEM_CLINICA`
+    // (registro.ts) — a varredura por `clinica_id` do `it` do topo NUNCA
+    // alcançaria estas tabelas, então elas precisam do exame explícito aqui.
+    for (const t of ENTIDADES_DA_CARTEIRA_SEM_CLINICA) {
+      const rls = await migrate.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+        `SELECT c.relrowsecurity, c.relforcerowsecurity
+           FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relname = $1`,
+        [t],
+      )
+      expect(rls.rows[0], `tabela ${t} não existe`).toBeDefined()
+      expect(rls.rows[0]!.relrowsecurity, `${t} sem RLS habilitada`).toBe(true)
+      expect(rls.rows[0]!.relforcerowsecurity, `${t} sem RLS forçada`).toBe(true)
+
+      const r = await migrate.query<{ policyname: string; qual: string | null; with_check: string | null }>(
+        'SELECT policyname, qual, with_check FROM pg_policies WHERE schemaname = $1 AND tablename = $2',
+        ['public', t],
+      )
+      expect(r.rows.length, `${t} sem policy`).toBeGreaterThan(0)
+      for (const p of r.rows) {
+        expect(p.qual, `${t}: policy "${p.policyname}" sem USING por grupo`).toContain('app_pode_ver_grupo')
+        expect(p.qual?.toUpperCase(), `${t}: policy "${p.policyname}" tem OR no USING`).not.toMatch(/\bOR\b/)
+        expect(
+          p.with_check,
+          `${t}: policy "${p.policyname}" sem WITH CHECK por grupo`,
+        ).toContain('app_pode_ver_grupo')
+        expect(
+          p.with_check?.toUpperCase(),
+          `${t}: policy "${p.policyname}" tem OR no WITH CHECK`,
+        ).not.toMatch(/\bOR\b/)
+      }
+    }
+  })
+
+  it('nenhuma tabela da carteira SEM clinica_id tem BYPASSRLS acessível por fir_app', async () => {
+    // Defesa em profundidade (regra 19): mesmo com RLS, fir_app não deveria
+    // ter privilégio nenhum nestas tabelas — REVOKE ALL FROM fir_app (0032).
+    for (const t of ENTIDADES_DA_CARTEIRA_SEM_CLINICA) {
+      const r = await migrate.query<{ privilege_type: string }>(
+        `SELECT privilege_type FROM information_schema.table_privileges
+          WHERE table_schema = 'public' AND table_name = $1 AND grantee = 'fir_app'`,
+        [t],
+      )
+      expect(r.rows, `fir_app tem privilégio em ${t}: ${JSON.stringify(r.rows)}`).toEqual([])
+    }
+  })
+
+  /**
+   * G3 (migration 0031) — achado 1 da revisão de código: as seis tabelas do
+   * financeiro da carteira (`indicadores_carteira`, `lancamentos_de_indicador`,
+   * `metas_comerciais`, `beneficios_de_indicacao`, `cobrancas_do_cliente_firmare`
+   * e `auditoria_da_carteira`) nunca entraram nesta varredura. Mesmo exame de
+   * `ENTIDADES_DA_CARTEIRA_SEM_CLINICA` (RLS forçada, policy por grupo sem OR) —
+   * ver `registro.ts` para por que é uma lista PRÓPRIA, não a mesma.
+   */
+  it('as seis tabelas do financeiro da carteira (G3) têm RLS forçada e policy por grupo, sem OR', async () => {
+    for (const t of ENTIDADES_DO_FINANCEIRO_DA_CARTEIRA_SEM_CLINICA) {
+      const rls = await migrate.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
+        `SELECT c.relrowsecurity, c.relforcerowsecurity
+           FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public' AND c.relname = $1`,
+        [t],
+      )
+      expect(rls.rows[0], `tabela ${t} não existe`).toBeDefined()
+      expect(rls.rows[0]!.relrowsecurity, `${t} sem RLS habilitada`).toBe(true)
+      expect(rls.rows[0]!.relforcerowsecurity, `${t} sem RLS forçada`).toBe(true)
+
+      const r = await migrate.query<{
+        policyname: string
+        qual: string | null
+        with_check: string | null
+        roles: string[]
+      }>(
+        'SELECT policyname, qual, with_check, roles::text[] AS roles FROM pg_policies WHERE schemaname = $1 AND tablename = $2',
+        ['public', t],
+      )
+      expect(r.rows.length, `${t} sem policy`).toBeGreaterThan(0)
+
+      // G6 (0034) acrescentou, a QUATRO destas seis (`indicadores_carteira`,
+      // `lancamentos_de_indicador`, `metas_comerciais`,
+      // `cobrancas_do_cliente_firmare` — nunca `beneficios_de_indicacao` nem
+      // `auditoria_da_carteira`, que `fir_portal` não lê: sem GRANT SELECT
+      // nelas, confirmado contra `information_schema`), uma SEGUNDA policy
+      // `TO fir_portal` (`app_portal_pode_ver`, nunca `app_pode_ver_grupo`).
+      //
+      // CORREÇÃO (mesmo achado da migration 0035, comentário acima explica
+      // por inteiro): nas quatro que `fir_portal` de fato lê, a policy de
+      // `fir_carteira` só passou a ter `TO` explícito na 0035 — antes dela
+      // valia `PUBLIC`, e `fir_portal` compunha por OR com a `_portal`. Por
+      // isso a igualdade exata de `roles` abaixo só é cobrada para as quatro
+      // em que isso importa — `beneficios_de_indicacao`/`auditoria_da_carteira`
+      // continuam sem `TO` (sem GRANT para `fir_portal`, o OR nunca se forma)
+      // e cobrar o mesmo delas reprovaria duas tabelas que não têm o problema.
+      const TABELAS_QUE_FIR_PORTAL_LE = new Set([
+        'indicadores_carteira',
+        'lancamentos_de_indicador',
+        'metas_comerciais',
+        'cobrancas_do_cliente_firmare',
+      ])
+      const doFirCarteira = r.rows.filter((p) => !p.roles.includes('fir_portal'))
+      expect(doFirCarteira.length, `${t} sem policy de fir_carteira`).toBeGreaterThan(0)
+
+      for (const p of doFirCarteira) {
+        if (TABELAS_QUE_FIR_PORTAL_LE.has(t)) {
+          expect(
+            p.roles,
+            `${t}: policy "${p.policyname}" não está restrita a fir_carteira (roles = ${JSON.stringify(
+              p.roles,
+            )}) — sem TO explícito ela vale PUBLIC, e fir_portal (que TEM SELECT nesta tabela) volta a ser sujeito a ela, compondo por OR com a "_portal"`,
+          ).toEqual(['fir_carteira'])
+        }
+        expect(p.qual, `${t}: policy "${p.policyname}" sem USING por grupo`).toContain('app_pode_ver_grupo')
+        expect(p.qual?.toUpperCase(), `${t}: policy "${p.policyname}" tem OR no USING`).not.toMatch(/\bOR\b/)
+        expect(
+          p.with_check,
+          `${t}: policy "${p.policyname}" sem WITH CHECK por grupo`,
+        ).toContain('app_pode_ver_grupo')
+        expect(
+          p.with_check?.toUpperCase(),
+          `${t}: policy "${p.policyname}" tem OR no WITH CHECK`,
+        ).not.toMatch(/\bOR\b/)
+      }
+    }
+  })
+
+  it('nenhuma das seis tabelas do financeiro da carteira (G3) tem BYPASSRLS acessível por fir_app', async () => {
+    for (const t of ENTIDADES_DO_FINANCEIRO_DA_CARTEIRA_SEM_CLINICA) {
+      const r = await migrate.query<{ privilege_type: string }>(
+        `SELECT privilege_type FROM information_schema.table_privileges
+          WHERE table_schema = 'public' AND table_name = $1 AND grantee = 'fir_app'`,
+        [t],
+      )
+      expect(r.rows, `fir_app tem privilégio em ${t}: ${JSON.stringify(r.rows)}`).toEqual([])
+    }
+  })
+
+  /**
+   * `auditoria_da_carteira` é a trilha de G3 (regra 20: append-only de fato) —
+   * gravada EXPLICITAMENTE pelo código da aplicação (migration 0031: nenhum
+   * trigger, de propósito). Sem este exame, um `UPDATE`/`DELETE` nela passaria
+   * silenciosamente, e a trilha deixaria de ser confiável. Mesmo padrão de
+   * `auditoria_do_painel` (0030): `REVOKE UPDATE, DELETE, TRUNCATE FROM fir_carteira`.
+   */
+  it('auditoria_da_carteira é APPEND-ONLY: fir_carteira não tem UPDATE/DELETE/TRUNCATE', async () => {
+    const r = await migrate.query<{ privilege_type: string }>(
+      `SELECT privilege_type FROM information_schema.table_privileges
+        WHERE table_schema = 'public' AND table_name = 'auditoria_da_carteira'
+          AND grantee = 'fir_carteira'`,
+    )
+    const privilegios = r.rows.map((x) => x.privilege_type)
+    expect(privilegios, 'fir_carteira sem nenhum privilégio em auditoria_da_carteira').not.toEqual([])
+    for (const proibido of ['UPDATE', 'DELETE', 'TRUNCATE']) {
+      expect(
+        privilegios,
+        `fir_carteira tem ${proibido} em auditoria_da_carteira — a trilha deixaria de ser append-only`,
+      ).not.toContain(proibido)
     }
   })
 })

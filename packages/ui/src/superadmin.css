@@ -250,6 +250,35 @@
   .superadmin-faixa .faixa-quem { order: 3; }
 }
 
+/* ---------- a navegação entre seções ---------- */
+
+/*
+ * TRÊS SEÇÕES, SEM MENU ATÉ A CARTEIRA CHEGAR. O painel nasceu com uma lista
+ * só (Clínicas); Grupos e Usuários de gestão (ADR 0011) exigiram um jeito de
+ * ir de uma seção a outra sem digitar o endereço. `min-height: 44px` por
+ * razão de sempre — `design.md` §1, alvo de toque grande.
+ */
+.superadmin-nav {
+  display: flex;
+  gap: 4px 20px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.superadmin-nav a.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 600;
+  font-size: 13.5px;
+  border-bottom: 2px solid transparent;
+  text-decoration: none;
+}
+.superadmin-nav a.superadmin-nav-atual {
+  color: var(--gold-ink);
+  border-bottom-color: var(--gold);
+}
+
 /* ---------- o corpo ---------- */
 
 .superadmin-corpo {
@@ -519,6 +548,61 @@ details.superadmin-dobra[open] > summary::after { transform: rotate(-135deg) tra
   font-weight: 500;
   color: var(--bad);
 }
+
+/* ---------- o segredo da carteira, fora do modal da casa ---------- */
+
+/*
+ * `Usuário de Gestão` mostra a provisória num modal LOCAL a esta tela
+ * (`usuarios-gestao/page.tsx`), não no `SenhaProvisoria` do produto — aquele
+ * exige `expiraEm`, e `UsuarioDeGestaoCriadoSaida` não devolve esse instante.
+ * Inventar a data somando horas ao relógio do aparelho violaria a regra 24
+ * (CLAUDE.md: data de negócio nunca vem do cliente). Mesma FORMA do segredo
+ * de `modal.css` (`.modal .segredo`, `.modal .aviso-do-modal`): prefixada
+ * porque é o painel que a declara, e a varredura de `identidade.test.ts`
+ * reprova classe só-do-painel que colida com o nome de uma classe do produto.
+ */
+.superadmin-segredo {
+  width: 100%;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.campo > .superadmin-segredo { margin-top: 2px; }
+.superadmin-aviso-modal { margin: 0; min-height: 18px; font-size: 13px; }
+
+/* ---------- o formulário de usuário de gestão ---------- */
+
+.superadmin-form-largo { display: grid; gap: 12px; max-width: 460px; }
+
+/*
+ * O rádio de ESCOPO — geral ou grupo. Duas opções, as duas sempre visíveis:
+ * é a decisão que decide se o campo de grupo existe, e um `<select>` a
+ * esconderia atrás de um toque a mais.
+ */
+.superadmin-campo-radios {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+.superadmin-campo-radios > legend { padding: 0; font-weight: 600; font-size: 13px; }
+.superadmin-campo-radios > label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-weight: 500;
+  font-size: 14px;
+  /* Alvo de toque grande: quem usa está com a mão ocupada (design.md §1). */
+  min-height: 44px;
+  padding: 4px 0;
+}
+.superadmin-campo-radios > label > input { margin-top: 3px; flex: none; }
+.superadmin-campo-radios small { display: block; font-weight: 400; color: var(--muted); }
 
 .superadmin-porta > .selo {
   background: var(--gold);

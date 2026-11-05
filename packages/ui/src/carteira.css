@@ -1,0 +1,377 @@
+/*
+ * A CARTEIRA COMERCIAL DA FIRMARE — terceiro espaço de identidade, ao lado do
+ * produto e do painel do superadmin. ADRs 0011, 0012.
+ *
+ * Mesmo princípio do painel (`superadmin.css`): uma faixa permanente que diz
+ * ONDE você está e O QUE você enxerga (todos os grupos, ou um só) — nunca
+ * estilo inline, nunca classe que colide com o produto ou com o painel.
+ *
+ * Cor própria para não confundir com o painel do superadmin (dourado cheio):
+ * a faixa da carteira usa `--surface` com borda `--gold`, mais discreta —
+ * ela não cria clínica em lugar nenhum, então o risco que justifica o
+ * dourado cheio do painel não existe aqui.
+ */
+
+.carteira {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.carteira-faixa {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface);
+  border-bottom: 2px solid var(--gold);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.carteira-faixa-barra {
+  display: flex;
+  align-items: center;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+  padding: 10px max(16px, calc((100vw - 1080px) / 2));
+  font-size: 13px;
+}
+
+.carteira-aqui {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.1;
+  color: var(--gold-ink);
+}
+
+.carteira-aqui small {
+  display: block;
+  font-family: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.carteira-onde {
+  margin: 0;
+  color: var(--muted);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.carteira-onde b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.carteira-quem {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.carteira-corpo {
+  min-width: 0;
+}
+
+/* A porta (entrar) — mesma caixa centrada do produto e do painel. */
+.carteira-porta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.carteira-selo {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--gold-ink);
+  background: var(--gold-soft);
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  padding: 3px 11px;
+}
+
+/* A lista de clientes da carteira — primeira tela de dado real. */
+.carteira-lista {
+  display: grid;
+  gap: 10px;
+}
+
+.carteira-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* O cartão é um link para a ficha do cliente — mesma razão de `a.btn` em
+   `tokens.css`: sem isto o navegador pinta o texto de azul e sublinhado. */
+a.carteira-card {
+  text-decoration: none;
+  color: inherit;
+}
+a.carteira-card:hover {
+  border-color: var(--gold);
+}
+
+.carteira-card .carteira-nome {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.carteira-card .produto {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/*
+ * A FICHA DE UM Cliente Firmare — cobranças, indicadores e metas comerciais.
+ * `apps/web/src/app/carteira/clientes/[id]/page.tsx`.
+ *
+ * Cartão-lista, não tabela: a mesma razão de `.carteira-card` acima — 390 px
+ * é o caso principal, e uma tabela de seis colunas rola na horizontal antes
+ * da segunda linha.
+ */
+.carteira-cliente {
+  display: grid;
+  gap: 18px;
+}
+
+.carteira-cliente-cabecalho {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.carteira-secao + .carteira-secao {
+  margin-top: 4px;
+}
+
+.carteira-lista-financeira {
+  display: grid;
+  gap: 8px;
+}
+
+.carteira-linha {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.carteira-linha:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.carteira-linha-info {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 160px;
+}
+
+/* A meta precisa de uma segunda linha (indicador, valores, último
+   lançamento) além do título e do status — o `.carteira-linha` de uma linha
+   só não cabe o que uma meta tem para dizer. */
+.carteira-meta {
+  display: grid;
+  gap: 6px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.carteira-meta:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.carteira-meta-cabecalho {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.carteira-meta-linha {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+
+/*
+ * G5 — FUNIL DE PROSPECÇÃO E ROTINA INTERNA.
+ * `apps/web/src/app/carteira/leads/page.tsx`, `.../rotina/page.tsx`,
+ * `.../pecas.tsx`. Mesma família visual de `.carteira-card` acima — cartão,
+ * nunca tabela, porque 390 px é o caso principal.
+ */
+
+/* As três áreas (Clientes · Leads · Rotina) — mesma forma de `.superadmin-nav`,
+   prefixada para não colidir com ela (`identidade.test.ts` cobra isto). */
+.carteira-nav {
+  display: flex;
+  gap: 4px 20px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.carteira-nav a.link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-weight: 600;
+  font-size: 13.5px;
+  border-bottom: 2px solid transparent;
+  text-decoration: none;
+}
+.carteira-nav a.carteira-nav-atual {
+  color: var(--gold-ink);
+  border-bottom-color: var(--gold);
+}
+
+/* O erro de tela DÁ SAÍDA (`design.md` §4) — `ErroDaCarteira`, `pecas.tsx`. */
+.carteira-erro {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  border: 1px solid var(--bad);
+  border-radius: var(--r);
+  padding: 16px;
+  background: var(--surface);
+}
+.carteira-erro p { margin: 0; color: var(--ink); }
+.carteira-erro-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Seções e grades: o funil (etapas) e a rotina (tarefas/rotinas) empilham
+   SEMPRE — nunca uma coluna de kanban lado a lado que force rolagem
+   horizontal (`design.md` §1). Em tela larga, ganham colunas — o MESMO
+   desenho, maior, não um desenho diferente. */
+.carteira-secao-titulo {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.carteira-grade {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+@media (min-width: 860px) {
+  .carteira-grade { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); align-items: start; }
+}
+
+.carteira-etapa {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+.carteira-etapa-cabeca {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.carteira-etapa-cabeca h2 {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* Modificador de `.carteira-card`: coluna, não linha — um lead ou uma tarefa
+   tem mais a dizer do que cabe numa fileira só. */
+.carteira-card.carteira-card-coluna {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.carteira-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* A confirmação de uma ação que não se desfaz sozinha (arquivar, cancelar) —
+   inline, sem modal: o toque de confirmar fica ao lado do toque que pediu. */
+.carteira-confirmar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* O raro fica recolhido (`design.md` §1) — mesma forma de
+   `details.superadmin-dobra`, prefixada para não colidir com ela. */
+details.carteira-dobra {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+details.carteira-dobra > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  list-style: none;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+details.carteira-dobra > summary::-webkit-details-marker { display: none; }
+details.carteira-dobra > summary::after {
+  content: "";
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--gold);
+  border-bottom: 2px solid var(--gold);
+  transform: rotate(45deg) translateY(-2px);
+}
+details.carteira-dobra[open] > summary::after { transform: rotate(-135deg) translateY(-2px); }
+.carteira-dobra > .carteira-form { margin-top: 14px; }
+
+/* A dobra ANINHADA ("+ Mais opções" dentro de um formulário já recolhido, ou
+   "Mudar etapa" dentro de um cartão de lead) é mais discreta — sem a moldura
+   cheia, que já veio da dobra de fora ou do cartão. */
+details.carteira-dobra.carteira-dobra-mini {
+  border: 0;
+  padding: 0;
+  margin-top: 10px;
+  background: transparent;
+}
+details.carteira-dobra.carteira-dobra-mini > summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gold-ink);
+  min-height: 36px;
+}
+
+.carteira-form { display: grid; gap: 12px; max-width: 460px; }

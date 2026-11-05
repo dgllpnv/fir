@@ -86,6 +86,125 @@ O painel cria clínica e administradora **em qualquer clínica** — é a creden
 
 **Gatilho:** o primeiro operador que precisar entrar de fora dos endereços conhecidos, ou a entrada de CDN/domínio próprio (P-8). O que cabe é WebAuthn no painel, não TOTP: com dois usuários, uma chave física é mais barata de operar que um segredo compartilhado.
 
+### D3b · O `Usuário de Gestão` (carteira comercial) não tem MFA nem allowlist de rede
+
+Decisão do dono (2026-11-05, ver ADR 0012, emenda): manter o mesmo padrão de segurança do resto do produto — senha + Argon2 + limite de tentativas — sem segundo fator. Diferente do painel do superadmin (D3a), este ator **nunca teve nem terá allowlist de IP como contrapartida**: a equipe comercial não trabalha de endereços fixos.
+
+**Por que foi aceito:** a allowlist do painel (D3a) também não está ativa hoje — `infra/producao/` ainda não existe (D1). Pré-deploy, nenhum dos dois atores tem a camada de rede; a decisão trata os dois com o mesmo padrão em vez de proteger só um.
+
+**O que a torna cara com o tempo:** diferente do painel (dois usuários, uso raro), a carteira é usada por toda a equipe comercial, com mais frequência, de mais lugares — a superfície de senha vazada/reusada cresce com o número de pessoas, não fica constante. Revogação instantânea (P-12) e rate limit por conta são a mitigação que sobra.
+
+**Gatilho:** o primeiro deploy em VPS com `Usuário de Gestão` acessando de fora da rede controlada (o caso normal, não a exceção) — reavaliar TOTP nesse momento, não depois de um incidente. Também reabre se o painel do superadmin (D3a) ganhar allowlist antes da carteira: a assimetria entre os dois voltaria a existir.
+
+### D13 · Os dois workers BullMQ da carteira (G3 e G4) não têm processo registrado em `infra/producao/`
+
+`apps/api/src/carteira/jobs/worker-uso-diario.ts` (G4) e
+`apps/api/src/carteira/financeiro/worker-cobrancas.ts` (G3) são, por desenho —
+o cabeçalho dos dois arquivos é explícito — **processos irmãos**, nunca
+importados por `app.module.ts`: "é um processo irmão, como `infra/producao`
+já prevê para o Mavia (container próprio, mesma rede de dados, sem porta
+exposta ao Traefik)". O `docker-compose.yml` de `infra/producao/` hoje só
+declara `postgres`, `redis`, `api` e `web` — **nenhum dos dois workers tem
+serviço próprio**. O próprio plano de integração (`2026-11-05-plano-...md`,
+linha do épico G4) já registra isto como pendência: *"Falta: registrar o
+worker em `infra/` para produção"*.
+
+**Sintoma se esquecer:** nada no deploy falha — a API sobe, o site responde.
+A fila de `agendarGeracaoDeCobrancas`/`agendarUsoDiario` acumula jobs no
+Redis sem ninguém para consumi-los: nenhuma `Cobrança` é gerada no mês,
+nenhuma linha de `uso_diario_cliente` nasce, e não há erro, log nem alerta —
+é a mesma classe de falha silenciosa que a D9 descreve para a purga de
+auditoria, só que aqui o efeito aparece em dias, não em um ano.
+
+**Gatilho:** o primeiro deploy da carteira na VPS (G7). O conserto é um
+serviço por worker no `docker-compose.yml`, mesma imagem `fir/api`, comando
+próprio (`tsx src/carteira/.../worker-*.ts`), sem porta publicada, na rede
+`dados` — nenhuma fila nova a desenhar, só registrar as duas que já existem.
+
+### D14 · Toda rota da carteira redige valor monetário como `null`, para todo `Usuário de Gestão`, sempre — por falta de permissão `valores` própria
+
+`packages/domain/src/permissoes.ts` documenta a decisão, lá onde `mensalidade`,
+`desconto`, `valorMeta`, `valorInicial` e `somaValor` entram em
+`CAMPOS_MONETARIOS`: *"Hoje nenhum `Usuário de Gestão` tem a chave `valores`
+(não existe perfil de permissão granular para a carteira ainda — só
+`escopo`, ADR 0012)"*. O `RedacaoInterceptor` (regra 17) lê `req.contexto`
+para decidir o que mostrar; as rotas de carteira (`CarteiraGuard`) nunca
+populam `req.contexto` — elas populam `req.carteira`, um espaço de
+identidade disjunto (confirmado em `redacao-carteira.test.ts` e no
+comentário do próprio interceptor). O resultado, por falha fechada e não por
+bug: **`Cobrança.mensalidade`, `Cobrança.desconto`, `Cobrança.valor`,
+`ListaDeCobrancasCarteiraSaida.somaValor`, `Meta.valorMeta` e
+`Meta.valorInicial` saem `null` para qualquer `Usuário de Gestão`, em
+qualquer tela, hoje** — inclusive para quem deveria ver, porque não existe
+"quem deveria ver": a chave simplesmente não é concedida a ninguém ainda.
+
+G3 e G5 já estão registrados em `AppModule` (`CarteiraFinanceiroModule`) —
+isto não é um risco futuro, é o comportamento ao vivo da árvore atual.
+**Por que não é dívida D5 (redação por nome) duplicada:** D5 é sobre o
+mecanismo (nome de campo, não tipo); esta é sobre a carteira não ter sequer
+uma política de concessão de `valores` — o mecanismo de D5 funciona
+exatamente como desenhado, só que ninguém nunca recebe a chave.
+
+**Sintoma até o gatilho:** nenhum visível para a clínica (a carteira não é
+usada por ninguém de verdade ainda). Visível na hora em que alguém testar a
+tela de cobranças com dado real e achar a mensalidade sumida.
+
+**Gatilho:** a primeira vez que a carteira precisar mostrar um valor
+monetário de verdade a um `Usuário de Gestão` — ou seja, o primeiro uso real
+de G3 depois do deploy (G7). O conserto é desenhar a permissão granular da
+carteira (provavelmente `carteira.valores`, por `escopo`, não por `Grupo`
+individual) e fazer `CarteiraGuard` popular algo que o `RedacaoInterceptor`
+saiba ler — hoje ele só sabe ler `req.contexto`.
+
+### D15 · As listagens da carteira (leads, tarefas internas, rotinas internas, checkins) não paginam
+
+`ProspeccaoCarteiraService.listarLeads`/`listarTarefas`/`listarRotinas`/
+`listarCheckins` fazem `SELECT ... ORDER BY ... DESC` sem `LIMIT`/`OFFSET` e
+devolvem o array inteiro. O spec G5 justifica a ausência pelo volume de hoje
+("dezenas de leads por mês, não milhares") ao decidir não criar um catálogo
+de motivo de perda — a mesma régua de volume vale aqui, mas nenhum teto foi
+posto no código: a rota simplesmente cresce com a tabela, sem decisão
+explícita de onde cortar.
+
+**Sintoma se esquecer:** nenhum enquanto o volume for o de hoje (três
+pessoas na Firmare, dezenas de leads por mês). Cresce em silêncio: o
+primeiro sintoma é tempo de resposta, não erro.
+
+**Gatilho:** a carteira acumular alguns meses de uso real, ou um segundo
+`Grupo` com volume de prospecção maior entrar — o que vier primeiro. O
+conserto é `LIMIT`/`OFFSET` (ou cursor) nas quatro listagens, com o mesmo
+cuidado de D11/D12: nenhuma soma ou contagem agregada pode nascer de somar a
+página carregada no front.
+
+---
+
+### D16 · Os jobs de G3 e G4 varrem `clientes_carteira` inteira, sem filtro — e colidem quando os testes rodam em paralelo
+
+`executarGeracaoDeCobrancas` (G3, `gerar-cobrancas.ts`) e
+`executarUsoDiarioCliente` (G4, `uso-diario-cliente.ts`) fazem `SELECT ...
+FROM clientes_carteira WHERE status = 'ativo'` **globalmente**, sem filtro
+de grupo nem de arquivo de teste. O Vitest roda os arquivos de `apps/api`
+em paralelo por padrão: um `Cliente Firmare` criado `ativo` por
+`gerar-cobrancas.e2e.test.ts` é varrido pelo job de
+`uso-diario-cliente.e2e.test.ts` rodando ao mesmo tempo (e vice-versa),
+quebrando as asserções estritas de contagem (`toBe(0)`/`toBe(2)`) de quem
+não criou aquele cliente. Achado por `engenheiro-backend` em 2026-11-05,
+ao corrigir os achados de review de G3 — reproduzido isolando cada arquivo
+(passa sozinho) e rodando os dois juntos (falha).
+
+**Sintoma se esquecer:** `pnpm test` completo fica instável de forma
+intermitente, dependendo de como o Vitest distribui os workers — não é bug
+de produto, mas corrói a confiança na suíte ("roda de novo que passa").
+
+**Gatilho:** rodar `pnpm test` completo com `gerar-cobrancas.e2e.test.ts` e
+`uso-diario-cliente.e2e.test.ts` no mesmo lote de workers (acontece hoje,
+intermitente). O conserto é os dois jobs aceitarem um filtro de
+`cliente_carteira_id`/lote explícito nos testes (os jobs de produção
+continuam varrendo tudo; só o teste precisa de um jeito de se isolar), ou
+os dois arquivos de teste pararem de deixar cliente `ativo` sobrevivendo
+entre `it`s sem um `grupo_id`/prefixo exclusivo que o outro job possa
+filtrar.
+
 ---
 
 ## Antes do Plano 2

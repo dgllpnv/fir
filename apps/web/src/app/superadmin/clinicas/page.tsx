@@ -8,7 +8,7 @@ import { Carregando, Toast, Vazio } from '@/components/estados'
 import { SenhaProvisoria } from '@/components/senha-provisoria'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { usePainel } from '../contexto'
-import { ErroDoPainel, SeletorDeClinica } from '../pecas'
+import { ErroDoPainel, NavDoPainel, SeletorDeClinica } from '../pecas'
 
 /**
  * **As clínicas** — a lista, a busca e a criação.
@@ -39,6 +39,8 @@ export default function Clinicas() {
 
   return (
     <section>
+      <NavDoPainel atual="/superadmin/clinicas" />
+
       {/* Sem `eyebrow` aqui: a faixa logo acima já diz "Painel interno", e
           repetir o mesmo rótulo a dois centímetros de distância é como se
           ensina a não ler nenhum dos dois. */}

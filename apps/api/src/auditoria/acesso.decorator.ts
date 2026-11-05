@@ -61,6 +61,18 @@ export type EntidadeSensivel =
    * esconderia o próximo acesso a UMA no meio delas.
    */
   | 'conversas_1a1'
+  /**
+   * O PORTAL DO GRUPO (G6, ADR 0017 §5). Um `Usuário do portal` lendo a
+   * seção comercial de um `Cliente Firmare` (metas, campanhas, cobrança,
+   * materiais, documentos, reuniões — tudo numa resposta só) grava UMA linha
+   * por CLÍNICA incluída, nunca uma por tabela: a pergunta que a LGPD
+   * responde aqui é "quem do lado do cliente olhou o que é dela", e isso não
+   * muda com quantas tabelas a leitura juntou. `PortalLeituraService`
+   * registra isto diretamente (não via `@DadoSensivel`/`AcessoInterceptor`:
+   * uma única requisição do portal grava N linhas, uma por `Clinica`
+   * visível, e o mecanismo genérico foi desenhado para UM id por resposta).
+   */
+  | 'carteira_comercial'
 
 /**
  * De onde sai o `entidade_id` da linha de trilha.

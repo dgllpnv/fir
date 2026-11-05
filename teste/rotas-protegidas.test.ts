@@ -45,6 +45,8 @@ type RotaDescoberta = {
   readonly handler: string
   readonly publico: boolean
   readonly soOperador: boolean
+  readonly soCarteira: boolean
+  readonly soPortal: boolean
 }
 
 /** Mesma chave de `apps/api/src/autorizacao/publico.decorator.ts`. */
@@ -53,11 +55,25 @@ const PUBLICO = 'fir:publico'
 /** Mesma chave de `apps/api/src/painel/so-operador.decorator.ts`. */
 const SO_OPERADOR = 'fir:so-operador'
 
+/** Mesma chave de `apps/api/src/carteira/so-usuario-de-gestao.decorator.ts`. */
+const SO_USUARIO_DE_GESTAO = 'fir:so-usuario-de-gestao'
+
+/** Mesma chave de `apps/api/src/carteira/portal/so-usuario-do-portal.decorator.ts`. */
+const SO_USUARIO_DO_PORTAL = 'fir:so-usuario-do-portal'
+
 /**
  * O segmento que a allowlist do Traefik casa (`infra/producao`). Toda rota de
  * painel tem de estar debaixo dele, e nenhuma rota de produto pode estar.
  */
 const SEGMENTO_DO_PAINEL = 'superadmin'
+
+/**
+ * O segmento da carteira comercial (decisão Q5 do grilling). Sem allowlist de
+ * IP por trás dela, por decisão do dono (ADR 0012, emenda 2026-11-05) — o
+ * segmento ainda importa para a mesma higiene de nomenclatura que o painel já
+ * cobra: nenhuma rota de produto nem de painel pode estar sob ele, e vice-versa.
+ */
+const SEGMENTO_DA_CARTEIRA = 'carteira'
 
 /**
  * As duas rotas de painel que o `PainelGuard` libera, pelas razões escritas
@@ -66,6 +82,21 @@ const SEGMENTO_DO_PAINEL = 'superadmin'
 const LIBERADAS_NO_PAINEL: ReadonlySet<string> = new Set([
   'POST /v1/superadmin/entrar',
   'POST /v1/superadmin/sair',
+])
+
+/** A mesma forma, para a carteira. */
+const LIBERADAS_NA_CARTEIRA: ReadonlySet<string> = new Set([
+  'POST /v1/carteira/entrar',
+  'POST /v1/carteira/sair',
+])
+
+/** O segmento do Portal do Grupo (G6) — quarto espaço de identidade. */
+const SEGMENTO_DO_PORTAL = 'portal'
+
+/** A mesma forma, para o portal. */
+const LIBERADAS_NO_PORTAL: ReadonlySet<string> = new Set([
+  'POST /v1/portal/entrar',
+  'POST /v1/portal/sair',
 ])
 
 const juntar = (...partes: (string | undefined)[]): string => {
@@ -103,6 +134,8 @@ beforeAll(async () => {
       const prefixo = Reflect.getMetadata(PATH_METADATA, classe) as string | undefined
       const publicoNaClasse = Reflect.getMetadata(PUBLICO, classe) === true
       const painelNaClasse = Reflect.getMetadata(SO_OPERADOR, classe) === true
+      const carteiraNaClasse = Reflect.getMetadata(SO_USUARIO_DE_GESTAO, classe) === true
+      const portalNaClasse = Reflect.getMetadata(SO_USUARIO_DO_PORTAL, classe) === true
       const proto = Object.getPrototypeOf(instancia) as Record<string, unknown>
 
       for (const nome of scanner.getAllMethodNames(proto)) {
@@ -121,6 +154,8 @@ beforeAll(async () => {
           handler: nome,
           publico: publicoNaClasse || Reflect.getMetadata(PUBLICO, handler) === true,
           soOperador: painelNaClasse || Reflect.getMetadata(SO_OPERADOR, handler) === true,
+          soCarteira: carteiraNaClasse || Reflect.getMetadata(SO_USUARIO_DE_GESTAO, handler) === true,
+          soPortal: portalNaClasse || Reflect.getMetadata(SO_USUARIO_DO_PORTAL, handler) === true,
         })
       }
     }
@@ -237,9 +272,10 @@ describe('toda rota do Nest está autenticada, ou é pública de propósito', ()
 
   it('TODA rota não-pública e de CLÍNICA responde 401 sem cookie de sessão', async () => {
     const fastify = app.getHttpAdapter().getInstance()
-    // Rota de painel fica fora: ela responde 404 sem cookie de painel, e o
-    // `describe` abaixo é quem a cobra. 401 lá confirmaria que a rota existe.
-    const protegidas = rotas.filter((r) => !r.publico && !r.soOperador)
+    // Rota de painel e de carteira ficam fora: elas respondem 404 sem o
+    // cookie próprio, e os `describe`s delas são quem cobra isso. 401 lá
+    // confirmaria que a rota existe.
+    const protegidas = rotas.filter((r) => !r.publico && !r.soOperador && !r.soCarteira && !r.soPortal)
     expect(
       protegidas.length,
       'nenhuma rota protegida encontrada — ou tudo virou @Publico(), ou a varredura quebrou',
@@ -330,11 +366,11 @@ describe('nenhuma rota de negócio atravessa a senha provisória', () => {
 
   it('TODA rota não-pública e não-liberada responde 409 SENHA_PROVISORIA', async () => {
     const fastify = app.getHttpAdapter().getInstance()
-    // Rota de painel fica fora: ela não usa a sessão do produto, e um cookie
-    // de clínica com senha provisória não a alcança de jeito nenhum — o
-    // `PainelGuard` responde 404 antes.
+    // Rota de painel e de carteira ficam fora: nenhuma das duas usa a sessão
+    // do produto, e um cookie de clínica com senha provisória não as alcança
+    // de jeito nenhum — os guards delas respondem 404 antes.
     const alvos = rotas.filter(
-      (r) => !r.publico && !r.soOperador && !LIBERADAS.has(chave(r)),
+      (r) => !r.publico && !r.soOperador && !r.soCarteira && !r.soPortal && !LIBERADAS.has(chave(r)),
     )
     expect(
       alvos.length,
@@ -406,13 +442,49 @@ describe('nenhuma rota de negócio atravessa a senha provisória', () => {
  * ficaria **na frente da allowlist**, exposta à internet; uma rota de produto
  * dentro dele seria bloqueada para a clínica inteira. As duas reprovam aqui.
  */
-describe('toda rota é exatamente um de três: pública, de clínica, ou de painel', () => {
+describe('toda rota é exatamente um de cinco: pública, de clínica, de painel, de carteira, ou do portal', () => {
   it('nenhuma rota é pública E só-operador ao mesmo tempo', () => {
     const confusas = rotas.filter((r) => r.publico && r.soOperador).map(chave)
     expect(
       confusas,
       `rota(s) marcadas @Publico() E @SoOperador(): ${confusas.join(', ')}. ` +
         'Os dois estados se excluem — @Publico() dispensa sessão, @SoOperador() exige a do painel.',
+    ).toEqual([])
+  })
+
+  it('nenhuma rota é pública E só-carteira ao mesmo tempo', () => {
+    const confusas = rotas.filter((r) => r.publico && r.soCarteira).map(chave)
+    expect(
+      confusas,
+      `rota(s) marcadas @Publico() E @SoUsuarioDeGestao(): ${confusas.join(', ')}. ` +
+        'Os dois estados se excluem — @Publico() dispensa sessão, @SoUsuarioDeGestao() exige a da carteira.',
+    ).toEqual([])
+  })
+
+  it('nenhuma rota é só-operador E só-carteira ao mesmo tempo', () => {
+    const confusas = rotas.filter((r) => r.soOperador && r.soCarteira).map(chave)
+    expect(
+      confusas,
+      `rota(s) marcadas @SoOperador() E @SoUsuarioDeGestao(): ${confusas.join(', ')}. ` +
+        'Os dois são espaços de identidade disjuntos — Operador e Usuário de Gestão não se cruzam.',
+    ).toEqual([])
+  })
+
+  it('nenhuma rota é pública E só-portal ao mesmo tempo', () => {
+    const confusas = rotas.filter((r) => r.publico && r.soPortal).map(chave)
+    expect(
+      confusas,
+      `rota(s) marcadas @Publico() E @SoUsuarioDoPortal(): ${confusas.join(', ')}. ` +
+        'Os dois estados se excluem — @Publico() dispensa sessão, @SoUsuarioDoPortal() exige a do portal.',
+    ).toEqual([])
+  })
+
+  it('nenhuma rota é só-operador/só-carteira E só-portal ao mesmo tempo — quatro espaços disjuntos', () => {
+    const confusas = rotas.filter((r) => (r.soOperador || r.soCarteira) && r.soPortal).map(chave)
+    expect(
+      confusas,
+      `rota(s) marcadas @SoOperador()/@SoUsuarioDeGestao() E @SoUsuarioDoPortal(): ${confusas.join(', ')}. ` +
+        'Operador, Usuário de Gestão e Usuário do portal são três espaços de identidade disjuntos.',
     ).toEqual([])
   })
 
@@ -434,6 +506,45 @@ describe('toda rota é exatamente um de três: pública, de clínica, ou de pain
       `rota(s) de PRODUTO sob /${SEGMENTO_DO_PAINEL}: ${dentroSemMarca.join(', ')}. ` +
         'A allowlist bloquearia essa rota para a clínica inteira, e o sintoma seria ' +
         '"dá 403 para todo mundo menos para o escritório".',
+    ).toEqual([])
+  })
+
+  it('toda rota só-carteira está sob o segmento `carteira`, e só elas', () => {
+    const temSegmento = (caminho: string) =>
+      caminho.split('/').some((p) => p.toLowerCase() === SEGMENTO_DA_CARTEIRA)
+
+    const foraDoSegmento = rotas.filter((r) => r.soCarteira && !temSegmento(r.caminho)).map(chave)
+    expect(
+      foraDoSegmento,
+      `rota(s) de carteira FORA do segmento /${SEGMENTO_DA_CARTEIRA}: ${foraDoSegmento.join(', ')}.`,
+    ).toEqual([])
+
+    const dentroSemMarca = rotas.filter((r) => !r.soCarteira && temSegmento(r.caminho)).map(chave)
+    expect(
+      dentroSemMarca,
+      `rota(s) fora da carteira sob /${SEGMENTO_DA_CARTEIRA}: ${dentroSemMarca.join(', ')}.`,
+    ).toEqual([])
+  })
+
+  it('toda rota só-portal está sob o segmento `portal`, e só elas', () => {
+    const temSegmento = (caminho: string) =>
+      caminho.split('/').some((p) => p.toLowerCase() === SEGMENTO_DO_PORTAL)
+
+    const foraDoSegmento = rotas.filter((r) => r.soPortal && !temSegmento(r.caminho)).map(chave)
+    expect(
+      foraDoSegmento,
+      `rota(s) do portal FORA do segmento /${SEGMENTO_DO_PORTAL}: ${foraDoSegmento.join(', ')}.`,
+    ).toEqual([])
+
+    // As rotas de ADMINISTRAÇÃO de conta do portal (`/v1/carteira/acessos-
+    // do-portal`, `/v1/superadmin/acessos-do-portal`) são, de propósito,
+    // soCarteira/soOperador — nunca soPortal (nunca autoatendimento, spec
+    // §1.3) — e por isso o segmento literal é `acessos-do-portal`, não
+    // `portal`: evita que elas caiam nesta checagem por engano.
+    const dentroSemMarca = rotas.filter((r) => !r.soPortal && temSegmento(r.caminho)).map(chave)
+    expect(
+      dentroSemMarca,
+      `rota(s) fora do portal sob /${SEGMENTO_DO_PORTAL}: ${dentroSemMarca.join(', ')}.`,
     ).toEqual([])
   })
 
@@ -525,6 +636,184 @@ describe('toda rota é exatamente um de três: pública, de clínica, ou de pain
           `${rota.metodo} ${rota.caminho} respondeu ${r.statusCode} para uma sessão de CLÍNICA. ` +
             'O cookie do produto não pode abrir o painel: se abrir, qualquer admin de qualquer ' +
             'clínica alcança todas as outras.',
+        ).toBe(404)
+      }
+    })
+  })
+
+  it('TODA rota de carteira que exige sessão responde 404 sem cookie de carteira', async () => {
+    const fastify = app.getHttpAdapter().getInstance()
+    const alvos = rotas.filter((r) => r.soCarteira && !LIBERADAS_NA_CARTEIRA.has(chave(r)))
+    expect(
+      alvos.length,
+      'nenhuma rota de carteira a verificar — ou a marca sumiu, ou a varredura quebrou',
+    ).toBeGreaterThan(0)
+
+    for (const rota of alvos) {
+      const url = rota.caminho.replace(/:[^/]+/g, '00000000-0000-0000-0000-000000000000')
+      const metodo = rota.metodo === 'ALL' ? 'GET' : rota.metodo
+      const r = await fastify.inject({ method: metodo as 'GET', url, payload: {} })
+      expect(
+        r.statusCode,
+        `${rota.metodo} ${rota.caminho} (${rota.controlador}.${rota.handler}) respondeu ` +
+          `${r.statusCode} sem cookie de carteira, e não 404.`,
+      ).toBe(404)
+    }
+  })
+
+  describe('e o cookie de CLÍNICA não abre nenhuma rota de carteira', () => {
+    let migrate: pg.Client
+    let clinica: string
+    let cookieDeClinica: Record<string, string>
+    const codigo = `naocarteira-${Date.now()}`
+    const SENHA = 'quatro-pedras-no-caminho'
+
+    beforeAll(async () => {
+      migrate = new pg.Client({
+        connectionString:
+          process.env['DATABASE_URL_MIGRATE'] ??
+          'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir',
+      })
+      await migrate.connect()
+      await declararAtorSistema(migrate)
+      clinica = (
+        await migrate.query<{ id: string }>(
+          `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica sem carteira') RETURNING id`,
+          [codigo],
+        )
+      ).rows[0]!.id
+      await migrate.query(
+        `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin)
+         VALUES ($1, 'Admin da clínica', 'admin.clinica2', $2, true)`,
+        [clinica, await hashDeSenha(SENHA)],
+      )
+
+      const fastify = app.getHttpAdapter().getInstance()
+      const entrada = await fastify.inject({
+        method: 'POST',
+        url: '/v1/entrar',
+        payload: { clinica: codigo, usuario: 'admin.clinica2', senha: SENHA },
+      })
+      expect(entrada.statusCode, 'a fixture de clínica não conseguiu entrar').toBe(200)
+      const bruto = entrada.headers['set-cookie']
+      cookieDeClinica = Object.fromEntries(
+        (Array.isArray(bruto) ? bruto : [String(bruto)]).map((c) => {
+          const [nome, ...resto] = c.split(';')[0]!.split('=')
+          return [nome!, resto.join('=')]
+        }),
+      )
+    })
+
+    afterAll(async () => {
+      await apagarClinicaDeTeste(migrate, clinica)
+      await migrate.end()
+    })
+
+    it('TODA rota de carteira responde 404 para uma sessão de clínica', async () => {
+      const fastify = app.getHttpAdapter().getInstance()
+      const alvos = rotas.filter((r) => r.soCarteira && !LIBERADAS_NA_CARTEIRA.has(chave(r)))
+      for (const rota of alvos) {
+        const url = rota.caminho.replace(/:[^/]+/g, '00000000-0000-0000-0000-000000000000')
+        const metodo = rota.metodo === 'ALL' ? 'GET' : rota.metodo
+        const r = await fastify.inject({
+          method: metodo as 'GET',
+          url,
+          payload: {},
+          cookies: cookieDeClinica,
+        })
+        expect(
+          r.statusCode,
+          `${rota.metodo} ${rota.caminho} respondeu ${r.statusCode} para uma sessão de CLÍNICA. ` +
+            'O cookie do produto não pode abrir a carteira.',
+        ).toBe(404)
+      }
+    })
+  })
+
+  it('TODA rota do portal que exige sessão responde 404 sem cookie de portal', async () => {
+    const fastify = app.getHttpAdapter().getInstance()
+    const alvos = rotas.filter((r) => r.soPortal && !LIBERADAS_NO_PORTAL.has(chave(r)))
+    expect(
+      alvos.length,
+      'nenhuma rota do portal a verificar — ou a marca sumiu, ou a varredura quebrou',
+    ).toBeGreaterThan(0)
+
+    for (const rota of alvos) {
+      const url = rota.caminho.replace(/:[^/]+/g, '00000000-0000-0000-0000-000000000000')
+      const metodo = rota.metodo === 'ALL' ? 'GET' : rota.metodo
+      const r = await fastify.inject({ method: metodo as 'GET', url, payload: {} })
+      expect(
+        r.statusCode,
+        `${rota.metodo} ${rota.caminho} (${rota.controlador}.${rota.handler}) respondeu ` +
+          `${r.statusCode} sem cookie de portal, e não 404.`,
+      ).toBe(404)
+    }
+  })
+
+  describe('e o cookie de CLÍNICA não abre nenhuma rota do portal', () => {
+    let migrate: pg.Client
+    let clinica: string
+    let cookieDeClinica: Record<string, string>
+    const codigo = `naoportal-${Date.now()}`
+    const SENHA = 'quatro-pedras-no-caminho'
+
+    beforeAll(async () => {
+      migrate = new pg.Client({
+        connectionString:
+          process.env['DATABASE_URL_MIGRATE'] ??
+          'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir',
+      })
+      await migrate.connect()
+      await declararAtorSistema(migrate)
+      clinica = (
+        await migrate.query<{ id: string }>(
+          `INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica sem portal') RETURNING id`,
+          [codigo],
+        )
+      ).rows[0]!.id
+      await migrate.query(
+        `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin)
+         VALUES ($1, 'Admin da clínica', 'admin.clinica3', $2, true)`,
+        [clinica, await hashDeSenha(SENHA)],
+      )
+
+      const fastify = app.getHttpAdapter().getInstance()
+      const entrada = await fastify.inject({
+        method: 'POST',
+        url: '/v1/entrar',
+        payload: { clinica: codigo, usuario: 'admin.clinica3', senha: SENHA },
+      })
+      expect(entrada.statusCode, 'a fixture de clínica não conseguiu entrar').toBe(200)
+      const bruto = entrada.headers['set-cookie']
+      cookieDeClinica = Object.fromEntries(
+        (Array.isArray(bruto) ? bruto : [String(bruto)]).map((c) => {
+          const [nome, ...resto] = c.split(';')[0]!.split('=')
+          return [nome!, resto.join('=')]
+        }),
+      )
+    })
+
+    afterAll(async () => {
+      await apagarClinicaDeTeste(migrate, clinica)
+      await migrate.end()
+    })
+
+    it('TODA rota do portal responde 404 para uma sessão de clínica', async () => {
+      const fastify = app.getHttpAdapter().getInstance()
+      const alvos = rotas.filter((r) => r.soPortal && !LIBERADAS_NO_PORTAL.has(chave(r)))
+      for (const rota of alvos) {
+        const url = rota.caminho.replace(/:[^/]+/g, '00000000-0000-0000-0000-000000000000')
+        const metodo = rota.metodo === 'ALL' ? 'GET' : rota.metodo
+        const r = await fastify.inject({
+          method: metodo as 'GET',
+          url,
+          payload: {},
+          cookies: cookieDeClinica,
+        })
+        expect(
+          r.statusCode,
+          `${rota.metodo} ${rota.caminho} respondeu ${r.statusCode} para uma sessão de CLÍNICA. ` +
+            'O cookie do produto não pode abrir o portal.',
         ).toBe(404)
       }
     })

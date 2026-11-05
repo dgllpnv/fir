@@ -2,6 +2,7 @@ import { CAMPOS_MONETARIOS, type ChaveDePermissao } from '@fir/domain'
 import { type CallHandler, type ExecutionContext, Injectable, type NestInterceptor } from '@nestjs/common'
 import type { Observable } from 'rxjs'
 import { map } from 'rxjs/operators'
+import type { RequisicaoComPortal } from '../carteira/portal/contexto-do-portal'
 import type { RequisicaoComContexto } from './contexto'
 
 /**
@@ -74,7 +75,7 @@ export function redigir(dado: unknown, pode: (chave: ChaveDePermissao) => boolea
 @Injectable()
 export class RedacaoInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const req = ctx.switchToHttp().getRequest<RequisicaoComContexto>()
+    const req = ctx.switchToHttp().getRequest<RequisicaoComContexto & RequisicaoComPortal>()
     // Sem contexto, não há como decidir — e numa ferramenta que guarda o
     // caixa e o salário de uma clínica, a resposta certa para "não sei" é
     // esconder, não mostrar. Falha fechada: nenhuma rota pública hoje (ou no
@@ -82,7 +83,14 @@ export class RedacaoInterceptor implements NestInterceptor {
     // que de qualquer forma seriam `undefined` — e se um dia uma rota
     // pública precisar de um valor, o `null` aparece em minutos de depuração;
     // um vazamento silencioso por falta de guard, ninguém acha.
-    const pode = req.contexto?.pode ?? (() => false)
+    //
+    // `req.portal` é a ÚNICA segunda exceção (ADR 0017 §3, confirmada pela
+    // ADR 0018): o `Usuário do portal` sempre vê o próprio dinheiro — ele é o
+    // titular da cobrança, não um colega de quem esconder salário, e por
+    // isso não existe (nem precisa existir) uma permissão `valores` para
+    // este ator. `req.portal` só existe quando `PortalGuard` já provou a
+    // sessão, então isto nunca libera dado para quem não entrou.
+    const pode = req.contexto?.pode ?? (req.portal ? () => true : () => false)
     return next.handle().pipe(map((dado) => redigir(dado, pode)))
   }
 }

@@ -264,4 +264,45 @@ export const CAMPOS_MONETARIOS = [
   'faturamento',
   'ltvMedio',
   'ltvTotal',
+
+  // ---------------------------------------------------------------------
+  // G3 — a carteira comercial: `Cobrança do Cliente Firmare`, `Mensalidade` e
+  // `Meta comercial do cliente` (ADR 0015).
+  //
+  // Hoje nenhum `Usuário de Gestão` tem a chave `valores` (não existe perfil
+  // de permissão granular para a carteira ainda — só `escopo`, ADR 0012), e o
+  // `RedacaoInterceptor` falha FECHADO quando `req.contexto` não existe
+  // (`pode = () => false`): como as rotas de carteira nunca populam
+  // `req.contexto` (elas populam `req.carteira`, um espaço de identidade
+  // disjunto), TODO campo monetário listado aqui sai `null` para TODO
+  // `Usuário de Gestão`, sempre, até que a carteira ganhe sua própria chave
+  // `valores` — o que já satisfaz o critério 2.2.11 do spec G3 (regra 17) por
+  // construção, sem precisar de um segundo interceptor.
+  //
+  //  * `mensalidade` — o valor vigente que um `Cliente Firmare` paga por
+  //    competência (`clientes_carteira.mensalidade_centavos`).
+  //  * `desconto` — o `Benefício de indicação` efetivamente aplicado a UMA
+  //    `Cobrança` (o par de `aplicarDesconto`, nunca só a cobrança final).
+  //  * `valorMeta`, `valorInicial` — os dois campos de `Meta comercial do
+  //    cliente` quando o `Indicador` é `unidade = "R$"`. Nomes próprios,
+  //    porque `meta` (acima) já significa a meta de FATURAMENTO da própria
+  //    clínica (épico 4) — colidir apagaria um campo que não é este.
+  //
+  // `valor` (já na lista, épico 2) cobre o valor final cobrado
+  // (`Cobrança.valor`) e o valor de um `Lançamento de indicador`
+  // `unidade = "R$"` — nenhum dos dois precisa de nome próprio.
+  // ---------------------------------------------------------------------
+  'mensalidade',
+  'desconto',
+  'valorMeta',
+  'valorInicial',
+  /**
+   * `ListaDeCobrancasCarteiraSaida.somaValor` — a soma de `Cobrança` por
+   * cliente (critério 2.2.10/achado 1, ADR 0015). Nome próprio porque `valor`
+   * sozinho já está na lista e redige cada LINHA; sem um nome dedicado para a
+   * SOMA, esquecer de registrá-lo aqui vazaria o agregado para quem não tem
+   * `valores`, mesmo com cada linha individual corretamente apagada —
+   * encontrado pelo teste de redação deste próprio ticket, não por revisão.
+   */
+  'somaValor',
 ] as const

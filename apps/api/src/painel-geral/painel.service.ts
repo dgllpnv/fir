@@ -13,7 +13,6 @@ import type {
 import { PERIODOS_DO_PAINEL } from '@fir/contracts'
 import {
   Dinheiro,
-  TIPOS,
   TIPOS_DE_CONTATO,
   TIPOS_DE_RECEITA,
   TIPOS_PAGAVEIS,
@@ -34,6 +33,14 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { diaDaClinica } from '../estoque/dia-da-clinica'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
+import {
+  TIPOS_DE_SESSAO,
+  baseDeReceita,
+  caixaFechado,
+  contarConversaoDeOrcamentos,
+  contarTarefasCriadas,
+  consultarPrazos,
+} from './metricas-diarias'
 
 /**
  * **Gestão › Painel geral** (MANUAL cap. 10) — Período · Cumprimento de
@@ -67,55 +74,6 @@ type Contexto = {
   readonly clinicaId: ClinicaId
   readonly ator: Ator
   readonly fuso: string
-}
-
-/** O nome do tipo de sessão de programa, para o `<> ALL` do SQL. */
-const TIPOS_DE_SESSAO = TIPOS.filter((t) => t.sessao === true).map((t) => t.nome)
-
-/**
- * **O UNIVERSO DA RECEITA, escrito uma vez** — e é o `ehReceita` dela.
- *
- * Tarefa viva, CONCLUÍDA, de paciente, do grupo Pagamentos **ou** de
- * atendimento pagável que guardou dinheiro na própria tarefa. Os quatro blocos
- * que somam recebimento no painel usam este mesmo `WHERE`: o quinto bloco é o
- * que nasceria sem o `status = 'concluida'`, e aí a receita do período passaria
- * a contar o que ninguém atendeu.
- *
- * Recebe as POSIÇÕES dos parâmetros em vez de fixá-las: cada consulta declara
- * só o que usa, porque o Postgres recusa o statement inteiro quando um
- * parâmetro declarado não aparece ("could not determine data type of parameter
- * $6") — medido, e é o 500 que o reaproveitamento de uma lista grande produz.
- */
-const baseDeReceita = (clinica: string, receita: string, pagaveis: string): string => `
-      t.clinica_id = ${clinica}
-      AND t.excluida_em IS NULL
-      AND t.status = 'concluida'
-      AND t.paciente_id IS NOT NULL
-      AND (t.tipo = ANY(${receita}::text[]) OR (t.tipo = ANY(${pagaveis}::text[]) AND r.valor > 0))`
-
-/**
- * **O CORTE DA REGRA 6: só o dia cujo caixa já foi FECHADO.**
- *
- * O dia é o da CLÍNICA — com `AT TIME ZONE 'UTC'`, um recebimento das 21h de
- * Salvador cairia no dia seguinte e escaparia do corte justamente no dia
- * aberto, que é o único dia que o corte existe para proteger.
- *
- * Pressupõe `recebimentos` aliasada como `r`.
- */
-const caixaFechado = (clinica: string, fuso: string): string => `EXISTS (
-            SELECT 1 FROM caixas_do_dia cx
-             WHERE cx.clinica_id = ${clinica}
-               AND cx.dia = (r.recebido_em AT TIME ZONE ${fuso})::date)`
-
-type LinhaDePrazo = {
-  pessoa: string | null
-  nome: string | null
-  funcao: string | null
-  total: string
-  no_prazo: string
-  com_atraso: string
-  atrasadas: string
-  a_vencer: string
 }
 
 @Injectable()
@@ -195,54 +153,11 @@ export class PainelService {
     periodo: { de: string; ate: string },
     hoje: string,
   ): Promise<{ total: CumprimentoDePrazos; porPessoa: LinhaPorResponsavel[] }> {
-    const r = await c.query<LinhaDePrazo>(
-      `SELECT t.responsavel_id::text AS pessoa,
-              max(p.nome)   AS nome,
-              max(p.funcao) AS funcao,
-              count(*)::text AS total,
-              count(*) FILTER (
-                WHERE t.status = 'concluida'
-                  AND (t.concluida_em AT TIME ZONE $5)::date <= t.prazo
-              )::text AS no_prazo,
-              count(*) FILTER (
-                WHERE t.status = 'concluida'
-                  AND (t.concluida_em AT TIME ZONE $5)::date > t.prazo
-              )::text AS com_atraso,
-              count(*) FILTER (WHERE t.status = 'aberta' AND t.prazo <  $4::date)::text
-                AS atrasadas,
-              count(*) FILTER (WHERE t.status = 'aberta' AND t.prazo >= $4::date)::text
-                AS a_vencer
-         FROM tarefas t
-         LEFT JOIN pessoas p ON p.id = t.responsavel_id
-        WHERE t.clinica_id = $1
-          AND t.excluida_em IS NULL
-          AND t.status <> 'cancelada'
-          AND t.tipo <> ALL($6::text[])
-          AND t.prazo >= $2::date
-          AND t.prazo <= $3::date
-        GROUP BY GROUPING SETS ((t.responsavel_id), ())
-        ORDER BY count(*) DESC`,
-      [ctx.clinicaId, periodo.de, periodo.ate, hoje, ctx.fuso, TIPOS_DE_SESSAO],
-    )
-
-    // A linha do GROUPING SET vazio é o TOTAL, e ela vem com `pessoa = null`.
-    const totalBruto = r.rows.find((l) => l.pessoa === null)
-    const porPessoa = r.rows
-      .filter((l): l is LinhaDePrazo & { pessoa: string } => l.pessoa !== null)
-      .map((l) => ({
-        pessoaId: l.pessoa,
-        nome: l.nome ?? '',
-        funcao: l.funcao ?? '',
-        ...cumprimento(l),
-      }))
-
-    return {
-      total:
-        totalBruto === undefined
-          ? { total: 0, noPrazo: 0, comAtraso: 0, atrasadas: 0, aVencer: 0, taxaNoPrazo: null }
-          : cumprimento(totalBruto),
-      porPessoa,
-    }
+    // Extraída para `./metricas-diarias` (G4, plano §7): o job de telemetria
+    // da carteira (`carteira/jobs/uso-diario-cliente.ts`) precisa da MESMA
+    // consulta para um único dia, e uma segunda cópia é a que diverge no
+    // primeiro ajuste que só uma das duas recebesse.
+    return consultarPrazos(c, ctx.clinicaId, periodo, hoje, ctx.fuso)
   }
 
   private async criadasNoPeriodo(
@@ -250,15 +165,7 @@ export class PainelService {
     ctx: Contexto,
     periodo: { de: string; ate: string },
   ): Promise<number> {
-    const j = janela(periodo.de, periodo.ate, ctx.fuso)
-    const r = await c.query<{ n: string }>(
-      `SELECT count(*)::text AS n FROM tarefas t
-        WHERE t.clinica_id = $1 AND t.excluida_em IS NULL
-          AND t.tipo <> ALL($4::text[])
-          AND t.criada_em >= $2 AND t.criada_em < $3`,
-      [ctx.clinicaId, j.de, j.ate, TIPOS_DE_SESSAO],
-    )
-    return Number(r.rows[0]!.n)
+    return contarTarefasCriadas(c, ctx.clinicaId, periodo, ctx.fuso)
   }
 
   /**
@@ -505,31 +412,11 @@ export class PainelService {
       [ctx.clinicaId, j.de, j.ate, periodo.de, periodo.ate],
     )
 
-    /**
-     * A CONVERSÃO DE ORÇAMENTOS, por **`acao` declarada** (ADR 0004).
-     *
-     * `registrarOrcamento` e `fechar` são as duas ações da jornada, e é a
-     * mesma definição que `GET /v1/jornada` usa nos passos do funil — uma
-     * regra, dois lugares que a leem. O protótipo soma aqui dois conjuntos
-     * diferentes e conta de novo o que já contou; o `Math.min(100, …)` que ele
-     * precisa pôr em volta é o sintoma.
-     */
-    const eventos = await c.query<{ acao: string; n: string }>(
-      `SELECT ev->>'acao' AS acao, count(*)::text AS n
-         FROM tarefas t
-         CROSS JOIN LATERAL jsonb_array_elements(t.historico) ev
-        WHERE t.clinica_id = $1
-          AND t.excluida_em IS NULL
-          AND ev->>'acao' = ANY($4::text[])
-          AND (ev->>'em')::timestamptz >= $2
-          AND (ev->>'em')::timestamptz <  $3
-        GROUP BY 1`,
-      [ctx.clinicaId, j.de, j.ate, ['registrarOrcamento', 'fechar']],
-    )
-    const quantos = (acao: string): number =>
-      Number(eventos.rows.find((e) => e.acao === acao)?.n ?? '0')
-    const enviados = quantos('registrarOrcamento')
-    const fechados = quantos('fechar')
+    // A CONVERSÃO DE ORÇAMENTOS, por `acao` declarada (ADR 0004) — extraída
+    // para `./metricas-diarias` pela mesma razão de `consultarPrazos`: o job
+    // de telemetria da carteira (G4) precisa da mesma definição para um
+    // único dia.
+    const { enviados, fechados } = await contarConversaoDeOrcamentos(c, ctx.clinicaId, j)
 
     const somaDasFormas = formas.rows.reduce((s2, f) => s2 + BigInt(f.valor), 0n)
     const receitaTexto = receita.centavos.toString()
@@ -1033,28 +920,3 @@ const MESES = [
 ] as const
 
 const nomeDoMes = (mes: string): string => MESES[Number(mes.slice(5, 7)) - 1] ?? ''
-
-/**
- * As quatro situações mais a taxa.
- *
- * **O denominador da taxa é `ok + tarde + atrasada`, nunca o total.** O que
- * ainda não venceu não pode estar no prazo nem fora dele; incluí-lo faria a
- * taxa de quem planejou o mês inteiro despencar sem que nada tivesse
- * piorado. É o `base` dela, e é a mesma decisão de `tarefas_prazo`.
- */
-function cumprimento(l: LinhaDePrazo): CumprimentoDePrazos {
-  const noPrazo = Number(l.no_prazo)
-  const comAtraso = Number(l.com_atraso)
-  const atrasadas = Number(l.atrasadas)
-  const base = noPrazo + comAtraso + atrasadas
-  return {
-    total: Number(l.total),
-    noPrazo,
-    comAtraso,
-    atrasadas,
-    aVencer: Number(l.a_vencer),
-    // `null` sem denominador, nunca `0%`: `0%` acusa quem deixou tudo
-    // atrasar, e `—` diz que nada venceu ainda.
-    taxaNoPrazo: base === 0 ? null : percentualInteiro(BigInt(noPrazo), BigInt(base)),
-  }
-}
