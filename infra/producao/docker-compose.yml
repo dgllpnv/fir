@@ -87,6 +87,17 @@ services:
       # padrão local e falha em voz alta na primeira consulta, que é melhor
       # do que subir apontando para `fir_app` e funcionar.
       DATABASE_URL_PAINEL: ${DATABASE_URL_PAINEL:?rode ./provisionar-painel.sh}
+      # A conexão da CARTEIRA COMERCIAL — terceira conexão, autenticada como
+      # `fir_carteira` (ADR 0012). Escrita no `.env` por
+      # `provisionar-carteira.sh`. Sem ela, o fallback de
+      # `banco.service.ts` aponta para 127.0.0.1:4832 — o Postgres LOCAL de
+      # desenvolvimento — que dentro deste container não existe: falha em voz
+      # alta, que é melhor que uma conexão ambígua funcionar por acaso.
+      DATABASE_URL_CARTEIRA: ${DATABASE_URL_CARTEIRA:?rode ./provisionar-carteira.sh}
+      # A conexão do PORTAL DO GRUPO — quarta conexão, autenticada como
+      # `fir_portal` (ADR 0018). Escrita no `.env` por
+      # `provisionar-portal.sh`. Mesma razão da linha acima.
+      DATABASE_URL_PORTAL: ${DATABASE_URL_PORTAL:?rode ./provisionar-portal.sh}
       REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
       # Um salto confiável: o Traefik, e mais nada. Sem isto `req.ip` é o
       # endereço do proxy, todas as clínicas viram um IP só, e o limite por

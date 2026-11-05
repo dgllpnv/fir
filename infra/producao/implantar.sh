@@ -115,6 +115,12 @@ acrescentar_segredo SENHA_REDIS
 # concordam em vez de competir.
 acrescentar_segredo SENHA_PAINEL
 
+# As chaves da CARTEIRA COMERCIAL e do PORTAL DO GRUPO, pela mesma razão: as
+# migrations 0025 e 0034 exigem fir_carteira/fir_portal ANTES de migrar.
+# provisionar-carteira.sh e provisionar-portal.sh usam os mesmos nomes.
+acrescentar_segredo SENHA_CARTEIRA
+acrescentar_segredo SENHA_PORTAL
+
 # A chave que nasce com **valor fechado**, e não vazia — é a terceira
 # categoria, e a diferença é de segurança, não de estilo.
 #
@@ -138,6 +144,18 @@ set +a
 # depois de o `.env` ser lido.
 acrescentar_linha DATABASE_URL_PAINEL \
   "postgresql://fir_painel:${SENHA_PAINEL}@postgres:5432/fir"
+
+# Mesma armadilha, mesma saída: DATABASE_URL_CARTEIRA e DATABASE_URL_PORTAL
+# precisam existir no .env ANTES de qualquer comando do Compose, porque o
+# Compose interpola o arquivo INTEIRO antes de decidir o que subir — inclusive
+# `docker compose up -d postgres redis`. Os papéis fir_carteira/fir_portal só
+# são CRIADOS depois (provisionar-carteira.sh / provisionar-portal.sh), mas a
+# URL pode e deve ser escrita agora: ela só referencia a senha, não exige que
+# o papel já exista no Postgres.
+acrescentar_linha DATABASE_URL_CARTEIRA \
+  "postgresql://fir_carteira:${SENHA_CARTEIRA}@postgres:5432/fir"
+acrescentar_linha DATABASE_URL_PORTAL \
+  "postgresql://fir_portal:${SENHA_PORTAL}@postgres:5432/fir"
 
 set -a
 # shellcheck disable=SC1090
@@ -328,6 +346,12 @@ echo "  ok  fir_migrate e fir_app existem"
 # lugar de descobrir isso.
 echo "==> provisionando fir_painel"
 bash provisionar-painel.sh
+
+echo "==> provisionando fir_carteira"
+bash provisionar-carteira.sh
+
+echo "==> provisionando fir_portal"
+bash provisionar-portal.sh
 
 # ---------------------------------------------------------------------------
 # 5 · migrations
