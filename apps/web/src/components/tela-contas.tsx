@@ -364,6 +364,7 @@ function FormularioDeConta({
   const [salvando, setSalvando] = useState(false)
   const [confirmando, setConfirmando] = useState(false)
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
+  const equipeAtiva = (equipe.dados?.equipe ?? []).filter((p) => p.ativo)
 
   const descricaoDaCategoria =
     CATEGORIAS_DESP.find((c) => c.nome === r.categoria)?.desc ?? ''
@@ -374,6 +375,11 @@ function FormularioDeConta({
     const v = centavosDoTexto(r.valor)
     if (r.descricao.trim() === '') return setErro('Informe a descrição.')
     if (v === null || v <= 0n) return setErro('Informe o valor. Use o formato 1.200,00.')
+    // `euId` vem vazio numa sessão de suporte (D-13): sem esta trava o
+    // `responsavelId: Uuid` do contrato rejeita com "Invalid uuid".
+    if (!equipeAtiva.some((p) => p.id === r.responsavelId)) {
+      return setErro('Escolha quem paga.')
+    }
 
     setSalvando(true)
     try {
@@ -481,13 +487,14 @@ function FormularioDeConta({
             value={r.responsavelId}
             onChange={(e) => setR({ ...r, responsavelId: e.target.value })}
           >
-            {(equipe.dados?.equipe ?? [])
-              .filter((p) => p.ativo)
-              .map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nome}
-                </option>
-              ))}
+            {equipeAtiva.some((p) => p.id === r.responsavelId) ? null : (
+              <option value="">Selecione</option>
+            )}
+            {equipeAtiva.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
           </select>
         </label>
       </div>

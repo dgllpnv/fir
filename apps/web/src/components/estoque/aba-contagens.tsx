@@ -170,9 +170,18 @@ function GerarLista({
   const [erro, setErro] = useState<string | null>(null)
   const [criando, setCriando] = useState(false)
 
+  const equipeAtiva = equipe.dados?.equipe ?? []
+
   async function gerar(e: React.FormEvent): Promise<void> {
     e.preventDefault()
     setErro(null)
+    // `minhaPessoaId` vem vazio numa sessão de suporte (D-13): o operador não
+    // é uma pessoa da clínica, e sem esta trava o `responsavelId: Uuid` do
+    // contrato rejeita com "Invalid uuid" em vez de pedir a escolha.
+    if (!equipeAtiva.some((p) => p.id === responsavelId)) {
+      setErro('Escolha quem vai contar.')
+      return
+    }
     setCriando(true)
     try {
       const r = await chamar<ResultadoDaContagem>('v1/estoque/contagens', {
@@ -254,7 +263,10 @@ function GerarLista({
         <label className="campo">
           Responsável pela contagem
           <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>
-            {(equipe.dados?.equipe ?? []).map((p) => (
+            {equipeAtiva.some((p) => p.id === responsavelId) ? null : (
+              <option value="">Selecione</option>
+            )}
+            {equipeAtiva.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.nome}
               </option>

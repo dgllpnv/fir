@@ -189,6 +189,14 @@ function Formulario({
   async function criar() {
     setErro(null)
 
+    // `eu` vem vazio numa sessão de suporte (D-13): o operador não é uma
+    // pessoa da clínica, e o `<select>` fica sem opção correspondente. Travar
+    // aqui é o mesmo "falha fechado" que `exigePessoa` já aplica no servidor
+    // — sem isso o parse de `responsavelId: Uuid` rejeita com "Invalid uuid",
+    // um erro que não diz à recepcionista o que fazer.
+    if (!ativos.some((p) => p.id === responsavelId)) {
+      return setErro('Escolha quem vai executar.')
+    }
     if (modo === 'paciente' && paciente === null) return setErro('Escolha a paciente.')
     if (modo === 'paciente' && tipo === '') return setErro('Escolha o tipo de contato.')
     if (modo === 'interna' && descricao.trim() === '') return setErro('Descreva a tarefa.')
@@ -354,6 +362,9 @@ function Formulario({
         <label className="campo">
           Responsável por executar
           <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>
+            {ativos.some((p) => p.id === responsavelId) ? null : (
+              <option value="">Selecione</option>
+            )}
             {ativos.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.id === eu ? 'Eu mesma — ' : ''}

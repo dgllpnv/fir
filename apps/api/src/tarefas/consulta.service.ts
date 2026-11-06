@@ -55,9 +55,23 @@ class Parametros {
  * no controlador. A permissão não entra aqui porque uma consulta que decide
  * permissão é uma consulta que alguém vai chamar de outro lugar sem decidir.
  */
+/**
+ * `eu === ''` é a sessão de suporte (D-13, `leitorDe` em `leitura.ts`) — o
+ * operador não é uma pessoa, e "meu"/"solicitei" saem vazios por desenho.
+ *
+ * **Achado real em produção**: o comentário original assumia que
+ * `t.responsavel_id = ''` simplesmente não casaria nenhuma linha, como
+ * aconteceria numa coluna `text`. `responsavel_id` é `uuid`, e o Postgres
+ * recusa o literal mal-formado ANTES de comparar — `invalid input syntax for
+ * type uuid`, 500 em vez de lista vazia. `'1 = 0'` é uma cláusula sempre falsa
+ * que não precisa de cast nenhum, e entrega o "vazio é resposta legítima" que
+ * o design já pedia.
+ */
+const SEM_PESSOA = '1 = 0'
+
 function filtroDeEscopo(escopo: Escopo, eu: string, p: Parametros): string | null {
-  if (escopo === 'meu') return `t.responsavel_id = ${p.prox(eu)}`
-  if (escopo === 'solicitei') return `t.solicitante_id = ${p.prox(eu)}`
+  if (escopo === 'meu') return eu === '' ? SEM_PESSOA : `t.responsavel_id = ${p.prox(eu)}`
+  if (escopo === 'solicitei') return eu === '' ? SEM_PESSOA : `t.solicitante_id = ${p.prox(eu)}`
   return null
 }
 
@@ -72,10 +86,11 @@ function filtroDeEscopo(escopo: Escopo, eu: string, p: Parametros): string | nul
  */
 function filtroDePasso(escopo: Escopo, eu: string, p: Parametros): string | null {
   if (escopo === 'meu') {
+    if (eu === '') return SEM_PESSOA
     const quem = p.prox(eu)
     return `(t.responsavel_id = ${quem} OR t.solicitante_id = ${quem})`
   }
-  if (escopo === 'solicitei') return `t.solicitante_id = ${p.prox(eu)}`
+  if (escopo === 'solicitei') return eu === '' ? SEM_PESSOA : `t.solicitante_id = ${p.prox(eu)}`
   return null
 }
 
