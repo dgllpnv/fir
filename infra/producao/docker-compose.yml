@@ -187,6 +187,18 @@ services:
       traefik.http.routers.fir.rule: 'Host(`${DOMINIO:?defina DOMINIO}`) && !PathRegexp(`(?i)(^|/)superadmin(/|$$)`)'
       traefik.http.routers.fir.entrypoints: https
       traefik.http.routers.fir.tls: 'true'
+      # Explícito, e não herdado de um certificado padrão: um `*.easypanel.host`
+      # vem coberto pelo wildcard que o EasyPanel já mantém, mas um domínio
+      # PRÓPRIO (`DOMINIO=meudominio.com.br`) nunca pede certificado nenhum sem
+      # isto — o Traefik serve o certificado de fallback (autoassinado,
+      # `CN=Easypanel`) em silêncio, e a página parece no ar enquanto o
+      # navegador real recusa a conexão. Medido no primeiro deploy fora do
+      # subdomínio padrão (`firmaregestao.com.br`, G7 da Carteira): o DNS
+      # apontava certo, o Traefik respondia, e mesmo assim nenhum cadeado.
+      # `letsencrypt` é o nome do resolver que o próprio EasyPanel já declara
+      # (`/etc/easypanel/traefik/config/main.yaml`) para os domínios PRÓPRIOS
+      # que ELE gerencia — este stack só precisa pedir a mesma coisa.
+      traefik.http.routers.fir.tls.certresolver: letsencrypt
       # Explícito nos três roteadores, embora o Traefik resolva sozinho hoje:
       # a dedução por serviço único **só vale enquanto o serviço for único**.
       # No dia em que este container declarar um segundo
@@ -238,6 +250,8 @@ services:
       # em vez de redirecionado.
       traefik.http.routers.fir-painel.entrypoints: https
       traefik.http.routers.fir-painel.tls: 'true'
+      # Mesma razão do roteador `fir`, acima — cada roteador TLS pede o seu.
+      traefik.http.routers.fir-painel.tls.certresolver: letsencrypt
       traefik.http.routers.fir-painel.service: fir
       traefik.http.routers.fir-painel.middlewares: fir-ips-do-painel
 
