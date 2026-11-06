@@ -6,7 +6,18 @@ import {
   type ListaDeIndicadoresCarteiraSaida,
   type ListaDeLancamentosDeIndicadorSaida,
 } from '@fir/contracts'
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Query, Req } from '@nestjs/common'
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Inject,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common'
 import type { RequisicaoComCarteira } from '../contexto-da-carteira'
 import { SoUsuarioDeGestao } from '../so-usuario-de-gestao.decorator'
 import {
@@ -18,7 +29,7 @@ import {
 @SoUsuarioDeGestao()
 @Controller('v1/carteira/indicadores')
 export class IndicadoresCarteiraController {
-  constructor(private readonly indicadores: IndicadoresCarteiraService) {}
+  constructor(@Inject(IndicadoresCarteiraService) private readonly indicadores: IndicadoresCarteiraService) {}
 
   @Post()
   async criar(

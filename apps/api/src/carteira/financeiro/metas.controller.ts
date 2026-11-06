@@ -3,7 +3,17 @@ import {
   type ListaDeMetasComerciaisSaida,
   type MetaComercialCriadaSaida,
 } from '@fir/contracts'
-import { BadRequestException, Body, Controller, Get, NotFoundException, Post, Query, Req } from '@nestjs/common'
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Inject,
+  NotFoundException,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common'
 import type { RequisicaoComCarteira } from '../contexto-da-carteira'
 import { SoUsuarioDeGestao } from '../so-usuario-de-gestao.decorator'
 import { IndicadorCarteiraNaoEncontradoParaMeta, MetasComerciaisService } from './metas.service'
@@ -11,7 +21,7 @@ import { IndicadorCarteiraNaoEncontradoParaMeta, MetasComerciaisService } from '
 @SoUsuarioDeGestao()
 @Controller('v1/carteira/metas')
 export class MetasComerciaisController {
-  constructor(private readonly metas: MetasComerciaisService) {}
+  constructor(@Inject(MetasComerciaisService) private readonly metas: MetasComerciaisService) {}
 
   @Post()
   async criar(@Body() corpo: unknown, @Req() req: RequisicaoComCarteira): Promise<MetaComercialCriadaSaida> {

@@ -1,5 +1,5 @@
 import type { CriarMetaComercialEntrada, MetaComercialNaLista, UsuarioDeGestaoPublico } from '@fir/contracts'
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../../banco/banco.service'
 import { lancamentoNaLista } from './indicadores.service'
 
@@ -82,7 +82,7 @@ const SELECAO = `
  */
 @Injectable()
 export class MetasComerciaisService {
-  constructor(private readonly banco: BancoService) {}
+  constructor(@Inject(BancoService) private readonly banco: BancoService) {}
 
   async criar(usuario: UsuarioDeGestaoPublico, dto: CriarMetaComercialEntrada): Promise<MetaComercialNaLista> {
     return this.banco.nasTabelasDaCarteiraComEscopo(usuario.escopo, usuario.grupoId, async (c) => {

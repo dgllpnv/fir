@@ -1,5 +1,5 @@
 import type { BeneficioDeIndicacaoNaLista, CriarBeneficioDeIndicacaoEntrada, UsuarioDeGestaoPublico } from '@fir/contracts'
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../../banco/banco.service'
 import { gravarAuditoriaDaCarteira } from './auditoria-da-carteira'
 
@@ -42,7 +42,7 @@ const beneficioNaLista = (l: LinhaBeneficio): BeneficioDeIndicacaoNaLista => ({
  */
 @Injectable()
 export class BeneficiosDeIndicacaoService {
-  constructor(private readonly banco: BancoService) {}
+  constructor(@Inject(BancoService) private readonly banco: BancoService) {}
 
   async criar(
     usuario: UsuarioDeGestaoPublico,

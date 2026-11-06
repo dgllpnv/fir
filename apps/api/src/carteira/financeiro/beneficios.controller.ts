@@ -2,7 +2,7 @@ import {
   type BeneficioDeIndicacaoCriadoSaida,
   CriarBeneficioDeIndicacaoEntrada,
 } from '@fir/contracts'
-import { BadRequestException, Body, Controller, NotFoundException, Post, Req } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Inject, NotFoundException, Post, Req } from '@nestjs/common'
 import type { RequisicaoComCarteira } from '../contexto-da-carteira'
 import { SoUsuarioDeGestao } from '../so-usuario-de-gestao.decorator'
 import { BeneficiosDeIndicacaoService, ClienteCarteiraNaoEncontradoParaBeneficio } from './beneficios.service'
@@ -10,7 +10,7 @@ import { BeneficiosDeIndicacaoService, ClienteCarteiraNaoEncontradoParaBeneficio
 @SoUsuarioDeGestao()
 @Controller('v1/carteira/beneficios')
 export class BeneficiosDeIndicacaoController {
-  constructor(private readonly beneficios: BeneficiosDeIndicacaoService) {}
+  constructor(@Inject(BeneficiosDeIndicacaoService) private readonly beneficios: BeneficiosDeIndicacaoService) {}
 
   @Post()
   async criar(

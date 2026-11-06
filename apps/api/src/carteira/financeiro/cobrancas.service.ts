@@ -1,6 +1,6 @@
 import type { CobrancaCarteiraNaLista, ListaDeCobrancasCarteiraSaida, UsuarioDeGestaoPublico } from '@fir/contracts'
 import { Dinheiro } from '@fir/domain'
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../../banco/banco.service'
 import { gravarAuditoriaDaCarteira } from './auditoria-da-carteira'
 
@@ -40,7 +40,7 @@ const cobrancaNaLista = (l: LinhaCobranca): CobrancaCarteiraNaLista => ({
  */
 @Injectable()
 export class CobrancasCarteiraService {
-  constructor(private readonly banco: BancoService) {}
+  constructor(@Inject(BancoService) private readonly banco: BancoService) {}
 
   async listarPorCliente(
     usuario: UsuarioDeGestaoPublico,

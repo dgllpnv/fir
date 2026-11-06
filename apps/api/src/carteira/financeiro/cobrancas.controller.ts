@@ -1,5 +1,15 @@
 import type { DesfazerCobrancaPagaSaida, ListaDeCobrancasCarteiraSaida, MarcarCobrancaPagaSaida } from '@fir/contracts'
-import { BadRequestException, Controller, Get, NotFoundException, Param, Post, Query, Req } from '@nestjs/common'
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Inject,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common'
 import type { RequisicaoComCarteira } from '../contexto-da-carteira'
 import { SoUsuarioDeGestao } from '../so-usuario-de-gestao.decorator'
 import { CobrancaCarteiraNaoEncontrada, CobrancasCarteiraService } from './cobrancas.service'
@@ -7,7 +17,7 @@ import { CobrancaCarteiraNaoEncontrada, CobrancasCarteiraService } from './cobra
 @SoUsuarioDeGestao()
 @Controller('v1/carteira/cobrancas')
 export class CobrancasCarteiraController {
-  constructor(private readonly cobrancas: CobrancasCarteiraService) {}
+  constructor(@Inject(CobrancasCarteiraService) private readonly cobrancas: CobrancasCarteiraService) {}
 
   @Get()
   async listar(

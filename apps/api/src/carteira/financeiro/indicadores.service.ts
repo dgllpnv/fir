@@ -5,7 +5,7 @@ import type {
   LancarIndicadorEntrada,
   UsuarioDeGestaoPublico,
 } from '@fir/contracts'
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../../banco/banco.service'
 import { gravarAuditoriaDaCarteira } from './auditoria-da-carteira'
 
@@ -65,7 +65,7 @@ export const lancamentoNaLista = (l: LinhaLancamento): LancamentoDeIndicadorNaLi
  */
 @Injectable()
 export class IndicadoresCarteiraService {
-  constructor(private readonly banco: BancoService) {}
+  constructor(@Inject(BancoService) private readonly banco: BancoService) {}
 
   async criar(
     usuario: UsuarioDeGestaoPublico,
