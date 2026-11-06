@@ -5,8 +5,10 @@ import type {
   GrupoCriadoSaida,
   GrupoNaLista,
   ListaDeGruposSaida,
+  UsuarioDoPortalCriadoSaida,
 } from '@fir/contracts'
 import { useEffect, useRef, useState } from 'react'
+import { Modal } from '@/components/modal'
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { usePainel } from '../contexto'
@@ -36,6 +38,9 @@ export default function Grupos() {
   const [tentativa, setTentativa] = useState(0)
   /** O grupo cujo painel de "vincular clínica" está aberto. `null` = nenhum. */
   const [vinculando, setVinculando] = useState<GrupoNaLista | null>(null)
+  /** O grupo cujo painel de "dar acesso ao portal" está aberto. `null` = nenhum. */
+  const [dandoAcesso, setDandoAcesso] = useState<GrupoNaLista | null>(null)
+  const [acessoCriado, setAcessoCriado] = useState<UsuarioDoPortalCriadoSaida | null>(null)
   const dobra = useRef<HTMLDetailsElement>(null)
 
   useEffect(() => {
@@ -103,6 +108,9 @@ export default function Grupos() {
               <th>
                 <span className="sr-apenas">Vincular clínica</span>
               </th>
+              <th>
+                <span className="sr-apenas">Dar acesso ao portal</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -126,6 +134,16 @@ export default function Grupos() {
                     {vinculando?.id === g.id ? 'Cancelar' : 'Vincular clínica'}
                   </button>
                 </td>
+                <td className="coluna-acao">
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => setDandoAcesso(dandoAcesso?.id === g.id ? null : g)}
+                    aria-expanded={dandoAcesso?.id === g.id}
+                  >
+                    {dandoAcesso?.id === g.id ? 'Cancelar' : 'Dar acesso ao portal'}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -146,6 +164,22 @@ export default function Grupos() {
             )
           }}
         />
+      )}
+
+      {dandoAcesso === null ? null : (
+        <PainelDeAcessoAoPortal
+          grupo={dandoAcesso}
+          aoFechar={() => setDandoAcesso(null)}
+          aoCriar={(r) => {
+            setAcessoCriado(r)
+            setDandoAcesso(null)
+            setRecado(`${r.usuarioDoPortal.nome} foi criado(a) como usuário do portal.`)
+          }}
+        />
+      )}
+
+      {acessoCriado === null ? null : (
+        <SenhaDoUsuarioDoPortal resultado={acessoCriado} aoFechar={() => setAcessoCriado(null)} />
       )}
 
       <FormularioDeGrupo
@@ -325,5 +359,178 @@ function PainelDeVinculo({
         </div>
       </form>
     </div>
+  )
+}
+
+/**
+ * **DAR ACESSO AO PORTAL, escopo `grupo`** — spec §1.3, ADR 0018: só o
+ * `Operador` cria este escopo, porque é a primeira vez que um ator do lado do
+ * cliente lê mais de uma clínica numa sessão só (risco estruturalmente
+ * maior). Vive sob `/v1/superadmin`, mesma sessão do painel — nunca
+ * `/v1/carteira`, que é a rota do `Usuário de Gestão` (escopo `cliente`,
+ * `carteira/clientes/[id]/acesso-do-portal.tsx`).
+ *
+ * Sem `<select>` de grupo: o grupo já é a linha onde o botão foi apertado —
+ * perguntar de novo seria repetir o que a tela já sabe.
+ */
+function PainelDeAcessoAoPortal({
+  grupo,
+  aoFechar,
+  aoCriar,
+}: {
+  grupo: GrupoNaLista
+  aoFechar: () => void
+  aoCriar: (r: UsuarioDoPortalCriadoSaida) => void
+}) {
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [form, setForm] = useState({ usuario: '', nome: '' })
+
+  async function criar(e: React.FormEvent) {
+    e.preventDefault()
+    setErro('')
+    setEnviando(true)
+    try {
+      const r = await chamar<UsuarioDoPortalCriadoSaida>('v1/superadmin/acessos-do-portal/usuarios', {
+        method: 'POST',
+        body: JSON.stringify({
+          usuario: form.usuario,
+          nome: form.nome,
+          grupoId: grupo.id,
+        }),
+      })
+      aoCriar(r)
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div
+      className="superadmin-dossie"
+      role="group"
+      aria-label={`Dar acesso ao portal a ${grupo.nome}`}
+    >
+      <b>Dar acesso ao portal — grupo inteiro: {grupo.nome}</b>
+      <p className="nota">
+        Esta conta vê todas as clínicas de {grupo.nome}, não uma só. Para dar acesso a um único
+        cliente, use <b>Acesso ao portal</b> na ficha dele, na Carteira.
+      </p>
+      <form onSubmit={criar}>
+        <label className="campo">
+          Nome
+          <input
+            value={form.nome}
+            onChange={(e) => setForm({ ...form, nome: e.target.value })}
+            required
+          />
+        </label>
+
+        <label className="campo">
+          Usuário
+          <input
+            value={form.usuario}
+            onChange={(e) => setForm({ ...form, usuario: e.target.value })}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            required
+          />
+          <small>
+            Ditado por telefone: minúsculas, sem espaço. A senha é gerada aqui e aparece uma única
+            vez.
+          </small>
+        </label>
+
+        <p role="alert" aria-live="polite" className="erro-do-painel">
+          {erro}
+        </p>
+
+        <div className="botoes">
+          <button type="submit" disabled={enviando} className="btn">
+            {enviando ? 'Criando…' : `Dar acesso a ${grupo.nome}`}
+          </button>
+          <button type="button" className="btn ghost" onClick={aoFechar} disabled={enviando}>
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+/**
+ * A senha provisória do `Usuário do portal`, mostrada uma vez — mesmo padrão
+ * de `SenhaDoUsuarioDeGestao` (`usuarios-gestao/page.tsx`) e de
+ * `acesso-do-portal.tsx` (carteira). Duplicado de propósito: são telas em
+ * árvores diferentes (`superadmin` vs. `carteira`), sessões diferentes, e o
+ * componente é pequeno — a alternativa (um componente compartilhado em
+ * `components/`) acopla duas telas que nada mais liga.
+ */
+function SenhaDoUsuarioDoPortal({
+  resultado,
+  aoFechar,
+}: {
+  resultado: UsuarioDoPortalCriadoSaida
+  aoFechar: () => void
+}) {
+  const [copiado, setCopiado] = useState<'nao' | 'sim' | 'falhou'>('nao')
+  const { nome, usuario } = resultado.usuarioDoPortal
+  const paraCopiar = `Usuário: ${usuario}\nSenha provisória: ${resultado.senhaProvisoria}`
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(paraCopiar)
+      setCopiado('sim')
+    } catch {
+      setCopiado('falhou')
+    }
+  }
+
+  return (
+    <Modal titulo={`Senha provisória de ${nome}`} aoFechar={aoFechar}>
+      <p className="nota">
+        <b>Ela aparece só desta vez.</b> Nem você nem ninguém consegue ler esta senha depois de
+        fechar. Se perder, não há como redefini-la por aqui ainda — avise a Firmare.
+      </p>
+
+      <div className="campo">
+        Usuário
+        <input className="num superadmin-segredo" type="text" readOnly value={usuario} />
+      </div>
+
+      <div className="campo">
+        Senha provisória
+        <input
+          className="superadmin-segredo"
+          type="text"
+          readOnly
+          value={resultado.senhaProvisoria}
+        />
+      </div>
+
+      <p className="nota">
+        É provisória: {nome} é obrigado(a) a trocá-la no primeiro acesso ao portal.
+      </p>
+
+      <p className="nota superadmin-aviso-modal" role="status" aria-live="polite">
+        {copiado === 'falhou'
+          ? 'Não consegui copiar neste navegador. Toque no campo para selecionar e copie à mão.'
+          : copiado === 'sim'
+            ? 'Usuário e senha copiados.'
+            : ''}
+      </p>
+
+      <div className="botoes">
+        <button type="button" className="btn" onClick={() => void copiar()}>
+          {copiado === 'sim' ? 'Copiado' : 'Copiar usuário e senha'}
+        </button>
+        <button type="button" className="btn ghost" onClick={aoFechar}>
+          Já anotei, fechar
+        </button>
+      </div>
+    </Modal>
   )
 }

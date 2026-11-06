@@ -54,6 +54,17 @@ export const ClienteCarteiraNaLista = z.object({
   nome: z.string(),
   produto: z.string(),
   status: z.enum(['onboarding', 'ativo', 'pausado', 'encerrado']),
+  /**
+   * Os 4 LINKS DE ACESSO (migration 0036, nomes copiados literalmente de
+   * `fg-portal.js:116`) — `string | null`: a Firmare cadastra cada um
+   * quando existir, nenhum default. String crua, nunca processada aqui —
+   * quem valida FORMA de URL é `AtualizarLinksDeAcessoDoClienteEntrada`, na
+   * ENTRADA; esta saída só ecoa o que já está salvo.
+   */
+  linkPainel: z.string().nullable(),
+  linkDashInd: z.string().nullable(),
+  linkDashFin: z.string().nullable(),
+  linkRotina: z.string().nullable(),
 })
 export type ClienteCarteiraNaLista = z.infer<typeof ClienteCarteiraNaLista>
 
@@ -153,3 +164,29 @@ export const ListaDeUsuariosDeGestaoSaida = z.object({
   usuariosDeGestao: z.array(UsuarioDeGestaoNaLista),
 })
 export type ListaDeUsuariosDeGestaoSaida = z.infer<typeof ListaDeUsuariosDeGestaoSaida>
+
+/**
+ * Edição dos 4 LINKS DE ACESSO de um `Cliente Firmare`, pelo `Usuário de
+ * Gestão` do próprio grupo (ou geral) — rota sob `/v1/carteira`, não
+ * `/v1/superadmin`: ao contrário de criar `Cliente Firmare`/`Usuário de
+ * Gestão` (ADR 0011), manter os links atualizados é rotina comercial, não
+ * provisionamento.
+ *
+ * CONTRATO DE ENTRADA valida FORMA de URL (`z.string().url()`) — a migration
+ * 0036 deixa a coluna como `text` solto de propósito porque esta validação é
+ * daqui, nunca de um CHECK de banco. `nullable()`, nunca opcional: o
+ * `Usuário de Gestão` apaga um link mandando `null` explicitamente — um
+ * campo ausente do corpo é erro de chamada (`.strict()`), não "não mexer".
+ */
+export const AtualizarLinksDeAcessoDoClienteEntrada = z
+  .object({
+    linkPainel: z.string().url('Informe uma URL válida.').nullable(),
+    linkDashInd: z.string().url('Informe uma URL válida.').nullable(),
+    linkDashFin: z.string().url('Informe uma URL válida.').nullable(),
+    linkRotina: z.string().url('Informe uma URL válida.').nullable(),
+  })
+  .strict()
+export type AtualizarLinksDeAcessoDoClienteEntrada = z.infer<typeof AtualizarLinksDeAcessoDoClienteEntrada>
+
+export const LinksDeAcessoDoClienteAtualizadosSaida = z.object({ cliente: ClienteCarteiraNaLista })
+export type LinksDeAcessoDoClienteAtualizadosSaida = z.infer<typeof LinksDeAcessoDoClienteAtualizadosSaida>

@@ -4,6 +4,8 @@ import { provedorDeRelogio } from '../comum/relogio'
 import { CarteiraController } from './carteira.controller'
 import { CarteiraGuard } from './carteira.guard'
 import { CarteiraService } from './carteira.service'
+import { LinksDeAcessoClienteController } from './links-de-acesso-cliente.controller'
+import { LinksDeAcessoClienteService } from './links-de-acesso-cliente.service'
 import { ProspeccaoCarteiraModule } from './prospeccao/prospeccao-carteira.module'
 import {
   JANELA_CARTEIRA_POR_ORIGEM_MS,
@@ -22,9 +24,10 @@ import {
  */
 @Module({
   imports: [ProspeccaoCarteiraModule],
-  controllers: [CarteiraController],
+  controllers: [CarteiraController, LinksDeAcessoClienteController],
   providers: [
     CarteiraService,
+    LinksDeAcessoClienteService,
     CarteiraGuard,
     provedorDeRelogio,
     {

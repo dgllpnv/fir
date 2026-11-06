@@ -272,3 +272,6 @@
 }
 .portal-erro p { margin: 0; color: var(--ink); }
 .portal-erro-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Os links de acesso (migration 0036) — mesma forma de `.portal-erro-acoes`. */
+.portal-links-de-acesso { display: flex; gap: 8px; flex-wrap: wrap; }

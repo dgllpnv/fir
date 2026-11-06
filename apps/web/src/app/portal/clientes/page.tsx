@@ -142,6 +142,8 @@ function FichaDoCliente({ cliente: c }: { cliente: ClienteNoPortal }) {
         Mês <span className="num">{c.ciclo.mes}</span> do contrato
       </p>
 
+      <LinksDeAcesso cliente={c} />
+
       <section className="cartao portal-secao">
         <div className="titulo">
           <h2>Metas comerciais</h2>
@@ -232,6 +234,38 @@ function FichaDoCliente({ cliente: c }: { cliente: ClienteNoPortal }) {
         )}
       </section>
     </div>
+  )
+}
+
+/**
+ * OS 4 LINKS DE ACESSO (migration 0036, `fg-portal.js:116-117`) — string
+ * crua, aberta exatamente como cadastrada pela Firmare, em nova aba. Nenhum
+ * encurtamento nem proxy; `null` simplesmente não mostra o botão (a Firmare
+ * ainda não cadastrou aquele link para este cliente).
+ */
+function LinksDeAcesso({ cliente: c }: { cliente: ClienteNoPortal }) {
+  const links: Array<{ rotulo: string; url: string | null }> = [
+    { rotulo: 'Abrir painel da clínica', url: c.linkPainel },
+    { rotulo: 'Indicadores', url: c.linkDashInd },
+    { rotulo: 'Financeiro', url: c.linkDashFin },
+    { rotulo: 'Rotina', url: c.linkRotina },
+  ]
+  const disponiveis = links.filter((l): l is { rotulo: string; url: string } => l.url !== null)
+  if (disponiveis.length === 0) return null
+
+  return (
+    <section className="cartao portal-secao">
+      <div className="titulo">
+        <h2>Links de acesso</h2>
+      </div>
+      <div className="portal-links-de-acesso">
+        {disponiveis.map((l) => (
+          <a key={l.rotulo} className="btn" href={l.url} target="_blank" rel="noopener noreferrer">
+            {l.rotulo}
+          </a>
+        ))}
+      </div>
+    </section>
   )
 }
 

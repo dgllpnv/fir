@@ -122,6 +122,15 @@ export const ClienteNoPortal = z.object({
   materiais: z.array(MaterialNoPortal),
   documentos: z.array(DocumentoNoPortal),
   reunioes: z.array(ReuniaoNoPortal),
+  /**
+   * Os 4 LINKS DE ACESSO (migration 0036, `fg-portal.js:116-117`) — string
+   * crua, `null` quando não cadastrado. Nunca processada, encurtada ou
+   * proxyada: a tela do portal abre exatamente esta URL em nova aba.
+   */
+  linkPainel: z.string().nullable(),
+  linkDashInd: z.string().nullable(),
+  linkDashFin: z.string().nullable(),
+  linkRotina: z.string().nullable(),
 })
 export type ClienteNoPortal = z.infer<typeof ClienteNoPortal>
 

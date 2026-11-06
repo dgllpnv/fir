@@ -16,6 +16,15 @@ export class UsuarioDoPortalJaExiste extends Error {}
 
 const UNICIDADE_VIOLADA = '23505'
 
+/**
+ * O driver `pg` não tipa `code` no `Error` que lança — é uma propriedade
+ * que ele anexa em runtime, lida direto do SQLSTATE do Postgres. O `as` abaixo
+ * é seguro porque `code`, quando presente, é sempre essa string de 5
+ * caracteres; quando ausente (erro que não veio do banco), `code` é
+ * `undefined` e a comparação com `UNICIDADE_VIOLADA` simplesmente falha.
+ */
+const codigoPg = (e: unknown): string | undefined => (e as { code?: string }).code
+
 type LinhaUsuarioDoPortal = {
   id: string
   usuario: string
@@ -87,7 +96,7 @@ export class PortalAdminService {
         )
         linha = r.rows[0]!
       } catch (e) {
-        if ((e as { code?: string }).code === UNICIDADE_VIOLADA) throw new UsuarioDoPortalJaExiste()
+        if (codigoPg(e) === UNICIDADE_VIOLADA) throw new UsuarioDoPortalJaExiste()
         throw e
       }
 
@@ -121,7 +130,7 @@ export class PortalAdminService {
         )
         linha = r.rows[0]!
       } catch (e) {
-        if ((e as { code?: string }).code === UNICIDADE_VIOLADA) throw new UsuarioDoPortalJaExiste()
+        if (codigoPg(e) === UNICIDADE_VIOLADA) throw new UsuarioDoPortalJaExiste()
         throw e
       }
 

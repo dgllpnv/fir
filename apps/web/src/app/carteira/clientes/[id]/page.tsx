@@ -3,24 +3,34 @@
 import type {
   ClienteCarteiraNaLista,
   CobrancaCarteiraNaLista,
+  DesfazerCobrancaPagaSaida,
+  IndicadorCarteiraCriadoSaida,
   IndicadorCarteiraNaLista,
   LancamentoDeIndicadorNaLista,
+  LancamentoDeIndicadorSalvoSaida,
   ListaDeClientesDaCarteiraSaida,
   ListaDeCobrancasCarteiraSaida,
   ListaDeIndicadoresCarteiraSaida,
   ListaDeLancamentosDeIndicadorSaida,
   ListaDeMetasComerciaisSaida,
+  MarcarCobrancaPagaSaida,
+  MetaComercialCriadaSaida,
   MetaComercialNaLista,
+  SentidoDeIndicador,
   UnidadeDeIndicador,
 } from '@fir/contracts'
 import { formatarDinheiro, formatarPercentual } from '@fir/ui'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Toast } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
+import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto } from '@/lib/formato'
 import { useCarteira } from '../../contexto'
 import { ErroDaCarteira } from '../../pecas'
+import AcessoDoPortalDoCliente from './acesso-do-portal'
+import LinksDeAcessoDoCliente from './links-de-acesso'
 
 /**
  * A FICHA DE UM `Cliente Firmare` — o que o `Usuário de Gestão` acompanha:
@@ -55,6 +65,8 @@ export default function ClienteDaCarteira() {
   const { sessao } = useCarteira()
   const [estado, setEstado] = useState<Estado>({ tag: 'carregando' })
   const [tentativa, setTentativa] = useState(0)
+  const [recado, setRecado] = useState<string | null>(null)
+  const recarregar = () => setTentativa((n) => n + 1)
 
   useEffect(() => {
     if (sessao.tag !== 'pronta') return
@@ -134,7 +146,7 @@ export default function ClienteDaCarteira() {
   }
 
   if (estado.tag === 'erro') {
-    return <ErroDaCarteira mensagem={estado.mensagem} recarregar={() => setTentativa((n) => n + 1)} />
+    return <ErroDaCarteira mensagem={estado.mensagem} recarregar={recarregar} />
   }
 
   const { cliente, cobrancas, somaValor, indicadores, ultimoPorIndicador, metas } = estado
@@ -166,7 +178,14 @@ export default function ClienteDaCarteira() {
         ) : (
           <div className="carteira-lista-financeira">
             {cobrancas.map((c) => (
-              <LinhaDeCobranca key={c.id} cobranca={c} />
+              <LinhaDeCobranca
+                key={c.id}
+                cobranca={c}
+                aoAtualizar={(recadoCobranca) => {
+                  recarregar()
+                  setRecado(recadoCobranca)
+                }}
+              />
             ))}
           </div>
         )}
@@ -181,14 +200,27 @@ export default function ClienteDaCarteira() {
         ) : (
           <div className="carteira-lista-financeira">
             {indicadores.map((ind) => (
-              <LinhaDeIndicador
-                key={ind.id}
-                indicador={ind}
-                ultimo={ultimoPorIndicador[ind.id] ?? null}
-              />
+              <div key={ind.id} className="carteira-linha-bloco">
+                <LinhaDeIndicador indicador={ind} ultimo={ultimoPorIndicador[ind.id] ?? null} />
+                <FormularioDeLancamento
+                  indicador={ind}
+                  aoLancado={(recadoLancamento) => {
+                    recarregar()
+                    setRecado(recadoLancamento)
+                  }}
+                />
+              </div>
             ))}
           </div>
         )}
+
+        <FormularioDeIndicador
+          clienteCarteiraId={cliente.id}
+          aoCriado={(recadoIndicador) => {
+            recarregar()
+            setRecado(recadoIndicador)
+          }}
+        />
       </section>
 
       <section className="cartao carteira-secao">
@@ -204,7 +236,26 @@ export default function ClienteDaCarteira() {
             ))}
           </div>
         )}
+
+        {indicadores.length === 0 ? (
+          <p className="nota">Crie um indicador antes de definir uma meta comercial.</p>
+        ) : (
+          <FormularioDeMeta
+            clienteCarteiraId={cliente.id}
+            indicadores={indicadores}
+            aoCriada={(recadoMeta) => {
+              recarregar()
+              setRecado(recadoMeta)
+            }}
+          />
+        )}
       </section>
+
+      <LinksDeAcessoDoCliente cliente={cliente} />
+
+      <AcessoDoPortalDoCliente clienteCarteiraId={cliente.id} nomeDoCliente={cliente.nome} />
+
+      <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </div>
   )
 }
@@ -257,21 +308,84 @@ function valorNaUnidade(
   return v.valorInteiro ?? '—'
 }
 
-function LinhaDeCobranca({ cobranca: c }: { cobranca: CobrancaCarteiraNaLista }) {
+/**
+ * A linha de uma `Cobrança do Cliente Firmare`, com a ação do seu status:
+ * `aberto` oferece "Marcar pago", `pago` oferece "Desfazer" (critério G3
+ * §2.2.9 — o contrário de marcar, nunca um cancelamento). `cancelado` não
+ * tem ação nesta fatia. As duas chamam `POST .../marcar-pago` e
+ * `.../desfazer-pago` sem corpo — o servidor é quem decide o que "pago"
+ * significa, a tela só pede.
+ */
+function LinhaDeCobranca({
+  cobranca: c,
+  aoAtualizar,
+}: {
+  cobranca: CobrancaCarteiraNaLista
+  aoAtualizar: (recado: string) => void
+}) {
+  const [enviando, setEnviando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  async function marcarPago() {
+    setErro('')
+    setEnviando(true)
+    try {
+      await chamar<MarcarCobrancaPagaSaida>(`v1/carteira/cobrancas/${c.id}/marcar-pago`, { method: 'POST' })
+      aoAtualizar(`Cobrança de ${diaEmTexto(c.competencia)} marcada como paga.`)
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+      setEnviando(false)
+    }
+  }
+
+  async function desfazerPago() {
+    setErro('')
+    setEnviando(true)
+    try {
+      await chamar<DesfazerCobrancaPagaSaida>(`v1/carteira/cobrancas/${c.id}/desfazer-pago`, { method: 'POST' })
+      aoAtualizar(`Pagamento de ${diaEmTexto(c.competencia)} desfeito.`)
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+      setEnviando(false)
+    }
+  }
+
   return (
-    <div className="carteira-linha">
-      <div className="carteira-linha-info">
-        <b>{diaEmTexto(c.competencia)}</b>
-        <small className="muted">
-          vencimento <span className="num">{diaEmTexto(c.vencimento)}</span>
-          {c.desconto !== null && c.desconto !== '0' ? (
-            <> · desconto {formatarDinheiro(centavos(c.desconto))}</>
-          ) : null}
-          {c.pagoEm !== null ? <> · pago</> : null}
-        </small>
+    <div className="carteira-linha-bloco">
+      <div className="carteira-linha">
+        <div className="carteira-linha-info">
+          <b>{diaEmTexto(c.competencia)}</b>
+          <small className="muted">
+            vencimento <span className="num">{diaEmTexto(c.vencimento)}</span>
+            {c.desconto !== null && c.desconto !== '0' ? (
+              <> · desconto {formatarDinheiro(centavos(c.desconto))}</>
+            ) : null}
+            {c.pagoEm !== null ? <> · pago</> : null}
+          </small>
+        </div>
+        <span className="valor num">{formatarDinheiro(centavos(c.valor))}</span>
+        <span className={`pill ${PILL_DO_STATUS_DA_COBRANCA[c.status]}`}>{c.status}</span>
       </div>
-      <span className="valor num">{formatarDinheiro(centavos(c.valor))}</span>
-      <span className={`pill ${PILL_DO_STATUS_DA_COBRANCA[c.status]}`}>{c.status}</span>
+
+      {c.status === 'aberto' || c.status === 'pago' ? (
+        <div className="carteira-acoes">
+          {c.status === 'aberto' ? (
+            <button type="button" className="btn" disabled={enviando} onClick={() => void marcarPago()}>
+              {enviando ? 'Marcando…' : 'Marcar pago'}
+            </button>
+          ) : (
+            <button type="button" className="link" disabled={enviando} onClick={() => void desfazerPago()}>
+              {enviando ? 'Desfazendo…' : 'Desfazer'}
+            </button>
+          )}
+        </div>
+      ) : null}
+
+      {erro !== '' ? (
+        <p role="alert" aria-live="polite" className="erro">
+          {erro}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -363,4 +477,405 @@ function valorInicialNaUnidade(unidade: UnidadeDeIndicador, m: MetaComercialNaLi
     return formatarPercentual(m.valorInicialInteiro === null ? null : BigInt(m.valorInicialInteiro))
   }
   return m.valorInicialInteiro ?? '—'
+}
+
+/**
+ * Dígitos inteiros simples (a contagem de um `Indicador da carteira` de
+ * unidade `un`) — nunca decimal, regra 8. Mesma forma de `centavosDoTexto`:
+ * um texto que não bate em dígitos puros é `null`, recusado na tela.
+ */
+function inteiroDoTexto(texto: string): bigint | null {
+  const limpo = texto.trim()
+  if (!/^-?\d+$/.test(limpo)) return null
+  return BigInt(limpo)
+}
+
+/**
+ * O número que o SERVIDOR espera para um valor na unidade do indicador —
+ * `R$` e `%` compartilham a mesma forma de digitação (duas casas decimais,
+ * vírgula), porque `%` já guarda centésimos de ponto percentual
+ * (`formatarPercentual`); só `un` é um inteiro simples, sem casa decimal.
+ */
+function numeroNaUnidade(unidade: UnidadeDeIndicador, texto: string): bigint | null {
+  return unidade === 'un' ? inteiroDoTexto(texto) : centavosDoTexto(texto)
+}
+
+const RECADO_DA_UNIDADE: Record<UnidadeDeIndicador, string> = { 'R$': 'R$', 'un': 'contagem', '%': '%' }
+
+function rotuloDoValor(unidade: UnidadeDeIndicador, base: string): string {
+  return unidade === 'un' ? base : `${base} (${RECADO_DA_UNIDADE[unidade]})`
+}
+
+/**
+ * **CRIAR INDICADOR** — recolhido por padrão (`design.md` §1: campo raro
+ * fica recolhido). `sentido` é pedido aqui porque o contrato
+ * (`CriarIndicadorCarteiraEntrada`) o exige na criação — não há como mudar
+ * depois nesta fatia.
+ */
+function FormularioDeIndicador({
+  clienteCarteiraId,
+  aoCriado,
+}: {
+  clienteCarteiraId: string
+  aoCriado: (recado: string) => void
+}) {
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [form, setForm] = useState({
+    nome: '',
+    unidade: 'R$' as UnidadeDeIndicador,
+    sentido: 'maior_melhor' as SentidoDeIndicador,
+  })
+  const dobra = useRef<HTMLDetailsElement>(null)
+
+  async function criar(e: React.FormEvent) {
+    e.preventDefault()
+    setErro('')
+    setEnviando(true)
+    try {
+      const r = await chamar<IndicadorCarteiraCriadoSaida>('v1/carteira/indicadores', {
+        method: 'POST',
+        body: JSON.stringify({
+          clienteCarteiraId,
+          nome: form.nome,
+          unidade: form.unidade,
+          sentido: form.sentido,
+        }),
+      })
+      aoCriado(`Indicador "${r.indicador.nome}" criado.`)
+      setForm({ nome: '', unidade: 'R$', sentido: 'maior_melhor' })
+      if (dobra.current !== null) dobra.current.open = false
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <details className="carteira-dobra" ref={dobra}>
+      <summary>Criar indicador</summary>
+      <form className="carteira-form" onSubmit={criar}>
+        <label className="campo">
+          Nome
+          <input
+            value={form.nome}
+            onChange={(e) => setForm({ ...form, nome: e.target.value })}
+            placeholder="Faturamento mensal, leads gerados…"
+            required
+          />
+        </label>
+
+        <label className="campo">
+          Unidade
+          <select
+            value={form.unidade}
+            onChange={(e) => setForm({ ...form, unidade: e.target.value as UnidadeDeIndicador })}
+          >
+            <option value="R$">Reais (R$)</option>
+            <option value="un">Contagem (un)</option>
+            <option value="%">Percentual (%)</option>
+          </select>
+        </label>
+
+        <label className="campo">
+          Sentido
+          <select
+            value={form.sentido}
+            onChange={(e) => setForm({ ...form, sentido: e.target.value as SentidoDeIndicador })}
+          >
+            <option value="maior_melhor">Quanto maior, melhor</option>
+            <option value="menor_melhor">Quanto menor, melhor</option>
+          </select>
+        </label>
+
+        <p role="alert" aria-live="polite" className="erro">
+          {erro}
+        </p>
+
+        <button type="submit" disabled={enviando} className="btn">
+          {enviando ? 'Criando…' : 'Criar indicador'}
+        </button>
+      </form>
+    </details>
+  )
+}
+
+/**
+ * **LANÇAR MEDIÇÃO** de um `Indicador da carteira` já existente — dobra
+ * aninhada (`carteira-dobra-mini`) dentro de cada linha, mesma forma de
+ * "Mudar etapa" em `leads/page.tsx`. Relançar a mesma referência ATUALIZA o
+ * lançamento (upsert do servidor, critério 2.1.3) — a tela não avisa disso
+ * porque o recado de sucesso já é o mesmo nos dois casos.
+ */
+function FormularioDeLancamento({
+  indicador,
+  aoLancado,
+}: {
+  indicador: IndicadorCarteiraNaLista
+  aoLancado: (recado: string) => void
+}) {
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [referencia, setReferencia] = useState('')
+  const [valorTexto, setValorTexto] = useState('')
+  const [observacao, setObservacao] = useState('')
+  const dobra = useRef<HTMLDetailsElement>(null)
+
+  async function lancar(e: React.FormEvent) {
+    e.preventDefault()
+    setErro('')
+    const numero = numeroNaUnidade(indicador.unidade, valorTexto)
+    if (numero === null) {
+      setErro('Informe um valor válido.')
+      return
+    }
+    setEnviando(true)
+    try {
+      const corpo: Record<string, string | null> = {
+        referencia,
+        observacao: observacao.trim() === '' ? null : observacao,
+      }
+      if (indicador.unidade === 'R$') corpo.valor = numero.toString()
+      else corpo.valorInteiro = numero.toString()
+
+      await chamar<LancamentoDeIndicadorSalvoSaida>(`v1/carteira/indicadores/${indicador.id}/lancamentos`, {
+        method: 'POST',
+        body: JSON.stringify(corpo),
+      })
+      aoLancado(`Medição de "${indicador.nome}" lançada.`)
+      setValorTexto('')
+      setObservacao('')
+      if (dobra.current !== null) dobra.current.open = false
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <details className="carteira-dobra carteira-dobra-mini" ref={dobra}>
+      <summary>Lançar medição</summary>
+      <form className="carteira-form" onSubmit={lancar}>
+        <label className="campo">
+          Referência (competência)
+          <input type="date" value={referencia} onChange={(e) => setReferencia(e.target.value)} required />
+        </label>
+
+        <label className="campo">
+          {rotuloDoValor(indicador.unidade, 'Valor')}
+          <input
+            inputMode={indicador.unidade === 'un' ? 'numeric' : 'decimal'}
+            value={valorTexto}
+            onChange={(e) => setValorTexto(e.target.value)}
+            placeholder={indicador.unidade === 'un' ? '0' : '0,00'}
+            required
+          />
+        </label>
+
+        <details className="carteira-dobra carteira-dobra-mini">
+          <summary>+ Mais opções</summary>
+          <label className="campo">
+            Observação
+            <input value={observacao} onChange={(e) => setObservacao(e.target.value)} />
+          </label>
+        </details>
+
+        <p role="alert" aria-live="polite" className="erro">
+          {erro}
+        </p>
+
+        <button type="submit" disabled={enviando} className="btn">
+          {enviando ? 'Lançando…' : 'Lançar'}
+        </button>
+      </form>
+    </details>
+  )
+}
+
+/**
+ * **CRIAR META** — escolhe o `Indicador da carteira` já cadastrado; o rótulo
+ * e o `inputMode` do valor mudam com a unidade do indicador escolhido
+ * (`R$`/`%` aceitam decimal, `un` só inteiro). `valorInicial` é opcional no
+ * contrato (`CriarMetaComercialEntrada` não o exige) e por isso fica atrás
+ * de "+ Mais opções" — o caso comum é começar do zero.
+ */
+function FormularioDeMeta({
+  clienteCarteiraId,
+  indicadores,
+  aoCriada,
+}: {
+  clienteCarteiraId: string
+  indicadores: IndicadorCarteiraNaLista[]
+  aoCriada: (recado: string) => void
+}) {
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [form, setForm] = useState({
+    indicadorId: indicadores[0]?.id ?? '',
+    titulo: '',
+    sentido: 'maior_melhor' as SentidoDeIndicador,
+    valorMetaTexto: '',
+    valorInicialTexto: '',
+    inicio: '',
+    prazo: '',
+  })
+  const dobra = useRef<HTMLDetailsElement>(null)
+
+  const indicador = indicadores.find((i) => i.id === form.indicadorId) ?? indicadores[0] ?? null
+
+  async function criar(e: React.FormEvent) {
+    e.preventDefault()
+    setErro('')
+    if (indicador === null) {
+      setErro('Escolha um indicador.')
+      return
+    }
+    const numeroMeta = numeroNaUnidade(indicador.unidade, form.valorMetaTexto)
+    if (numeroMeta === null) {
+      setErro('Informe um valor de meta válido.')
+      return
+    }
+    let numeroInicial: bigint | null = null
+    if (form.valorInicialTexto.trim() !== '') {
+      numeroInicial = numeroNaUnidade(indicador.unidade, form.valorInicialTexto)
+      if (numeroInicial === null) {
+        setErro('O valor inicial informado não é válido.')
+        return
+      }
+    }
+    setEnviando(true)
+    try {
+      const corpo: Record<string, string> = {
+        clienteCarteiraId,
+        indicadorId: indicador.id,
+        titulo: form.titulo,
+        sentido: form.sentido,
+        inicio: form.inicio,
+        prazo: form.prazo,
+      }
+      if (indicador.unidade === 'R$') corpo.valorMeta = numeroMeta.toString()
+      else corpo.valorMetaInteiro = numeroMeta.toString()
+      if (numeroInicial !== null) {
+        if (indicador.unidade === 'R$') corpo.valorInicial = numeroInicial.toString()
+        else corpo.valorInicialInteiro = numeroInicial.toString()
+      }
+
+      const r = await chamar<MetaComercialCriadaSaida>('v1/carteira/metas', {
+        method: 'POST',
+        body: JSON.stringify(corpo),
+      })
+      aoCriada(`Meta "${r.meta.titulo}" criada.`)
+      setForm({
+        indicadorId: indicadores[0]?.id ?? '',
+        titulo: '',
+        sentido: 'maior_melhor',
+        valorMetaTexto: '',
+        valorInicialTexto: '',
+        inicio: '',
+        prazo: '',
+      })
+      if (dobra.current !== null) dobra.current.open = false
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <details className="carteira-dobra" ref={dobra}>
+      <summary>Criar meta</summary>
+      <form className="carteira-form" onSubmit={criar}>
+        <label className="campo">
+          Indicador
+          <select
+            value={form.indicadorId}
+            onChange={(e) => setForm({ ...form, indicadorId: e.target.value })}
+            required
+          >
+            {indicadores.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.nome}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="campo">
+          Título
+          <input
+            value={form.titulo}
+            onChange={(e) => setForm({ ...form, titulo: e.target.value })}
+            placeholder="Faturamento do trimestre…"
+            required
+          />
+        </label>
+
+        <label className="campo">
+          Sentido
+          <select
+            value={form.sentido}
+            onChange={(e) => setForm({ ...form, sentido: e.target.value as SentidoDeIndicador })}
+          >
+            <option value="maior_melhor">Quanto maior, melhor</option>
+            <option value="menor_melhor">Quanto menor, melhor</option>
+          </select>
+        </label>
+
+        <label className="campo">
+          {rotuloDoValor(indicador?.unidade ?? 'R$', 'Valor da meta')}
+          <input
+            inputMode={indicador?.unidade === 'un' ? 'numeric' : 'decimal'}
+            value={form.valorMetaTexto}
+            onChange={(e) => setForm({ ...form, valorMetaTexto: e.target.value })}
+            placeholder={indicador?.unidade === 'un' ? '0' : '0,00'}
+            required
+          />
+        </label>
+
+        <label className="campo">
+          Início
+          <input
+            type="date"
+            value={form.inicio}
+            onChange={(e) => setForm({ ...form, inicio: e.target.value })}
+            required
+          />
+        </label>
+
+        <label className="campo">
+          Prazo
+          <input
+            type="date"
+            value={form.prazo}
+            onChange={(e) => setForm({ ...form, prazo: e.target.value })}
+            required
+          />
+        </label>
+
+        <details className="carteira-dobra carteira-dobra-mini">
+          <summary>+ Mais opções</summary>
+          <label className="campo">
+            {rotuloDoValor(indicador?.unidade ?? 'R$', 'Valor inicial')}
+            <input
+              inputMode={indicador?.unidade === 'un' ? 'numeric' : 'decimal'}
+              value={form.valorInicialTexto}
+              onChange={(e) => setForm({ ...form, valorInicialTexto: e.target.value })}
+              placeholder={indicador?.unidade === 'un' ? '0' : '0,00'}
+            />
+          </label>
+        </details>
+
+        <p role="alert" aria-live="polite" className="erro">
+          {erro}
+        </p>
+
+        <button type="submit" disabled={enviando} className="btn">
+          {enviando ? 'Criando…' : 'Criar meta'}
+        </button>
+      </form>
+    </details>
+  )
 }

@@ -198,8 +198,13 @@ export class CarteiraService {
           nome: string
           produto: string
           status: 'onboarding' | 'ativo' | 'pausado' | 'encerrado'
+          link_painel: string | null
+          link_dash_ind: string | null
+          link_dash_fin: string | null
+          link_rotina: string | null
         }>(
-          `SELECT id, grupo_id, clinica_id, nome, produto, status
+          `SELECT id, grupo_id, clinica_id, nome, produto, status,
+                  link_painel, link_dash_ind, link_dash_fin, link_rotina
              FROM clientes_carteira
             WHERE excluido_em IS NULL
             ORDER BY nome`,
@@ -212,6 +217,10 @@ export class CarteiraService {
       nome: x.nome,
       produto: x.produto,
       status: x.status,
+      linkPainel: x.link_painel,
+      linkDashInd: x.link_dash_ind,
+      linkDashFin: x.link_dash_fin,
+      linkRotina: x.link_rotina,
     }))
   }
 }

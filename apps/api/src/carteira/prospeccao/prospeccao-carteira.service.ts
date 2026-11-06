@@ -28,6 +28,15 @@ import { RELOGIO, type Relogio } from '../../comum/relogio'
 
 const FK_VIOLADA = '23503'
 
+/**
+ * O driver `pg` não tipa `code` no `Error` que lança — é uma propriedade
+ * que ele anexa em runtime, lida direto do SQLSTATE do Postgres. O `as` abaixo
+ * é seguro porque `code`, quando presente, é sempre essa string de 5
+ * caracteres; quando ausente (erro que não veio do banco), `code` é
+ * `undefined` e a comparação com `FK_VIOLADA` simplesmente falha.
+ */
+const codigoPg = (e: unknown): string | undefined => (e as { code?: string }).code
+
 export class GrupoCruzado extends Error {}
 export class ResponsavelDeOutroGrupo extends Error {}
 export class LeadNaoEncontrado extends Error {}
@@ -116,7 +125,7 @@ export class ProspeccaoCarteiraService {
           ],
         )
       } catch (e) {
-        if ((e as { code?: string }).code === FK_VIOLADA) throw new ReferenciaInexistente()
+        if (codigoPg(e) === FK_VIOLADA) throw new ReferenciaInexistente()
         throw e
       }
       return leadParaContrato(r.rows[0]!)
@@ -163,7 +172,7 @@ export class ProspeccaoCarteiraService {
           )
           cliente = rc.rows[0]!
         } catch (e) {
-          if ((e as { code?: string }).code === FK_VIOLADA) throw new ReferenciaInexistente()
+          if (codigoPg(e) === FK_VIOLADA) throw new ReferenciaInexistente()
           throw e
         }
         const r = await c.query<LinhaLead>(
@@ -304,7 +313,7 @@ export class ProspeccaoCarteiraService {
           ],
         )
       } catch (e) {
-        if ((e as { code?: string }).code === FK_VIOLADA) throw new ReferenciaInexistente()
+        if (codigoPg(e) === FK_VIOLADA) throw new ReferenciaInexistente()
         throw e
       }
       return rotinaParaContrato(r.rows[0]!)
@@ -378,7 +387,7 @@ export class ProspeccaoCarteiraService {
           ],
         )
       } catch (e) {
-        if ((e as { code?: string }).code === FK_VIOLADA) throw new ReferenciaInexistente()
+        if (codigoPg(e) === FK_VIOLADA) throw new ReferenciaInexistente()
         throw e
       }
       return tarefaParaContrato(r.rows[0]!)

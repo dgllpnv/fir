@@ -186,6 +186,22 @@ a.carteira-card:hover {
   padding-bottom: 0;
 }
 
+/* O bloco de um indicador, quando a linha vem acompanhada de "Lançar
+   medição": a borda separadora passa para o BLOCO inteiro — a linha de
+   dentro não desenha a sua própria, senão duas bordas se empilham. */
+.carteira-linha-bloco {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.carteira-linha-bloco:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.carteira-linha-bloco > .carteira-linha {
+  padding: 0 0 6px;
+  border-bottom: 0;
+}
+
 .carteira-linha-info {
   display: grid;
   gap: 2px;
@@ -375,3 +391,28 @@ details.carteira-dobra.carteira-dobra-mini > summary {
 }
 
 .carteira-form { display: grid; gap: 12px; max-width: 460px; }
+
+/* ---------- o segredo da carteira, fora do modal da casa ---------- */
+
+/*
+ * `Usuário do portal` mostra a provisória num modal LOCAL a esta tela
+ * (`clientes/[id]/acesso-do-portal.tsx`), não no `SenhaProvisoria` do
+ * produto — aquele exige `expiraEm`, e `UsuarioDoPortalCriadoSaida` não
+ * devolve esse instante. Mesma FORMA do segredo de `modal.css`
+ * (`.modal .segredo`, `.modal .aviso-do-modal`) e do mesmo recurso em
+ * `superadmin.css` (`.superadmin-segredo`): prefixada porque é a carteira
+ * que a declara, e `identidade.test.ts` reprova classe só-da-carteira que
+ * colida com o nome de uma classe de outro espaço.
+ */
+.carteira-segredo {
+  width: 100%;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.campo > .carteira-segredo { margin-top: 2px; }
+.carteira-aviso-modal { margin: 0; min-height: 18px; font-size: 13px; }

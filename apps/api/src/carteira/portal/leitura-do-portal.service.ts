@@ -15,6 +15,10 @@ type LinhaCliente = {
   produto: string
   status: 'onboarding' | 'ativo' | 'pausado' | 'encerrado'
   criado_em: Date
+  link_painel: string | null
+  link_dash_ind: string | null
+  link_dash_fin: string | null
+  link_rotina: string | null
 }
 
 type LinhaCampanha = {
@@ -129,7 +133,8 @@ export class LeituraDoPortalService {
 
     const dados = await this.banco.nasTabelasDaCarteiraComoPortal(escopo, async (c) => {
       const clientes = await c.query<LinhaCliente>(
-        `SELECT id, clinica_id, nome, produto, status, criado_em
+        `SELECT id, clinica_id, nome, produto, status, criado_em,
+                link_painel, link_dash_ind, link_dash_fin, link_rotina
            FROM clientes_carteira
           WHERE excluido_em IS NULL
           ORDER BY nome`,
@@ -234,6 +239,10 @@ export class LeituraDoPortalService {
         produto: cl.produto,
         status: cl.status,
         ciclo: { mes: mesesJuntos(cl.criado_em, agora) },
+        linkPainel: cl.link_painel,
+        linkDashInd: cl.link_dash_ind,
+        linkDashFin: cl.link_dash_fin,
+        linkRotina: cl.link_rotina,
         metas: dados.metas.filter((m) => m.cliente_carteira_id === cl.id).map(metaNaLista),
         campanhas: agruparCampanhasComSupressao(campanhasDoCliente).map((c) =>
           c.tipo === 'individual'

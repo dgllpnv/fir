@@ -139,6 +139,12 @@ export class PainelCarteiraService {
         nome: linha.nome,
         produto: linha.produto,
         status: linha.status,
+        // Nenhum link de acesso no momento da criação (migration 0036) — o
+        // `Usuário de Gestão` os cadastra depois, na ficha do cliente.
+        linkPainel: null,
+        linkDashInd: null,
+        linkDashFin: null,
+        linkRotina: null,
       }
     })
   }
