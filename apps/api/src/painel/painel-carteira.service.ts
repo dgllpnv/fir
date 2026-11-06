@@ -3,6 +3,8 @@ import type {
   CriarClienteCarteiraEntrada,
   CriarGrupoEntrada,
   CriarUsuarioDeGestaoEntrada,
+  EditarGrupoEntrada,
+  EditarUsuarioDeGestaoEntrada,
   GrupoNaLista,
   UsuarioDeGestaoNaLista,
   UsuarioDeGestaoPublico,
@@ -20,6 +22,8 @@ const FK_VIOLADA = '23503'
 export class ClinicaJaTemClienteFirmare extends Error {}
 export class ClinicaOuGrupoNaoExiste extends Error {}
 export class UsuarioDeGestaoJaExiste extends Error {}
+export class GrupoNaoExiste extends Error {}
+export class UsuarioDeGestaoNaoExiste extends Error {}
 
 /**
  * As escritas da carteira que só o `Operador` faz (ADR 0011: nunca convite
@@ -75,6 +79,42 @@ export class PainelCarteiraService {
       ativo: u.ativo,
       aguardandoPrimeiroAcesso: u.senha_provisoria,
     }))
+  }
+
+  /**
+   * **EDITAR um grupo** — nome e estado, por completo (`EditarGrupoEntrada`
+   * não é parcial). Desativar aqui é o mesmo estado que a lista já mostra
+   * (`ativo`), nunca uma exclusão — regra 20.
+   */
+  async editarGrupo(
+    ator: OperadorId,
+    id: string,
+    dados: EditarGrupoEntrada,
+  ): Promise<GrupoNaLista> {
+    return this.banco.nasTabelasDaCarteira(ator, async (c) => {
+      const antes = await c.query<{ nome: string; ativo: boolean }>(
+        'SELECT nome, ativo FROM grupos WHERE id = $1',
+        [id],
+      )
+      const de = antes.rows[0]
+      if (de === undefined) throw new GrupoNaoExiste()
+
+      const r = await c.query<{ id: string; nome: string; ativo: boolean }>(
+        'UPDATE grupos SET nome = $2, ativo = $3 WHERE id = $1 RETURNING id, nome, ativo',
+        [id, dados.nome, dados.ativo],
+      )
+      const grupo = r.rows[0]!
+      await registrarNoPainel(c, {
+        atorTipo: 'operador',
+        atorId: ator.id,
+        acao: 'alterou',
+        entidade: 'grupos',
+        entidadeId: grupo.id,
+        de: { nome: de.nome, ativo: de.ativo },
+        para: { nome: grupo.nome, ativo: grupo.ativo },
+      })
+      return grupo
+    })
   }
 
   async criarGrupo(ator: OperadorId, dados: CriarGrupoEntrada): Promise<GrupoNaLista> {
@@ -153,6 +193,62 @@ export class PainelCarteiraService {
    * Cria o `Usuário de Gestão`, com provisória — mesma forma de
    * `PainelClinicasService.criar` para a administradora.
    */
+  /**
+   * **EDITAR um `Usuário de Gestão`** — nome, escopo, grupo e estado, por
+   * completo. `usuario` (login) não muda por aqui — ver o comentário do
+   * contrato (`EditarUsuarioDeGestaoEntrada`, `packages/contracts/carteira.ts`).
+   */
+  async editarUsuarioDeGestao(
+    ator: OperadorId,
+    id: string,
+    dados: EditarUsuarioDeGestaoEntrada,
+  ): Promise<UsuarioDeGestaoNaLista> {
+    return this.banco.nasTabelasDaCarteira(ator, async (c) => {
+      const antes = await c.query<{
+        nome: string
+        escopo: 'geral' | 'grupo'
+        grupo_id: string | null
+        ativo: boolean
+      }>('SELECT nome, escopo, grupo_id, ativo FROM usuarios_gestao WHERE id = $1', [id])
+      const de = antes.rows[0]
+      if (de === undefined) throw new UsuarioDeGestaoNaoExiste()
+
+      const r = await c.query<{
+        id: string
+        usuario: string
+        nome: string
+        escopo: 'geral' | 'grupo'
+        grupo_id: string | null
+        ativo: boolean
+        senha_provisoria: boolean
+      }>(
+        `UPDATE usuarios_gestao SET nome = $2, escopo = $3, grupo_id = $4, ativo = $5
+          WHERE id = $1
+        RETURNING id, usuario, nome, escopo, grupo_id, ativo, senha_provisoria`,
+        [id, dados.nome, dados.escopo, dados.grupoId, dados.ativo],
+      )
+      const linha = r.rows[0]!
+      await registrarNoPainel(c, {
+        atorTipo: 'operador',
+        atorId: ator.id,
+        acao: 'alterou',
+        entidade: 'usuarios_gestao',
+        entidadeId: linha.id,
+        de,
+        para: { nome: linha.nome, escopo: linha.escopo, grupoId: linha.grupo_id, ativo: linha.ativo },
+      })
+      return {
+        id: linha.id,
+        usuario: linha.usuario,
+        nome: linha.nome,
+        escopo: linha.escopo,
+        grupoId: linha.grupo_id,
+        ativo: linha.ativo,
+        aguardandoPrimeiroAcesso: linha.senha_provisoria,
+      }
+    })
+  }
+
   async criarUsuarioDeGestao(
     ator: OperadorId,
     dados: CriarUsuarioDeGestaoEntrada,

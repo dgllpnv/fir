@@ -2,6 +2,7 @@ import type {
   ClinicaCriada,
   ClinicaNaLista,
   CriarClinicaEntrada,
+  EditarClinicaEntrada,
   PessoaCriadaNoPainel,
 } from '@fir/contracts'
 import { perfisPadrao } from '@fir/domain'
@@ -88,6 +89,56 @@ export class PainelClinicasService {
       fuso: x.fuso,
       ativa: x.ativa,
     }))
+  }
+
+  /**
+   * **EDITAR a clínica** — nome, fuso e estado, por completo
+   * (`EditarClinicaEntrada`). `codigo` não muda por aqui — ver o comentário
+   * do contrato.
+   *
+   * `clinicas` não tem RLS (raiz do tenancy, regra 19 não se aplica a ela
+   * mesma), então a escrita roda como em `criar`: por privilégio de
+   * `fir_painel`, sem `app.clinica_id` fixado. A trilha vai para a do
+   * painel, pela mesma razão de "clínica criada" — a linha não pertence a
+   * nenhuma clínica, é sobre a existência de uma.
+   */
+  async editar(
+    ator: OperadorId,
+    id: string,
+    dados: EditarClinicaEntrada,
+  ): Promise<ClinicaNaLista> {
+    return this.banco.nasTabelasDoPainel(ator, async (c) => {
+      const antes = await c.query<{ nome: string; fuso: string; ativa: boolean }>(
+        'SELECT nome, fuso, ativa FROM clinicas WHERE id = $1',
+        [id],
+      )
+      const de = antes.rows[0]
+      if (de === undefined) throw new ClinicaNaoExiste()
+
+      const r = await c.query<{
+        id: string
+        codigo: string
+        nome: string
+        fuso: string
+        ativa: boolean
+      }>(
+        `UPDATE clinicas SET nome = $2, fuso = $3, ativa = $4
+          WHERE id = $1
+        RETURNING id, codigo, nome, fuso, ativa`,
+        [id, dados.nome, dados.fuso, dados.ativa],
+      )
+      const clinica = r.rows[0]!
+      await registrarNoPainel(c, {
+        atorTipo: 'operador',
+        atorId: ator.id,
+        acao: 'alterou',
+        entidade: 'clinicas',
+        entidadeId: clinica.id,
+        de,
+        para: { nome: clinica.nome, fuso: clinica.fuso, ativa: clinica.ativa },
+      })
+      return clinica
+    })
   }
 
   /**

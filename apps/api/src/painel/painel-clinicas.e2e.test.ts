@@ -319,6 +319,76 @@ describe('GET /v1/superadmin/clinicas', () => {
   })
 })
 
+describe('PATCH /v1/superadmin/clinicas/:id', () => {
+  it('edita nome, fuso e estado, e a trilha registra de → para', async () => {
+    const criada = await criarClinicaOk({ nome: 'Antes Da Edição' })
+
+    const r = await http()
+      .patch(`/v1/superadmin/clinicas/${criada.id}`)
+      .set('Cookie', painel)
+      .send({ nome: 'Depois Da Edição', fuso: 'America/Sao_Paulo', ativa: true })
+      .expect(200)
+    expect(r.body).toMatchObject({
+      id: criada.id,
+      codigo: criada.codigo,
+      nome: 'Depois Da Edição',
+      fuso: 'America/Sao_Paulo',
+      ativa: true,
+    })
+
+    const l = await http().get('/v1/superadmin/clinicas').set('Cookie', painel).expect(200)
+    const linha = l.body.itens.find((c: { id: string }) => c.id === criada.id)
+    expect(linha).toMatchObject({ nome: 'Depois Da Edição', fuso: 'America/Sao_Paulo' })
+
+    const t = await migrate.query(
+      `SELECT acao, de, para FROM auditoria_do_painel WHERE entidade = 'clinicas' AND entidade_id = $1 ORDER BY id DESC LIMIT 1`,
+      [criada.id],
+    )
+    expect(t.rows[0]).toMatchObject({ acao: 'alterou' })
+    expect(t.rows[0].de).toMatchObject({ nome: 'Antes Da Edição' })
+    expect(t.rows[0].para).toMatchObject({ nome: 'Depois Da Edição' })
+  })
+
+  it('`codigo` no corpo é 400 — a chave de login não se edita por aqui', async () => {
+    const criada = await criarClinicaOk()
+    await http()
+      .patch(`/v1/superadmin/clinicas/${criada.id}`)
+      .set('Cookie', painel)
+      .send({ codigo: 'tentando-mudar', nome: 'Nome Válido', fuso: 'America/Bahia', ativa: true })
+      .expect(400)
+  })
+
+  it('fuso inválido é 400, igual à criação', async () => {
+    const criada = await criarClinicaOk()
+    await http()
+      .patch(`/v1/superadmin/clinicas/${criada.id}`)
+      .set('Cookie', painel)
+      .send({ nome: 'Nome Válido', fuso: 'Nao/Existe', ativa: true })
+      .expect(400)
+  })
+
+  it('clínica inexistente é 404; malformada também', async () => {
+    await http()
+      .patch('/v1/superadmin/clinicas/00000000-0000-4000-8000-000000000000')
+      .set('Cookie', painel)
+      .send({ nome: 'Nome Válido', fuso: 'America/Bahia', ativa: true })
+      .expect(404)
+    await http()
+      .patch('/v1/superadmin/clinicas/nao-e-uuid')
+      .set('Cookie', painel)
+      .send({ nome: 'Nome Válido', fuso: 'America/Bahia', ativa: true })
+      .expect(404)
+  })
+
+  it('sem sessão de painel, 404', async () => {
+    const criada = await criarClinicaOk()
+    await http()
+      .patch(`/v1/superadmin/clinicas/${criada.id}`)
+      .send({ nome: 'Nome Válido', fuso: 'America/Bahia', ativa: true })
+      .expect(404)
+  })
+})
+
 describe('o superadmin alcança as pessoas de QUALQUER clínica', () => {
   it('cria qualquer perfil, e também a administradora', async () => {
     const nova = await criarClinicaOk()

@@ -92,6 +92,20 @@ export type CriarGrupoEntrada = z.infer<typeof CriarGrupoEntrada>
 export const GrupoCriadoSaida = z.object({ grupo: GrupoNaLista })
 export type GrupoCriadoSaida = z.infer<typeof GrupoCriadoSaida>
 
+/**
+ * **EDITAR um grupo** — os dois campos da lista, por completo (não um
+ * `PATCH` parcial como `EditarPessoa`): a tela pré-preenche o formulário com
+ * os valores atuais e manda os dois de volta, então não há "o que faltou
+ * mandar" para `.refine` recusar.
+ */
+export const EditarGrupoEntrada = z
+  .object({
+    nome: z.string().trim().min(1, 'Informe o nome do grupo.').max(120),
+    ativo: z.boolean(),
+  })
+  .strict()
+export type EditarGrupoEntrada = z.infer<typeof EditarGrupoEntrada>
+
 /** Vincula uma `Clinica` já existente a um `Grupo`, criando o `Cliente Firmare`. */
 export const CriarClienteCarteiraEntrada = z
   .object({
@@ -127,6 +141,26 @@ export const CriarUsuarioDeGestaoEntrada = z
     path: ['grupoId'],
   })
 export type CriarUsuarioDeGestaoEntrada = z.infer<typeof CriarUsuarioDeGestaoEntrada>
+
+/**
+ * **EDITAR um `Usuário de Gestão`** — mesma forma de `CriarUsuarioDeGestaoEntrada`,
+ * por completo, SEM `usuario`: ele é a chave de login e de
+ * `tentativas_login.identificador`, e não é esquecimento — mesma decisão de
+ * `EditarPessoaNoPainelEntrada` (`pessoas.ts`), pela mesma razão.
+ */
+export const EditarUsuarioDeGestaoEntrada = z
+  .object({
+    nome: z.string().trim().min(1, 'Informe o nome.').max(160),
+    escopo: z.enum(['geral', 'grupo']),
+    grupoId: Uuid.nullable(),
+    ativo: z.boolean(),
+  })
+  .strict()
+  .refine((d) => (d.escopo === 'grupo') === (d.grupoId !== null), {
+    message: 'Escopo "grupo" exige um grupo; escopo "geral" não pode ter grupo.',
+    path: ['grupoId'],
+  })
+export type EditarUsuarioDeGestaoEntrada = z.infer<typeof EditarUsuarioDeGestaoEntrada>
 
 export const UsuarioDeGestaoCriadoSaida = z.object({
   usuarioDeGestao: UsuarioDeGestaoPublico,

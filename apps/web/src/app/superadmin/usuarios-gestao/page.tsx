@@ -37,6 +37,7 @@ export default function UsuariosDeGestao() {
   const [grupos, setGrupos] = useState<GrupoNaLista[] | null>(null)
   const [erroGrupos, setErroGrupos] = useState('')
   const [criado, setCriado] = useState<UsuarioDeGestaoCriadoSaida | null>(null)
+  const [editando, setEditando] = useState<UsuarioDeGestaoNaLista | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
   const [tentativa, setTentativa] = useState(0)
   const dobra = useRef<HTMLDetailsElement>(null)
@@ -126,6 +127,9 @@ export default function UsuariosDeGestao() {
               <th>Escopo</th>
               <th>Estado</th>
               <th>Acesso</th>
+              <th>
+                <span className="sr-apenas">Editar</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -150,10 +154,34 @@ export default function UsuariosDeGestao() {
                     <span className="muted">já entrou</span>
                   )}
                 </td>
+                <td className="coluna-acao">
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => setEditando(u)}
+                    title={`Editar ${u.nome}`}
+                  >
+                    Editar
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {editando === null ? null : (
+        <PainelDeEdicaoDeUsuarioDeGestao
+          usuario={editando}
+          grupos={grupos}
+          erroGrupos={erroGrupos}
+          aoFechar={() => setEditando(null)}
+          aoSalvar={(u) => {
+            setEditando(null)
+            setRecado(`${u.nome} foi atualizado(a).`)
+            recarregarUsuarios()
+          }}
+        />
       )}
 
       <FormularioDeUsuarioDeGestao
@@ -319,6 +347,155 @@ function FormularioDeUsuarioDeGestao({
         </button>
       </form>
     </details>
+  )
+}
+
+/**
+ * Edita um `Usuário de Gestão` já existente — nome, escopo, grupo e estado,
+ * por completo. `usuario` (login) não aparece aqui, de propósito: mesma
+ * decisão de `EditarPessoaNoPainelEntrada` no servidor.
+ */
+function PainelDeEdicaoDeUsuarioDeGestao({
+  usuario,
+  grupos,
+  erroGrupos,
+  aoFechar,
+  aoSalvar,
+}: {
+  usuario: UsuarioDeGestaoNaLista
+  grupos: GrupoNaLista[] | null
+  erroGrupos: string
+  aoFechar: () => void
+  aoSalvar: (u: UsuarioDeGestaoNaLista) => void
+}) {
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [form, setForm] = useState<{
+    nome: string
+    escopo: 'geral' | 'grupo'
+    grupoId: string
+    ativo: boolean
+  }>({
+    nome: usuario.nome,
+    escopo: usuario.escopo,
+    grupoId: usuario.grupoId ?? '',
+    ativo: usuario.ativo,
+  })
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    setErro('')
+    setEnviando(true)
+    try {
+      const r = await chamar<{ usuarioDeGestao: UsuarioDeGestaoNaLista }>(
+        `v1/superadmin/usuarios-gestao/${usuario.id}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            nome: form.nome,
+            escopo: form.escopo,
+            grupoId: form.escopo === 'grupo' ? form.grupoId : null,
+            ativo: form.ativo,
+          }),
+        },
+      )
+      aoSalvar(r.usuarioDeGestao)
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  const precisaDeGrupo = form.escopo === 'grupo'
+
+  return (
+    <Modal titulo={`Editar ${usuario.nome}`} aoFechar={aoFechar}>
+      <form onSubmit={salvar} className="superadmin-form-largo">
+        <label className="campo">
+          Nome
+          <input
+            value={form.nome}
+            onChange={(e) => setForm({ ...form, nome: e.target.value })}
+            required
+          />
+        </label>
+
+        <fieldset className="campo superadmin-campo-radios">
+          <legend>Escopo</legend>
+          <label>
+            <input
+              type="radio"
+              name="escopo-edicao"
+              value="geral"
+              checked={form.escopo === 'geral'}
+              onChange={() => setForm({ ...form, escopo: 'geral', grupoId: '' })}
+            />
+            Geral <small>— vê a carteira inteira, todos os grupos</small>
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="escopo-edicao"
+              value="grupo"
+              checked={form.escopo === 'grupo'}
+              onChange={() => setForm({ ...form, escopo: 'grupo' })}
+            />
+            Grupo <small>— vê só as clínicas de um grupo</small>
+          </label>
+        </fieldset>
+
+        {!precisaDeGrupo ? null : erroGrupos !== '' ? (
+          <p className="nota erro-do-painel">{erroGrupos}</p>
+        ) : grupos === null ? (
+          <p className="nota">Carregando os grupos…</p>
+        ) : (
+          <label className="campo">
+            Grupo
+            <select
+              value={form.grupoId}
+              onChange={(e) => setForm({ ...form, grupoId: e.target.value })}
+              required
+            >
+              <option value="" disabled>
+                Escolha o grupo
+              </option>
+              {grupos.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <label className="caixa">
+          <input
+            type="checkbox"
+            checked={form.ativo}
+            onChange={(e) => setForm({ ...form, ativo: e.target.checked })}
+          />
+          <span>Ativo</span>
+        </label>
+
+        <p role="alert" aria-live="polite" className="erro-do-painel">
+          {erro}
+        </p>
+
+        <div className="botoes">
+          <button
+            type="submit"
+            disabled={enviando || (precisaDeGrupo && form.grupoId === '')}
+            className="btn"
+          >
+            {enviando ? 'Salvando…' : 'Salvar'}
+          </button>
+          <button type="button" className="btn ghost" onClick={aoFechar} disabled={enviando}>
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 

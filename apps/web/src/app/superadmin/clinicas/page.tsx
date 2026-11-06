@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 import { Carregando, Toast, Vazio } from '@/components/estados'
+import { Modal } from '@/components/modal'
 import { SenhaProvisoria } from '@/components/senha-provisoria'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { usePainel } from '../contexto'
@@ -27,6 +28,7 @@ export default function Clinicas() {
   const router = useRouter()
   const { sessao, recarregar } = usePainel()
   const [criada, setCriada] = useState<ClinicaCriada | null>(null)
+  const [editando, setEditando] = useState<ClinicaNaLista | null>(null)
   /** Uma mensagem por vez, e toda ação confirma o que aconteceu (design.md §4). */
   const [recado, setRecado] = useState<string | null>(null)
   const dobra = useRef<HTMLDetailsElement>(null)
@@ -98,6 +100,9 @@ export default function Clinicas() {
                 <th>Fuso</th>
                 <th>Estado</th>
                 <th>
+                  <span className="sr-apenas">Editar</span>
+                </th>
+                <th>
                   <span className="sr-apenas">Abrir o sistema da clínica</span>
                 </th>
               </tr>
@@ -118,6 +123,16 @@ export default function Clinicas() {
                     ) : (
                       <span className="pill mau">desativada</span>
                     )}
+                  </td>
+                  <td className="coluna-acao">
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => setEditando(c)}
+                      title={`Editar ${c.codigo}`}
+                    >
+                      Editar
+                    </button>
                   </td>
                   <td className="coluna-acao">
                     {/* **ENTRAR NO SISTEMA DELA, logado** — D-13.
@@ -142,6 +157,18 @@ export default function Clinicas() {
             </tbody>
           </table>
         </>
+      )}
+
+      {editando === null ? null : (
+        <PainelDeEdicaoDeClinica
+          clinica={editando}
+          aoFechar={() => setEditando(null)}
+          aoSalvar={() => {
+            setEditando(null)
+            setRecado(`${editando.codigo} foi atualizada.`)
+            recarregar()
+          }}
+        />
       )}
 
       <FormularioDeClinica
@@ -308,6 +335,91 @@ function FormularioDeClinica({
         </button>
       </form>
     </details>
+  )
+}
+
+/**
+ * Edita nome, fuso e estado de uma clínica já existente. `codigo` não está
+ * aqui — mesma razão do contrato (`EditarClinicaEntrada`): é a chave de
+ * login da clínica inteira, não um dado que se corrige de passagem.
+ */
+function PainelDeEdicaoDeClinica({
+  clinica,
+  aoFechar,
+  aoSalvar,
+}: {
+  clinica: ClinicaNaLista
+  aoFechar: () => void
+  aoSalvar: () => void
+}) {
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [nome, setNome] = useState(clinica.nome)
+  const [fuso, setFuso] = useState(clinica.fuso)
+  const [ativa, setAtiva] = useState(clinica.ativa)
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    setErro('')
+    setEnviando(true)
+    try {
+      await chamar(`v1/superadmin/clinicas/${clinica.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ nome, fuso, ativa }),
+      })
+      aoSalvar()
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <Modal titulo={`Editar ${clinica.codigo}`} aoFechar={aoFechar}>
+      <form onSubmit={salvar}>
+        <label className="campo">
+          Nome da clínica
+          <input value={nome} onChange={(e) => setNome(e.target.value)} required />
+        </label>
+
+        <label className="campo">
+          Fuso da clínica
+          <input
+            value={fuso}
+            onChange={(e) => setFuso(e.target.value)}
+            list="fusos-iana-edicao"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            required
+          />
+          <datalist id="fusos-iana-edicao">
+            {FUSOS.map((f) => (
+              <option key={f} value={f} />
+            ))}
+          </datalist>
+        </label>
+
+        <label className="caixa">
+          <input type="checkbox" checked={ativa} onChange={(e) => setAtiva(e.target.checked)} />
+          <span>Ativa</span>
+        </label>
+
+        <p role="alert" aria-live="polite" className="erro-do-painel">
+          {erro}
+        </p>
+
+        <div className="botoes">
+          <button type="submit" disabled={enviando} className="btn">
+            {enviando ? 'Salvando…' : 'Salvar'}
+          </button>
+          <button type="button" className="btn ghost" onClick={aoFechar} disabled={enviando}>
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 

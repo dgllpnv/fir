@@ -1,12 +1,16 @@
 import {
   type ClienteCarteiraCriadoSaida,
   type GrupoCriadoSaida,
+  type GrupoNaLista,
   type ListaDeGruposSaida,
   type ListaDeUsuariosDeGestaoSaida,
   type UsuarioDeGestaoCriadoSaida,
+  type UsuarioDeGestaoNaLista,
   CriarClienteCarteiraEntrada,
   CriarGrupoEntrada,
   CriarUsuarioDeGestaoEntrada,
+  EditarGrupoEntrada,
+  EditarUsuarioDeGestaoEntrada,
 } from '@fir/contracts'
 import {
   BadRequestException,
@@ -16,6 +20,8 @@ import {
   Get,
   Inject,
   NotFoundException,
+  Param,
+  Patch,
   Post,
   Req,
 } from '@nestjs/common'
@@ -23,8 +29,10 @@ import type { RequisicaoComPainel } from './contexto-do-painel'
 import {
   ClinicaJaTemClienteFirmare,
   ClinicaOuGrupoNaoExiste,
+  GrupoNaoExiste,
   PainelCarteiraService,
   UsuarioDeGestaoJaExiste,
+  UsuarioDeGestaoNaoExiste,
 } from './painel-carteira.service'
 import { SoOperador } from './so-operador.decorator'
 
@@ -54,9 +62,49 @@ export class PainelCarteiraController {
     return { grupo }
   }
 
+  @Patch('grupos/:id')
+  async editarGrupo(
+    @Param('id') id: string,
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComPainel,
+  ): Promise<{ grupo: GrupoNaLista }> {
+    const dados = EditarGrupoEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException('Confira os campos do grupo.')
+    try {
+      const grupo = await this.servico.editarGrupo(req.painel!.ator, id, dados.data)
+      return { grupo }
+    } catch (e) {
+      if (e instanceof GrupoNaoExiste) throw new NotFoundException('Grupo não encontrado.')
+      throw e
+    }
+  }
+
   @Get('usuarios-gestao')
   async listarUsuariosDeGestao(): Promise<ListaDeUsuariosDeGestaoSaida> {
     return { usuariosDeGestao: await this.servico.listarUsuariosDeGestao() }
+  }
+
+  @Patch('usuarios-gestao/:id')
+  async editarUsuarioDeGestao(
+    @Param('id') id: string,
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComPainel,
+  ): Promise<{ usuarioDeGestao: UsuarioDeGestaoNaLista }> {
+    const dados = EditarUsuarioDeGestaoEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException('Confira os campos do usuário.')
+    try {
+      const usuarioDeGestao = await this.servico.editarUsuarioDeGestao(
+        req.painel!.ator,
+        id,
+        dados.data,
+      )
+      return { usuarioDeGestao }
+    } catch (e) {
+      if (e instanceof UsuarioDeGestaoNaoExiste) {
+        throw new NotFoundException('Usuário de gestão não encontrado.')
+      }
+      throw e
+    }
   }
 
   @Post('clientes-carteira')

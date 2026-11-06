@@ -322,3 +322,130 @@ describe('GET /v1/superadmin/usuarios-gestao', () => {
     await http().get('/v1/superadmin/usuarios-gestao').expect(404)
   })
 })
+
+describe('PATCH /v1/superadmin/grupos/:id', () => {
+  it('edita nome e estado, e a trilha registra de → para', async () => {
+    const criado = await http()
+      .post('/v1/superadmin/grupos')
+      .set('Cookie', painel)
+      .send({ nome: `Grupo Antes ${sufixo}` })
+      .expect(201)
+    criadosGrupos.push(criado.body.grupo.id)
+
+    const r = await http()
+      .patch(`/v1/superadmin/grupos/${criado.body.grupo.id}`)
+      .set('Cookie', painel)
+      .send({ nome: `Grupo Depois ${sufixo}`, ativo: false })
+      .expect(200)
+    expect(r.body.grupo).toMatchObject({ nome: `Grupo Depois ${sufixo}`, ativo: false })
+
+    const l = await http().get('/v1/superadmin/grupos').set('Cookie', painel).expect(200)
+    const linha = l.body.grupos.find((g: { id: string }) => g.id === criado.body.grupo.id)
+    expect(linha).toMatchObject({ nome: `Grupo Depois ${sufixo}`, ativo: false })
+
+    const t = await migrate.query(
+      `SELECT acao, de, para FROM auditoria_do_painel WHERE entidade = 'grupos' AND entidade_id = $1 ORDER BY id DESC LIMIT 1`,
+      [criado.body.grupo.id],
+    )
+    expect(t.rows[0]).toMatchObject({ acao: 'alterou' })
+    expect(t.rows[0].de).toMatchObject({ nome: `Grupo Antes ${sufixo}` })
+    expect(t.rows[0].para).toMatchObject({ nome: `Grupo Depois ${sufixo}` })
+  })
+
+  it('grupo inexistente é 404, e campo a mais é 400', async () => {
+    await http()
+      .patch('/v1/superadmin/grupos/00000000-0000-4000-8000-000000000000')
+      .set('Cookie', painel)
+      .send({ nome: 'Não Existe', ativo: true })
+      .expect(404)
+
+    const criado = await http()
+      .post('/v1/superadmin/grupos')
+      .set('Cookie', painel)
+      .send({ nome: `Grupo Strict ${sufixo}` })
+      .expect(201)
+    criadosGrupos.push(criado.body.grupo.id)
+    await http()
+      .patch(`/v1/superadmin/grupos/${criado.body.grupo.id}`)
+      .set('Cookie', painel)
+      .send({ nome: 'X', ativo: true, codigo: 'a-mais' })
+      .expect(400)
+  })
+
+  it('sem sessão de painel, 404', async () => {
+    await http()
+      .patch('/v1/superadmin/grupos/00000000-0000-4000-8000-000000000000')
+      .send({ nome: 'X', ativo: true })
+      .expect(404)
+  })
+})
+
+describe('PATCH /v1/superadmin/usuarios-gestao/:id', () => {
+  it('edita nome, escopo, grupo e estado — sem tocar o usuário (login)', async () => {
+    const g = await http()
+      .post('/v1/superadmin/grupos')
+      .set('Cookie', painel)
+      .send({ nome: `Grupo Para Edição ${sufixo}` })
+      .expect(201)
+    criadosGrupos.push(g.body.grupo.id)
+
+    const usuario = `gestora.edicao.${sufixo}`
+    const criado = await http()
+      .post('/v1/superadmin/usuarios-gestao')
+      .set('Cookie', painel)
+      .send({ usuario, nome: 'Antes Da Edição', escopo: 'geral', grupoId: null })
+      .expect(201)
+    criadosUsuarios.push(criado.body.usuarioDeGestao.id)
+
+    const r = await http()
+      .patch(`/v1/superadmin/usuarios-gestao/${criado.body.usuarioDeGestao.id}`)
+      .set('Cookie', painel)
+      .send({ nome: 'Depois Da Edição', escopo: 'grupo', grupoId: g.body.grupo.id, ativo: false })
+      .expect(200)
+    expect(r.body.usuarioDeGestao).toMatchObject({
+      usuario,
+      nome: 'Depois Da Edição',
+      escopo: 'grupo',
+      grupoId: g.body.grupo.id,
+      ativo: false,
+    })
+  })
+
+  it('escopo "grupo" sem grupoId é 400, igual à criação', async () => {
+    const criado = await http()
+      .post('/v1/superadmin/usuarios-gestao')
+      .set('Cookie', painel)
+      .send({ usuario: `gestora.invariante.${sufixo}`, nome: 'X', escopo: 'geral', grupoId: null })
+      .expect(201)
+    criadosUsuarios.push(criado.body.usuarioDeGestao.id)
+
+    await http()
+      .patch(`/v1/superadmin/usuarios-gestao/${criado.body.usuarioDeGestao.id}`)
+      .set('Cookie', painel)
+      .send({ nome: 'X', escopo: 'grupo', grupoId: null, ativo: true })
+      .expect(400)
+  })
+
+  it('usuário de gestão inexistente é 404', async () => {
+    await http()
+      .patch('/v1/superadmin/usuarios-gestao/00000000-0000-4000-8000-000000000000')
+      .set('Cookie', painel)
+      .send({ nome: 'X', escopo: 'geral', grupoId: null, ativo: true })
+      .expect(404)
+  })
+
+  it('`usuario` no corpo é 400 — o login não se edita por aqui', async () => {
+    const criado = await http()
+      .post('/v1/superadmin/usuarios-gestao')
+      .set('Cookie', painel)
+      .send({ usuario: `gestora.strict.${sufixo}`, nome: 'X', escopo: 'geral', grupoId: null })
+      .expect(201)
+    criadosUsuarios.push(criado.body.usuarioDeGestao.id)
+
+    await http()
+      .patch(`/v1/superadmin/usuarios-gestao/${criado.body.usuarioDeGestao.id}`)
+      .set('Cookie', painel)
+      .send({ usuario: 'tentando-mudar', nome: 'X', escopo: 'geral', grupoId: null, ativo: true })
+      .expect(400)
+  })
+})

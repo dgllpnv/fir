@@ -1,8 +1,10 @@
 import {
   type ClinicaCriada,
+  type ClinicaNaLista,
   type ClinicasDoPainel,
   CriarClinicaEntrada,
   CriarPessoaNoPainelEntrada,
+  EditarClinicaEntrada,
   EditarPessoaNoPainelEntrada,
   type PessoaCriadaNoPainel,
   type PessoaNoPainel,
@@ -94,6 +96,31 @@ export class PainelClinicasController {
       if (e instanceof UsuarioJaExiste) {
         throw new ConflictException('Esse usuário já existe nesta clínica. Escolha outro.')
       }
+      throw e
+    }
+  }
+
+  /**
+   * **EDITAR a clínica** — nome, fuso e estado. `codigo` não está no corpo
+   * aceito (`EditarClinicaEntrada`); mandá-lo é 400, mesmo `.strict()` de
+   * toda escrita do painel.
+   */
+  @Patch(':clinicaId')
+  async editar(
+    @Param('clinicaId') clinicaId: string,
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComPainel,
+  ): Promise<ClinicaNaLista> {
+    const dados = EditarClinicaEntrada.safeParse(corpo)
+    if (!dados.success) {
+      throw new BadRequestException(
+        dados.error.issues[0]?.message ?? 'Confira os dados da clínica.',
+      )
+    }
+    try {
+      return await this.clinicas.editar(painelDe(req).ator, uuidOu404(clinicaId), dados.data)
+    } catch (e) {
+      if (e instanceof ClinicaNaoExiste) throw new NotFoundException('Clínica não encontrada.')
       throw e
     }
   }

@@ -38,6 +38,8 @@ export default function Grupos() {
   const [tentativa, setTentativa] = useState(0)
   /** O grupo cujo painel de "vincular clínica" está aberto. `null` = nenhum. */
   const [vinculando, setVinculando] = useState<GrupoNaLista | null>(null)
+  /** O grupo em edição. `null` = nenhum. */
+  const [editando, setEditando] = useState<GrupoNaLista | null>(null)
   /** O grupo cujo painel de "dar acesso ao portal" está aberto. `null` = nenhum. */
   const [dandoAcesso, setDandoAcesso] = useState<GrupoNaLista | null>(null)
   const [acessoCriado, setAcessoCriado] = useState<UsuarioDoPortalCriadoSaida | null>(null)
@@ -106,6 +108,9 @@ export default function Grupos() {
               <th>Nome</th>
               <th>Estado</th>
               <th>
+                <span className="sr-apenas">Editar</span>
+              </th>
+              <th>
                 <span className="sr-apenas">Vincular clínica</span>
               </th>
               <th>
@@ -123,6 +128,16 @@ export default function Grupos() {
                   ) : (
                     <span className="pill mau">desativado</span>
                   )}
+                </td>
+                <td className="coluna-acao">
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => setEditando(g)}
+                    title={`Editar ${g.nome}`}
+                  >
+                    Editar
+                  </button>
                 </td>
                 <td className="coluna-acao">
                   <button
@@ -148,6 +163,18 @@ export default function Grupos() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {editando === null ? null : (
+        <PainelDeEdicaoDeGrupo
+          grupo={editando}
+          aoFechar={() => setEditando(null)}
+          aoSalvar={(g) => {
+            setEditando(null)
+            setRecado(`${g.nome} foi atualizado.`)
+            recarregarGrupos()
+          }}
+        />
       )}
 
       {vinculando === null ? null : (
@@ -248,6 +275,68 @@ function FormularioDeGrupo({
         </button>
       </form>
     </details>
+  )
+}
+
+/** Edita um grupo já existente — mesmos dois campos da lista, por completo. */
+function PainelDeEdicaoDeGrupo({
+  grupo,
+  aoFechar,
+  aoSalvar,
+}: {
+  grupo: GrupoNaLista
+  aoFechar: () => void
+  aoSalvar: (g: GrupoNaLista) => void
+}) {
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [nome, setNome] = useState(grupo.nome)
+  const [ativo, setAtivo] = useState(grupo.ativo)
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault()
+    setErro('')
+    setEnviando(true)
+    try {
+      const r = await chamar<{ grupo: GrupoNaLista }>(`v1/superadmin/grupos/${grupo.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ nome, ativo }),
+      })
+      aoSalvar(r.grupo)
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <Modal titulo={`Editar ${grupo.nome}`} aoFechar={aoFechar}>
+      <form onSubmit={salvar}>
+        <label className="campo">
+          Nome do grupo
+          <input value={nome} onChange={(e) => setNome(e.target.value)} required />
+        </label>
+
+        <label className="caixa">
+          <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />
+          <span>Ativo</span>
+        </label>
+
+        <p role="alert" aria-live="polite" className="erro-do-painel">
+          {erro}
+        </p>
+
+        <div className="botoes">
+          <button type="submit" disabled={enviando} className="btn">
+            {enviando ? 'Salvando…' : 'Salvar'}
+          </button>
+          <button type="button" className="btn ghost" onClick={aoFechar} disabled={enviando}>
+            Cancelar
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 

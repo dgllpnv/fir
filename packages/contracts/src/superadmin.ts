@@ -138,6 +138,24 @@ function fusoEhValido(fuso: string): boolean {
   }
 }
 
+/**
+ * **EDITAR a clínica** — nome, fuso e estado, por completo. `codigo` não está
+ * aqui, e não é esquecimento: é a chave de login (`POST /v1/entrar`) e da
+ * URL que a equipe dita por telefone todo dia — mudar não é "corrigir um
+ * dado", é mudar como a clínica inteira entra no sistema.
+ */
+export const EditarClinicaEntrada = z
+  .object({
+    nome: z.string().trim().min(2, 'Informe o nome da clínica.').max(120),
+    fuso: z
+      .string()
+      .min(1, 'Informe o fuso da clínica.')
+      .refine(fusoEhValido, 'Fuso desconhecido. Use um nome IANA, como America/Bahia.'),
+    ativa: z.boolean(),
+  })
+  .strict()
+export type EditarClinicaEntrada = z.infer<typeof EditarClinicaEntrada>
+
 /** O que a criação de pessoa pelo painel aceita. */
 export const CriarPessoaNoPainelEntrada = z
   .object({
