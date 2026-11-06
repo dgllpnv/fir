@@ -229,7 +229,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
    Primitivos, não enfeite: sem eles cada formulário novo reinventa o campo
    com `style` inline, e a terceira tela já não combina com a primeira. */
 .campo { display: grid; gap: 5px; font-size: 13px; font-weight: 600; min-width: 0; }
-.campo input,
+/*
+ * `:not([type=radio]):not([type=checkbox])` — `.campo` é seletor DESCENDENTE
+ * de propósito (cobre `<input>` dentro de `<label>` dentro de `.campo`, não só
+ * filho direto), mas isso também alcança um rádio/checkbox que esteja dentro
+ * de um `.campo`/`fieldset.campo` por qualquer nível — e aí a caixa de texto
+ * inteira (padding, borda, 100% de largura) é aplicada a um elemento que o
+ * navegador desenha como círculo/quadrado nativo de ~16px, estourando a
+ * marcação completamente para fora do lugar. Achado em produção
+ * (superadmin/usuarios-gestao, o fieldset de Escopo): a bolinha de rádio
+ * virava uma caixa inteira, sem ninguém notar nos testes automatizados
+ * (eles checam classe/colisão, não o layout renderizado).
+ */
+.campo input:not([type='radio']):not([type='checkbox']),
 .campo select,
 .campo textarea {
   width: 100%;
@@ -240,7 +252,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   color: var(--ink);
   font-weight: 400;
 }
-.campo input:hover, .campo select:hover { border-color: var(--gold); }
+.campo input:not([type='radio']):not([type='checkbox']):hover, .campo select:hover { border-color: var(--gold); }
 
 /*
  * O autofill do Chrome pinta o campo de AZUL e ignora a paleta inteira.
