@@ -192,6 +192,27 @@ describe('o operador abre o sistema da clínica num clique', () => {
     // de `caixa`/`valores`. O corpo em si é de outra suíte.
     expect([200, 404]).toContain(r.status)
   })
+
+  /**
+   * ACHADO REAL EM PRODUÇÃO (2026-11-06): o operador não é uma `pessoa`
+   * (`pessoaDoAtor` devolve `null`), e `leitorDe` (`tarefas/leitura.ts`)
+   * derrama isso como `id: ''` para os escopos "meu"/"solicitei". Antes do
+   * fix, `consulta.service.ts` usava essa string vazia direto num
+   * comparador de coluna `uuid` — e o Postgres recusa o literal ANTES de
+   * comparar. `/v1/hoje` e `/v1/tarefas` viravam 500 para qualquer sessão
+   * de suporte, em qualquer clínica.
+   */
+  it('`/v1/hoje` e `/v1/tarefas` não viram 500 na sessão de suporte', async () => {
+    const { cookie } = await abrirSuporte(clinicaA.id)
+    await http().get('/v1/hoje').set('Cookie', cookie).expect(200)
+    await http().get('/v1/tarefas').set('Cookie', cookie).expect(200)
+    await http().get('/v1/tarefas').query({ escopo: 'meu' }).set('Cookie', cookie).expect(200)
+    await http()
+      .get('/v1/tarefas')
+      .query({ escopo: 'solicitei' })
+      .set('Cookie', cookie)
+      .expect(200)
+  })
 })
 
 // ---------------------------------------------------------------------------
