@@ -10,10 +10,11 @@ import {
 import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
+import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { nomeDoMes, rotuloDoMes } from '@/lib/financeiro'
 import { ICONE_ANTERIOR, ICONE_PROXIMO } from '@/lib/icones'
 import { Carregando, Erro, Vazio } from '../estados'
-import { MetaDoMes } from './meta-do-mes'
+import { type CorpoDaMeta, MetaDoMes } from './meta-do-mes'
 
 /**
  * **Aba Metas do mês** — *"defina até 12 metas por pessoa; oito a ferramenta
@@ -168,19 +169,22 @@ export function AbaMetas({ hoje, avisar }: { hoje: string; avisar: (a: string) =
                   valor === null ? 'Resultado apagado.' : 'Resultado salvo.',
                 )
               }
+              aoEditar={(id, corpo) =>
+                agir(
+                  () =>
+                    chamar(`v1/metas-de-pessoa/${mes}/${id}`, {
+                      method: 'PUT',
+                      body: JSON.stringify(corpo),
+                    }),
+                  'Meta atualizada.',
+                )
+              }
             />
           ))}
         </div>
       )}
     </>
   )
-}
-
-type CorpoDaMeta = {
-  indicador: IndicadorDeMeta
-  nome: string
-  metaEmNumero: number | null
-  metaEmDinheiro: string | null
 }
 
 function BlocoDaPessoa({
@@ -193,6 +197,7 @@ function BlocoDaPessoa({
   aoAdicionar,
   aoRemover,
   aoLancar,
+  aoEditar,
 }: {
   pessoa: MetasDaPessoa
   mes: string
@@ -203,6 +208,7 @@ function BlocoDaPessoa({
   aoAdicionar: (corpo: CorpoDaMeta) => void
   aoRemover: (id: string) => void
   aoLancar: (id: string, valor: number | null) => void
+  aoEditar: (id: string, corpo: CorpoDaMeta) => void
 }) {
   const cheio = pessoa.metas.length >= maximo
   return (
@@ -245,6 +251,7 @@ function BlocoDaPessoa({
             salvando={salvando}
             aoRemover={() => aoRemover(m.id)}
             aoLancar={(valor) => aoLancar(m.id, valor)}
+            aoEditar={(corpo) => aoEditar(m.id, corpo)}
           />
         ))
       )}
@@ -290,6 +297,7 @@ function NovaMeta({
   const [indicador, setIndicador] = useState<IndicadorDeMeta>('agendamentos')
   const [valor, setValor] = useState('')
   const [nome, setNome] = useState('')
+  const [erro, setErro] = useState<string | null>(null)
   const tipo: TipoDeIndicador = tipoDoIndicador(indicador)
   const manual = indicador === 'manual'
 
@@ -298,16 +306,35 @@ function NovaMeta({
       className="nova-meta"
       onSubmit={(e) => {
         e.preventDefault()
+        setErro(null)
+        if (tipo === 'valor') {
+          // `centavosDoTexto` — a ÚNICA leitura de dinheiro digitado do front
+          // (ver `lib/dinheiro-digitado.ts`): "2.000" é dois mil reais, como
+          // se digita no balcão, nunca `Number("2.000") * 100` (que lê "2.000"
+          // como 2 e grava R$ 2,00 — 1000x menor, em silêncio).
+          const valorEmCentavos = centavosDoTexto(valor)
+          if (valorEmCentavos === null || valorEmCentavos <= 0n) {
+            setErro('Informe a meta em reais — um valor maior que zero.')
+            return
+          }
+          aoSalvar({
+            indicador,
+            nome: manual ? nome.trim() : '',
+            metaEmDinheiro: String(valorEmCentavos),
+            metaEmNumero: null,
+          })
+          return
+        }
         const n = Number(valor.replace(',', '.'))
-        if (!Number.isFinite(n) || n <= 0) return
+        if (!Number.isFinite(n) || n <= 0) {
+          setErro('Informe a meta — um número maior que zero.')
+          return
+        }
         aoSalvar({
           indicador,
           nome: manual ? nome.trim() : '',
-          // DINHEIRO EM CENTAVOS, inteiro, pelo arredondamento de UMA
-          // multiplicação na borda — o transporte é texto justamente para que
-          // ninguém some dois valores sem converter de propósito.
-          metaEmDinheiro: tipo === 'valor' ? String(Math.round(n * 100)) : null,
-          metaEmNumero: tipo === 'valor' ? null : Math.round(n),
+          metaEmDinheiro: null,
+          metaEmNumero: Math.round(n),
         })
       }}
     >
@@ -350,6 +377,12 @@ function NovaMeta({
           required
         />
       </label>
+
+      {erro === null ? null : (
+        <p className="campo erro" role="alert">
+          {erro}
+        </p>
+      )}
 
       <div className="acoes-de-tela">
         <button type="submit" className="btn" disabled={salvando}>

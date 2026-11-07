@@ -3,6 +3,7 @@ import type {
   ConversaRegistrada,
   ConversaSalva,
   CopiarMetas,
+  EditarMetaDePessoa,
   LancarRealizado,
   MetaDePessoa,
   MetasCopiadas,
@@ -232,6 +233,43 @@ export class MetasService {
           dados.indicador === INDICADOR_MANUAL ? dados.nome : nomeDoIndicador(dados.indicador)
         throw new ConflictException(`Já existe a meta "${nome}" para essa pessoa neste mês.`)
       }
+    })
+    return this.metasDoMes(ctx, mes)
+  }
+
+  /**
+   * `meta` — **editar o alvo**. O indicador não muda (é identidade da meta,
+   * ver `EditarMetaDePessoa`): a linha é lida antes, e um corpo que tentasse
+   * trocá-lo é recusado — nunca escrito em silêncio.
+   */
+  async editarMeta(
+    ctx: Contexto,
+    mes: string,
+    id: string,
+    dados: EditarMetaDePessoa,
+  ): Promise<MetasDoMes> {
+    await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      const m = (
+        await c.query<{ indicador: IndicadorDeMeta }>(
+          `SELECT indicador FROM metas_de_pessoa
+            WHERE id = $1 AND mes = $2 AND excluida_em IS NULL FOR UPDATE`,
+          [id, mes],
+        )
+      ).rows[0]
+      if (m === undefined) throw new NotFoundException('Essa meta não existe mais.')
+      if (m.indicador !== dados.indicador) {
+        throw new UnprocessableEntityException(
+          'O indicador de uma meta não muda — exclua e crie outra.',
+        )
+      }
+
+      const alvo =
+        dados.metaEmDinheiro !== null ? dados.metaEmDinheiro : BigInt(dados.metaEmNumero!)
+      await c.query(`UPDATE metas_de_pessoa SET nome = $2, alvo = $3 WHERE id = $1`, [
+        id,
+        dados.nome,
+        alvo.toString(),
+      ])
     })
     return this.metasDoMes(ctx, mes)
   }

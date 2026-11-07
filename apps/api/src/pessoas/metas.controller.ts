@@ -3,6 +3,7 @@ import {
   type Conversas,
   CopiarMetas,
   CriarRotinaDePessoal,
+  EditarMetaDePessoa,
   LancarRealizado,
   Mes,
   type MetasCopiadas,
@@ -114,6 +115,23 @@ export class MetasDePessoaController {
     const dados = CopiarMetas.safeParse(corpo)
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     return this.metas.copiarMetas(contexto(req), umMes(mes), dados.data)
+  }
+
+  /**
+   * `meta` — **editar o alvo**. O indicador não muda (ver
+   * `EditarMetaDePessoa`); o serviço recusa se o corpo tentar um diferente do
+   * já gravado.
+   */
+  @Put(':mes/:id')
+  async editar(
+    @Param('mes') mes: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComContexto,
+  ): Promise<MetasDoMes> {
+    const dados = EditarMetaDePessoa.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    return this.metas.editarMeta(contexto(req), umMes(mes), id, dados.data)
   }
 
   /**

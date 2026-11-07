@@ -74,6 +74,40 @@ const MAX_PERCENTUAL = 100
  * preenchido combine com o TIPO do indicador. A alternativa era uma
  * `discriminatedUnion` de nove braços, que diria a mesma coisa nove vezes.
  */
+/**
+ * A regra do ALVO, partilhada por criar e editar: **exatamente um** dos dois
+ * campos de valor combina com o tipo do indicador, e o nome é obrigatório na
+ * manual e proibido nas outras — o mesmo `CHECK` `nome_combina_com_indicador`
+ * da migration 0019, dito na borda para que a recusa seja mensagem de tela e
+ * não erro de banco.
+ */
+function refinarAlvoDaMeta(
+  d: { indicador: IndicadorDeMeta; nome: string; metaEmDinheiro: bigint | null; metaEmNumero: number | null },
+  ctx: z.RefinementCtx,
+): void {
+  const tipo = tipoDoIndicador(d.indicador)
+  const erra = (path: string, message: string): void => {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message })
+  }
+
+  if (tipo === 'valor') {
+    if (d.metaEmNumero !== null) erra('metaEmNumero', 'Esta meta é em reais.')
+    if (d.metaEmDinheiro === null || d.metaEmDinheiro <= 0n) {
+      erra('metaEmDinheiro', 'Informe a meta em reais.')
+    }
+  } else {
+    if (d.metaEmDinheiro !== null) erra('metaEmDinheiro', 'Esta meta não é em reais.')
+    if (d.metaEmNumero === null) erra('metaEmNumero', 'Informe a meta.')
+    else if (tipo === 'pct' && d.metaEmNumero > MAX_PERCENTUAL) {
+      erra('metaEmNumero', `A meta de percentual vai até ${MAX_PERCENTUAL}%.`)
+    }
+  }
+
+  const manual = d.indicador === 'manual'
+  if (manual && d.nome === '') erra('nome', 'Dê um nome à meta.')
+  if (!manual && d.nome !== '') erra('nome', 'O nome só existe na meta manual.')
+}
+
 export const SalvarMetaDePessoa = z
   .object({
     fichaId: Uuid,
@@ -86,33 +120,28 @@ export const SalvarMetaDePessoa = z
     metaEmNumero: z.number().int().positive().nullable().default(null),
   })
   .strict()
-  .superRefine((d, ctx) => {
-    const tipo = tipoDoIndicador(d.indicador)
-    const erra = (path: string, message: string): void => {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message })
-    }
-
-    if (tipo === 'valor') {
-      if (d.metaEmNumero !== null) erra('metaEmNumero', 'Esta meta é em reais.')
-      if (d.metaEmDinheiro === null || d.metaEmDinheiro <= 0n) {
-        erra('metaEmDinheiro', 'Informe a meta em reais.')
-      }
-    } else {
-      if (d.metaEmDinheiro !== null) erra('metaEmDinheiro', 'Esta meta não é em reais.')
-      if (d.metaEmNumero === null) erra('metaEmNumero', 'Informe a meta.')
-      else if (tipo === 'pct' && d.metaEmNumero > MAX_PERCENTUAL) {
-        erra('metaEmNumero', `A meta de percentual vai até ${MAX_PERCENTUAL}%.`)
-      }
-    }
-
-    // **Nome obrigatório na manual, proibido nas outras** — o mesmo `CHECK`
-    // `nome_combina_com_indicador` da migration 0019, dito na borda para que a
-    // recusa seja mensagem de tela e não erro de banco.
-    const manual = d.indicador === 'manual'
-    if (manual && d.nome === '') erra('nome', 'Dê um nome à meta.')
-    if (!manual && d.nome !== '') erra('nome', 'O nome só existe na meta manual.')
-  })
+  .superRefine(refinarAlvoDaMeta)
 export type SalvarMetaDePessoa = z.infer<typeof SalvarMetaDePessoa>
+
+/**
+ * `meta` dela — **editar o alvo** de uma meta que já existe.
+ *
+ * `fichaId` não está aqui: trocar de dona é apagar e criar outra, nunca um
+ * `PUT`. `indicador` viaja **igual ao da criação**, só para que o mesmo
+ * `refinarAlvoDaMeta` valide na borda sem precisar ler o banco antes — o
+ * serviço confere que ele bate com o da linha e recusa a troca (o indicador é
+ * identidade da meta, não um campo editável).
+ */
+export const EditarMetaDePessoa = z
+  .object({
+    indicador: IndicadorDaMeta,
+    nome: z.string().trim().max(60).default(''),
+    metaEmDinheiro: dinheiroEmTexto.default(null),
+    metaEmNumero: z.number().int().positive().nullable().default(null),
+  })
+  .strict()
+  .superRefine(refinarAlvoDaMeta)
+export type EditarMetaDePessoa = z.infer<typeof EditarMetaDePessoa>
 
 /**
  * `realizado` dela — **só na meta MANUAL**, e o servidor recusa nas outras.

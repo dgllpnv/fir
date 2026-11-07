@@ -610,14 +610,19 @@ function Formulario({
   )
 
   const ajuda = METRICAS_DE_CAMPANHA.find((m) => m.chave === metrica)?.ajuda ?? ''
+  const [erro, setErro] = useState<string | null>(null)
 
   return (
     <form
       className="formulario-de-campanha"
       onSubmit={(e) => {
         e.preventDefault()
+        setErro(null)
         const n = Number(meta.replace(/\./g, '').replace(',', '.'))
-        if (!Number.isFinite(n) || n <= 0) return
+        if (!Number.isFinite(n) || n <= 0) {
+          setErro('Informe a meta — um número maior que zero.')
+          return
+        }
         aoSalvar({
           categoria,
           foco,
@@ -746,6 +751,12 @@ function Formulario({
       ) : null}
 
       <p className="nota">{ajuda}</p>
+
+      {erro === null ? null : (
+        <p className="campo erro" role="alert">
+          {erro}
+        </p>
+      )}
 
       <div className="acoes-de-tela">
         <button type="submit" className="btn" disabled={salvando}>

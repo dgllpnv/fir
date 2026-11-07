@@ -1160,3 +1160,93 @@ describe('copiarMetas — idempotente por esquema, três vezes', () => {
     ).toBe(404)
   })
 })
+
+describe('editar — o alvo muda, o indicador não', () => {
+  it('troca nome e alvo, e a resposta reflete o novo valor', async () => {
+    const criada = await criarMeta(fichaDaAna, 'agendamentos', 10).expect(201)
+    const pessoas = criada.body.pessoas as { fichaId: string; metas: (MetaNaResposta & { id: string })[] }[]
+    const meta = pessoas.find((p) => p.fichaId === fichaDaAna)!.metas[0]!
+
+    await srv()
+      .put(`/v1/metas-de-pessoa/${MES}/${meta.id}`)
+      .set('Cookie', rh)
+      .send({ indicador: 'agendamentos', nome: '', metaEmNumero: 25, metaEmDinheiro: null })
+      .expect(200)
+
+    expect((await realizado(fichaDaAna, 'agendamentos')).metaEmNumero).toBe(25)
+  })
+
+  it('404 em meta inexistente — já excluída não é editável', async () => {
+    const criada = await criarMeta(fichaDaAna, 'agendamentos', 10).expect(201)
+    const pessoas = criada.body.pessoas as { fichaId: string; metas: (MetaNaResposta & { id: string })[] }[]
+    const meta = pessoas.find((p) => p.fichaId === fichaDaAna)!.metas[0]!
+    await srv().delete(`/v1/metas-de-pessoa/${MES}/${meta.id}`).set('Cookie', rh).expect(200)
+
+    await srv()
+      .put(`/v1/metas-de-pessoa/${MES}/${meta.id}`)
+      .set('Cookie', rh)
+      .send({ indicador: 'agendamentos', nome: '', metaEmNumero: 25, metaEmDinheiro: null })
+      .expect(404)
+  })
+
+  /**
+   * **A IDENTIDADE DA META NÃO MUDA NA EDIÇÃO.** Trocar o indicador seria
+   * fazer uma meta virar outra sem excluir e recriar — o histórico de
+   * `realizado` ficaria ligado a um indicador que não é mais o que a linha
+   * diz. O serviço recusa (422) em vez de aceitar em silêncio.
+   */
+  it('422 quando o corpo tenta trocar o indicador', async () => {
+    const criada = await criarMeta(fichaDaAna, 'agendamentos', 10).expect(201)
+    const pessoas = criada.body.pessoas as { fichaId: string; metas: (MetaNaResposta & { id: string })[] }[]
+    const meta = pessoas.find((p) => p.fichaId === fichaDaAna)!.metas[0]!
+
+    const r = await srv()
+      .put(`/v1/metas-de-pessoa/${MES}/${meta.id}`)
+      .set('Cookie', rh)
+      .send({ indicador: 'contatos', nome: '', metaEmNumero: 25, metaEmDinheiro: null })
+    expect(r.status).toBe(422)
+
+    // E a meta original continua intacta.
+    expect((await realizado(fichaDaAna, 'agendamentos')).metaEmNumero).toBe(10)
+  })
+
+  /** Mesma regra 17 do `criar` e do `GET` — a edição não é uma segunda porta. */
+  it('sem `valores`, a resposta da edição também apaga o dinheiro', async () => {
+    const criada = await criarMeta(fichaDaAna, 'orc_valor', '400000').expect(201)
+    const pessoas = criada.body.pessoas as { fichaId: string; metas: (MetaNaResposta & { id: string })[] }[]
+    const meta = pessoas.find((p) => p.fichaId === fichaDaAna)!.metas[0]!
+
+    const perfilSemValor = (
+      await migrate.query<{ id: string }>(
+        `INSERT INTO perfis (clinica_id, chave, nome, perms)
+         VALUES ($1, $2, 'RH sem valores (editar)', $3) RETURNING id`,
+        [clinica, `pf_sve_${Date.now()}`, ['pessoas.gerir']],
+      )
+    ).rows[0]!.id
+    await migrate.query(
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin, perfil_id)
+       VALUES ($1, 'Marta Edita', $2, $3, false, $4)`,
+      [clinica, `martae${Date.now()}`.slice(0, 20), await hashDeSenha(SENHA), perfilSemValor],
+    )
+    const usuario = (
+      await migrate.query<{ usuario: string }>(`SELECT usuario FROM pessoas WHERE perfil_id = $1`, [
+        perfilSemValor,
+      ])
+    ).rows[0]!.usuario
+    const semValor = cookieDe(
+      await srv().post('/v1/entrar').send({ clinica: codigo, usuario, senha: SENHA }).expect(200),
+    )
+
+    const r = await srv()
+      .put(`/v1/metas-de-pessoa/${MES}/${meta.id}`)
+      .set('Cookie', semValor)
+      .send({ indicador: 'orc_valor', nome: '', metaEmNumero: null, metaEmDinheiro: '500000' })
+      .expect(200)
+
+    const pessoasResp = r.body.pessoas as { fichaId: string; metas: MetaNaResposta[] }[]
+    const emReais = pessoasResp
+      .find((p) => p.fichaId === fichaDaAna)!
+      .metas.find((m) => m.indicador === 'orc_valor')!
+    expect(emReais.metaEmDinheiro).toBeNull()
+  })
+})

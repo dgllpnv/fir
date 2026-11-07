@@ -2,7 +2,17 @@
 
 import type { MetaDePessoa } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
+import { useState } from 'react'
+import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
+
+/** O corpo de criar OU editar uma meta — o alvo, na escala do indicador. */
+export type CorpoDaMeta = {
+  indicador: MetaDePessoa['indicador']
+  nome: string
+  metaEmNumero: number | null
+  metaEmDinheiro: string | null
+}
 
 /**
  * **UM CARTÃO DE META** — o mesmo em *Equipe › Metas* e em *Minhas metas*.
@@ -35,14 +45,17 @@ export function MetaDoMes({
   meta,
   aoLancar,
   aoRemover,
+  aoEditar,
   salvando,
 }: {
   meta: MetaDePessoa
   /** `undefined` = somente leitura (é *Minhas metas*). */
   aoLancar?: (valor: number | null) => void
   aoRemover?: () => void
+  aoEditar?: (corpo: CorpoDaMeta) => void
   salvando?: boolean
 }) {
+  const [editando, setEditando] = useState(false)
   /**
    * **O VALOR FOI REDIGIDO** — e a tela pode dizer isso sem vazar nada.
    *
@@ -92,7 +105,19 @@ export function MetaDoMes({
         <i style={{ width: larguraDaBarra(meta.percentual) }} />
       </div>
 
-      {aoLancar === undefined && aoRemover === undefined ? null : (
+      {editando && aoEditar !== undefined ? (
+        <EditarAlvo
+          meta={meta}
+          aoSalvar={(corpo) => {
+            aoEditar(corpo)
+            setEditando(false)
+          }}
+          aoCancelar={() => setEditando(false)}
+          salvando={salvando === true}
+        />
+      ) : null}
+
+      {aoLancar === undefined && aoRemover === undefined && aoEditar === undefined ? null : (
         <div className="meta-de-pessoa-acoes">
           {/*
             O campo de resultado existe SÓ na meta manual, e isso não é
@@ -107,6 +132,23 @@ export function MetaDoMes({
               salvando={salvando === true}
             />
           )}
+          {/*
+            **Editar some quando o valor foi redigido** (regra 17): sem
+            `valores`, `metaEmDinheiro` chega `null` e um "Editar" aqui
+            convidaria a pessoa a digitar um número novo por cima de um alvo
+            que ela não pode ver — a edição substituiria o alvo real por um
+            chute, em vez de recusar.
+          */}
+          {aoEditar === undefined || editando || dinheiroOculto ? null : (
+            <button
+              type="button"
+              className="link"
+              onClick={() => setEditando(true)}
+              disabled={salvando === true}
+            >
+              Editar
+            </button>
+          )}
           {aoRemover === undefined ? null : (
             <button
               type="button"
@@ -120,6 +162,106 @@ export function MetaDoMes({
         </div>
       )}
     </div>
+  )
+}
+
+/** O formulário inline de editar o alvo — mesma escala e regras da criação. */
+function EditarAlvo({
+  meta,
+  aoSalvar,
+  aoCancelar,
+  salvando,
+}: {
+  meta: MetaDePessoa
+  aoSalvar: (corpo: CorpoDaMeta) => void
+  aoCancelar: () => void
+  salvando: boolean
+}) {
+  const manual = meta.indicador === 'manual'
+  const [nome, setNome] = useState(meta.nome)
+  const [valor, setValor] = useState(
+    meta.tipo === 'valor'
+      ? meta.metaEmDinheiro === null
+        ? ''
+        : textoDeCentavos(BigInt(meta.metaEmDinheiro))
+      : String(meta.metaEmNumero ?? ''),
+  )
+  const [erro, setErro] = useState<string | null>(null)
+
+  return (
+    <form
+      className="nova-meta"
+      onSubmit={(e) => {
+        e.preventDefault()
+        setErro(null)
+        if (meta.tipo === 'valor') {
+          // `centavosDoTexto` — a ÚNICA leitura de dinheiro digitado do front
+          // (ver `lib/dinheiro-digitado.ts`): "2.000" é dois mil reais, como
+          // se digita no balcão, nunca `Number("2.000") * 100` (que lê "2.000"
+          // como 2 e grava R$ 2,00 — 1000x menor, em silêncio).
+          const valorEmCentavos = centavosDoTexto(valor)
+          if (valorEmCentavos === null || valorEmCentavos <= 0n) {
+            setErro('Informe a meta em reais — um valor maior que zero.')
+            return
+          }
+          aoSalvar({
+            indicador: meta.indicador,
+            nome: manual ? nome.trim() : '',
+            metaEmDinheiro: String(valorEmCentavos),
+            metaEmNumero: null,
+          })
+          return
+        }
+        const n = Number(valor.replace(',', '.'))
+        if (!Number.isFinite(n) || n <= 0) {
+          setErro('Informe a meta — um número maior que zero.')
+          return
+        }
+        aoSalvar({
+          indicador: meta.indicador,
+          nome: manual ? nome.trim() : '',
+          metaEmDinheiro: null,
+          metaEmNumero: Math.round(n),
+        })
+      }}
+    >
+      {manual ? (
+        <label className="campo">
+          Nome da meta
+          <input
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            maxLength={60}
+            required
+          />
+        </label>
+      ) : null}
+      <label className="campo">
+        Meta{' '}
+        <small>{meta.tipo === 'pct' ? '(%)' : meta.tipo === 'valor' ? '(R$)' : '(quantidade)'}</small>
+        <input
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          type="text"
+          inputMode="decimal"
+          className="num"
+          required
+        />
+      </label>
+      {erro === null ? null : (
+        <p className="campo erro" role="alert">
+          {erro}
+        </p>
+      )}
+      <div className="acoes-de-tela">
+        <button type="submit" className="btn" disabled={salvando}>
+          Salvar
+        </button>
+        <button type="button" className="link" onClick={aoCancelar} disabled={salvando}>
+          Cancelar
+        </button>
+      </div>
+    </form>
   )
 }
 
