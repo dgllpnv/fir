@@ -607,9 +607,23 @@ case "$codigo_painel" in
     echo "  mas o painel não sobe assim. Confira IPS_DO_PAINEL e os logs do Traefik." >&2
     ;;
   200)
-    echo "  ERRO: /superadmin respondeu 200 de uma origem fora da allowlist." >&2
-    echo "  O controle da D-5 restrição 6 NÃO está no ar." >&2
-    falhou=1
+    # D-24 (2026-11-08): o dono manteve o painel aberto a qualquer origem e
+    # registrou o risco como aceito. Só nesse caso EXPLÍCITO — a allowlist
+    # escrita como "tudo" (0.0.0.0/0) — o 200 vira aviso. Qualquer outra lista
+    # que deixe passar origem de fora continua sendo erro: aí o controle
+    # existe e falhou, que é o defeito que esta asserção pega.
+    case ",$IPS_DO_PAINEL," in
+      *,0.0.0.0/0,*)
+        echo "  ATENÇÃO: /superadmin aberto a qualquer origem (IPS_DO_PAINEL=$IPS_DO_PAINEL)." >&2
+        echo "  Risco aceito pelo dono na D-24 (docs/decisoes.md). Para fechar, ponha os IPs" >&2
+        echo "  da Firmare em IPS_DO_PAINEL e rode este script de novo." >&2
+        ;;
+      *)
+        echo "  ERRO: /superadmin respondeu 200 de uma origem fora da allowlist." >&2
+        echo "  O controle da D-5 restrição 6 NÃO está no ar." >&2
+        falhou=1
+        ;;
+    esac
     ;;
   *)
     echo "  ATENÇÃO: /superadmin devolveu $codigo_painel; esperado 403." >&2

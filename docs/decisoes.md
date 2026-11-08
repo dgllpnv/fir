@@ -636,6 +636,24 @@ O dono testou o superadmin em produção e pediu, com o protótipo do Firmare Ge
 5. **Espaço** entre "Grupos" e "Clientes de cada grupo" em `/superadmin/grupos`.
 6. **Um login só para a Firmare:** todo superadmin tem automaticamente uma conta de gestão no grupo Firmare (vê todas as clínicas, perfil Diretoria, com valores). Ao entrar em `/superadmin`, abre a **Visão geral do protótipo** com todas as clínicas; o menu traz também Clínicas, Grupos e Usuários de gestão. **O painel passa a ver dinheiro** — revoga, para o superadmin, a regra "nenhum dinheiro atravessa o painel" (ADR nova substitui a parte correspondente da ADR 0011).
 
+## D-24 · O painel do superadmin fica aberto a qualquer origem — risco aceito (2026-11-08)
+
+**Decisão do dono:** manter `IPS_DO_PAINEL=0.0.0.0/0,::/0` em produção. O painel do superadmin responde a qualquer
+endereço da internet; a proteção é a senha do operador (e o limite de tentativas).
+
+**O risco aceito, por escrito:**
+- Desde a D-23 o superadmin abre a Gestão com dinheiro de todas as clínicas (conta de gestão vinculada, ADR 0024), e o
+  segundo fator está desligado (ADR 0023). Quem descobrir a senha de um operador, de qualquer lugar, vê e altera tudo.
+- A allowlist de IP era o controle da D-5 restrição 6; com ela aberta, ele não existe.
+
+**O que segura hoje:** senha forte do operador, limite de tentativas no login do painel e a trilha de auditoria.
+
+**Gatilhos para reabrir:** um operador novo além da equipe da Firmare; primeira clínica real migrada da v20; qualquer
+sinal de tentativa de acesso indevido nos logs. Fechar é só pôr os IPs em `IPS_DO_PAINEL` e rodar `implantar.sh`.
+
+**No código:** `infra/producao/implantar.sh` (asserção 7.8) trata o `200` em `/superadmin` como aviso **só** quando a lista
+contém `0.0.0.0/0` explicitamente; qualquer outra lista que deixe passar origem de fora continua reprovando a implantação.
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

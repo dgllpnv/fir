@@ -97,6 +97,14 @@ O painel cria clínica e administradora **em qualquer clínica** — é a creden
 
 **Gatilho:** o primeiro operador que precisar entrar de fora dos endereços conhecidos, ou a entrada de CDN/domínio próprio (P-8). O que cabe é WebAuthn no painel, não TOTP: com dois usuários, uma chave física é mais barata de operar que um segredo compartilhado.
 
+### D3d · Painel do superadmin aberto a qualquer origem (risco aceito, D-24)
+
+`IPS_DO_PAINEL=0.0.0.0/0,::/0` em produção por decisão do dono. Somado à D3a (painel sem MFA), à D3c (2FA da carteira
+desligado) e à ADR 0024 (superadmin vê dinheiro de todas as clínicas), a senha do operador é o único controle entre a
+internet e os dados da carteira.
+**Gatilho:** operador novo fora da equipe Firmare, primeira clínica real migrada, ou tentativa indevida nos logs.
+**Como fechar:** os IPs da Firmare em `IPS_DO_PAINEL` e `implantar.sh` de novo (a asserção 7.8 volta a exigir 403).
+
 ### D3c · 2FA da carteira desligado por decisão do dono; gatilho para religar
 
 **O que é:** a D-23 item 3 (2026-11-08) desligou a exigência de TOTP do `Usuário de Gestão`
