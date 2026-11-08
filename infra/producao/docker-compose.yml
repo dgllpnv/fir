@@ -140,6 +140,65 @@ services:
       redis: { condition: service_healthy }
     networks: [dados]
 
+  # -------------------------------------------------------------------------
+  # worker-agenda — a sincronização da agenda iCal das clínicas (ADR 0019)
+  # -------------------------------------------------------------------------
+  # Mesma imagem da API, outro processo: a cada 15 min (job repetível) e sob
+  # demanda ("Sincronizar agora" enfileira em `agenda:sincronizacao`), ele
+  # baixa o feed de cada clínica e concilia os compromissos.
+  #
+  # **Ele é o único serviço com saída para a internet**, e é por isso que é um
+  # container à parte e não um módulo da API: buscar o iCal exige HTTPS e DNS
+  # para fora, e a API continua na rede sem rota de saída. Conteúdo externo é
+  # baixado e interpretado aqui, longe do processo que serve o balcão.
+  #
+  # A saída é para a internet, não para dentro: o SSRF é fechado no `lookup`
+  # da conexão (`src/agenda/baixar-feed.ts` — só https:443, endereço privado,
+  # loopback, link-local e CGNAT recusados no momento de conectar). Isso
+  # importa porque este container ENXERGA o Postgres e o Redis pela `dados`;
+  # sem aquela trava, um link de agenda apontado para `postgres` ou para o IP
+  # de metadados da VPS seria um proxy para dentro.
+  worker-agenda:
+    image: fir/api:${VERSAO:-mais-recente}
+    command: ['node', 'worker-agenda.js']
+    restart: unless-stopped
+    environment:
+      # `fir_app`, o mesmo papel da API, sujeito a RLS. Nada de `fir_migrate`:
+      # um processo que lê conteúdo da internet é o último lugar para um papel
+      # com BYPASSRLS.
+      DATABASE_URL: postgresql://fir_app:${SENHA_APP:?}@postgres:5432/fir
+      REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
+      TZ: UTC
+      # O heap abaixo do teto do container: com o limite só no cgroup, o V8
+      # não sabe dele e o kernel mata o processo por OOM em vez de o coletor
+      # trabalhar. O feed tem teto de 5 MB (ADR 0019), então 192 MB sobram.
+      NODE_OPTIONS: --max-old-space-size=192
+    # Disco, CPU e memória são compartilhados com a produção de OUTROS
+    # negócios. Um feed patológico (recorrência que expande para milhares de
+    # ocorrências) não pode virar a vez de outro container ficar sem memória.
+    mem_limit: 256m
+    cpus: 0.5
+    # SEM healthcheck, e a escolha é deliberada.
+    #
+    # A imagem herda o `HEALTHCHECK` HTTP da API (`/v1/saude` na 4811), que
+    # aqui nunca responde: o container ficaria `unhealthy` para sempre. Isso
+    # não é só ruído — `implantar.sh` conta serviços saudáveis com
+    # `grep -c 'healthy'`, e `unhealthy` CONTÉM `healthy`.
+    #
+    # E um teste não-HTTP não compraria nada: o Compose (fora do Swarm) não
+    # reinicia container `unhealthy`. Quem reinicia é o `restart` acima, quando
+    # o processo morre — e um worker que perde o Redis morre ou reconecta
+    # sozinho. O sinal que de fato importa é de NEGÓCIO: clínica cuja
+    # sincronização parou de dar certo, que mora no banco, não no container.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    # `dados` para Postgres e Redis; `saida` para a internet. Nenhuma porta
+    # publicada, nenhuma label do Traefik: nada de fora chega até ele.
+    networks: [dados, saida]
+
   web:
     image: fir/web:${VERSAO:-mais-recente}
     restart: unless-stopped
@@ -304,6 +363,17 @@ networks:
   dados:
     driver: bridge
     internal: true
+
+  # A rota de saída do `worker-agenda`, e de **mais ninguém**. Bridge comum,
+  # sem `internal`, porque buscar o iCal exige DNS e HTTPS para fora.
+  #
+  # Uma rede própria, e não a `easypanel`, porque aquela é do Traefik e dos
+  # containers de outros negócios: pôr o worker lá o deixaria alcançar
+  # serviços alheios pelo nome. E não se acrescenta `saida` a outro serviço —
+  # um segundo serviço nesta lista é um segundo serviço com rota para a
+  # internet, e `implantar.sh` mede que o Postgres continua sem ela.
+  saida:
+    driver: bridge
 
   # A rede do EasyPanel, onde o Traefik vive. `external` porque ela já existe
   # e **não é nossa** — declarar sem isso faria o compose tentar criá-la.

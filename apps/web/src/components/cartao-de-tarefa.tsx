@@ -9,6 +9,7 @@ import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto, linkDeWhatsApp } from '@/lib/formato'
 import { ICONE_CHECK, ICONE_WHATSAPP } from '@/lib/icones'
 import { FaixaDaJornada, type MoverEtapa } from './jornada/faixa-da-jornada'
+import { SeloConferirCadastro } from './selo-conferir-cadastro'
 
 /**
  * O cartão de tarefa — usado por Hoje e por Tarefas, UM componente só.
@@ -120,6 +121,7 @@ export function CartaoDeTarefa({
         {t.pacienteId !== null ? (
           <div className="pmeta">
             <span className="pill paciente">{t.pacienteNome}</span>
+            {t.pacienteConferirCadastro ? <SeloConferirCadastro /> : null}
             {t.tipo === '' ? null : <span className="pill">{t.tipo}</span>}
             {t.pagamento === null ? null : (
               <>

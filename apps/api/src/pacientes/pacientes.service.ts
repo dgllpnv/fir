@@ -65,6 +65,7 @@ type LinhaDePaciente = {
   unidade_id: string | null
   ultima_consulta: string | null
   obs: string
+  conferir_cadastro: boolean
   ativo: boolean
   criado_em: Date
   ultimo_atendimento: string | null
@@ -89,6 +90,7 @@ const paraSaida = (l: LinhaDePaciente, s: SaldoDoPaciente): PacienteNaLista => (
   unidadeId: l.unidade_id,
   ultimaConsulta: l.ultima_consulta,
   obs: l.obs,
+  conferirCadastro: l.conferir_cadastro,
   ativo: l.ativo,
   criadoEm: l.criado_em.toISOString(),
   ultimoAtendimento: l.ultimo_atendimento,
@@ -122,7 +124,7 @@ const paraSaida = (l: LinhaDePaciente, s: SaldoDoPaciente): PacienteNaLista => (
  */
 const SELECT_BASE = `
   SELECT p.id, p.nome, p.telefone, p.aniversario::text AS aniversario, p.origem, p.indicado_por,
-         p.unidade_id, p.ultima_consulta::text AS ultima_consulta, p.obs, p.ativo, p.criado_em,
+         p.unidade_id, p.ultima_consulta::text AS ultima_consulta, p.obs, p.conferir_cadastro, p.ativo, p.criado_em,
          p.aniversario     AS aniversario_data,
          p.ultima_consulta AS ultima_consulta_data,
          (SELECT count(*) FROM tarefas t
@@ -255,6 +257,9 @@ export class PacientesService {
         por('ultima_consulta', this.soPassado(dados.ultimaConsulta, fuso))
       }
       if (dados.obs !== undefined) por('obs', dados.obs)
+      // Salvar a ficha É conferir o cadastro (ADR 0019): quem abriu, viu o
+      // nome e o telefone que a agenda trouxe e salvou, assumiu o cadastro.
+      campos.push('conferir_cadastro = false')
 
       if (campos.length > 0) {
         try {

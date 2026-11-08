@@ -15,6 +15,7 @@ import { ICONE_WHATSAPP, inicial } from '@/lib/icones'
 import { Carregando, Erro, Toast } from './estados'
 import { FormularioDePaciente } from './formulario-de-paciente'
 import { PainelDeEdicao } from './painel-de-edicao'
+import { SeloConferirCadastro } from './selo-conferir-cadastro'
 
 /**
  * A ficha — cadastro, indicadores e a linha do tempo das tarefas.
@@ -96,6 +97,7 @@ export function FichaDoPaciente({ id, podeGerir }: { id: string; podeGerir: bool
           <div style={{ minWidth: 0 }}>
             <div className="eyebrow">Comercial</div>
             <h2>{p.nome}</h2>
+            {p.conferirCadastro ? <SeloConferirCadastro /> : null}
           </div>
         </div>
         <div className="acoes-de-tela">

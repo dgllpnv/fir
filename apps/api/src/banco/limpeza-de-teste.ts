@@ -185,6 +185,8 @@ const EM_ORDEM_DE_APAGAR = [
   'contado_na_contagem',
   'itens_da_contagem',
   'contagens_de_estoque',
+  // A agenda externa (0037). O vínculo aponta para `tarefas`, então vem antes.
+  'compromissos_externos',
   'tarefas',
   // Depois de `tarefas`, que aponta para as três pela chave estrangeira
   // COMPOSTA `(coluna, clinica_id)`: o filho vai antes do pai.
@@ -225,6 +227,8 @@ const EM_ORDEM_DE_APAGAR = [
   'metas_de_pessoa',
   'fichas_de_pessoa',
   'configuracao_de_pessoal',
+  // A agenda externa (0037) aponta para `pessoas` pelo responsável.
+  'agendas_externas',
   'pacientes',
   'unidades',
   'sessoes',

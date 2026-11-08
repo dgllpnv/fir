@@ -121,6 +121,18 @@ serviço por worker no `docker-compose.yml`, mesma imagem `fir/api`, comando
 próprio (`tsx src/carteira/.../worker-*.ts`), sem porta publicada, na rede
 `dados` — nenhuma fila nova a desenhar, só registrar as duas que já existem.
 
+**Agravante achado em 2026-11-08 (ADR 0019):** mesmo registrados, os três
+workers da carteira **não sobem**. O BullMQ 5 recusa `:` no nome da fila
+(`Queue name cannot contain :`), e as três filas usam dois-pontos:
+`carteira:gerar-cobrancas`, `carteira:uso-diario-cliente` e
+`carteira:gerar-tarefas-de-rotinas-internas`. Medido ao rodar o bundle do
+worker da agenda, que tinha o mesmo defeito e foi corrigido
+(`agenda-sincronizacao`). O conserto é trocar `:` por `-` nos três nomes; a
+fila vazia no Redis não precisa de migração. O `worker-agenda` é o primeiro
+worker em produção, e o `implantar.sh` ganhou a asserção 7.6c (o worker não
+pode estar em laço de reinício), que vai pegar o mesmo defeito quando os da
+carteira entrarem.
+
 ### D14 · Toda rota da carteira redige valor monetário como `null`, para todo `Usuário de Gestão`, sempre — por falta de permissão `valores` própria
 
 `packages/domain/src/permissoes.ts` documenta a decisão, lá onde `mensalidade`,

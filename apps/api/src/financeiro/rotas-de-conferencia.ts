@@ -306,6 +306,7 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   },
   { caminho: '/v1/clinica', razao: 'Nome, código e fuso da clínica.' },
   { caminho: '/v1/equipe', razao: 'As pessoas ativas, para os seletores. Nenhum valor.' },
+  { caminho: '/v1/agenda-externa', razao: 'A configuração da agenda do sistema (ADR 0019): link mascarado, responsável e contagens da última leitura. Nenhum valor, nenhum agregado de caixa.' },
   { caminho: '/v1/unidades', razao: 'As unidades da clínica. Nenhum valor.' },
   {
     caminho: '/v1/pessoas',

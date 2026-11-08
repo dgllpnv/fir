@@ -206,6 +206,20 @@ export const MENU: readonly ItemDeMenu[] = [
     promessa: 'O catálogo de procedimentos, com os insumos que cada um consome.',
   },
   {
+    href: '/agenda-do-sistema',
+    rotulo: 'Agenda do sistema',
+    grupo: 'Gestão',
+    /**
+     * `config`, o mesmo que as rotas `/v1/agenda-externa` exigem (ADR 0019).
+     * O link iCal dá leitura da agenda de pacientes: colá-lo é configuração
+     * da clínica, não operação do balcão.
+     */
+    perm: 'config',
+    epico: null,
+    promessa:
+      'O link iCal da agenda do sistema da clínica, que cria e reagenda os cartões da jornada sozinho.',
+  },
+  {
     href: '/ajuda',
     rotulo: 'Ajuda e manual',
     grupo: 'Gestão',

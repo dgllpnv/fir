@@ -11,7 +11,8 @@
 #   3. Postgres e Redis, e esperar ficarem saudáveis de verdade
 #   4. `fir_painel` (provisionar-painel.sh), que não é migration
 #   5. migrations, como `fir_migrate` — o único papel com BYPASSRLS
-#   6. API e web
+#   6. API, web e worker-agenda (depois das migrations: o worker lê tabelas
+#      que elas criam)
 #   7. verificação
 #
 # O passo 6 do README — `./redefinir-superadmin.sh` — **não** está aqui, de
@@ -372,8 +373,12 @@ docker compose run --rm --no-deps \
 # ---------------------------------------------------------------------------
 # 6 · aplicação
 # ---------------------------------------------------------------------------
-echo "==> subindo API e web"
-docker compose up -d api web
+# O `worker-agenda` é listado por nome, como os outros: um `up -d` sem nomes
+# também o subiria, mas aqui a lista é o inventário do que o deploy entrega.
+# Ele usa a imagem `fir/api`, então o selo conferido no passo 2.5 já cobre o
+# código dele — não há segunda imagem para selar.
+echo "==> subindo API, web e worker-agenda"
+docker compose up -d api web worker-agenda
 
 # ---------------------------------------------------------------------------
 # 7 · verificação
@@ -470,6 +475,55 @@ if docker compose exec -T postgres getent hosts github.com >/dev/null 2>&1; then
   falhou=1
 else
   echo "  ok  o Postgres não tem rota de saída"
+fi
+
+# 7.6b · a API também NÃO tem rota de saída.
+# Desde o `worker-agenda` existe uma rede com saída neste compose (`saida`). O
+# risco é alguém "resolver" um problema acrescentando-a à `api` — e aí o
+# processo que serve o balcão passa a alcançar a internet. `node` e não
+# `getent`, para não depender de utilitário da imagem: se a ferramenta faltar,
+# a asserção não pode passar por engano.
+if docker compose exec -T api node -e \
+  "require('node:dns').promises.lookup('github.com').then(()=>process.exit(0),()=>process.exit(1))" \
+  2>/dev/null; then
+  echo "  ERRO: a API resolve nome externo — ela ganhou rota de saída." >&2
+  falhou=1
+else
+  echo "  ok  a API não tem rota de saída"
+fi
+
+# 7.6c · o worker-agenda está de pé, e não em laço de reinício.
+#
+# Ele não tem healthcheck (ver o compose), então `Up` no `ps` não basta: um
+# processo que morre na inicialização — `DATABASE_URL` errada, migration que
+# faltou — aparece como `Up 1 second` entre um reinício e outro. A medida é a
+# contagem de reinícios não subir numa janela de 15 s.
+#
+# Falha aqui é deploy RECUSADO: o worker roda a mesma imagem da API, então um
+# worker que não inicia costuma ser sintoma de algo que também morde a API.
+worker=$(docker compose ps -q worker-agenda || true)
+reinicios_antes=$(docker inspect -f '{{.RestartCount}}' "$worker" 2>/dev/null || echo x)
+sleep 15
+estado_worker=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$worker" 2>/dev/null || echo 'ausente x')
+if [ "$estado_worker" = "running $reinicios_antes" ]; then
+  echo "  ok  o worker-agenda está de pé (sem reinício em 15 s)"
+else
+  echo "  ERRO: o worker-agenda não está estável (estado/reinícios: $estado_worker; antes: $reinicios_antes)." >&2
+  docker compose logs --tail 40 worker-agenda >&2
+  falhou=1
+fi
+
+# 7.6d · o worker-agenda TEM rota de saída — é a razão de ele existir.
+# ATENÇÃO, não erro: o que se mede depende do DNS de fora da VPS, e a falha
+# atrasa a sincronização da agenda sem derrubar o balcão. Mas é a única
+# asserção que diz que a rede `saida` faz o que o compose promete.
+if docker compose exec -T worker-agenda node -e \
+  "require('node:dns').promises.lookup('calendar.google.com').then(()=>process.exit(0),()=>process.exit(1))" \
+  2>/dev/null; then
+  echo "  ok  o worker-agenda resolve nome externo (rede de saída funciona)"
+else
+  echo "  ATENÇÃO: o worker-agenda não resolve calendar.google.com." >&2
+  echo "  A sincronização da agenda vai falhar. Confira a rede 'fir_saida'." >&2
 fi
 
 # 7.7 · o Traefik serve a página de entrada.

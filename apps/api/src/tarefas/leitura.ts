@@ -134,6 +134,7 @@ export const SELECT_TAREFA = `
          t.descricao, t.prazo::text AS prazo, t.hora::text AS hora, t.prioridade, t.status,
          t.concluida_em, t.criada_em,
          t.paciente_id, pa.nome AS paciente_nome, pa.telefone AS paciente_telefone,
+         coalesce(pa.conferir_cadastro, false) AS paciente_conferir_cadastro,
          t.tipo, t.etapa::text AS etapa, t.historico, t.resultado, t.obs,
          t.serie_id, t.recorrencia, t.unidade_id,
          -- A identidade de SESSÃO (épico 5). NULL em toda tarefa que não é
@@ -179,6 +180,7 @@ export type LinhaDeTarefa = {
   paciente_id: string | null
   paciente_nome: string | null
   paciente_telefone: string | null
+  paciente_conferir_cadastro: boolean
   tipo: string
   etapa: string | null
   historico: EventoDeJornada[]
@@ -237,6 +239,7 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   pacienteId: l.paciente_id,
   pacienteNome: l.paciente_nome,
   pacienteTelefone: l.paciente_telefone,
+  pacienteConferirCadastro: l.paciente_conferir_cadastro,
   tipo: l.tipo,
   etapa: l.etapa as Etapa | null,
   historico: l.historico,

@@ -13,7 +13,8 @@ REM    fir status     estado dos servicos
 REM    fir logs       logs dos containers
 REM    fir psql       shell psql no banco local
 REM    fir workers    sobe os workers da carteira (G3 cobrancas, G4 uso
-REM                   diario) para testar manualmente - exige "fir infra"
+REM                   diario, G5 rotinas internas) e o da agenda externa
+REM                   para testar manualmente - exige "fir infra"
 REM                   (ou "fir") rodando antes, para o Redis estar no ar
 REM
 REM  Portas: bloco 48xx. 47xx e do Mavia, que roda na mesma maquina.
@@ -249,16 +250,20 @@ REM apps/api/src/carteira/jobs/worker-uso-diario.ts). Para testar manualmente
 REM os jobs sem decorar o caminho de cada arquivo:
 REM
 REM   fir infra              (sobe o Redis; so precisa uma vez)
-REM   fir workers            (sobe os dois workers, com watch, ate Ctrl+C)
+REM   fir workers            (sobe todos os workers, com watch, ate Ctrl+C)
 REM
-REM Cada worker tambem roda sozinho, se so um dos dois interessar:
+REM Cada worker tambem roda sozinho, se so um interessar:
 REM   pnpm --filter @fir/api dev:worker:uso-diario
 REM   pnpm --filter @fir/api dev:worker:cobrancas
+REM   pnpm --filter @fir/api exec tsx watch src/agenda/worker-agenda.ts
+REM
+REM O da agenda (ADR 0019) e o unico que tambem roda em producao, e o unico
+REM que precisa de internet: ele baixa o feed iCal da clinica.
 :workers
 echo.
-echo   Subindo os workers da carteira (G3 cobrancas, G4 uso diario)...
+echo   Subindo os workers da carteira (G3, G4, G5) e o da agenda externa...
 echo   Exige o Redis local no ar (rode "fir infra" antes, se ainda nao subiu).
-echo   Ctrl+C encerra os dois.
+echo   Ctrl+C encerra todos.
 echo.
 call pnpm --filter @fir/api dev:workers
 goto :fim

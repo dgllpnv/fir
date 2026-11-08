@@ -7,6 +7,7 @@ import { SenhaProvisoriaGuard } from './autenticacao/senha-provisoria.guard'
 import { SessaoGuard } from './autenticacao/sessao.guard'
 import { AutorizacaoGuard } from './autorizacao/autorizacao.guard'
 import { BancoModule } from './banco/banco.module'
+import { AgendaModule } from './agenda/agenda.module'
 import { ClinicaModule } from './clinica/clinica.module'
 import { EstoqueModule } from './estoque/estoque.module'
 import { FinanceiroModule } from './financeiro/financeiro.module'
@@ -48,6 +49,8 @@ import { TarefasModule } from './tarefas/tarefas.module'
     TarefasModule,
     JornadaModule,
     ClinicaModule,
+    // A agenda do sistema da clínica (ADR 0019).
+    AgendaModule,
     FinanceiroModule,
     // ANTES de `ProgramasModule`, que o importa pelo seam `BaixaDeInsumos` —
     // ligado no épico 6 e provido por `BaixaRelacional`.

@@ -38,3 +38,5 @@ export * from './estoque'
 export * from './metas'
 export * from './campanhas'
 export * from './painel'
+// A agenda do sistema da clínica (ADR 0019).
+export * from './agenda'

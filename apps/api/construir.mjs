@@ -224,6 +224,26 @@ await build({
 })
 
 /**
+ * O WORKER DA AGENDA EXTERNA (ADR 0019).
+ *
+ * Processo irmão da API, na **mesma imagem**, com outro `command` no compose.
+ * Ele existe separado por uma razão de rede, não de organização: buscar o iCal
+ * exige saída para a internet, e a API mora numa rede sem rota de saída. Quem
+ * baixa e interpreta conteúdo externo não é o processo que serve o balcão.
+ *
+ * `ical.js` é ESM puro e entra no bundle — não precisa estar em `externos`.
+ * BullMQ e ioredis também: os scripts Lua do BullMQ vêm embutidos em módulos
+ * JS (`dist/esm/scripts/*.js`), não lidos de arquivo em runtime. O único caso
+ * que quebraria é processador **sandboxed** (`new Worker(fila, 'caminho.js')`),
+ * que resolve arquivo pelo caminho; este worker usa função em processo.
+ */
+await build({
+  ...comum,
+  entryPoints: ['src/agenda/worker-agenda.ts'],
+  outfile: 'dist/worker-agenda.js',
+})
+
+/**
  * O que **não** entra na imagem, e é decisão e não esquecimento:
  *
  * - `semear.ts` — a semente da clínica de demonstração tem a senha escrita
@@ -233,4 +253,4 @@ await build({
  *   exercitar de verdade.
  */
 
-console.log('\nAPI construída em dist/ (api.js, migrar.js, credencial.js, migrar-clinica.js).')
+console.log('\nAPI construída em dist/ (api.js, migrar.js, credencial.js, migrar-clinica.js, worker-agenda.js).')

@@ -1,5 +1,5 @@
 // Sobe os três workers da carteira (G3 cobranças, G4 uso diário, G5 rotinas
-// internas) em paralelo, para desenvolvimento local. Processo Node puro —
+// internas) e o da agenda externa em paralelo, para desenvolvimento local. Processo Node puro —
 // sem depender de sintaxe de shell (`&`, `wait`) que diverge entre
 // PowerShell/cmd e bash, e sem adicionar `concurrently` como dependência só
 // para isto.
@@ -16,6 +16,10 @@ const ALVOS = [
   { nome: 'uso-diario', arquivo: 'src/carteira/jobs/worker-uso-diario.ts' },
   { nome: 'cobrancas', arquivo: 'src/carteira/financeiro/worker-cobrancas.ts' },
   { nome: 'rotinas-internas', arquivo: 'src/carteira/prospeccao/worker-rotinas-internas.ts' },
+  // A sincronização da agenda iCal (ADR 0019). Diferente dos três acima, este
+  // também roda em produção (`worker-agenda` no compose). Localmente ele
+  // precisa de internet para baixar o feed — a máquina de desenvolvimento tem.
+  { nome: 'agenda', arquivo: 'src/agenda/worker-agenda.ts' },
 ]
 
 const processos = ALVOS.map(({ nome, arquivo }) => {

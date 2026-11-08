@@ -134,6 +134,8 @@ export const PacienteNaLista = z.object({
   /** O atendimento mais recente registrado em tarefas, se houver. */
   ultimoAtendimento: DiaCivil.nullable(),
   obs: z.string(),
+  /** Cadastrada pela agenda do sistema, ainda não conferida (ADR 0019). Salvar a ficha limpa. */
+  conferirCadastro: z.boolean(),
   tarefasAbertas: z.number().int(),
   ltv: centavosNaSaida,
   /**

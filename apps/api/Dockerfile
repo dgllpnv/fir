@@ -65,7 +65,7 @@ RUN node apps/api/construir.mjs
 # alguma.
 RUN set -eu; \
     for proibido in console-ninja wallabyjs .vscode; do \
-      if grep -qF "$proibido" apps/api/dist/api.js apps/api/dist/migrar.js apps/api/dist/credencial.js apps/api/dist/migrar-clinica.js; then \
+      if grep -qF "$proibido" apps/api/dist/api.js apps/api/dist/migrar.js apps/api/dist/credencial.js apps/api/dist/migrar-clinica.js apps/api/dist/worker-agenda.js; then \
         echo "ERRO: '$proibido' entrou no artefato de producao." >&2; exit 1; \
       fi; \
     done; \

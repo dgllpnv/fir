@@ -109,6 +109,13 @@ const ICONES: Readonly<Record<string, ReactElement>> = {
     <path key="a" d="M10 2.5h4M11 2.5v5.2L6.6 16a3 3 0 0 0 2.6 4.5h5.6a3 3 0 0 0 2.6-4.5L13 7.7V2.5" />,
     <path key="b" d="M7.5 14.5h9" />,
   ),
+  /* Calendário com setas em círculo: a agenda que vem de fora e se atualiza
+     sozinha. Sem as setas seria "Hoje", que é o calendário do balcão. */
+  '/agenda-do-sistema': svg(
+    <rect key="a" x="3" y="5" width="12" height="12" rx="2" />,
+    <path key="b" d="M3 9.5h12M7 3v4M11 3v4" />,
+    <path key="c" d="M21.5 16a4 4 0 0 1-7 2.6M14.5 21.5v-2.9h2.9M14.6 13.9a4 4 0 0 1 6.9 1.6M21.5 11.5v2.9h-2.9" />,
+  ),
   /* Livro aberto: manual, não ponto de interrogação — o conteúdo é leitura
      corrida em 14 capítulos, não uma caixa de dúvidas. */
   '/ajuda': svg(

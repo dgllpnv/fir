@@ -245,3 +245,23 @@ export function fimDaSessaoDoBalcao(agora: Date, fuso: string): Date {
   const piso = agora.getTime() + PISO_DA_SESSAO_MS
   return new Date(Math.max(piso, Math.min(fimDoDia, teto)))
 }
+
+/**
+ * A hora de parede `HH:MM` de um instante, no fuso da clínica.
+ *
+ * Par de `diaCivil`: o compromisso da agenda externa chega como instante, e o
+ * cartão guarda `prazo` (dia) e `hora` no calendário da clínica. `h23` e não
+ * `hour12: false`: o segundo devolve `24:00` à meia-noite em algumas versões
+ * do ICU.
+ */
+export function horaCivil(instante: Date, fuso: string): string {
+  const partes = new Intl.DateTimeFormat('en-US', {
+    timeZone: fuso,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instante)
+  const p: Record<string, string> = {}
+  for (const x of partes) if (x.type !== 'literal') p[x.type] = x.value
+  return `${p['hour']}:${p['minute']}`
+}

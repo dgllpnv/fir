@@ -555,6 +555,9 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
  * que a RLS protege em todas as demais tabelas.
  */
 export const ENTIDADES_COM_CLINICA: readonly string[] = [
+  // A agenda do sistema da clínica (0037, ADR 0019): o link e o vínculo
+  // `uid → tarefa`. Sem DELETE para a aplicação.
+  'agendas_externas',
   'auditoria',
   // O épico 7, primeira metade (0018): a ficha de RH e os três filhos dela.
   // `banco_de_horas` é a única MUTÁVEL do grupo — ela é transcrição do app de
@@ -564,6 +567,7 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'caixa_por_forma',
   'caixas_do_dia',
   'cobrancas',
+  'compromissos_externos',
   'configuracao_de_pessoal',
   'configuracao_financeira',
   // O épico 6, segunda fatia (0017): a contagem às cegas e a nota de entrada.

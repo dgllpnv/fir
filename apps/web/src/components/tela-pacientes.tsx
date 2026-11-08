@@ -10,6 +10,7 @@ import { inicial } from '@/lib/icones'
 import { Carregando, Erro, Toast } from './estados'
 import { FormularioDePaciente } from './formulario-de-paciente'
 import { ImportarPacientes } from './importar-pacientes'
+import { SeloConferirCadastro } from './selo-conferir-cadastro'
 
 /**
  * Pacientes — a lista, os quatro atalhos e a entrada para a ficha.
@@ -290,7 +291,15 @@ function LinhaDePaciente({
         {inicial(p.nome)}
       </span>
       <span className="info">
-        <b>{p.nome}</b>
+        <b>
+          {p.nome}
+          {p.conferirCadastro ? (
+            <>
+              {' '}
+              <SeloConferirCadastro />
+            </>
+          ) : null}
+        </b>
         <small>
           {p.origem === '' ? 'Origem não informada' : p.origem}
           {ultimo === null ? '' : ` · última consulta ${diaEmTexto(ultimo)}`}

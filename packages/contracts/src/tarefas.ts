@@ -321,6 +321,8 @@ export const TarefaNaLista = z.object({
   pacienteId: Uuid.nullable(),
   pacienteNome: z.string().nullable(),
   pacienteTelefone: z.string().nullable(),
+  /** A paciente foi cadastrada pela agenda do sistema e espera conferência (ADR 0019). */
+  pacienteConferirCadastro: z.boolean(),
   tipo: z.string(),
   etapa: z.enum(ETAPAS).nullable(),
   historico: z.array(EventoDeJornada),

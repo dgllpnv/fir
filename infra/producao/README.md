@@ -23,8 +23,8 @@ imagem carrega `LABEL fir.commit` e o deploy compara identidade com o `HEAD` do
 disco; construir ali acaba com a pergunta "você lembrou de construir?".
 
 `implantar.sh` é idempotente: rodar duas vezes não recria segredo, não reaplica
-migration e não perde dado. Ele faz os passos 1 a 5 abaixo e termina com oito
-asserções — **um deploy que não é verificado não é um deploy**.
+migration e não perde dado. Ele faz os passos 1 a 5 abaixo e termina com
+asserções (onze, desde o `worker-agenda`) — **um deploy que não é verificado não é um deploy**.
 
 O passo 6 fica fora dele de propósito: ele imprime uma senha na tela, e um
 passo que imprime segredo não pertence a um script que alguém roda de novo por
@@ -37,7 +37,7 @@ reflexo.
 2.  docker compose up -d postgres redis    # 10-papeis.sh roda AQUI, uma vez
 3.  ./provisionar-painel.sh                # cria e credencia fir_painel
 4.  migrar.js, como fir_migrate            # a 0013 CONFERE o papel
-5.  docker compose up -d api web
+5.  docker compose up -d api web worker-agenda
 6.  ./redefinir-superadmin.sh <usuario> "Nome"   # cria o PRIMEIRO operador
 ```
 
@@ -77,6 +77,40 @@ produção, sem ninguém ligar o sintoma à causa.
 
 O passo 6 é o único jeito de ter o primeiro operador: **o painel não tem como
 criar um operador antes de existir um.**
+
+## worker-agenda
+
+O processo que sincroniza a agenda iCal das clínicas (ADR 0019): a cada 15 min
+por job repetível, e sob demanda quando alguém aperta "Sincronizar agora" (a
+API só enfileira em `agenda:sincronizacao`). Mesma imagem `fir/api`, outro
+`command` (`node worker-agenda.js`). Não serve HTTP, não publica porta, não tem
+label do Traefik.
+
+**É o único serviço com saída para a internet**, pela rede `saida` (bridge
+comum). Ele fica também na `dados`, para falar com Postgres e Redis — como
+`fir_app`, sob RLS, nunca como `fir_migrate`. A API e o banco continuam sem
+rota de saída, e o deploy mede as duas coisas (asserções 7.6 e 7.6b), além de
+medir que o worker não está em laço de reinício (7.6c) e que ele resolve nome
+externo (7.6d, aviso).
+
+Como ele enxerga a rede interna **e** a internet, a trava contra SSRF não é
+opcional: ela mora no `lookup` da conexão (`apps/api/src/agenda/baixar-feed.ts`)
+e recusa endereço privado, loopback, link-local e CGNAT. Mexer ali é mexer na
+fronteira de rede deste compose.
+
+Sem healthcheck, de propósito (o herdado da imagem é HTTP e ficaria
+`unhealthy` para sempre; o motivo completo está no compose). Teto de 256 MB e
+meia vCPU — a máquina é compartilhada.
+
+```bash
+docker compose logs -f worker-agenda          # acompanhar
+docker compose ps worker-agenda               # estado
+docker compose restart worker-agenda          # reiniciar só ele
+```
+
+Se ele cair, o balcão continua funcionando: o que para é a agenda deixar de
+se atualizar. O sinal disso é de negócio (clínica cuja sincronização parou de
+dar certo), não um gráfico de container.
 
 ## Variáveis do `.env`
 
