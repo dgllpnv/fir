@@ -5,8 +5,10 @@ import {
   CaixaAberto,
   CaixaFechado,
   ConferenciaDeCaixa,
+  ConsultaDeContas,
   FecharCaixa,
   FORMAS_DE_ENTRADA,
+  ListaDeContas,
   PagarConta,
   RegistrarRecebimento,
   SalvarConta,
@@ -120,11 +122,46 @@ describe('contas a pagar', () => {
     expect(PagarConta.safeParse({ ...PAG, formaPagamento: 'Boleto' }).success).toBe(true)
     expect(PagarConta.safeParse({ ...PAG, formaPagamento: 'Débito automático' }).success).toBe(true)
     expect(PagarConta.safeParse({ ...PAG, formaPagamento: 'Nota promissória' }).success).toBe(false)
-    expect(PagarConta.safeParse({ ...PAG, formaPagamento: 'Cartão de débito' }).success).toBe(false)
+    // "Cartão de débito" entrou em FORMAS_DE_SAIDA a pedido da cliente (ADR 0020).
+    expect(PagarConta.safeParse({ ...PAG, formaPagamento: 'Cartão de débito' }).success).toBe(true)
   })
 
   it('a forma de pagamento é opcional — o protótipo também a tem como opcional', () => {
     expect(PagarConta.safeParse(PAG).success).toBe(true)
+  })
+
+  it("Paguei: '' explícito é aceito e NÃO vira a prevista — o contrato não tem default", () => {
+    // Ausente e '' são "Não informada". Um `.default(...)` aqui seria o
+    // começo do fallback para a prevista que a ADR 0020 proíbe.
+    const vazio = PagarConta.safeParse({ ...PAG, formaPagamento: '' })
+    expect(vazio.success && vazio.data.formaPagamento).toBe('')
+    const ausente = PagarConta.safeParse(PAG)
+    expect(ausente.success && ausente.data.formaPagamento).toBeUndefined()
+    expect(PagarConta.safeParse({ ...PAG, formaPagamento: 'TED' }).success).toBe(false)
+  })
+
+  it("forma prevista: da lista ou '', com default ''", () => {
+    const sem = SalvarConta.safeParse(CONTA)
+    expect(sem.success && sem.data.formaPrevista).toBe('')
+    expect(SalvarConta.safeParse({ ...CONTA, formaPrevista: 'Boleto' }).success).toBe(true)
+    expect(SalvarConta.safeParse({ ...CONTA, formaPrevista: '' }).success).toBe(true)
+    expect(SalvarConta.safeParse({ ...CONTA, formaPrevista: 'Nota promissória' }).success).toBe(false)
+  })
+
+  it('o filtro por forma aceita o sentinela e QUALQUER texto gravado até 30', () => {
+    // Toda linha do bloco "Pago por forma" precisa ser filtrável, inclusive a
+    // forma legada fora da lista.
+    expect(ConsultaDeContas.safeParse({ forma: 'Não informada' }).success).toBe(true)
+    expect(ConsultaDeContas.safeParse({ forma: 'TED' }).success).toBe(true)
+    expect(ConsultaDeContas.safeParse({ forma: '' }).success).toBe(false)
+    expect(ConsultaDeContas.safeParse({ forma: '   ' }).success).toBe(false)
+    expect(ConsultaDeContas.safeParse({ forma: 'x'.repeat(31) }).success).toBe(false)
+  })
+
+  it('a lista de contas aceita o total só como objeto com valorPago', () => {
+    expect(ListaDeContas.safeParse({ itens: [] }).success).toBe(true)
+    expect(ListaDeContas.safeParse({ itens: [], total: { valorPago: '100' } }).success).toBe(true)
+    expect(ListaDeContas.safeParse({ itens: [], total: { valorPago: '100', valor: '1' } }).success).toBe(false)
   })
 })
 

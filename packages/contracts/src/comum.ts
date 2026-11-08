@@ -43,7 +43,9 @@ export const DiaCivil = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use o formato a
  * mesma expressão é como uma delas deixa de recusar `24:00`.
  */
 export const Hora = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'use HH:MM')
-export const Mes = z.string().regex(/^\d{4}-\d{2}$/, 'use o formato aaaa-mm')
+// Mês de 01 a 12: `2026-13` passava no formato e a consulta devolvia lista vazia,
+// sem erro — achado no T4 da Prioridade 3.
+export const Mes = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'use o formato aaaa-mm')
 export const Uuid = z.string().uuid()
 
 export const Erro = z.object({ codigo: z.string(), mensagem: z.string() })

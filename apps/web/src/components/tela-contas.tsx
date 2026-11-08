@@ -1,13 +1,22 @@
 'use client'
 
 import type { ContaNaLista, ListaDaEquipe, ListaDeContas, ResultadoDoPagamento } from '@fir/contracts'
-import { CATEGORIAS_DESP } from '@fir/domain'
+import { CATEGORIAS_DESP, FORMA_NAO_INFORMADA, FORMAS_DE_SAIDA } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useDados } from '@/lib/dados'
-import { centavos, nomeDoMes } from '@/lib/financeiro'
+import { centavos, mesesAte, nomeDoMes, rotuloDoMes } from '@/lib/financeiro'
 import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
+import {
+  caminhoDeContas,
+  consultaDaApi,
+  type FiltroDeContas,
+  formaInicialDoPagamento,
+  opcoesDeForma,
+} from '@/lib/filtro-de-contas'
 import { diaEmTexto, somarDiasNaTela } from '@/lib/formato'
 import { Carregando, Erro, Toast, Vazio } from './estados'
 
@@ -22,20 +31,18 @@ import { Carregando, Erro, Toast, Vazio } from './estados'
  * O painel "Registrar pagamento" abre **dentro da linha**, não num modal: a
  * pessoa está confirmando um valor que ela acabou de ler na linha de cima, e
  * um modal esconde justamente o que ela precisa conferir.
+ *
+ * **Filtro por forma, e o modo "só pagas"** (ADR 0020): situação, mês e forma
+ * moram na URL e chegam como prop do `page.tsx` do servidor. Trocar o filtro é
+ * navegar. Com `situacao=pagas` sobra um grupo só, com o total que a API somou.
  */
 
 /** As categorias em `<optgroup>`, com a descrição embaixo do campo. */
 const FIXAS = CATEGORIAS_DESP.filter((c) => c.tipo === 'fixa')
 const VARIAVEIS = CATEGORIAS_DESP.filter((c) => c.tipo === 'variavel')
 
-const FORMAS_DE_SAIDA = [
-  'Pix',
-  'Boleto',
-  'Transferência',
-  'Cartão de crédito',
-  'Débito automático',
-  'Dinheiro',
-] as const
+/** `2026-10` → `outubro de 2026`, para o meio de um título. */
+const mesPorExtenso = (mes: string): string => `${nomeDoMes(mes)} de ${mes.slice(0, 4)}`
 
 type Rascunho = {
   id: string | null
@@ -46,20 +53,27 @@ type Rascunho = {
   fornecedor: string
   responsavelId: string
   mensal: boolean
+  /** `''` = não definida. */
+  formaPrevista: string
 }
 
 export function TelaContas({
   hoje,
   mes,
+  filtro,
   podeGerir,
   euId,
 }: {
   hoje: string
+  /** O mês CORRENTE da clínica (do servidor) — governa os grupos das abertas. */
   mes: string
+  /** Situação, mês e forma, lidos da URL no `page.tsx` do servidor. */
+  filtro: FiltroDeContas
   podeGerir: boolean
   euId: string
 }) {
-  const contas = useDados<ListaDeContas>('v1/contas')
+  const router = useRouter()
+  const contas = useDados<ListaDeContas>(`v1/contas${consultaDaApi(filtro)}`)
   const [form, setForm] = useState<Rascunho | null>(null)
   const [pagando, setPagando] = useState<string | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
@@ -67,6 +81,23 @@ export function TelaContas({
   const itens = contas.dados?.itens ?? []
   const abertas = itens.filter((c) => c.pagoEm === null)
   const limite = somarDiasNaTela(hoje, 7)
+  /** O mês das PAGAS: o da URL, ou o corrente. */
+  const mesDasPagas = filtro.mes ?? mes
+  /**
+   * **Modo filtrado** — o que o toque numa forma da Visão do mês abre: só as
+   * pagas de um mês, num grupo só, com o total que o SERVIDOR somou.
+   */
+  const soPagas = filtro.situacao === 'pagas'
+  const filtrado = soPagas || filtro.forma !== null || filtro.mes !== null
+  const formas = opcoesDeForma(itens, filtro.forma)
+  /** A URL é o estado do filtro: trocar é navegar, e a página do servidor relê. */
+  const filtrar = (f: Partial<FiltroDeContas>): void => {
+    router.push(caminhoDeContas({ ...filtro, ...f }))
+  }
+
+  const tituloDasPagas = soPagas
+    ? `Pagas em ${mesPorExtenso(mesDasPagas)}${filtro.forma === null ? '' : ` · ${filtro.forma}`}`
+    : `Pagas em ${mesDasPagas === mes ? nomeDoMes(mesDasPagas) : mesPorExtenso(mesDasPagas)}`
 
   const grupos: { titulo: string; lista: ContaNaLista[]; atrasado?: true }[] = [
     { titulo: 'Vencidas', lista: abertas.filter((c) => c.vencida), atrasado: true },
@@ -93,10 +124,12 @@ export function TelaContas({
       lista: abertas.filter((c) => c.vencimento.slice(0, 7) > mes),
     },
     {
-      titulo: `Pagas em ${nomeDoMes(mes)}`,
+      titulo: tituloDasPagas,
       lista: itens.filter((c) => c.pagoEm !== null),
     },
   ]
+  const meses = mesesAte(mes)
+  if (!meses.includes(mesDasPagas)) meses.push(mesDasPagas)
 
   return (
     <section>
@@ -118,6 +151,7 @@ export function TelaContas({
                   fornecedor: '',
                   responsavelId: euId,
                   mensal: true,
+                  formaPrevista: '',
                 })
               }
             >
@@ -127,15 +161,51 @@ export function TelaContas({
         ) : null}
       </div>
 
-      <p className="nota" style={{ marginBottom: 14 }}>
-        Cadastre as contas da clínica com categoria e vencimento. Quem paga recebe o lembrete na
-        tela Hoje três dias antes e marca “Paguei”. As contas mensais se renovam sozinhas, sempre no
-        mesmo dia.
-      </p>
+      {filtrado ? null : (
+        <p className="nota" style={{ marginBottom: 14 }}>
+          Cadastre as contas da clínica com categoria e vencimento. Quem paga recebe o lembrete na
+          tela Hoje três dias antes e marca “Paguei”. As contas mensais se renovam sozinhas, sempre
+          no mesmo dia.
+        </p>
+      )}
 
       {podeGerir ? null : (
         <p className="aviso-filtro">Aparecem aqui as contas que estão sob sua responsabilidade.</p>
       )}
+
+      <div className="filtro-de-contas">
+        <label className="campo">
+          Forma de pagamento
+          <select
+            value={filtro.forma ?? ''}
+            onChange={(e) => filtrar({ forma: e.target.value === '' ? null : e.target.value })}
+          >
+            <option value="">Todas as formas</option>
+            {formas.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </label>
+        {soPagas ? (
+          <label className="campo">
+            Mês do pagamento
+            <select value={mesDasPagas} onChange={(e) => filtrar({ mes: e.target.value })}>
+              {meses.map((m) => (
+                <option key={m} value={m}>
+                  {rotuloDoMes(m)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {filtrado ? (
+          <Link className="btn ghost" href="/contas">
+            Limpar filtro
+          </Link>
+        ) : null}
+      </div>
 
       {form === null ? null : (
         <FormularioDeConta
@@ -153,6 +223,17 @@ export function TelaContas({
         <Carregando linhas={4} fino />
       ) : contas.erro !== null ? (
         <Erro mensagem={contas.erro} recarregar={contas.recarregar} />
+      ) : itens.length === 0 && filtrado ? (
+        <Vazio>
+          <p style={{ margin: 0, color: 'var(--ink)' }}>
+            {soPagas
+              ? `Nenhuma conta paga em ${mesPorExtenso(mesDasPagas)}${filtro.forma === null ? '' : ` com a forma ${filtro.forma}`}.`
+              : `Nenhuma conta com a forma ${filtro.forma ?? ''}.`}
+          </p>
+          <p className="nota" style={{ margin: 0 }}>
+            <Link href="/contas">Limpar filtro</Link> para ver todas as contas.
+          </p>
+        </Vazio>
       ) : itens.length === 0 ? (
         <Vazio>
           <p style={{ margin: 0, color: 'var(--ink)' }}>Nenhuma conta cadastrada.</p>
@@ -183,18 +264,28 @@ export function TelaContas({
                           {c.pagoEm !== null ? (
                             <>
                               paga em <span className="num">{diaEmTexto(c.pagoEm)}</span>
-                              {c.formaPagamento === '' ? '' : ` · ${c.formaPagamento}`}
+                              {c.pagoPor === null ? '' : ` · pago por ${c.pagoPor}`}
+                              {' · '}
+                              {c.formaPagamento === ''
+                                ? `forma ${FORMA_NAO_INFORMADA.toLowerCase()}`
+                                : c.formaPagamento}
+                              {c.fornecedor === '' ? '' : ` · ${c.fornecedor}`}
                             </>
-                          ) : c.vencida ? (
-                            <b style={{ color: 'var(--bad)' }}>
-                              venceu em {diaEmTexto(c.vencimento)}
-                            </b>
                           ) : (
                             <>
-                              vence <span className="num">{diaEmTexto(c.vencimento)}</span>
+                              {c.vencida ? (
+                                <b style={{ color: 'var(--bad)' }}>
+                                  venceu em {diaEmTexto(c.vencimento)}
+                                </b>
+                              ) : (
+                                <>
+                                  vence <span className="num">{diaEmTexto(c.vencimento)}</span>
+                                </>
+                              )}
+                              {c.formaPrevista === '' ? '' : ` · ${c.formaPrevista} (prevista)`}
+                              {c.fornecedor === '' ? '' : ` · ${c.fornecedor}`} · {c.responsavel}
                             </>
                           )}
-                          {c.fornecedor === '' ? '' : ` · ${c.fornecedor}`} · {c.responsavel}
                         </small>
                       </div>
                       <span className="valor">
@@ -205,6 +296,7 @@ export function TelaContas({
                           <button
                             type="button"
                             className="btn ghost"
+                            aria-expanded={pagando === c.id}
                             onClick={() => setPagando(pagando === c.id ? null : c.id)}
                           >
                             Paguei
@@ -224,6 +316,9 @@ export function TelaContas({
                                 fornecedor: c.fornecedor,
                                 responsavelId: c.responsavelId,
                                 mensal: c.mensal,
+                                // Só uma forma que o servidor aceita: uma prevista
+                                // fora da lista seria recusada ao salvar.
+                                formaPrevista: formaInicialDoPagamento(c.formaPrevista),
                               })
                             }
                           >
@@ -248,6 +343,20 @@ export function TelaContas({
                   </div>
                 ))}
               </div>
+              {/*
+                O TOTAL É DO SERVIDOR (`total.valorPago`, só em situacao=pagas):
+                é ele que bate centavo a centavo com a linha do bloco "Pago por
+                forma" da Visão do mês. Somar aqui seria a regra escrita duas
+                vezes — exatamente o que fez o legado divergir.
+              */}
+              {g.titulo === tituloDasPagas && contas.dados?.total !== undefined ? (
+                <div className="total-da-lista">
+                  <span>Total pago</span>
+                  <span className="valor">
+                    {formatarDinheiro(centavos(contas.dados.total.valorPago))}
+                  </span>
+                </div>
+              ) : null}
             </div>
           ),
         )
@@ -272,7 +381,9 @@ function PainelDePagamento({
 }) {
   const [em, setEm] = useState(hoje)
   const [valor, setValor] = useState(conta.valor === null ? '' : textoDeCentavos(BigInt(conta.valor)))
-  const [forma, setForma] = useState('')
+  // Pré-preenchida com a PREVISTA: pagar a conta de sempre custa os mesmos
+  // dois toques de antes (Paguei → Registrar).
+  const [forma, setForma] = useState(formaInicialDoPagamento(conta.formaPrevista))
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
@@ -290,7 +401,10 @@ function PainelDePagamento({
         body: JSON.stringify({
           em,
           valor: v.toString(),
-          ...(forma === '' ? {} : { formaPagamento: forma }),
+          // SEMPRE explícito, `''` incluído: o servidor grava exatamente o que
+          // chegou e não cai para a prevista (ADR 0020). Quem escolheu "Não
+          // informada" de propósito não pode ver "Boleto" no relatório.
+          formaPagamento: forma,
         }),
       })
       aoPagar(
@@ -319,13 +433,18 @@ function PainelDePagamento({
         </label>
       </div>
       <label className="campo">
-        Forma <small>(opcional)</small>
+        Forma de pagamento
         <select value={forma} onChange={(e) => setForma(e.target.value)}>
-          <option value="">—</option>
           {FORMAS_DE_SAIDA.map((f) => (
-            <option key={f}>{f}</option>
+            <option key={f} value={f}>
+              {f}
+            </option>
           ))}
+          <option value="">{FORMA_NAO_INFORMADA}</option>
         </select>
+        {conta.formaPrevista !== '' && forma !== conta.formaPrevista ? (
+          <small>Prevista: {conta.formaPrevista}. Vale o que saiu de fato.</small>
+        ) : null}
       </label>
       {conta.mensal ? (
         <p className="nota" style={{ margin: 0 }}>
@@ -391,6 +510,7 @@ function FormularioDeConta({
         fornecedor: r.fornecedor.trim(),
         responsavelId: r.responsavelId,
         mensal: r.mensal,
+        formaPrevista: r.formaPrevista,
       })
       if (r.id === null) await chamar('v1/contas', { method: 'POST', body: corpo })
       else await chamar(`v1/contas/${r.id}`, { method: 'PATCH', body: corpo })
@@ -474,14 +594,6 @@ function FormularioDeConta({
 
       <div className="par">
         <label className="campo">
-          Fornecedor <small>(opcional)</small>
-          <input
-            maxLength={80}
-            value={r.fornecedor}
-            onChange={(e) => setR({ ...r, fornecedor: e.target.value })}
-          />
-        </label>
-        <label className="campo">
           Quem paga
           <select
             value={r.responsavelId}
@@ -497,7 +609,35 @@ function FormularioDeConta({
             ))}
           </select>
         </label>
+        {/*
+          A forma que a clínica ESPERA usar (ADR 0020). Só pré-preenche o
+          Paguei e passa para a conta do mês seguinte; o que entra no relatório
+          é a forma escolhida no pagamento.
+        */}
+        <label className="campo">
+          Forma de pagamento prevista
+          <select
+            value={r.formaPrevista}
+            onChange={(e) => setR({ ...r, formaPrevista: e.target.value })}
+          >
+            <option value="">Não definida</option>
+            {FORMAS_DE_SAIDA.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
+
+      <label className="campo">
+        Fornecedor <small>(opcional)</small>
+        <input
+          maxLength={80}
+          value={r.fornecedor}
+          onChange={(e) => setR({ ...r, fornecedor: e.target.value })}
+        />
+      </label>
 
       <label className="caixa">
         <input

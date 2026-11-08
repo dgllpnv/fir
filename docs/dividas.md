@@ -52,6 +52,17 @@ sabe qual é. **Sintoma se esquecer:** nenhum, até doer.
 
 ---
 
+### D17 · Pagamento de conta registrado errado não tem como ser corrigido
+
+Achado pelo `validador-numeros` no gate da Prioridade 3 (2026-11-08). `excluir` recusa conta paga com
+a mensagem "edite o valor pago", mas `editar` não altera `valor_pago`, `pago_em` nem
+`forma_pagamento`. Quem registra R$ 1.200 no lugar de R$ 120, ou Pix no lugar de Boleto, fica com o
+resultado do mês e o bloco "Pago por forma" errados, sem caminho pela tela.
+
+**Gatilho:** a primeira clínica real usando contas a pagar. O conserto é um "desfazer pagamento"
+auditado (o inverso do Paguei, e a próxima da série não pode duplicar) ou uma edição do pagamento com
+trilha. A mensagem de `excluir` precisa mudar junto.
+
 ## Antes do primeiro deploy na VPS
 
 ### D1 · `PROXY_SALTOS_CONFIAVEIS` não tem onde ser configurado

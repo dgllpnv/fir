@@ -8,6 +8,7 @@ import { chamar, ErroDaApi } from '@/lib/api'
 import { consultaEmTexto, useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra, mesesAte, nomeDoMes, rotuloDoMes } from '@/lib/financeiro'
 import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
+import { caminhoDeContas } from '@/lib/filtro-de-contas'
 import { diaEmTexto, plural } from '@/lib/formato'
 import { Carregando, Erro, Toast } from './estados'
 
@@ -22,7 +23,14 @@ import { Carregando, Erro, Toast } from './estados'
  * É a tela com mais colunas de número do produto, e por isso **algarismos
  * tabulares** não são opcionais em nenhuma delas.
  */
-export function TelaVisaoDoMes({ mesCorrente }: { mesCorrente: string }) {
+export function TelaVisaoDoMes({
+  mesCorrente,
+  podeAbrirContas,
+}: {
+  mesCorrente: string
+  /** `contas.gerir` — decidido no `page.tsx` do servidor, pela mesma `temPerm`. */
+  podeAbrirContas: boolean
+}) {
   const [mes, setMes] = useState(mesCorrente)
   const [recado, setRecado] = useState<string | null>(null)
   const v = useDados<VisaoDoMes>(`v1/visao-do-mes${consultaEmTexto({ mes })}`)
@@ -64,7 +72,7 @@ export function TelaVisaoDoMes({ mesCorrente }: { mesCorrente: string }) {
       ) : v.erro !== null ? (
         <Erro mensagem={v.erro} recarregar={v.recarregar} />
       ) : v.dados === null ? null : (
-        <Corpo v={v.dados} mesCorrente={mesCorrente} />
+        <Corpo v={v.dados} mesCorrente={mesCorrente} podeAbrirContas={podeAbrirContas} />
       )}
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
@@ -72,7 +80,15 @@ export function TelaVisaoDoMes({ mesCorrente }: { mesCorrente: string }) {
   )
 }
 
-function Corpo({ v, mesCorrente }: { v: VisaoDoMes; mesCorrente: string }) {
+function Corpo({
+  v,
+  mesCorrente,
+  podeAbrirContas,
+}: {
+  v: VisaoDoMes
+  mesCorrente: string
+  podeAbrirContas: boolean
+}) {
   const anterior = nomeDoMes(mesesAte(v.mes)[1] ?? v.mes)
 
   return (
@@ -180,44 +196,96 @@ function Corpo({ v, mesCorrente }: { v: VisaoDoMes; mesCorrente: string }) {
         </p>
       </div>
 
-      <div className="grupo">
-        <h3>Recebido por forma de pagamento</h3>
-        {/*
-          A REGRA 6 APARECE AQUI, e por isso a frase existe. `porForma` só
-          soma os dias com caixa FECHADO: o mês corrente contém o dia de hoje,
-          e um agregado por forma de um dia aberto é o esperado da gaveta com
-          outra etiqueta. O total do mês, acima, continua inteiro.
-        */}
-        {v.porForma.length === 0 ? (
-          <p className="nota">
-            Nenhum dia deste mês teve o caixa fechado ainda — e é o fechamento que libera a leitura
-            por forma de pagamento.{' '}
-            <Link href="/caixa">Fechar o caixa do dia</Link>.
-          </p>
-        ) : (
-          <>
-            <div className="linhas">
-              {v.porForma.map((f) => (
-                <div className="linha" key={f.forma}>
-                  <div className="info">
-                    <b>{f.forma}</b>
-                  </div>
-                  <span className="valor">{formatarDinheiro(centavos(f.valor))}</span>
-                </div>
-              ))}
-            </div>
+      <div className="formas-do-mes">
+        <div className="grupo">
+          <h3>Recebido por forma de pagamento</h3>
+          {/*
+            A REGRA 6 APARECE AQUI, e por isso a frase existe. `porForma` só
+            soma os dias com caixa FECHADO: o mês corrente contém o dia de hoje,
+            e um agregado por forma de um dia aberto é o esperado da gaveta com
+            outra etiqueta. O total do mês, acima, continua inteiro.
+          */}
+          {v.porForma.length === 0 ? (
             <p className="nota">
-              Considera os recebimentos até{' '}
-              <span className="num">
-                {v.porFormaAteODia === null ? '—' : diaEmTexto(v.porFormaAteODia)}
-              </span>
-              , o último dia com caixa fechado.
-              {v.porFormaDiasSemCaixa > 0
-                ? ` ${plural(v.porFormaDiasSemCaixa, 'dia ainda sem conferência', 'dias ainda sem conferência')}.`
-                : ''}
+              Nenhum dia deste mês teve o caixa fechado ainda — e é o fechamento que libera a leitura
+              por forma de pagamento.{' '}
+              <Link href="/caixa">Fechar o caixa do dia</Link>.
             </p>
-          </>
-        )}
+          ) : (
+            <>
+              <div className="linhas">
+                {v.porForma.map((f) => (
+                  <div className="linha" key={f.forma}>
+                    <div className="info">
+                      <b>{f.forma}</b>
+                    </div>
+                    <span className="valor">{formatarDinheiro(centavos(f.valor))}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="nota">
+                Considera os recebimentos até{' '}
+                <span className="num">
+                  {v.porFormaAteODia === null ? '—' : diaEmTexto(v.porFormaAteODia)}
+                </span>
+                , o último dia com caixa fechado.
+                {v.porFormaDiasSemCaixa > 0
+                  ? ` ${plural(v.porFormaDiasSemCaixa, 'dia ainda sem conferência', 'dias ainda sem conferência')}.`
+                  : ''}
+              </p>
+            </>
+          )}
+        </div>
+
+        <div className="grupo">
+          <h3>Pago por forma de pagamento</h3>
+          {/*
+            A MESMA lista de contas pagas de "Despesas pagas", partida por forma
+            no domínio: Σ das linhas = despesasPagas, centavo a centavo. Nada é
+            somado aqui. Cada linha abre a lista de Contas daquele mês e daquela
+            forma — só com `contas.gerir`, senão a lista (que mostra só as contas
+            da pessoa) somaria menos que a linha que a abriu.
+          */}
+          {v.pagoPorForma.length === 0 ? (
+            <p className="nota">
+              Nenhuma conta paga neste mês. A forma escolhida no “Paguei” de{' '}
+              <Link href="/contas">Contas a pagar</Link> aparece aqui.
+            </p>
+          ) : (
+            <>
+              <div className="linhas">
+                {v.pagoPorForma.map((f) =>
+                  podeAbrirContas ? (
+                    <Link
+                      className="linha"
+                      key={f.forma}
+                      href={caminhoDeContas({ situacao: 'pagas', mes: v.mes, forma: f.forma })}
+                    >
+                      <div className="info">
+                        <b>{f.forma}</b>
+                      </div>
+                      <span className="valor">{formatarDinheiro(centavos(f.valor))}</span>
+                      <span className="abrir" aria-hidden="true">
+                        ver contas
+                      </span>
+                    </Link>
+                  ) : (
+                    <div className="linha" key={f.forma}>
+                      <div className="info">
+                        <b>{f.forma}</b>
+                      </div>
+                      <span className="valor">{formatarDinheiro(centavos(f.valor))}</span>
+                    </div>
+                  ),
+                )}
+              </div>
+              <p className="nota">
+                Conta o mês inteiro, pela data do pagamento. O recebido por forma conta só os dias com
+                caixa fechado.
+              </p>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="grupo">

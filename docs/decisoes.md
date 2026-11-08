@@ -570,6 +570,24 @@ Se a Carteira consumir o próximo ciclo inteiro de novo (como consumiu este), ou
 
 ---
 
+## D-20 · As prioridades da cliente entram em paralelo à migração — agenda, forma de pagamento, rotinas
+
+**Data:** 2026-11-08 · **Origem:** instrução direta do dono, com o documento "Novas funcionalidades ou melhorias" da cliente · **Estado:** decidida
+
+O dono pediu que os pedidos da cliente sejam construídos e validados em produção:
+
+| Prioridade | Pedido | Situação |
+|---|---|---|
+| 1 | Sincronização da agenda do sistema da clínica (iCal) | construída, [ADR 0019](adr/0019-sincronizacao-da-agenda-externa.md); decisão do dono: cartão da agenda não conta na meta de agendamentos |
+| 2 | União do Firmare Gestão com o FIR Clinic | em produção (D-19) |
+| 3 | Forma de pagamento nas despesas | spec aprovado com ajustes, [ADR 0020](adr/0020-forma-de-pagamento-nas-despesas.md) |
+| 4 | Criação de novas rotinas automáticas | **bloqueada**: a cliente parte de "Configurações › Rotinas automáticas" com Pós atendimento e Recaptação (documento técnico 6.10 e 8.9), e nada disso existe no protótipo nem no documento técnico que temos (vão até 6.9 e 8.8). Falta receber a versão nova |
+
+Qualifica a D-2 como a D-19 já fez: a migração das 4 clínicas continua sendo a entrega com prazo, e
+nada disto pode consumir o que ela precisa.
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

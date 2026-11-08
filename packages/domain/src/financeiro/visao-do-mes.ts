@@ -1,9 +1,14 @@
 import { Dinheiro } from '../dinheiro'
 import { somarDias } from '../relogio'
-import { CATEGORIAS_DESP, infoDaCategoria, type TipoDeDespesa } from './contas'
+import { CATEGORIAS_DESP, FORMA_NAO_INFORMADA, infoDaCategoria, type TipoDeDespesa } from './contas'
 
 /** O que foi pago no mês. `valor` já é o **valor pago**, não o da conta. */
-export type DespesaPaga = { readonly categoria: string; readonly valor: Dinheiro }
+/**
+ * Uma conta paga no mês. `forma` é a forma EFETIVAMENTE usada (`forma_pagamento`),
+ * `''` quando o Paguei não informou — opcional só para quem monta a entrada sem
+ * ela (o mês anterior, que não alimenta o bloco por forma).
+ */
+export type DespesaPaga = { readonly categoria: string; readonly valor: Dinheiro; readonly forma?: string }
 export type RecebimentoDoMes = { readonly forma: string; readonly valor: Dinheiro }
 export type ContaEmAberto = { readonly valor: Dinheiro; readonly vencida: boolean }
 export type CaixaDoMes = { readonly diferenca: Dinheiro }
@@ -88,6 +93,12 @@ export type VisaoDoMes = {
   readonly porForma: readonly LinhaDeForma[]
   readonly porFormaAteODia: string | null
   readonly porFormaDiasSemCaixa: number
+
+  /**
+   * As despesas pagas no mês, por forma de pagamento (ADR 0020). Segunda
+   * partição das MESMAS contas de `porCategoria`: as duas somam `despesasPagas`.
+   */
+  readonly pagoPorForma: readonly LinhaDeForma[]
 
   /** Ver a nota em `LinhaDeCategoria`: aninhado, e não `…MesAnterior` ao lado. */
   readonly mesAnterior: { readonly recebido: Dinheiro; readonly despesasPagas: Dinheiro }
@@ -228,6 +239,28 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
     .map(([forma, valor]) => ({ forma, valor }))
     .sort((a, b) => (b.valor.centavos > a.valor.centavos ? 1 : b.valor.centavos < a.valor.centavos ? -1 : a.forma.localeCompare(b.forma)))
 
+  // PAGO POR FORMA (ADR 0020): da MESMA lista `entrada.pagas` que forma
+  // `despesasPagas`, agrupada pelo TEXTO GRAVADO — nunca percorrendo
+  // `FORMAS_DE_SAIDA`. Uma forma fora da lista (legada, renomeada) ganha
+  // linha própria; percorrer a lista a faria sumir da soma, que é o defeito
+  // do `porCat` do protótipo.
+  const pagoMapa = new Map<string, Dinheiro>()
+  for (const p of entrada.pagas) {
+    const gravada = (p.forma ?? '').trim()
+    const k = gravada === '' ? FORMA_NAO_INFORMADA : gravada
+    pagoMapa.set(k, (pagoMapa.get(k) ?? Dinheiro.zero()).mais(p.valor))
+  }
+  const pagoPorForma: LinhaDeForma[] = [...pagoMapa]
+    .filter(([, valor]) => !valor.ehZero())
+    .map(([forma, valor]) => ({ forma, valor }))
+    .sort((a, b) =>
+      b.valor.centavos > a.valor.centavos
+        ? 1
+        : b.valor.centavos < a.valor.centavos
+          ? -1
+          : a.forma.localeCompare(b.forma, 'pt-BR'),
+    )
+
   const doMes = totalPorCategoria(entrada.pagas)
   const doAnterior = totalPorCategoria(entrada.pagasMesAnterior)
 
@@ -262,6 +295,7 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
     porForma,
     porFormaAteODia: entrada.conferidoAte,
     porFormaDiasSemCaixa: entrada.diasSemCaixa,
+    pagoPorForma,
 
     mesAnterior: {
       recebido: entrada.recebidoMesAnterior,

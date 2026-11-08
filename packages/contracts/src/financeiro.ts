@@ -166,6 +166,13 @@ export const SalvarConta = z
      * deriva e grava em `dia_vencimento`.
      */
     mensal: z.boolean().default(false),
+    /**
+     * A forma que a clínica ESPERA usar (ADR 0020). `''` = não prevista.
+     *
+     * É só a sugestão que a tela põe no Paguei, e o que a renovação mensal
+     * copia. Nunca vira a forma usada no servidor — ver `PagarConta`.
+     */
+    formaPrevista: z.union([z.enum(FORMAS_DE_SAIDA), z.literal('')]).default(''),
   })
   .strict()
 export type SalvarConta = z.infer<typeof SalvarConta>
@@ -181,7 +188,12 @@ export const PagarConta = z
     // `FORMAS_DE_SAIDA`, nunca `FORMAS`: Boleto e Débito automático existem
     // aqui e não lá; Nota promissória existe lá e não aqui. Misturar as duas
     // listas é o começo de uma Visão do mês que soma maçã com laranja.
-    formaPagamento: z.enum(FORMAS_DE_SAIDA).optional(),
+    //
+    // `''` explícito e ausente querem dizer o MESMO: "Não informada". O
+    // servidor grava exatamente o que chegou e **nunca** cai para a forma
+    // prevista (ADR 0020, decisão 2): alguém limpa o campo porque não sabe a
+    // forma, e um fallback gravaria "Boleto" para o que saiu por Pix.
+    formaPagamento: z.union([z.enum(FORMAS_DE_SAIDA), z.literal('')]).optional(),
   })
   .strict()
 export type PagarConta = z.infer<typeof PagarConta>
@@ -200,7 +212,14 @@ export const ContaNaLista = z.object({
   mensal: z.boolean(),
   pagoEm: DiaCivil.nullable(),
   valorPago: centavosNaSaida,
+  /**
+   * `z.string()`, e não o enum: o que está GRAVADO pode ser forma legada ou
+   * renomeada, e a lista não pode recusar a própria linha que mostra.
+   */
   formaPagamento: z.string(),
+  formaPrevista: z.string(),
+  /** Nome de quem registrou o pagamento (`pago_por`). `null` na conta aberta. */
+  pagoPor: z.string().nullable(),
 })
 export type ContaNaLista = z.infer<typeof ContaNaLista>
 
@@ -215,11 +234,30 @@ export const ConsultaDeContas = z
   .object({
     situacao: z.enum(['abertas', 'pagas', 'todas']).default('todas'),
     mes: Mes.optional(),
+    /**
+     * Filtro por forma (ADR 0020). Numa conta PAGA olha a forma usada; numa
+     * EM ABERTO, a prevista.
+     *
+     * Texto livre de até 30, e não o enum: toda linha do bloco "Pago por
+     * forma" precisa ser filtrável, inclusive a forma legada gravada fora da
+     * lista. O sentinela "Não informada" (`FORMA_NAO_INFORMADA`) casa com `''`.
+     */
+    forma: z.string().trim().min(1).max(30).optional(),
   })
   .strict()
 export type ConsultaDeContas = z.infer<typeof ConsultaDeContas>
 
-export const ListaDeContas = z.object({ itens: z.array(ContaNaLista) }).strict()
+export const ListaDeContas = z
+  .object({
+    itens: z.array(ContaNaLista),
+    /**
+     * Só em `situacao=pagas`: Σ `valor_pago` dos itens, SOMADO NO SERVIDOR.
+     * É ele que bate centavo a centavo com a linha do bloco "Pago por forma";
+     * a tela não soma. `valorPago` já é monetário, e a redação o alcança aqui.
+     */
+    total: z.object({ valorPago: centavosNaSaida }).strict().optional(),
+  })
+  .strict()
 export type ListaDeContas = z.infer<typeof ListaDeContas>
 
 /**
@@ -533,6 +571,12 @@ export const VisaoDoMes = z
     porForma: z.array(LinhaDeForma),
     porFormaAteODia: DiaCivil.nullable(),
     porFormaDiasSemCaixa: z.number().int(),
+    /**
+     * As despesas pagas do mês por forma USADA (ADR 0020). Segunda partição
+     * das mesmas contas de `porCategoria`: soma `despesasPagas`, exatamente.
+     * Mês inteiro — não é caixa, e a regra 6 não se aplica. Array, nunca mapa.
+     */
+    pagoPorForma: z.array(LinhaDeForma),
 
     mesAnterior: z.object({ recebido: centavosNaSaida, despesasPagas: centavosNaSaida }),
 

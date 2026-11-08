@@ -45,11 +45,20 @@ export type NomeDeCategoria = (typeof CATEGORIAS_DESP)[number]['nome']
 export const FORMAS_DE_SAIDA = [
   'Pix',
   'Boleto',
-  'Transferência',
-  'Cartão de crédito',
   'Débito automático',
+  'Cartão de crédito',
+  // Pedido da cliente (Prioridade 3, ADR 0020). A ordem é a que ela escreveu;
+  // a coluna é `text`, então acrescentar uma forma não exige migration.
+  'Cartão de débito',
+  'Transferência',
   'Dinheiro',
 ] as const
+
+/**
+ * O rótulo do pagamento gravado sem forma (`''`) — o mesmo do protótipo nos
+ * recebimentos. É também o valor do filtro que casa com `''`.
+ */
+export const FORMA_NAO_INFORMADA = 'Não informada'
 
 export type FormaDeSaida = (typeof FORMAS_DE_SAIDA)[number]
 

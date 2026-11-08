@@ -189,6 +189,37 @@ details.filtros[open] > summary::after { transform: rotate(-135deg) translateY(-
 }
 .aviso-filtro .num { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
 
+/* ---------- Contas a pagar: filtro por forma e total da lista (ADR 0020) ----------
+   Um select à vista, não recolhido: é o pedido principal da cliente, e ele
+   cabe numa linha a 390 px. "Limpar filtro" fica ao lado, sempre visível. */
+.filtro-de-contas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.filtro-de-contas .campo { flex: 1 1 170px; min-width: 0; }
+.filtro-de-contas > .btn { flex: none; }
+/* O total que o SERVIDOR somou, alinhado com a coluna de valores. */
+.total-da-lista {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 6px;
+  margin-top: -14px;
+  border-top: 2px solid var(--line);
+  font-weight: 600;
+}
+.total-da-lista .valor { font-size: 15px; }
+
+/* Visão do mês: "Recebido por forma" e "Pago por forma" lado a lado na tela
+   larga; empilhados a 390 px. */
+.formas-do-mes { display: grid; gap: 0 28px; }
+@media (min-width: 1000px) {
+  .formas-do-mes { grid-template-columns: 1fr 1fr; align-items: start; }
+}
+
 .erro-de-tela {
   display: grid;
   gap: 12px;

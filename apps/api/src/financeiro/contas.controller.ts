@@ -53,8 +53,9 @@ export class ContasController {
   ): Promise<ListaDeContas> {
     const dados = ConsultaDeContas.safeParse(consulta)
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
-    const itens = await this.contas.listar(ctxDe(req), dados.data)
-    return { itens: [...itens] }
+    // `{ itens, total? }`: o total vem só em `situacao=pagas`, somado no
+    // serviço. O `valorPago` dentro dele é redigido pelo interceptor central.
+    return this.contas.listar(ctxDe(req), dados.data)
   }
 
   @Post()

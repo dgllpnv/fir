@@ -1,7 +1,7 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { Dinheiro } from '../dinheiro'
-import { CATEGORIAS_DESP } from './contas'
+import { CATEGORIAS_DESP, FORMA_NAO_INFORMADA, FORMAS_DE_SAIDA } from './contas'
 import {
   diasUteisAte,
   percentualInteiro,
@@ -447,5 +447,102 @@ describe('visaoDoMes — propriedades de fechamento', () => {
         },
       ),
     )
+  })
+})
+
+/**
+ * PAGO POR FORMA (ADR 0020, gate do `validador-numeros`, P1–P6).
+ *
+ * As formas sorteadas incluem as da lista, o vazio (`''`, Paguei sem forma) e
+ * texto ARBITRÁRIO — a forma legada ou renomeada que uma implementação que
+ * percorre `FORMAS_DE_SAIDA` faria sumir da soma.
+ */
+describe('pago por forma de pagamento', () => {
+  const forma = fc.oneof(
+    fc.constantFrom(...FORMAS_DE_SAIDA, '', '  '),
+    fc.string({ minLength: 1, maxLength: 30 }),
+  )
+  const paga: fc.Arbitrary<DespesaPaga> = fc.record({
+    categoria: fc.constantFrom(...CATEGORIAS_DESP.map((x) => x.nome)),
+    // `valor_pago > 0` é CHECK no banco.
+    valor: fc.bigInt({ min: 1n, max: 10_000_000n }).map((n) => Dinheiro.deCentavos(n)),
+    forma,
+  })
+  const chave = (f: string | undefined) => ((f ?? '').trim() === '' ? FORMA_NAO_INFORMADA : (f ?? '').trim())
+  const somaDe = (xs: readonly { valor: Dinheiro }[]) => xs.reduce((s, x) => s + x.valor.centavos, 0n)
+
+  it('P1 e P6: Σ pagoPorForma = despesasPagas = Σ porCategoria, EXATAMENTE', () => {
+    fc.assert(
+      fc.property(fc.array(paga, { maxLength: 80 }), (pagas) => {
+        const v = visaoDoMes(entrada({ pagas }))
+        expect(somaDe(v.pagoPorForma)).toBe(v.despesasPagas.centavos)
+        expect(somaDe(v.porCategoria)).toBe(v.despesasPagas.centavos)
+      }),
+    )
+  })
+
+  it('P2: cada linha é a soma das despesas daquela forma (oráculo ingênuo)', () => {
+    fc.assert(
+      fc.property(fc.array(paga, { maxLength: 60 }), (pagas) => {
+        const v = visaoDoMes(entrada({ pagas }))
+        for (const l of v.pagoPorForma) {
+          const oraculo = pagas.filter((p) => chave(p.forma) === l.forma).reduce((s, p) => s + p.valor.centavos, 0n)
+          expect(l.valor.centavos).toBe(oraculo)
+        }
+      }),
+    )
+  })
+
+  it('P3: sem linha vazia nem repetida nem zero; o vazio vira "Não informada"', () => {
+    fc.assert(
+      fc.property(fc.array(paga, { maxLength: 60 }), (pagas) => {
+        const v = visaoDoMes(entrada({ pagas }))
+        const nomes = v.pagoPorForma.map((l) => l.forma)
+        expect(nomes).not.toContain('')
+        expect(new Set(nomes).size).toBe(nomes.length)
+        for (const l of v.pagoPorForma) expect(l.valor.ehZero()).toBe(false)
+        if (pagas.some((p) => (p.forma ?? '').trim() === '')) expect(nomes).toContain(FORMA_NAO_INFORMADA)
+      }),
+    )
+  })
+
+  it('P4: ordem não crescente de valor, com empate pelo nome', () => {
+    fc.assert(
+      fc.property(fc.array(paga, { maxLength: 60 }), (pagas) => {
+        const l = visaoDoMes(entrada({ pagas })).pagoPorForma
+        for (let i = 1; i < l.length; i++) {
+          const a = l[i - 1]!
+          const b = l[i]!
+          expect(a.valor.centavos >= b.valor.centavos).toBe(true)
+          if (a.valor.centavos === b.valor.centavos) expect(a.forma.localeCompare(b.forma, 'pt-BR')).toBeLessThanOrEqual(0)
+        }
+      }),
+    )
+  })
+
+  it('P5: embaralhar a entrada não muda a saída', () => {
+    fc.assert(
+      fc.property(fc.array(paga, { maxLength: 40 }).chain((xs) => fc.tuple(fc.constant(xs), fc.shuffledSubarray(xs, { minLength: xs.length, maxLength: xs.length }))), ([a, b]) => {
+        const ja = visaoDoMes(entrada({ pagas: a })).pagoPorForma.map((l) => [l.forma, l.valor.centavos])
+        const jb = visaoDoMes(entrada({ pagas: b })).pagoPorForma.map((l) => [l.forma, l.valor.centavos])
+        expect(jb).toEqual(ja)
+      }),
+    )
+  })
+
+  it('forma desconhecida ganha linha própria e não some da soma', () => {
+    const v = visaoDoMes(
+      entrada({
+        pagas: [
+          { categoria: CATEGORIAS_DESP[0]!.nome, valor: Dinheiro.deCentavos(10_000n), forma: 'Pix' },
+          { categoria: CATEGORIAS_DESP[0]!.nome, valor: Dinheiro.deCentavos(5_000n), forma: 'TED' },
+        ],
+      }),
+    )
+    expect(v.pagoPorForma.map((l) => [l.forma, l.valor.centavos])).toEqual([
+      ['Pix', 10_000n],
+      ['TED', 5_000n],
+    ])
+    expect(v.despesasPagas.centavos).toBe(15_000n)
   })
 })

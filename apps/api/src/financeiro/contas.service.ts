@@ -1,11 +1,19 @@
 import type {
   ConsultaDeContas,
   ContaNaLista,
+  ListaDeContas,
   PagarConta,
   ResultadoDoPagamento,
   SalvarConta,
 } from '@fir/contracts'
-import { diaCivil, infoDaCategoria, proximoVencimento, somarDias } from '@fir/domain'
+import {
+  diaCivil,
+  Dinheiro,
+  FORMA_NAO_INFORMADA,
+  infoDaCategoria,
+  proximoVencimento,
+  somarDias,
+} from '@fir/domain'
 import {
   BadRequestException,
   ConflictException,
@@ -45,13 +53,19 @@ type LinhaDeConta = {
   pago_em: string | null
   valor_pago: string | null
   forma_pagamento: string
+  forma_prevista: string
+  pago_por_nome: string | null
 }
 
 const SELECT_BASE = `
   SELECT c.id, c.descricao, c.categoria, c.valor::text AS valor, c.vencimento::text AS vencimento,
          c.fornecedor, c.responsavel_id, p.nome AS responsavel, c.serie_id,
-         c.pago_em::text AS pago_em, c.valor_pago::text AS valor_pago, c.forma_pagamento
+         c.pago_em::text AS pago_em, c.valor_pago::text AS valor_pago, c.forma_pagamento,
+         c.forma_prevista, pp.nome AS pago_por_nome
     FROM contas_a_pagar c JOIN pessoas p ON p.id = c.responsavel_id
+    -- LEFT: conta aberta não tem quem pagou. A RLS de pessoas vale aqui
+    -- também; pago_por é sempre pessoa da mesma clínica.
+    LEFT JOIN pessoas pp ON pp.id = c.pago_por
    WHERE c.clinica_id = $1 AND c.excluida_em IS NULL`
 
 /**
@@ -85,7 +99,17 @@ const paraSaida = (l: LinhaDeConta, hoje: string): ContaNaLista => ({
   pagoEm: l.pago_em,
   valorPago: l.valor_pago,
   formaPagamento: l.forma_pagamento,
+  formaPrevista: l.forma_prevista,
+  pagoPor: l.pago_por_nome,
 })
+
+/**
+ * A forma que o filtro olha: a USADA numa conta paga, a PREVISTA numa aberta
+ * (ADR 0020). Aparada como o domínio apara ao agrupar o bloco "Pago por
+ * forma" — sem isso, `'Pix '` gravado cairia na linha "Pix" do bloco e
+ * sumiria do filtro "Pix", e o total da lista deixaria de bater com a linha.
+ */
+const FORMA_DO_FILTRO = `btrim(CASE WHEN c.pago_em IS NULL THEN c.forma_prevista ELSE c.forma_pagamento END)`
 
 @Injectable()
 export class ContasService {
@@ -99,7 +123,7 @@ export class ContasService {
     return diaCivil(this.relogio.agora(), fuso)
   }
 
-  async listar(ctx: Contexto, q: ConsultaDeContas): Promise<readonly ContaNaLista[]> {
+  async listar(ctx: Contexto, q: ConsultaDeContas): Promise<ListaDeContas> {
     const hoje = this.hojeDaClinica(ctx.fuso)
     const mes = q.mes ?? hoje.slice(0, 7)
 
@@ -130,13 +154,36 @@ export class ContasService {
       )
     }
 
+    if (q.forma !== undefined) {
+      // O sentinela "Não informada" casa com `''` — e também com o texto
+      // "Não informada" gravado, porque o domínio junta os dois na MESMA
+      // linha do bloco. Qualquer outro valor casa com o texto gravado, dentro
+      // ou fora de `FORMAS_DE_SAIDA`: toda linha do bloco é filtrável.
+      params.push(q.forma)
+      filtros.push(
+        q.forma === FORMA_NAO_INFORMADA
+          ? `${FORMA_DO_FILTRO} IN ('', $${params.length})`
+          : `${FORMA_DO_FILTRO} = $${params.length}`,
+      )
+    }
+
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const r = await c.query<LinhaDeConta>(
         `${SELECT_BASE} ${filtros.map((f) => `AND ${f}`).join(' ')}
          ORDER BY c.pago_em DESC NULLS FIRST, c.vencimento ASC, c.descricao ASC`,
         params,
       )
-      return r.rows.map((x) => paraSaida(x, hoje))
+      const itens = r.rows.map((x) => paraSaida(x, hoje))
+      if (q.situacao !== 'pagas') return { itens }
+      // O TOTAL É DO SERVIDOR, e das MESMAS linhas devolvidas: é ele que bate
+      // com a linha do bloco "Pago por forma". A soma passa pelo `Dinheiro`
+      // (regra 1), e o alcance já está aplicado — sem `contas.gerir` o total é
+      // o das contas da pessoa, não o da clínica.
+      const total = r.rows.reduce(
+        (s, x) => s.mais(Dinheiro.deCentavos(BigInt(x.valor_pago ?? '0'))),
+        Dinheiro.zero(),
+      )
+      return { itens, total: { valorPago: total.centavos.toString() } }
     })
   }
 
@@ -176,8 +223,8 @@ export class ContasService {
       const r = await c.query<{ id: string }>(
         `INSERT INTO contas_a_pagar
            (clinica_id, descricao, categoria, valor, vencimento, fornecedor, responsavel_id,
-            unidade_id, serie_id, dia_vencimento, criada_por)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+            unidade_id, serie_id, dia_vencimento, criada_por, forma_prevista)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
         [
           ctx.clinicaId,
           dados.descricao,
@@ -190,6 +237,7 @@ export class ContasService {
           serie?.id ?? null,
           serie?.dia ?? null,
           pessoaDoAtor(ctx.ator),
+          dados.formaPrevista,
         ],
       )
       return this.lerUma(c, ctx, r.rows[0]!.id, hoje)
@@ -218,7 +266,8 @@ export class ContasService {
       const r = await c.query(
         `UPDATE contas_a_pagar
             SET descricao=$2, categoria=$3, valor=$4, vencimento=$5, fornecedor=$6,
-                responsavel_id=$7, unidade_id=$8, serie_id=$9, dia_vencimento=$10
+                responsavel_id=$7, unidade_id=$8, serie_id=$9, dia_vencimento=$10,
+                forma_prevista=$11
           WHERE id=$1 AND excluida_em IS NULL`,
         [
           id,
@@ -231,6 +280,7 @@ export class ContasService {
           unidade,
           serieId,
           dia,
+          dados.formaPrevista,
         ],
       )
       if (r.rowCount === 0) throw new NotFoundException('Conta não encontrada.')
@@ -276,6 +326,10 @@ export class ContasService {
       const atual = await this.linhaCrua(c, ctx, id)
       if (atual.pago_em !== null) throw new ConflictException('Esta conta já foi paga.')
 
+      // A FORMA GRAVADA É EXATAMENTE A RECEBIDA (ADR 0020, decisão 2). Ausente
+      // ou `''` = "Não informada"; NUNCA `atual.forma_prevista`. A tela já
+      // pré-preenche o Paguei com a prevista — se chegou vazio, foi a pessoa
+      // que limpou, e o servidor não inventa a forma que o extrato vai cobrar.
       await c.query(
         `UPDATE contas_a_pagar SET pago_em=$2, valor_pago=$3, forma_pagamento=$4, pago_por=$5
           WHERE id=$1`,
@@ -289,9 +343,12 @@ export class ContasService {
         const nova = await c.query<{ id: string }>(
           `INSERT INTO contas_a_pagar
              (clinica_id, descricao, categoria, valor, vencimento, fornecedor, responsavel_id,
-              unidade_id, serie_id, dia_vencimento, criada_por)
+              unidade_id, serie_id, dia_vencimento, criada_por, forma_prevista)
+           -- forma_prevista LISTADA: esquecê-la gravaria '' sem erro nenhum.
+           -- forma_pagamento NÃO é copiada: o Pix por exceção deste mês não
+           -- vira a previsão do próximo (ADR 0020, decisão 3).
            SELECT clinica_id, descricao, categoria, valor, $2::date, fornecedor, responsavel_id,
-                  unidade_id, serie_id, dia_vencimento, $3
+                  unidade_id, serie_id, dia_vencimento, $3, forma_prevista
              FROM contas_a_pagar WHERE id = $1
            -- INFERENCIA pelas colunas, e nao ON CONFLICT ON CONSTRAINT:
            -- conta_da_serie_por_mes e um indice unico PARCIAL, e ON CONSTRAINT

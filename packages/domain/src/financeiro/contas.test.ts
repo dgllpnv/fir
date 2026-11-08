@@ -71,7 +71,21 @@ describe('as categorias e as formas', () => {
     // Visão do mês que soma maçã com laranja.
     expect(FORMAS_DE_SAIDA).toContain('Boleto')
     expect(FORMAS_DE_SAIDA).not.toContain('Nota promissória')
-    expect(FORMAS_DE_SAIDA).not.toContain('Cartão de débito')
+  })
+
+  it('as sete formas da cliente, na ordem dela (ADR 0020)', () => {
+    // "Cartão de débito" ficava fora só porque espelhava a lista do protótipo;
+    // a Prioridade 3 da cliente a pede. O princípio do teste acima — a
+    // promissória não é forma de PAGAR conta — continua de pé.
+    expect([...FORMAS_DE_SAIDA]).toEqual([
+      'Pix',
+      'Boleto',
+      'Débito automático',
+      'Cartão de crédito',
+      'Cartão de débito',
+      'Transferência',
+      'Dinheiro',
+    ])
   })
 })
 

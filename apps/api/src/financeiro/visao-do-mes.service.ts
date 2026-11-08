@@ -273,13 +273,17 @@ export class VisaoDoMesService {
   ): Promise<readonly DespesaPaga[]> {
     // O VALOR PAGO, nunca o valor da conta: a conta era R$ 980 e veio
     // R$ 1.012, e o mês fecha com 1.012.
-    const r = await c.query<{ categoria: string; valor: string }>(
-      `SELECT categoria, valor_pago::text AS valor FROM contas_a_pagar
+    //
+    // A forma USADA vem na MESMA consulta (ADR 0020): "Pago por forma" é uma
+    // segunda partição destas mesmas linhas, e uma consulta à parte poderia
+    // divergir de `despesasPagas` no primeiro filtro esquecido.
+    const r = await c.query<{ categoria: string; valor: string; forma: string }>(
+      `SELECT categoria, valor_pago::text AS valor, forma_pagamento AS forma FROM contas_a_pagar
         WHERE clinica_id = $1 AND excluida_em IS NULL AND pago_em IS NOT NULL
           AND to_char(pago_em, 'YYYY-MM') = $2`,
       [ctx.clinicaId, mes],
     )
-    return r.rows.map((x) => ({ categoria: x.categoria, valor: dinheiro(x.valor) }))
+    return r.rows.map((x) => ({ categoria: x.categoria, valor: dinheiro(x.valor), forma: x.forma }))
   }
 
   private async aPagarAte(
@@ -364,6 +368,7 @@ function paraContrato(mes: string, v: VisaoDoMes): VisaoNoContrato {
     porForma: v.porForma.map((x) => ({ forma: x.forma, valor: t(x.valor) })),
     porFormaAteODia: v.porFormaAteODia,
     porFormaDiasSemCaixa: v.porFormaDiasSemCaixa,
+    pagoPorForma: v.pagoPorForma.map((x) => ({ forma: x.forma, valor: t(x.valor) })),
     mesAnterior: {
       recebido: t(v.mesAnterior.recebido),
       despesasPagas: t(v.mesAnterior.despesasPagas),
