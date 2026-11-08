@@ -18,11 +18,7 @@
     "./superadmin.css": "./src/superadmin.css",
     "./carteira.css": "./src/carteira.css",
     "./portal.css": "./src/portal.css",
-    "./asana.css": "./src/asana.css",
-    "./fidelidade-visao.css": "./src/fidelidade-visao.css",
-    "./fidelidade-metas.css": "./src/fidelidade-metas.css",
-    "./fidelidade-campanhas.css": "./src/fidelidade-campanhas.css",
-    "./fidelidade-prospeccao.css": "./src/fidelidade-prospeccao.css"
+    "./asana.css": "./src/asana.css"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

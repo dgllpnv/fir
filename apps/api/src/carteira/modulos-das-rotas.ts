@@ -47,10 +47,7 @@ export const TELAS_DAS_ROTAS: readonly Linha[] = [
   ['*', /^(leads|indicacoes|beneficios)(\/|$)/, 'prospeccao'],
   ['*', /^(rotinas-internas|tarefas-internas|equipe-da-rotina|carga|aniversarios)(\/|$)/, 'rotina'],
   ['*', /^(metodo|biblioteca)(\/|$)/, 'metodo'],
-  // D-25: os roteiros de abordagem vivem na aba "Mensagens e roteiros" da Prospecção (como no protótipo).
-  // Escrever neles continua exigindo `carteira.administrar` no serviço e na policy (0056).
-  ['*', /^mensagens\/roteiros(\/|$)/, 'prospeccao'],
-  ['*', /^mensagens\/(modelos|configuracao)(\/|$)/, 'metodo'],
+  ['*', /^mensagens\/(modelos|roteiros|configuracao)(\/|$)/, 'metodo'],
   ['*', /^mensagens\/(montar|envios|parceiros)(\/|$)/, 'livre'],
   ['*', /^painel(\/|$)/, 'painel'],
   ['*', /^resumo(\/|$)/, 'resumo'],

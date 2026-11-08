@@ -107,8 +107,7 @@ describe('o estilo mora no sistema de design, não no JSX', () => {
       }
     }
     const outros = readdirSync(UI)
-      // `fidelidade-*.css` (D-25) é CSS da própria carteira, um arquivo por painel para as frentes não colidirem.
-      .filter((f) => f.endsWith('.css') && f !== 'carteira.css' && !f.startsWith('fidelidade-'))
+      .filter((f) => f.endsWith('.css') && f !== 'carteira.css')
       .map((f) => readFileSync(join(UI, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''))
       .join('\n')
     const colidem = [...usadas]

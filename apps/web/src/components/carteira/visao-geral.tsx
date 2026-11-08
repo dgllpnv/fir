@@ -14,12 +14,9 @@ import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, type ReactNode } from 'react'
-import { IconeDoWhatsApp, LinhaDeSinal } from '@/components/carteira/lead-pecas'
+import { LinhaDeSinal } from '@/components/carteira/lead-pecas'
 import { useEquipeEClientes } from '@/components/carteira/rotina-pecas'
 import { FormularioDeTarefa } from '@/components/carteira/rotina-tarefa'
-import { BriefingsAFazer } from '@/components/carteira/visao-briefings'
-import { MensalidadesDoMes } from '@/components/carteira/visao-mensalidades'
-import { PlanilhasDaSemana } from '@/components/carteira/visao-planilhas'
 import { Carregando, Toast } from '@/components/estados'
 import { Modal } from '@/components/modal'
 import { chamar, ErroDaApi } from '@/lib/api'
@@ -41,15 +38,8 @@ import { diaCurto, nomeDoDia, plural } from '@/lib/formato'
  * **VISÃO GERAL DA CARTEIRA** (G8 3B; `vPainel`, protótipo L1278–1331): a
  * tela de abertura da diretoria. Na ordem do protótipo: cabeçalho com os três
  * atalhos (P11), os quatro KPIs (P1), Saúde da carteira (P2) ao lado de
- * Equipe (P3) e Reuniões da semana (P4), Briefings a fazer, Aniversários (P6),
- * Planilhas da semana, Mensalidades do mês, Prospecção · contatos
- * recomendados (P9) e Próximas entregas do plano (P10).
- *
- * D-25: a tela usa a largura toda (`carteira-pagina-larga`, até 1180 px) e o
- * desenho do protótipo com os tokens da casa (`fidelidade-visao.css`). Os
- * três blocos que faltavam vêm de rotas que já existiam: a lista de clientes
- * (briefings), a planilha de cada cliente (planilhas) e o painel de
- * mensalidades (só para quem tem a tela `mensalidades`, como o menu).
+ * Equipe (P3) e Reuniões da semana (P4), Aniversários (P6), Prospecção ·
+ * contatos recomendados (P9) e Próximas entregas do plano (P10).
  *
  * NADA é calculado aqui. Contagens, MRR, ticket, baldes, ordem, "atrasada",
  * "hoje" e até a posição de cada pedaço das barras chegam do servidor
@@ -128,9 +118,7 @@ export function VisaoGeral({
     return (
       <section>
         {navegacao}
-        <div className="carteira-pagina-larga">
-          <Carregando linhas={6} />
-        </div>
+        <Carregando linhas={6} />
       </section>
     )
   }
@@ -138,7 +126,7 @@ export function VisaoGeral({
     return (
       <section>
         {navegacao}
-        <div className="carteira-pagina-larga">{erro(estado.mensagem, recarregar)}</div>
+        {erro(estado.mensagem, recarregar)}
       </section>
     )
   }
@@ -146,187 +134,176 @@ export function VisaoGeral({
   const v = estado.visao
   const veClientes = usuario !== null && temPermCarteira(usuario, 'clientes')
   const veRotina = usuario !== null && temPermCarteira(usuario, 'rotina')
-  const veMetodo = usuario !== null && temPermCarteira(usuario, 'metodo')
-  const veMensalidades = usuario !== null && temPermCarteira(usuario, 'mensalidades')
   const dinheiro = (centavos: string | null) =>
     v.podeVerValores ? formatarDinheiro(centavos === null ? null : BigInt(centavos)) : 'restrito'
 
   return (
-    <section>
+    <section className="visao">
       {navegacao}
-      {/* O menu fica FORA do elemento largo (D-25, igual nos quatro painéis). */}
-      <div className="visao carteira-pagina-larga">
-        <header className="visao-cabeca">
-          <div className="visao-identidade">
-            <p className="eyebrow">{dataPorExtenso(v.hoje)}</p>
-            <h1 className="titulo">Olá, {v.nome}</h1>
-            <p className="nota">Visão do todo da carteira, do plano de ação e da rotina da equipe.</p>
-          </div>
-          <div className="visao-atalhos">
-            {veClientes ? (
-              <button type="button" className="btn ghost" onClick={() => setAtalho({ tag: 'reuniao' })}>
-                Registrar reunião
-              </button>
-            ) : null}
-            {veRotina ? (
-              <button type="button" className="btn ghost" onClick={() => setAtalho({ tag: 'tarefa' })}>
-                Nova tarefa
-              </button>
-            ) : null}
-            {veClientes ? (
-              <Link className="btn" href="/carteira/entrada">
-                Novo cliente
-              </Link>
-            ) : null}
-          </div>
-        </header>
 
-        {atalho.tag === 'reuniao' ? (
-          <EscolherClienteDaReuniao
-            clientes={v.clientesAtivos}
-            aoEscolher={(id) => router.push(`/carteira/clientes/${id}?aba=reunioes&registrar=1`)}
-            aoFechar={() => setAtalho({ tag: 'nenhum' })}
-          />
-        ) : null}
-        {atalho.tag === 'tarefa' && usuario !== null ? (
-          <FormularioDeTarefa
-            tarefa={null}
-            hoje={v.hoje}
-            eu={equipe?.eu ?? usuario.id}
-            pessoas={equipe?.pessoas ?? []}
-            clientes={clientes}
-            aoSalvar={(t) => {
-              setAtalho({ tag: 'nenhum' })
-              setRecado(`Tarefa "${t.titulo}" criada`)
-              recarregar()
-            }}
-            aoFechar={() => setAtalho({ tag: 'nenhum' })}
-          />
-        ) : null}
-
-        <div className="visao-kpis">
-          <div className="visao-kpi visao-kpi-escuro">
-            <span>Clientes ativos</span>
-            <b className="num">{v.kpis.clientesAtivos}</b>
-            <small className="num">{v.kpis.emOnboarding} em onboarding</small>
-          </div>
-          <div className="visao-kpi">
-            <span>Receita recorrente mensal</span>
-            <b className="num">{dinheiro(v.kpis.mrr)}</b>
-            <small className="num">Ticket médio {dinheiro(v.kpis.ticketMedio)}</small>
-          </div>
-          <div className={v.kpis.acoesAtrasadas > 0 ? 'visao-kpi visao-kpi-alerta' : 'visao-kpi'}>
-            <span>Ações do plano atrasadas</span>
-            <b className="num">{v.kpis.acoesAtrasadas}</b>
-            <small className="num">em {plural(v.kpis.clientesComAcaoAtrasada, 'cliente', 'clientes')}</small>
-          </div>
-          <div className={v.kpis.tarefasVencidas > 0 ? 'visao-kpi visao-kpi-alerta' : 'visao-kpi'}>
-            <span>Tarefas da equipe vencidas</span>
-            <b className="num">{v.kpis.tarefasVencidas}</b>
-            <small className="num">{v.kpis.tarefasVencemHoje} vencem hoje</small>
-          </div>
+      <header className="visao-cabeca">
+        <div className="visao-identidade">
+          <p className="eyebrow">{dataPorExtenso(v.hoje)}</p>
+          <h1 className="titulo">Olá, {v.nome}</h1>
+          <p className="nota">Visão do todo da carteira, do plano de ação e da rotina da equipe.</p>
         </div>
-
-        <div className="visao-duas">
-          <SaudeDaCarteira visao={v} />
-          <div className="visao-painel">
-            <div className="visao-painel-cabeca">
-              <h2>Equipe</h2>
-              <Link className="link" href="/carteira/rotina">
-                Abrir rotina
-              </Link>
-            </div>
-            {v.equipe.pessoas.length === 0 ? (
-              <p className="visao-vazio">Ninguém na equipe além da diretoria.</p>
-            ) : (
-              <ul className="visao-equipe">
-                {v.equipe.pessoas.map((p) => (
-                  <li key={p.id} className="visao-membro">
-                    <span className="visao-avatar" aria-hidden="true">
-                      {p.iniciais}
-                    </span>
-                    <div className="visao-membro-corpo">
-                      <span>
-                        <b>{p.nome}</b> <span className="visao-mudo num">· {plural(p.clientes, 'cliente', 'clientes')}</span>
-                      </span>
-                      <Barra
-                        fina
-                        total={v.equipe.escala}
-                        segmentos={p.barra}
-                        rotulo={`${p.pendentes} tarefas, ${p.vencidas} vencidas`}
-                      />
-                    </div>
-                    <div className="visao-membro-nums num">
-                      {plural(p.pendentes, 'tarefa', 'tarefas')}
-                      <br />
-                      {p.vencidas > 0 ? <b className="visao-tarde">{plural(p.vencidas, 'vencida', 'vencidas')}</b> : 'em dia'}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <div className="visao-painel-cabeca visao-painel-cabeca-segunda">
-              <h2>Reuniões da semana</h2>
-            </div>
-            {v.reunioesDaSemana.length === 0 ? (
-              <p className="visao-vazio">Nenhum cliente com reunião fixa.</p>
-            ) : (
-              <ul className="visao-linhas">
-                {v.reunioesDaSemana.map((r) => (
-                  <li key={r.clienteId}>
-                    <Link className="visao-linha" href={`/carteira/clientes/${r.clienteId}`}>
-                      <span className="visao-linha-titulo">{r.nome}</span>
-                      <span className={r.ehHoje ? 'visao-chip visao-chip-ouro num' : 'visao-chip num'}>
-                        {r.ehHoje ? 'hoje' : DIAS[r.diaDaSemana]} {r.hora ?? ''}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+        <div className="visao-atalhos">
+          {veClientes ? (
+            <button type="button" className="btn ghost" onClick={() => setAtalho({ tag: 'reuniao' })}>
+              Registrar reunião
+            </button>
+          ) : null}
+          {veRotina ? (
+            <button type="button" className="btn ghost" onClick={() => setAtalho({ tag: 'tarefa' })}>
+              Nova tarefa
+            </button>
+          ) : null}
+          {veClientes ? (
+            <Link className="btn" href="/carteira/entrada">
+              Novo cliente
+            </Link>
+          ) : null}
         </div>
+      </header>
 
-        {veClientes ? <BriefingsAFazer ativos={v.clientesAtivos.map((c) => c.id)} podeAbrirRoteiro={veMetodo} /> : null}
-
-        {v.aniversarios.length > 0 ? <Aniversarios lista={v.aniversarios} /> : null}
-
-        {veClientes ? <PlanilhasDaSemana clientes={v.clientesAtivos} /> : null}
-
-        {veMensalidades ? <MensalidadesDoMes aoMudar={setRecado} /> : null}
-
-        {v.contatosRecomendados !== null ? (
-          <div className="visao-painel">
-            <div className="visao-painel-cabeca">
-              <h2>Prospecção · contatos recomendados</h2>
-              <Link className="link" href="/carteira/leads">
-                Abrir prospecção
-              </Link>
-            </div>
-            {v.contatosRecomendados.length === 0 ? (
-              <p className="visao-vazio">Nenhum contato pendente agora.</p>
-            ) : (
-              <ul className="lead-sinais">
-                {v.contatosRecomendados.map((l) => (
-                  <LinhaDeSinal key={l.id} lead={l} sinal={l.sinal!} />
-                ))}
-              </ul>
-            )}
-          </div>
-        ) : null}
-
-        <ProximasEntregas
-          entregas={v.proximasEntregas}
-          podeConcluir={veClientes}
-          aoMudar={(texto) => {
-            setRecado(texto)
+      {atalho.tag === 'reuniao' ? (
+        <EscolherClienteDaReuniao
+          clientes={v.clientesAtivos}
+          aoEscolher={(id) => router.push(`/carteira/clientes/${id}?aba=reunioes&registrar=1`)}
+          aoFechar={() => setAtalho({ tag: 'nenhum' })}
+        />
+      ) : null}
+      {atalho.tag === 'tarefa' && usuario !== null ? (
+        <FormularioDeTarefa
+          tarefa={null}
+          hoje={v.hoje}
+          eu={equipe?.eu ?? usuario.id}
+          pessoas={equipe?.pessoas ?? []}
+          clientes={clientes}
+          aoSalvar={(t) => {
+            setAtalho({ tag: 'nenhum' })
+            setRecado(`Tarefa "${t.titulo}" criada`)
             recarregar()
           }}
+          aoFechar={() => setAtalho({ tag: 'nenhum' })}
         />
+      ) : null}
 
-        <Toast recado={recado} aoFechar={() => setRecado(null)} />
+      <div className="visao-kpis">
+        <div className="visao-kpi">
+          <span>Clientes ativos</span>
+          <b className="num">{v.kpis.clientesAtivos}</b>
+          <small className="num">{v.kpis.emOnboarding} em onboarding</small>
+        </div>
+        <div className="visao-kpi">
+          <span>Receita recorrente mensal</span>
+          <b className="num">{dinheiro(v.kpis.mrr)}</b>
+          <small className="num">Ticket médio {dinheiro(v.kpis.ticketMedio)}</small>
+        </div>
+        <div className={v.kpis.acoesAtrasadas > 0 ? 'visao-kpi visao-kpi-alerta' : 'visao-kpi'}>
+          <span>Ações do plano atrasadas</span>
+          <b className="num">{v.kpis.acoesAtrasadas}</b>
+          <small className="num">em {plural(v.kpis.clientesComAcaoAtrasada, 'cliente', 'clientes')}</small>
+        </div>
+        <div className={v.kpis.tarefasVencidas > 0 ? 'visao-kpi visao-kpi-alerta' : 'visao-kpi'}>
+          <span>Tarefas da equipe vencidas</span>
+          <b className="num">{v.kpis.tarefasVencidas}</b>
+          <small className="num">{v.kpis.tarefasVencemHoje} vencem hoje</small>
+        </div>
       </div>
+
+      <div className="visao-duas">
+        <SaudeDaCarteira visao={v} />
+        <div className="visao-painel">
+          <div className="visao-painel-cabeca">
+            <h2>Equipe</h2>
+            <Link className="link" href="/carteira/rotina">
+              Abrir rotina
+            </Link>
+          </div>
+          {v.equipe.pessoas.length === 0 ? (
+            <p className="visao-vazio">Ninguém na equipe além da diretoria.</p>
+          ) : (
+            <ul className="visao-equipe">
+              {v.equipe.pessoas.map((p) => (
+                <li key={p.id} className="visao-membro">
+                  <span className="visao-avatar" aria-hidden="true">
+                    {p.iniciais}
+                  </span>
+                  <div className="visao-membro-corpo">
+                    <span>
+                      <b>{p.nome}</b> <span className="visao-mudo num">· {plural(p.clientes, 'cliente', 'clientes')}</span>
+                    </span>
+                    <Barra
+                      total={v.equipe.escala}
+                      segmentos={p.barra}
+                      rotulo={`${p.pendentes} tarefas, ${p.vencidas} vencidas`}
+                    />
+                  </div>
+                  <div className="visao-membro-nums num">
+                    {plural(p.pendentes, 'tarefa', 'tarefas')}
+                    <br />
+                    {p.vencidas > 0 ? <b className="visao-tarde">{plural(p.vencidas, 'vencida', 'vencidas')}</b> : 'em dia'}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="visao-painel-cabeca visao-painel-cabeca-segunda">
+            <h2>Reuniões da semana</h2>
+          </div>
+          {v.reunioesDaSemana.length === 0 ? (
+            <p className="visao-vazio">Nenhum cliente com reunião fixa.</p>
+          ) : (
+            <ul className="visao-linhas">
+              {v.reunioesDaSemana.map((r) => (
+                <li key={r.clienteId}>
+                  <Link className="visao-linha" href={`/carteira/clientes/${r.clienteId}`}>
+                    <span className="visao-linha-titulo">{r.nome}</span>
+                    <span className={r.ehHoje ? 'visao-chip visao-chip-ouro num' : 'visao-chip num'}>
+                      {r.ehHoje ? 'hoje' : DIAS[r.diaDaSemana]} {r.hora ?? ''}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {v.aniversarios.length > 0 ? <Aniversarios lista={v.aniversarios} /> : null}
+
+      {v.contatosRecomendados !== null ? (
+        <div className="visao-painel">
+          <div className="visao-painel-cabeca">
+            <h2>Prospecção · contatos recomendados</h2>
+            <Link className="link" href="/carteira/leads">
+              Abrir prospecção
+            </Link>
+          </div>
+          {v.contatosRecomendados.length === 0 ? (
+            <p className="visao-vazio">Nenhum contato pendente agora.</p>
+          ) : (
+            <ul className="lead-sinais">
+              {v.contatosRecomendados.map((l) => (
+                <LinhaDeSinal key={l.id} lead={l} sinal={l.sinal!} />
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      <ProximasEntregas
+        entregas={v.proximasEntregas}
+        podeConcluir={veClientes}
+        aoMudar={(texto) => {
+          setRecado(texto)
+          recarregar()
+        }}
+      />
+
+      <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
   )
 }
@@ -340,15 +317,13 @@ function Barra({
   total,
   segmentos,
   rotulo,
-  fina = false,
 }: {
-  fina?: boolean
   total: number
   segmentos: readonly { chave: string; inicio: number; largura: number }[]
   rotulo: string
 }) {
   return (
-    <svg className={fina ? 'visao-barra visao-barra-fina' : 'visao-barra'} viewBox={`0 0 ${Math.max(total, 1)} 1`} preserveAspectRatio="none" role="img" aria-label={rotulo}>
+    <svg className="visao-barra" viewBox={`0 0 ${Math.max(total, 1)} 1`} preserveAspectRatio="none" role="img" aria-label={rotulo}>
       <rect className="visao-barra-fundo" x={0} y={0} width={Math.max(total, 1)} height={1} />
       {segmentos.map((s) => (
         <rect key={s.chave} className={`visao-barra-${s.chave}`} x={s.inicio} y={0} width={s.largura} height={1} />
@@ -382,8 +357,12 @@ function SaudeDaCarteira({ visao: v }: { visao: VisaoGeralDaCarteiraSaida }) {
         <span>
           <b>{s.critico}</b> crítico
         </span>
+        {s.semSaude > 0 ? (
+          <span>
+            <b>{s.semSaude}</b> sem saúde registrada
+          </span>
+        ) : null}
       </p>
-      {s.semSaude > 0 ? <p className="visao-sem-saude num">{plural(s.semSaude, 'cliente', 'clientes')} sem saúde registrada</p> : null}
       {s.emRisco.length === 0 ? (
         <p className="visao-vazio">Nenhum cliente em atenção ou crítico.</p>
       ) : (
@@ -392,10 +371,7 @@ function SaudeDaCarteira({ visao: v }: { visao: VisaoGeralDaCarteiraSaida }) {
             <li key={c.id}>
               <Link className="visao-linha visao-linha-risco" href={`/carteira/clientes/${c.id}`}>
                 <span className="visao-linha-titulo">{c.nome}</span>
-                <span className={`visao-chip visao-chip-${c.saude}`}>
-                  <i aria-hidden="true" />
-                  {ROTULO_DA_SAUDE[c.saude]}
-                </span>
+                <span className={`visao-chip visao-chip-${c.saude}`}>{ROTULO_DA_SAUDE[c.saude]}</span>
                 <span className="visao-linha-detalhe">
                   {c.resumoDaUltimaReuniao ?? 'Sem reunião registrada.'}
                   {c.acoesAtrasadas > 0 ? (
@@ -455,8 +431,7 @@ function Aniversarios({ lista }: { lista: readonly AniversarioNaLista[] }) {
             <span className="visao-linha-acoes">
               <span className={a.emDias === 0 ? 'visao-chip visao-chip-ouro num' : 'visao-chip num'}>{quando(a)}</span>
               {a.podeParabenizar ? (
-                <button type="button" className="btn visao-mini visao-wa" onClick={() => void parabenizar(a)}>
-                  <IconeDoWhatsApp />
+                <button type="button" className="btn ghost visao-mini" onClick={() => void parabenizar(a)}>
                   Parabenizar
                 </button>
               ) : null}
@@ -475,8 +450,8 @@ function Aniversarios({ lista }: { lista: readonly AniversarioNaLista[] }) {
  * Próximas entregas do plano de ação (L1327–1330, `tabelaAcoes` L1335–1345):
  * atrasadas e dos próximos 7 dias, com o check que conclui. O check chama a
  * MESMA rota da ficha (`.../acoes-do-plano/:acaoId/alternar`); a lista volta
- * do servidor depois. Tabela com cabeçalho, como o protótipo; em 390 px cada
- * linha vira um bloco empilhado (CSS), nunca uma tabela que rola de lado.
+ * do servidor depois. Em 390 px cada ação é uma linha empilhada, nunca uma
+ * tabela que rola de lado.
  */
 function ProximasEntregas({
   entregas,
@@ -515,66 +490,39 @@ function ProximasEntregas({
       {entregas.length === 0 ? (
         <p className="visao-vazio">Nenhuma ação aqui.</p>
       ) : (
-        <div className="visao-tabela-caixa">
-          <table className="visao-tabela visao-tabela-entregas">
-            <thead>
-              <tr>
-                <th>
-                  <span className="sr-apenas">Concluir</span>
-                </th>
-                <th>Ação</th>
-                <th>Cliente</th>
-                <th>Quem executa</th>
-                <th>Status</th>
-                <th className="visao-th-num">Prazo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entregas.map((a) => (
-                <tr key={a.id}>
-                  <td className="visao-td-check">
-                    <button
-                      type="button"
-                      className={a.status === 'concluida' ? 'visao-check visao-check-feito' : 'visao-check'}
-                      aria-label={`Concluir ação: ${a.titulo}`}
-                      disabled={!podeConcluir || ocupada === a.id}
-                      onClick={() => void alternar(a)}
-                    />
-                  </td>
-                  <td className="visao-td-acao-plano">
-                    <b>{a.titulo}</b>
-                    <span className="visao-mudo">
-                      {a.tipo === 'comercial' ? 'Ação comercial' : 'Plano de ação'}
-                      {a.metaTitulo !== null ? ` · ${a.metaTitulo}` : ''}
-                    </span>
-                  </td>
-                  <td className="visao-td-cliente">
-                    <Link className="link" href={`/carteira/clientes/${a.clienteCarteiraId}?aba=plano`}>
-                      {a.clienteNome}
-                    </Link>
-                  </td>
-                  <td className="visao-td-quem">
-                    {a.quemExecuta === 'firmare' ? `Firmare · ${a.acompanhamentoNome ?? '—'}` : 'Cliente'}
-                  </td>
-                  <td className="visao-td-status">
-                    <span
-                      className={
-                        a.atrasada ? 'visao-chip visao-chip-critico' : a.status === 'concluida' ? 'visao-chip visao-chip-bom' : 'visao-chip'
-                      }
-                    >
-                      {a.atrasada ? <i aria-hidden="true" /> : null}
-                      {a.atrasada ? 'Atrasada' : ROTULO_DO_STATUS[a.status]}
-                    </span>
-                  </td>
-                  <td className={a.atrasada ? 'visao-td-num visao-td-prazo visao-tarde' : 'visao-td-num visao-td-prazo'}>
-                    {a.prazo !== null ? diaCurto(a.prazo) : ''}
-                    {a.atrasada && a.diasDeAtraso !== null ? <small>{plural(a.diasDeAtraso, 'dia', 'dias')}</small> : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ul className="visao-entregas">
+          {entregas.map((a) => (
+            <li key={a.id} className="visao-entrega">
+              <button
+                type="button"
+                className={a.status === 'concluida' ? 'visao-check visao-check-feito' : 'visao-check'}
+                aria-label={`Concluir ação: ${a.titulo}`}
+                disabled={!podeConcluir || ocupada === a.id}
+                onClick={() => void alternar(a)}
+              />
+              <div className="visao-entrega-acao">
+                <b>{a.titulo}</b>
+                <span className="visao-mudo">
+                  {a.tipo === 'comercial' ? 'Ação comercial' : 'Plano de ação'}
+                  {a.metaTitulo !== null ? ` · ${a.metaTitulo}` : ''}
+                </span>
+              </div>
+              <Link className="link visao-entrega-cliente" href={`/carteira/clientes/${a.clienteCarteiraId}?aba=plano`}>
+                {a.clienteNome}
+              </Link>
+              <span className="visao-entrega-quem">
+                {a.quemExecuta === 'firmare' ? `Firmare · ${a.acompanhamentoNome ?? '—'}` : 'Cliente'}
+              </span>
+              <span className={a.atrasada ? 'visao-chip visao-chip-critico' : 'visao-chip'}>
+                {a.atrasada ? 'Atrasada' : ROTULO_DO_STATUS[a.status]}
+              </span>
+              <span className={a.atrasada ? 'visao-entrega-prazo num visao-tarde' : 'visao-entrega-prazo num'}>
+                {a.prazo !== null ? diaCurto(a.prazo) : ''}
+                {a.atrasada && a.diasDeAtraso !== null ? <small>{plural(a.diasDeAtraso, 'dia', 'dias')}</small> : null}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
       <p role="alert" aria-live="polite" className="erro">
         {erro}

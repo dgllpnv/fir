@@ -2,10 +2,11 @@
 
 import type { ComparativoDeCampanhasSaida } from '@fir/contracts'
 import Link from 'next/link'
-import { useEffect, useState, type ReactNode } from 'react'
-import { Carregando } from '@/components/estados'
+import { useEffect, useState } from 'react'
+import { Carregando, Vazio } from '@/components/estados'
 import {
   AvisoDeSupressao,
+  FiltroDePeriodo,
   PERIODO_INICIAL,
   consultaDoPeriodo,
   dinheiro,
@@ -14,32 +15,33 @@ import {
   mesPorExtenso,
   rotuloDoPeriodo,
   rotuloEmMinuscula,
+  valorOuTraco,
   type EscolhaDePeriodo,
 } from '@/components/carteira/campanhas-pecas'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { instanteEmTexto } from '@/lib/instante'
 import { useCarteira } from '../contexto'
 import { ErroDaCarteira, NavDaCarteira } from '../pecas'
-import { FiltroSegmentado } from './filtro-segmentado'
 
 /**
  * **CAMPANHAS — o comparativo de todas as clientes** (K1, `vCampanhas`,
- * `index.html` L1963-2001). D-25: igual ao protótipo — mesma ordem, mesmos
- * textos, quatro indicadores numa linha com o primeiro escuro, blocos em
- * cartão branco, tabelas cliente × meses com cabeçalho em caixa alta.
+ * `index.html` L1963-2001; período K2, L1458-1476).
  *
- * Em 390 px a TABELA rola dentro do próprio cartão, como no protótipo; a
- * página nunca (`scrollWidth == innerWidth`, medido).
+ * Mesma ordem do protótipo: filtro de período, quatro indicadores, "Valor
+ * gerado por cliente", "Campanhas que mais geraram valor", "Por tipo de
+ * campanha" e "Atualização automática pela Gestão de Rotina". O botão
+ * "Atualizar agora" do protótipo só existe no modo de demonstração (L1972,
+ * `MODE==="live"?""`): aqui a leitura roda sozinha todo dia.
  *
- * "Atualizar agora" não existe: no protótipo ele só aparece no modo de
- * demonstração (L1972, `MODE==="live"?""`), e aqui não há rota que dispare a
- * leitura — ela roda sozinha todo dia (`worker-campanhas.ts`). No lugar do
- * botão fica a frase que diz isso.
+ * As tabelas cliente × meses do protótipo viram LINHAS EMPILHADAS — 390 px é
+ * o caso principal e nenhuma tela rola na horizontal (`docs/design.md` §1);
+ * doze colunas de mês não cabem nem num tablet.
  *
- * Divergências de gate, todas do servidor: "Continuado" aparece como "—" (ADR
- * 0013 §5, LGPD A26 — não existe na fonte); campanha com menos de 5 pagamentos
- * no mês não tem valor em lugar nenhum (LGPD A21–A23); sem `valores` os campos
- * em R$ chegam `null` e viram "—". Nada disso é decidido aqui.
+ * Divergências do protótipo, todas de gate: "Continuado" aparece como
+ * indisponível (ADR 0013 §5, LGPD A26 — não existe na fonte); campanha com
+ * menos de 5 pagamentos no mês não tem valor em lugar nenhum (LGPD A21–A23)
+ * e os totais somam só as exibidas; o retorno é "total ÷ investimento"
+ * (D-22 item 9) e some com a receita que o originou.
  */
 type Estado =
   | { tag: 'carregando' }
@@ -75,65 +77,61 @@ export default function CampanhasDaCarteira() {
   }, [sessao.tag, consulta, tentativa])
 
   const cabeca = (
-    <header className="fcamp-cabeca">
-      <div>
-        <p className="fcamp-sobretitulo">Todas as clientes</p>
-        <h1 className="fcamp-titulo">Campanhas</h1>
-        <p className="fcamp-sub">Quanto cada campanha trouxe de resultado real para as clínicas.</p>
-      </div>
-      <p className="fcamp-acoes">A atualização roda sozinha todos os dias</p>
-    </header>
+    <>
+      <NavDaCarteira atual="/carteira/campanhas" />
+      <p className="camp-sobretitulo">Todas as clientes</p>
+      <h1 className="titulo">Campanhas</h1>
+      <p className="nota">Quanto cada campanha trouxe de resultado real para as clínicas.</p>
+    </>
   )
 
   if (sessao.tag !== 'pronta' || estado.tag === 'carregando') {
     return (
-      <Moldura>
+      <section className="camp">
         {cabeca}
         <Carregando linhas={5} />
-      </Moldura>
+      </section>
     )
   }
   if (estado.tag === 'erro') {
     return (
-      <Moldura>
+      <section className="camp">
         {cabeca}
         <ErroDaCarteira mensagem={estado.mensagem} recarregar={() => setTentativa((n) => n + 1)} />
-      </Moldura>
+      </section>
     )
   }
 
   const d = estado.dados
   const anterior = d.kpis.mesAnterior
-  const meses = d.periodo.meses
-  const maior = maiorValor(d.porCliente.flatMap((c) => c.meses.map((m) => m.valorGerado)))
 
   return (
-    <Moldura>
+    <section className="camp">
       {cabeca}
-      <FiltroSegmentado escolha={escolha} periodo={d.periodo} aoMudar={setEscolha} />
+      <FiltroDePeriodo escolha={escolha} periodo={d.periodo} comCiclo={false} aoMudar={setEscolha} />
 
-      <div className="fcamp-kpis">
-        <div className="fcamp-kpi">
+      <div className="camp-kpis">
+        <div className="camp-kpi">
           <span>Valor gerado em {mesPorExtenso(d.periodo.mesAtual)}</span>
           <b>{dinheiro(d.kpis.mesAtual.valorGerado)}</b>
-          <small>
+          <small className="camp-legenda">
             parcial · {anterior === null ? 'sem mês anterior' : `mês anterior ${dinheiro(anterior.valorGerado)}`}
           </small>
         </div>
-        <div className="fcamp-kpi">
+        <div className="camp-kpi">
           <span>Total no período</span>
           <b>{dinheiro(d.kpis.periodo.valorGerado)}</b>
-          <small>{dinheiro(d.kpis.periodo.valorGerado)} no mês · continuado indisponível</small>
+          <small className="camp-legenda">no mês · continuado indisponível</small>
         </div>
-        <div className="fcamp-kpi">
+        <div className="camp-kpi">
           <span>Retorno sobre o investimento</span>
           <b>{d.kpis.periodo.retornoSobreInvestimento ?? '—'}</b>
-          <small>{legendaDoInvestimento(d.kpis.periodo.investimento)}</small>
+          <small className="camp-legenda">{legendaDoInvestimento(d.kpis.periodo.investimento)}</small>
         </div>
-        <div className="fcamp-kpi">
+        <div className="camp-kpi">
           <span>Campanhas ativas</span>
           <b>{d.kpis.ativas}</b>
-          <small>
+          <small className="camp-legenda">
             {d.kpis.clientesAtualizandoSozinhos}{' '}
             {d.kpis.clientesAtualizandoSozinhos === 1 ? 'cliente atualizando sozinha' : 'clientes atualizando sozinhas'}
           </small>
@@ -142,105 +140,85 @@ export default function CampanhasDaCarteira() {
 
       <AvisoDeSupressao quantidade={d.outras.quantidade} />
 
-      <section className="fcamp-painel" aria-labelledby="fcamp-por-cliente">
-        <div className="fcamp-ph">
-          <h2 id="fcamp-por-cliente">Valor gerado por cliente</h2>
-          <span className="fcamp-ph-nota">Meses: valor gerado no próprio mês. Continuado: ainda não lido da clínica</span>
-        </div>
-        <div className="fcamp-tabela">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Cliente</th>
-                {meses.map((m) => (
-                  <th key={m} scope="col" className="fcamp-num">
-                    {mesCurto(m)}
-                  </th>
-                ))}
-                <th scope="col" className="fcamp-num">
-                  Continuado
-                </th>
-                <th scope="col" className="fcamp-num">
-                  Total
-                </th>
-                <th scope="col" className="fcamp-num">
-                  Retorno
-                </th>
-                <th scope="col">Campanha que mais gerou</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.porCliente.length === 0 ? (
-                <tr>
-                  <td colSpan={meses.length + 5} className="fcamp-vazio">
-                    Nenhuma campanha registrada.
-                  </td>
-                </tr>
-              ) : (
-                d.porCliente.map((c) => (
-                  <tr key={c.clienteCarteiraId}>
-                    <td>
-                      <Link className="fcamp-nm fcamp-nm-link" href={`/carteira/campanhas/${c.clienteCarteiraId}`}>
-                        {c.nome}
-                      </Link>
-                      <div className="fcamp-sm">{c.ligadoAClinica ? 'Atualiza sozinha' : 'Lançamento manual'}</div>
-                    </td>
-                    {c.meses.map((m) => (
-                      <td key={m.mes} className="fcamp-num">
-                        <Barra valor={m.valorGerado} maior={maior} />
-                        <Valor centavos={m.valorGerado} />
-                      </td>
-                    ))}
-                    <td className="fcamp-num">
-                      <span className="fcamp-traco">—</span>
-                    </td>
-                    <td className="fcamp-num">
+      <section className="camp-painel" aria-labelledby="camp-por-cliente">
+        <header className="camp-painel-cabeca">
+          <h2 id="camp-por-cliente">Valor gerado por cliente</h2>
+          <span className="nota">Meses: valor gerado no próprio mês. Continuado: ainda não lido da clínica</span>
+        </header>
+        {d.porCliente.length === 0 ? (
+          <Vazio>
+            <b>Nenhuma campanha com valor no período.</b>
+            <p className="nota">Escolha um período maior, ou lance as campanhas na ficha de cada cliente.</p>
+          </Vazio>
+        ) : (
+          <ul className="camp-linhas">
+            {d.porCliente.map((c) => (
+              <li key={c.clienteCarteiraId} className="camp-linha">
+                <div className="camp-linha-cabeca">
+                  <Link className="link camp-nome" href={`/carteira/campanhas/${c.clienteCarteiraId}`}>
+                    {c.nome}
+                  </Link>
+                  <span className="nota">{c.ligadoAClinica ? 'Atualiza sozinha' : 'Lançamento manual'}</span>
+                </div>
+                <dl className="camp-meses">
+                  {c.meses.map((m) => (
+                    <div key={m.mes}>
+                      <dt>{mesCurto(m.mes)}</dt>
+                      <dd>{valorOuTraco(m.valorGerado)}</dd>
+                    </div>
+                  ))}
+                  <div>
+                    <dt>Continuado</dt>
+                    <dd className="camp-mudo">—</dd>
+                  </div>
+                  <div>
+                    <dt>Total</dt>
+                    <dd>
                       <b>{dinheiro(c.valorGerado)}</b>
-                    </td>
-                    <td className="fcamp-num">{c.retornoSobreInvestimento ?? '—'}</td>
-                    <td>
-                      {c.melhor === null ? (
-                        '—'
-                      ) : (
-                        <>
-                          {c.melhor.nome}
-                          <div className="fcamp-sm">
-                            {dinheiro(c.melhor.valorGerado)} · {mesCurto(c.melhor.mes)}
-                          </div>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Retorno</dt>
+                    <dd>{c.retornoSobreInvestimento ?? '—'}</dd>
+                  </div>
+                </dl>
+                <p className="nota">
+                  Campanha que mais gerou:{' '}
+                  {c.melhor === null
+                    ? '—'
+                    : `${c.melhor.nome} · ${dinheiro(c.melhor.valorGerado)} · ${mesCurto(c.melhor.mes)}`}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
-      <div className="fcamp-grid2">
-        <section className="fcamp-painel" aria-labelledby="fcamp-top">
-          <div className="fcamp-ph">
-            <h2 id="fcamp-top">Campanhas que mais geraram valor</h2>
-            <span className="fcamp-ph-nota">{rotuloDoPeriodo(d.periodo)}</span>
-          </div>
+      <div className="camp-duas">
+        <section className="camp-painel" aria-labelledby="camp-top">
+          <header className="camp-painel-cabeca">
+            <h2 id="camp-top">Campanhas que mais geraram valor</h2>
+            <span className="nota num">{rotuloDoPeriodo(d.periodo)}</span>
+          </header>
           {d.maisGeraram.length === 0 ? (
-            <p className="fcamp-vazio">Sem valores lançados.</p>
+            <p className="nota">Sem valores lançados.</p>
           ) : (
-            <ol className="fcamp-rows">
+            <ol className="camp-ranking">
               {d.maisGeraram.map((x, i) => (
-                <li key={x.id} className="fcamp-row fcamp-row-rk">
-                  <span className={i < 3 ? 'fcamp-rk fcamp-rk-ouro' : 'fcamp-rk'}>{i + 1}</span>
-                  <span className="fcamp-t">
+                <li key={x.id}>
+                  <span className={i < 3 ? 'camp-posicao camp-ouro' : 'camp-posicao'}>{i + 1}</span>
+                  <span className="camp-ranking-nome">
                     {x.nome}{' '}
-                    <span className="fcamp-t-mudo">
+                    <span className="nota">
                       · {x.nomeDoCliente} · {mesCurto(x.mes)}
                     </span>
                   </span>
-                  <b className="fcamp-valor">{dinheiro(x.valorGerado)}</b>
-                  <span className="fcamp-d fcamp-d-rk">
+                  <b className="num">{dinheiro(x.valorGerado)}</b>
+                  <span className="nota camp-ranking-detalhe">
                     {dinheiro(x.valorGerado)} no mês ·{' '}
-                    {x.resultadoEmDinheiro !== null ? dinheiro(x.resultadoEmDinheiro) : (x.resultadoEmNumero ?? '—')}{' '}
+                    {x.resultadoEmDinheiro !== null
+                      ? dinheiro(x.resultadoEmDinheiro)
+                      : (x.resultadoEmNumero ?? '—')}{' '}
                     {rotuloEmMinuscula(x.rotuloDaMetrica)}
                     {x.retornoSobreInvestimento !== null ? ` · retorno ${x.retornoSobreInvestimento}` : ''}
                   </span>
@@ -250,67 +228,56 @@ export default function CampanhasDaCarteira() {
           )}
         </section>
 
-        <section className="fcamp-painel" aria-labelledby="fcamp-tipos">
-          <div className="fcamp-ph">
-            <h2 id="fcamp-tipos">Por tipo de campanha</h2>
-            <span className="fcamp-ph-nota">Valor gerado somando todas as clientes</span>
-          </div>
+        <section className="camp-painel" aria-labelledby="camp-tipos">
+          <header className="camp-painel-cabeca">
+            <h2 id="camp-tipos">Por tipo de campanha</h2>
+            <span className="nota">Valor gerado somando todas as clientes</span>
+          </header>
           {d.porTipo.length === 0 ? (
-            <p className="fcamp-vazio">Sem valores lançados.</p>
+            <p className="nota">Sem valores lançados.</p>
           ) : (
-            <div className="fcamp-tabela">
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">Tipo</th>
-                    {meses.map((m) => (
-                      <th key={m} scope="col" className="fcamp-num">
-                        {mesCurto(m)}
-                      </th>
+            <ul className="camp-linhas">
+              {d.porTipo.map((t) => (
+                <li key={t.tipo} className="camp-linha">
+                  <div className="camp-linha-cabeca">
+                    <span className="camp-nome">{t.tipo}</span>
+                    <span className="nota">
+                      {t.clientes} {t.clientes > 1 ? 'clientes' : 'cliente'}
+                    </span>
+                  </div>
+                  <dl className="camp-meses">
+                    {t.meses.map((m) => (
+                      <div key={m.mes}>
+                        <dt>{mesCurto(m.mes)}</dt>
+                        <dd>{valorOuTraco(m.valorGerado)}</dd>
+                      </div>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {d.porTipo.map((t) => (
-                    <tr key={t.tipo}>
-                      <td>
-                        <div className="fcamp-nm">{t.tipo}</div>
-                        <div className="fcamp-sm">
-                          {t.clientes} {t.clientes > 1 ? 'clientes' : 'cliente'}
-                        </div>
-                      </td>
-                      {t.meses.map((m) => (
-                        <td key={m.mes} className="fcamp-num">
-                          <Valor centavos={m.valorGerado} />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </dl>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
       </div>
 
-      <section className="fcamp-painel" aria-labelledby="fcamp-auto">
-        <div className="fcamp-ph">
-          <h2 id="fcamp-auto">Atualização automática pela Gestão de Rotina</h2>
-          <span className="fcamp-ph-nota">
+      <section className="camp-painel" aria-labelledby="camp-auto">
+        <header className="camp-painel-cabeca">
+          <h2 id="camp-auto">Atualização automática pela Gestão de Rotina</h2>
+          <span className="nota">
             As campanhas, os resultados e os valores pagos já são registrados pela equipe de cada clínica
           </span>
-        </div>
+        </header>
         {d.atualizacao.length === 0 ? (
-          <p className="fcamp-vazio">Nenhuma cliente ativa ou em implantação.</p>
+          <p className="nota">Nenhuma cliente ativa ou em implantação.</p>
         ) : (
-          <ul className="fcamp-rows">
+          <ul className="camp-linhas">
             {d.atualizacao.map((c) => (
-              <li key={c.clienteCarteiraId} className="fcamp-row">
-                <span className="fcamp-t">{c.nome}</span>
+              <li key={c.clienteCarteiraId} className="camp-linha camp-auto">
+                <span className="camp-nome">{c.nome}</span>
                 {c.ligadoAClinica ? (
                   <>
-                    <span className="fcamp-chip fcamp-chip-bom">Ligada à Gestão de Rotina</span>
-                    <span className="fcamp-d">
+                    <span className="pill bom">Ligada à Gestão de Rotina</span>
+                    <span className="nota">
                       Última atualização:{' '}
                       {c.sincronizadoEm === null
                         ? 'nunca'
@@ -318,61 +285,20 @@ export default function CampanhasDaCarteira() {
                     </span>
                   </>
                 ) : (
-                  <>
-                    <span className="fcamp-chip">Lançamento manual</span>
-                    <span className="fcamp-d">Sem clínica ligada. Resultados lançados à mão.</span>
-                  </>
+                  <span className="nota">Sem clínica ligada. Resultados lançados à mão.</span>
                 )}
               </li>
             ))}
           </ul>
         )}
-        <p className="fcamp-ph-nota">
+        <p className="nota">
           Regra da leitura: o valor no mês soma os pagamentos registrados nas tarefas vinculadas à campanha, no mês
           em que foram pagos. O valor continuado ainda não é lido da clínica.
         </p>
-        <p className="fcamp-aviso">
+        <p className="camp-aviso">
           A atualização roda sozinha todos os dias, direto da Gestão de Rotina de cada clínica, sem lançamento manual.
         </p>
       </section>
-    </Moldura>
+    </section>
   )
-}
-
-function Moldura({ children }: { children: ReactNode }) {
-  return (
-    <>
-      <NavDaCarteira atual="/carteira/campanhas" />
-      <div className="carteira-pagina-larga">
-        <section className="fcamp">{children}</section>
-      </div>
-    </>
-  )
-}
-
-/** Célula de valor: "—" apagado quando zero ou quando o servidor redigiu o campo (`null`). */
-function Valor({ centavos }: { centavos: string | null }) {
-  if (centavos === null || centavos === '0') return <span className="fcamp-traco">—</span>
-  return <>{dinheiro(centavos)}</>
-}
-
-/** O maior valor mensal da tabela — só a ESCALA das barras, nenhum total. `null` (redigido) fica de fora. */
-function maiorValor(valores: (string | null)[]): bigint {
-  let maior = 0n
-  for (const v of valores) {
-    if (v === null) continue
-    const n = BigInt(v)
-    if (n > maior) maior = n
-  }
-  return maior
-}
-
-/**
- * A barrinha sobre cada mês (`.vbar`, L1985). É desenho, não número: a largura
- * em pontos percentuais inteiros sai de `bigint`, sem ponto flutuante perto do
- * dinheiro. Sem valor (redigido ou tabela zerada), a trilha aparece vazia.
- */
-function Barra({ valor, maior }: { valor: string | null; maior: bigint }) {
-  const pct = valor === null || maior === 0n ? 0 : Number((BigInt(valor) * 100n) / maior)
-  return <progress className="fcamp-vbar" max={100} value={pct} aria-hidden="true" />
 }

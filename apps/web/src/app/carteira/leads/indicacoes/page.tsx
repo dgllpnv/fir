@@ -3,9 +3,8 @@
 import type { IndicacoesSaida, ListaDeBeneficiosSaida, ListaDeClientesDaCarteiraSaida } from '@fir/contracts'
 import { useEffect, useState } from 'react'
 import { PainelDeBeneficios } from '@/components/carteira/beneficios-painel'
-import { NovaIndicacao } from '@/components/carteira/lead-nova-indicacao'
 import { RankingDeQuemIndica } from '@/components/carteira/indicacoes-ranking'
-import { CabecalhoDaProspeccao, TelaDaProspeccao } from '@/components/carteira/lead-pecas'
+import { CabecalhoDaProspeccao } from '@/components/carteira/lead-pecas'
 import { Carregando, Toast } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../../contexto'
@@ -66,13 +65,9 @@ export default function QuemIndica() {
     estado.tag === 'pronto' ? estado.beneficios.beneficios.filter((b) => b.situacao !== 'concedido').length : undefined
 
   return (
-    <TelaDaProspeccao>
+    <section className="lead-tela">
       <NavDaCarteira atual="/carteira/leads" />
-      <CabecalhoDaProspeccao
-        aba="indicacoes"
-        {...(pendentes === undefined ? {} : { beneficiosPendentes: pendentes })}
-        {...(sessao.tag === 'pronta' ? { acao: <NovaIndicacao eu={sessao.usuarioDeGestao.id} /> } : {})}
-      />
+      <CabecalhoDaProspeccao aba="indicacoes" {...(pendentes === undefined ? {} : { beneficiosPendentes: pendentes })} />
 
       {sessao.tag !== 'pronta' || estado.tag === 'carregando' ? (
         <Carregando linhas={5} />
@@ -102,6 +97,6 @@ export default function QuemIndica() {
         </>
       )}
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
-    </TelaDaProspeccao>
+    </section>
   )
 }

@@ -72,11 +72,4 @@ describe('toda rota de carteira declara a tela (A-4)', () => {
     expect(telaDaRota('GET', '/v1/carteira/cobrancas')).toBe('clientes')
     expect(telaDaRota('GET', '/v1/carteira/rota-que-nao-existe')).toBeNull()
   })
-
-  it('D-25: os roteiros de abordagem seguem a Prospecção; modelos e configuração continuam no Método', () => {
-    expect(telaDaRota('GET', '/v1/carteira/mensagens/roteiros')).toBe('prospeccao')
-    expect(telaDaRota('PATCH', '/v1/carteira/mensagens/roteiros/:id')).toBe('prospeccao')
-    expect(telaDaRota('GET', '/v1/carteira/mensagens/modelos')).toBe('metodo')
-    expect(telaDaRota('GET', '/v1/carteira/mensagens/configuracao')).toBe('metodo')
-  })
 })
