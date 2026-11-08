@@ -1,0 +1,347 @@
+/* D-25 · painel "visao" igual ao protótipo do Firmare Gestão. Arquivo próprio para não colidir com as outras frentes. */
+
+/* ---------------------------------------------------------------------------
+   A PÁGINA LARGA — genérica, para os quatro painéis da D-25 (Visão geral,
+   Metas, Campanhas, Prospecção).
+
+   Quem embrulha o conteúdo numa `.carteira-pagina-larga` ganha até 1180 px
+   (o `.wrap` do protótipo, L65) dentro da casca atual, na carteira (760 px
+   hoje, `tokens.css`) e no superadmin (860 px, `superadmin.css`).
+
+   A classe só alarga o `main.wrap`; ela não estiliza nada por dentro. O menu
+   da tela fica FORA do elemento largo (irmão anterior dele), igual nos quatro
+   painéis.
+
+   Por que `main.wrap` e não `.carteira-corpo > .wrap` / `.superadmin-corpo >
+   .wrap`: a varredura do superadmin (`superadmin/identidade.test.ts`)
+   reprova classe da casca dele num CSS que não seja o dela. As duas cascas
+   põem o conteúdo num `<main class="wrap">`, e `main.wrap:has(…)` (0,2,1)
+   vence os dois seletores de largura atuais (0,1,0 e 0,2,0) sem nomear
+   nenhuma classe de casca. Em 390 px nada muda: a largura toda, com a mesma
+   margem de 16 px do `.wrap`.
+   --------------------------------------------------------------------------- */
+main.wrap:has(.carteira-pagina-larga) { max-width: 1180px; }
+
+/* ---------------------------------------------------------------------------
+   VISÃO GERAL (`vPainel`, protótipo L1278–1331), por cima de `carteira.css`.
+
+   O desenho é o do protótipo — proporção, ordem, cabeçalho de tabela em
+   caixa alta sobre o creme, links dourados sem sublinhado, cartões de 16 px
+   de raio, o primeiro indicador escuro —, com os TOKENS DA CASA nos dois
+   temas (pedido do dono, D-25): nenhum hex do protótipo atravessa. Fonte de
+   título continua Lora (`--display`); o protótipo usa Cormorant, e a casa não
+   troca de fonte por tela.
+
+   Sem sombra nos cartões (design.md §3: a exceção do dono cobre só o
+   gradiente do primeiro indicador).
+   --------------------------------------------------------------------------- */
+.visao {
+  gap: 22px;
+  /* O "afundado" do protótipo (`--sunk`): trilho de barra e chip neutro. Mistura de
+     tokens, então acompanha os dois temas sem bloco próprio. */
+  --visao-afundado: color-mix(in srgb, var(--line) 50%, var(--bg));
+  --visao-raio: 16px;
+}
+
+/* Cabeçalho: "Olá, Nome" numa linha, os três atalhos à direita (L1292–1293). */
+.visao .visao-cabeca { gap: 12px 16px; align-items: flex-end; }
+.visao .visao-identidade { flex: 1 1 320px; }
+.visao .visao-identidade .titulo {
+  display: block;
+  margin: 2px 0 0;
+  font-size: clamp(28px, 3.4vw, 38px);
+  line-height: 1.1;
+}
+.visao .visao-identidade .nota { font-size: 14px; }
+.visao .visao-atalhos { margin-left: auto; }
+.visao .visao-atalhos > .btn {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.visao .visao-atalhos > .btn.ghost { background: var(--surface); }
+.visao .visao-atalhos > .btn.ghost:hover { border-color: var(--gold); }
+
+/* Links dourados sem sublinhado (L79–80): o sublinhado só no hover. */
+.visao .link { text-decoration: none; font-weight: 500; }
+.visao .link:hover { text-decoration: underline; }
+
+/* ---- os quatro indicadores (L82–87, L243–249) ---- */
+.visao .visao-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1000px) {
+  .visao .visao-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.visao .visao-kpi {
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: var(--visao-raio);
+}
+.visao .visao-kpi > span,
+.visao .visao-kpi > small { font-size: 12px; }
+.visao .visao-kpi > b {
+  margin: 4px 0 2px;
+  font-size: 32px;
+  line-height: 1;
+}
+.visao .visao-kpi-alerta { border-color: var(--line); }
+/* 390 px: dois por linha, como o protótipo; o valor com centavos (formatador central) precisa caber sem quebrar. */
+@media (max-width: 480px) {
+  .visao .visao-kpi { padding: 12px; }
+  .visao .visao-kpi > b { font-size: 21px; }
+}
+
+/*
+ * O primeiro indicador, escuro, com o gradiente do protótipo (L247 — exceção
+ * do dono à proibição de gradiente, D-25). Feito de tokens: no claro, a tinta
+ * da casa (`--ink`) vira o fundo e o papel (`--bg`) vira a letra; no escuro,
+ * onde `--ink` é claro, o cartão é a superfície dourada escura
+ * (`--gold-soft`), um degrau acima do fundo. O rótulo é o dourado nos dois.
+ *
+ * Contraste medido (WCAG, contra o PIOR ponto do gradiente):
+ *  claro  — rótulo `--gold` sobre `--ink` 6,76:1 e sobre o fim 5,4:1; número
+ *           `--bg` ≥ 11:1; nota (bg 80 % + ink) ≥ 8:1.
+ *  escuro — rótulo `--gold-ink` sobre `--gold-soft` 8,41:1 e sobre o fim
+ *           6,9:1; número `--ink` ≥ 11:1; nota `--muted` ≥ 5,3:1.
+ */
+.visao .visao-kpi-escuro {
+  --kpi-fundo: var(--ink);
+  --kpi-fim: color-mix(in srgb, var(--ink) 88%, var(--gold));
+  --kpi-tinta: var(--bg);
+  --kpi-rotulo: var(--gold);
+  --kpi-nota: color-mix(in srgb, var(--bg) 80%, var(--ink));
+  background: linear-gradient(135deg, var(--kpi-fundo) 0%, var(--kpi-fim) 100%);
+  border-color: transparent;
+  color: var(--kpi-tinta);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .visao .visao-kpi-escuro {
+    --kpi-fundo: var(--gold-soft);
+    --kpi-fim: color-mix(in srgb, var(--gold-soft) 85%, var(--gold));
+    --kpi-tinta: var(--ink);
+    --kpi-rotulo: var(--gold-ink);
+    --kpi-nota: var(--muted);
+  }
+}
+:root[data-theme='dark'] .visao .visao-kpi-escuro {
+  --kpi-fundo: var(--gold-soft);
+  --kpi-fim: color-mix(in srgb, var(--gold-soft) 85%, var(--gold));
+  --kpi-tinta: var(--ink);
+  --kpi-rotulo: var(--gold-ink);
+  --kpi-nota: var(--muted);
+}
+.visao .visao-kpi-escuro > span { color: var(--kpi-rotulo); font-weight: 500; }
+.visao .visao-kpi-escuro > b { color: var(--kpi-tinta); }
+.visao .visao-kpi-escuro > small { color: var(--kpi-nota); }
+
+/* ---- os painéis (L89–95, L242) ---- */
+.visao .visao-duas {
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 16px;
+}
+@media (max-width: 1000px) {
+  .visao .visao-duas { grid-template-columns: minmax(0, 1fr); }
+}
+.visao .visao-painel {
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: var(--visao-raio);
+  font-size: 14px;
+}
+.visao .visao-painel-cabeca { align-items: center; gap: 4px 10px; }
+.visao .visao-painel-cabeca h2 {
+  flex: 0 1 auto;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.visao .visao-painel-cabeca > .link { margin-left: auto; font-size: 14px; }
+.visao .visao-painel-cabeca > .visao-mudo { font-size: 12.5px; }
+.visao .visao-painel-cabeca-segunda { margin-top: 6px; }
+.visao .visao-vazio { font-size: 13px; padding: 4px 0; }
+
+/* Barra de saúde (L104): 10 px, pílula, trilho afundado; a da equipe, 6 px (L120). */
+.visao .visao-barra { height: 10px; border-radius: 99px; }
+.visao .visao-barra-fina { height: 6px; }
+.visao .visao-barra-fundo { fill: var(--visao-afundado); }
+/* "Sem saúde registrada" não tem cor no protótipo (todo cliente tem saúde lá): fica no trilho, discreto. */
+.visao .visao-barra-sem { fill: color-mix(in srgb, var(--muted) 35%, var(--visao-afundado)); }
+
+.visao .visao-legenda { gap: 4px 14px; font-size: 12.5px; }
+.visao .visao-sem-saude { margin: -6px 0 0; font-size: 12px; color: var(--muted); }
+
+/* Linhas (L109–115). */
+.visao .visao-linha { min-height: 40px; padding: 10px 0; gap: 4px 12px; }
+.visao .visao-linha-titulo { font-weight: 500; }
+.visao a.visao-linha:hover .visao-linha-titulo { text-decoration: none; color: var(--gold-ink); }
+.visao .visao-linha-detalhe { font-size: 12.5px; }
+/* Cliente em risco (L1301): nome à esquerda, selo à direita, o resumo embaixo. */
+.visao .visao-linha-risco { justify-content: space-between; }
+.visao .visao-linha-detalhe .visao-tarde { font-weight: 600; }
+.visao .visao-mini {
+  min-height: 32px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* Chips (L97–102): sem borda, ponto da cor quando há <i>. */
+.visao .visao-chip {
+  gap: 6px;
+  border-color: transparent;
+  background: var(--visao-afundado);
+  font-weight: 500;
+}
+.visao .visao-chip > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.visao .visao-chip-ouro { border-color: transparent; }
+.visao .visao-chip-bom { background: var(--ok-soft); color: var(--ok); }
+.visao .visao-chip-atencao { border-color: transparent; }
+.visao .visao-chip-critico { border-color: transparent; }
+
+/* Equipe (L117–122, L253). */
+.visao .visao-equipe { gap: 12px; }
+.visao .visao-avatar { font-family: var(--display); font-size: 16px; font-weight: 700; }
+.visao .visao-membro-nums { font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* As frentes da planilha, lado a lado (L1920). */
+.visao .visao-frentes { display: flex; flex-wrap: wrap; gap: 5px; }
+
+/* O WhatsApp verde (L261), nos dois lugares em que o painel o mostra: Parabenizar
+   e o contato recomendado. `--ok` com a superfície por cima: 4,8:1 no claro
+   (branco sobre #3F7D4E) e > 7:1 no escuro (#221A10 sobre #86C696). */
+.visao .visao-wa,
+.visao .prosp-wa {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--ok);
+  color: var(--surface);
+  border: 1px solid var(--ok);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.visao .visao-wa:hover,
+.visao .prosp-wa:hover { background: color-mix(in srgb, var(--ok) 85%, var(--ink)); }
+.visao .visao-wa svg,
+.visao .prosp-wa svg { width: 15px; height: 15px; }
+.visao .prosp-wa {
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.visao .lead-sinal { padding-top: 11px; padding-bottom: 11px; }
+
+/* A barra das mensalidades (L725): uma faixa por mensalidade, pagas em verde. */
+.visao .visao-mens-barra {
+  display: flex;
+  height: 8px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: var(--visao-afundado);
+}
+.visao .visao-mens-barra > i { flex: 1 1 0; }
+.visao .visao-mens-barra > i[data-situacao='paga'] { background: var(--ok); }
+
+/* ---- tabelas (L134–142, L250): cabeçalho em CAIXA ALTA sobre o creme ---- */
+.visao .visao-tabela-caixa {
+  border-radius: 10px;
+  overflow: hidden;
+}
+.visao .visao-tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.visao .visao-tabela th {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.visao .visao-tabela td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.visao .visao-tabela tr:last-child td { border-bottom: 0; }
+.visao .visao-tabela .visao-th-num,
+.visao .visao-tabela .visao-td-num { text-align: right; }
+.visao .visao-td-nome,
+.visao .visao-td-acao-plano b { font-weight: 500; }
+.visao .visao-td-acao-plano > span { display: block; font-size: 12px; }
+.visao .visao-td-acao { text-align: right; white-space: nowrap; font-size: 13px; }
+.visao .visao-link-menor { font-size: 12px; }
+.visao .visao-td-check { width: 34px; padding-right: 0; }
+.visao .visao-td-prazo small { display: block; font-size: 12px; }
+.visao .visao-rotulo-celular { display: none; }
+.visao .visao-check {
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  border: 1.5px solid var(--muted);
+  border-radius: 5px;
+}
+.visao .visao-check:hover:not(:disabled) { border-color: var(--gold); background: transparent; }
+.visao .visao-check-feito { background: var(--ok); border-color: var(--ok); }
+
+/*
+ * 390 px: nenhuma tabela rola de lado. Cada linha vira um bloco em grade,
+ * sem o cabeçalho (o rótulo que faltaria vai no próprio texto: "vence 05/11").
+ */
+@media (max-width: 760px) {
+  .visao .visao-tabela thead { display: none; }
+  .visao .visao-tabela,
+  .visao .visao-tabela tbody { display: block; }
+  .visao .visao-tabela tr {
+    display: grid;
+    gap: 4px 10px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .visao .visao-tabela tr:last-child { border-bottom: 0; }
+  .visao .visao-tabela td { display: block; padding: 0; border: 0; min-width: 0; }
+  .visao .visao-rotulo-celular { display: inline; }
+
+  .visao .visao-tabela-mens tr {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'nome     valor'
+      'situacao venc'
+      'acao     acao';
+  }
+  .visao .visao-td-nome { grid-area: nome; overflow-wrap: anywhere; }
+  .visao .visao-td-valor { grid-area: valor; }
+  .visao .visao-td-venc { grid-area: venc; color: var(--muted); font-size: 12.5px; }
+  .visao .visao-td-situacao { grid-area: situacao; }
+  .visao .visao-td-acao { grid-area: acao; text-align: right; }
+  .visao .visao-td-acao .link { min-height: 36px; }
+
+  .visao .visao-tabela-entregas tr {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'check acao    prazo'
+      'check cliente status'
+      'check quem    quem';
+  }
+  .visao .visao-td-check { grid-area: check; align-self: start; padding-top: 2px; }
+  .visao .visao-td-acao-plano { grid-area: acao; overflow-wrap: anywhere; }
+  .visao .visao-td-cliente { grid-area: cliente; font-size: 13px; overflow-wrap: anywhere; }
+  .visao .visao-td-quem { grid-area: quem; font-size: 12.5px; color: var(--muted); }
+  .visao .visao-td-status { grid-area: status; justify-self: end; }
+  .visao .visao-td-prazo { grid-area: prazo; }
+}

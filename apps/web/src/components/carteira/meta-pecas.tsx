@@ -189,7 +189,8 @@ export function LinhaDaMeta({
           {m.atual === null ? 'sem lançamento' : `${acumulado ? 'Acumulado' : 'Atual'} ${textoDoNumero(m.atual, m.unidade)}`}
           {m.automatico ? <span className="meta-auto"> da planilha</span> : null}{' '}
           <span className="muted">de {textoDoAlvo(m)}</span>
-          {m.avaliacao.percentual !== null ? <span className="muted"> · {m.avaliacao.percentual}%</span> : null}
+          {/* O painel (`metaRow`, L786) não repete o percentual: a barra já o mostra. A aba Plano continua com ele. */}
+          {!painel && m.avaliacao.percentual !== null ? <span className="muted"> · {m.avaliacao.percentual}%</span> : null}
         </span>
         <span className="muted">{periodo(m, hoje)}</span>
       </div>

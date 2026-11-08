@@ -654,6 +654,32 @@ sinal de tentativa de acesso indevido nos logs. Fechar é só pôr os IPs em `IP
 **No código:** `infra/producao/implantar.sh` (asserção 7.8) trata o `200` em `/superadmin` como aviso **só** quando a lista
 contém `0.0.0.0/0` explicitamente; qualquer outra lista que deixe passar origem de fora continua reprovando a implantação.
 
+## D-25 · Quatro painéis da Gestão iguais aos do protótipo — só front (2026-11-08)
+
+O dono escolheu, no documento "Protótipo × versão publicada" (`docs/specs/g8-fidelidade-diferencas.md`, seção em
+destaque), quatro painéis para ficarem **como no protótipo**: **Visão geral, Metas, Campanhas e Prospecção**.
+Condições dele: com muito cuidado, **aproveitando as funções que já existem**, **mudança só de front**, e testar e validar
+tudo antes.
+
+- O resto da correção visual (menu lateral, fontes globais, tema escuro automático, demais telas) **continua em espera**.
+- Onde o protótipo usa o cartão escuro em **gradiente** no primeiro indicador, vale o protótipo — exceção do dono à
+  proibição de gradiente do `docs/design.md`, só nesses painéis.
+- Esses quatro painéis passam a usar a **largura toda** (até 1180 px) dentro da casca atual, sem trocar o menu.
+- Dado que só existe no servidor e não tem rota hoje fica fora, e é relatado — nada de rota nova sem pedir.
+- As regras de segurança e dinheiro continuam (valores só com a permissão `valores`, redação no servidor).
+- **Ajuste do dono, no mesmo dia:** os painéis funcionam nos **dois temas, claro e escuro**, e **respeitam a identidade da
+  nossa aplicação** (tokens "papel e dourado", fontes Lora/Inter, pares de contraste), aproximando-se do protótipo no que
+  der: estrutura, ordem, textos, blocos e proporções. As cores fixas do protótipo dão lugar aos nossos tokens; o cartão
+  escuro do primeiro indicador é feito com os nossos tokens.
+- **Exceção ao "só front", autorizada pelo dono:** a rota dos roteiros de abordagem (`/v1/carteira/mensagens/roteiros`)
+  passa a seguir a tela **Prospecção** em vez de **Método** (`modulos-das-rotas.ts`), porque a aba "Mensagens e roteiros"
+  voltou para a Prospecção. Escrever nos roteiros continua exigindo `carteira.administrar`.
+- **Barras de mês em Campanhas:** a largura de cada barrinha é calculada na tela (proporção inteira em `bigint`, sem
+  ponto flutuante, nunca exibida como número), pelo mesmo precedente de `tela-painel.tsx`. É desenho, não valor: nenhum
+  número de dinheiro sai dessa conta, e valor redigido ou suprimido desenha barra vazia. Se um dia o servidor mandar a
+  posição da barra (como `segmentosDaBarra` em `/painel`), a tela passa a usá-la.
+- **A ficha do lead entra no escopo** como subtela da Prospecção (painel Roteiro, botão Briefing, mensagem pronta).
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

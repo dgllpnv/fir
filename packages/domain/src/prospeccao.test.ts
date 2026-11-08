@@ -8,6 +8,7 @@ import {
   podeEditarCheckinDaSemana,
   proximoPrazoDaRotina,
   resolverGrupoDeEscrita,
+  roteiroDaEtapa,
   saudeAtualDoCliente,
   semanaIsoCivil,
   validarResponsavelDoMesmoGrupo,
@@ -176,5 +177,20 @@ describe('saudeAtualDoCliente — derivada, nunca campo', () => {
       { semana: '2026-W42', saude: 'atencao' as const },
     ]
     expect(saudeAtualDoCliente(checkins)).toBe('critico')
+  })
+})
+
+describe('roteiroDaEtapa — ROT_ETAPA do protótipo (L2446)', () => {
+  it('dá o roteiro de cada etapa, e "agendar" para as terminais', () => {
+    const esperado: Record<EtapaDoLead, string> = {
+      novo: 'primeiro',
+      contato: 'agendar',
+      reuniao: 'diagnostico',
+      proposta: 'proposta',
+      espera: 'retomada',
+      ganho: 'agendar',
+      perdido: 'agendar',
+    }
+    for (const etapa of ETAPAS_DO_LEAD) expect(roteiroDaEtapa(etapa)).toBe(esperado[etapa])
   })
 })

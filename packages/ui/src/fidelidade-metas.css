@@ -1,0 +1,241 @@
+/* D-25 · painel "metas" igual ao protótipo do Firmare Gestão. Arquivo próprio para não colidir com as outras frentes.
+ *
+ * Tudo aqui é escopado por `.carteira-metas` (a página `/carteira/metas`). As peças de `meta-pecas.tsx`
+ * (`.meta-linha`, `.meta-barra`, `.pill`…) também vestem a aba Plano da ficha: só ganham a cara do protótipo
+ * DENTRO do painel, e a aba continua como está.
+ *
+ * Fonte: `vMetas` (index.html L806-825) e as regras `.kpi`, `.kbtn`, `.panel`, `.mcard`, `.mrow`, `.mbar`,
+ * `.msem`, `.chip`, `.aviso` do `<style>` do protótipo.
+ *
+ * O primeiro indicador fica BRANCO, como no protótipo: lá a regra `.kpi:first-child.kbtn` (L319) anula o
+ * cartão escuro em gradiente justamente nos indicadores que são botões de filtro — os de Metas.
+ */
+
+.carteira-metas {
+  /* `--sunk` do protótipo: o fundo afundado da barra, das semanas e da pílula neutra. */
+  --carteira-metas-fundo: color-mix(in srgb, var(--line) 60%, var(--surface));
+  --carteira-metas-sombra: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent),
+    0 4px 14px color-mix(in srgb, var(--ink) 4%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+  font-size: 14px;
+}
+:root[data-theme='dark'] .carteira-metas { --carteira-metas-sombra: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .carteira-metas { --carteira-metas-sombra: none; }
+}
+
+/* Cabeçalho: sobretítulo, título em serifa, frase. */
+.carteira-metas-cabeca { display: flex; flex-direction: column; min-width: 0; }
+.carteira-metas-sobretitulo {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-ink);
+  font-weight: 600;
+}
+.carteira-metas-titulo {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: clamp(30px, 3.4vw, 40px);
+  line-height: 1.1;
+  text-wrap: balance;
+}
+.carteira-metas-sub { margin: 4px 0 0; color: var(--muted); }
+
+/* Os cinco indicadores: 5 colunas, 3 abaixo de 1000 px, 2 abaixo de 560 px (L332-333). */
+.carteira-metas-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1000px) { .carteira-metas-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .carteira-metas-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.carteira-metas-kpi {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 72px;
+  padding: 14px 16px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--carteira-metas-sombra);
+}
+.carteira-metas-kpi:hover,
+.carteira-metas-kpi[aria-pressed='true'] { border-color: var(--gold); }
+.carteira-metas-kpi:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.carteira-metas-kpi > span { font-size: 12px; color: var(--muted); }
+.carteira-metas-kpi > b {
+  font-family: var(--display);
+  /* Lora 500: a Cormorant 600 do protótipo tem olho menor; no mesmo corpo, o 500 da Lora pesa igual na tela. */
+  font-weight: 500;
+  font-size: 34px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+/* Número de 34 px é texto grande (WCAG: 3:1); a tinta de aviso passa com folga mesmo assim. */
+.carteira-metas-kpi > b.carteira-metas-kpi-mau { color: var(--bad); }
+.carteira-metas-kpi > b.carteira-metas-kpi-alerta { color: var(--warn-ink); }
+.carteira-metas-kpi > b.carteira-metas-kpi-bom { color: var(--ok); }
+
+/* Filtro: o seletor sozinho, compacto, sem rótulo visível (o `aria-label` fala por ele). */
+.carteira-metas-filtros { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.carteira-metas-filtros select {
+  max-width: 100%;
+  min-height: 36px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  font: inherit;
+}
+.carteira-metas-filtros select:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+
+/* Link dourado sem sublinhado; o sublinhado só sob o cursor (`.link`, L67-68). */
+.carteira-metas-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--gold-ink);
+  text-decoration: none;
+  cursor: pointer;
+}
+.carteira-metas-link:hover { text-decoration: underline; }
+.carteira-metas-link:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+
+/* Grade de cartões (`.mgrid`, L321). */
+.carteira-metas-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 560px) { .carteira-metas-grade { grid-template-columns: minmax(0, 1fr); } }
+
+.carteira-metas-cartao {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--carteira-metas-sombra);
+}
+/* `.panel .ph`: o nome empurrado para a direita pelo `margin-left:auto` do link (L81) — é assim que o protótipo se vê. */
+.carteira-metas-cartao-cabeca { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.carteira-metas-cartao-nome {
+  margin-left: auto;
+  font-family: var(--display);
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.carteira-metas-cartao-nome:hover { color: var(--gold-ink); text-decoration: underline; }
+.carteira-metas-cartao-nome:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.carteira-metas-cartao-sub { margin: -6px 0 0; font-size: 12.5px; color: var(--muted); }
+.carteira-metas-vazio { margin: 0; padding: 10px 0; font-size: 13px; color: var(--muted); }
+.carteira-metas-lancar {
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.carteira-metas-lancar:hover { border-color: var(--gold); }
+.carteira-metas-lancar:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+
+/* Pílula com bolinha (`.chip`, L85-89). O fundo claro é o `-soft` diluído no cartão: puro, a tinta verde e a
+   de aviso ficam em 4,2:1 sobre ele no tema claro; a 45% passam de 4,5:1. No escuro sobram mais de 7:1. */
+.carteira-metas .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  padding: 2px 9px;
+  border: 0;
+  border-radius: 99px;
+  white-space: nowrap;
+  background: var(--carteira-metas-fundo);
+  color: var(--muted);
+}
+.carteira-metas .pill::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.carteira-metas .pill.bom { background: color-mix(in srgb, var(--ok-soft) 45%, var(--surface)); color: var(--ok); }
+.carteira-metas .pill.alerta { background: color-mix(in srgb, var(--warn-soft) 45%, var(--surface)); color: var(--warn-ink); }
+.carteira-metas .pill.mau { background: var(--bad-soft); color: var(--bad); }
+
+/* Uma meta (`.mrow`, `.mtop`, `.mnum`, L322-331). */
+.carteira-metas .meta-linha { gap: 5px; padding: 10px 0; border-top: 1px solid var(--line); }
+.carteira-metas .meta-linha:first-child { border-top: 1px solid var(--line); }
+.carteira-metas .meta-linha-topo { align-items: flex-start; }
+.carteira-metas .meta-linha-titulo { font-weight: 500; }
+.carteira-metas .meta-linha-numeros {
+  gap: 4px 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* `rotina.css` tem um `.meta-linha .num` (18 px, dourado) da meta da Jornada que alcança esta linha pelo nome. */
+.carteira-metas .meta-linha .num { font-size: inherit; font-weight: inherit; color: inherit; }
+.carteira-metas .meta-linha-numeros .muted { color: inherit; opacity: 0.85; }
+.carteira-metas .meta-auto { font-size: 11px; font-weight: 600; color: var(--gold-ink); }
+
+/* A barra (`.mbar`, `.mfill`, `.mesp`, L326-329): trilho afundado, marcador do esperado mais alto que a barra. */
+.carteira-metas .meta-barra { overflow: visible; margin: 3px 0; }
+.carteira-metas .meta-barra-fundo { fill: var(--carteira-metas-fundo); }
+.carteira-metas .meta-barra-feito.meta-barra-neutra { fill: var(--muted); }
+.carteira-metas .meta-barra-esperado { y: -3px; height: 14px; width: 0.45px; opacity: 0.55; }
+
+/* As semanas do mês e o histórico (`.msem`, L335-339). */
+.carteira-metas .meta-semanas { align-items: center; gap: 4px 6px; font-size: 11px; color: var(--muted); }
+.carteira-metas .meta-semanas-barras { gap: 4px; height: 30px; }
+.carteira-metas .meta-semana {
+  width: 14px;
+  height: 30px;
+  background: var(--carteira-metas-fundo);
+  border-bottom: 0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.carteira-metas .meta-semanas em { font-style: normal; margin: 0 6px 0 4px; }
+.carteira-metas .meta-hist { font-weight: 600; }
+.carteira-metas .meta-falta { font-size: 12px; font-weight: 600; color: var(--warn-ink); }
+
+/* "Sem metas definidas": faixa dourada, texto corrido, nomes sem sublinhado (`.aviso`, L287). */
+.carteira-metas-aviso {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--gold-soft);
+  color: var(--on-gold-soft);
+  font-size: 13px;
+}
+.carteira-metas-aviso .carteira-metas-link { color: inherit; font-weight: 600; }

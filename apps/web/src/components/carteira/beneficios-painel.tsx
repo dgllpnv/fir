@@ -1,12 +1,11 @@
 'use client'
 
 import type { BeneficioDeIndicacaoNaTela, BeneficioVinculadoSaida } from '@fir/contracts'
-import { formatarPercentual } from '@fir/ui'
 import Link from 'next/link'
 import { useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { AlterarRegraDoBeneficio } from './regra-do-beneficio'
-import { diaCurto } from './lead-rotulos'
+import { diaCurto, percentualCurto } from './lead-rotulos'
 
 /**
  * Benefícios de indicação (`vIndicadores`, L2539-2543, e "Benefícios
@@ -51,12 +50,12 @@ export function PainelDeBeneficios({
             ))}
           </ul>
         )}
-        <p className="lead-regra num">
-          <span className="muted">Regra atual:</span>{' '}
-          <b>{formatarPercentual(BigInt(regraPercentualCentesimos))} de desconto na mensalidade seguinte</b>
-        </p>
-        {/* G8 3D (T5, L12): "Alterar regra" — L2542. Fora do <p>: abre um formulário. */}
-        <AlterarRegraDoBeneficio aoMudar={aoMudar} />
+        {/* L2542: a regra e "Alterar regra" na mesma linha. Fora do <p>: o link abre um formulário. */}
+        <div className="prosp-regra num">
+          <span className="muted">Regra atual:</span>
+          <b>{percentualCurto(regraPercentualCentesimos)} de desconto na mensalidade seguinte</b>
+          <AlterarRegraDoBeneficio aoMudar={aoMudar} />
+        </div>
       </section>
 
       {concedidos.length > 0 ? (
@@ -71,7 +70,7 @@ export function PainelDeBeneficios({
                   <b>{b.beneficiario}</b> <span className="muted">por indicar {b.nomeDoLead ?? '—'}</span>
                 </span>
                 <span className="muted num">
-                  {formatarPercentual(BigInt(b.percentualCentesimos))} · cobrança de {b.competenciaDaCobranca ?? '—'}
+                  {percentualCurto(b.percentualCentesimos)} · cobrança de {b.competenciaDaCobranca ?? '—'}
                 </span>
               </li>
             ))}
@@ -131,7 +130,7 @@ function LinhaDeBeneficio({
           <span className="lead-sinal-nivel">{b.situacao === 'guardado' ? 'Guardado' : 'Pendente'}</span>
         </span>
         <span className="muted lead-sinal-motivo num">
-          {formatarPercentual(BigInt(b.percentualCentesimos))} de desconto na mensalidade seguinte ·{' '}
+          {percentualCurto(b.percentualCentesimos)} de desconto na mensalidade seguinte ·{' '}
           {b.situacao === 'guardado'
             ? 'quem indicou ainda não é cliente: fica guardado até virar.'
             : 'aplicado automaticamente na próxima cobrança.'}

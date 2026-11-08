@@ -1,0 +1,280 @@
+/* D-25 · painel "campanhas" igual ao protótipo do Firmare Gestão. Arquivo próprio para não colidir com as outras frentes. */
+
+/*
+ * Comparativo de campanhas da carteira (`/carteira/campanhas`, `vCampanhas`).
+ * Tudo com prefixo `fcamp-`: o `.kpi`, o `.panel` e o `.seg` do protótipo
+ * colidiriam com classes globais do produto.
+ *
+ * Ajuste do dono à D-25: layout, ordem e textos do protótipo, mas com a
+ * IDENTIDADE do produto — cores só dos tokens (claro e escuro), serifa display
+ * do sistema (Lora). Nenhum hex aqui.
+ *
+ * O primeiro indicador é o cartão escuro do protótipo, montado dos tokens: no
+ * claro, `--ink` com a tinta `--bg`; no escuro (onde `--ink` é claro), o
+ * `--gold-soft` escuro com a tinta `--ink`. O degradê é leve, puxado para o
+ * dourado — exceção do dono (D-25) à proibição de gradiente, só aqui.
+ * Contraste: `--gold` sobre `--ink` 6,76:1; `--gold-ink` sobre `--gold-soft`
+ * escuro 8,41:1 (os pares de `tokens.css`).
+ */
+.fcamp {
+  --fcamp-serif: var(--display);
+  --fcamp-destaque: var(--ink);
+  --fcamp-destaque-tinta: var(--bg);
+  --fcamp-destaque-rotulo: var(--gold);
+  --fcamp-destaque-legenda: color-mix(in srgb, var(--bg) 82%, var(--ink));
+  --fcamp-trilha: color-mix(in srgb, var(--line) 70%, var(--bg));
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .fcamp {
+    --fcamp-destaque: var(--gold-soft);
+    --fcamp-destaque-tinta: var(--ink);
+    --fcamp-destaque-rotulo: var(--gold-ink);
+    --fcamp-destaque-legenda: var(--muted);
+  }
+}
+:root[data-theme='dark'] .fcamp {
+  --fcamp-destaque: var(--gold-soft);
+  --fcamp-destaque-tinta: var(--ink);
+  --fcamp-destaque-rotulo: var(--gold-ink);
+  --fcamp-destaque-legenda: var(--muted);
+}
+
+/* Cabeçalho: sobretítulo, título, subtítulo; à direita, o lugar do "Atualizar agora". */
+.fcamp-cabeca { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.fcamp-cabeca > div { min-width: 0; }
+.fcamp-sobretitulo {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold-ink);
+  font-weight: 600;
+}
+.fcamp-titulo {
+  margin: 0;
+  font-family: var(--fcamp-serif);
+  font-weight: 600;
+  font-size: clamp(30px, 3.4vw, 40px);
+  line-height: 1.1;
+  text-wrap: balance;
+}
+.fcamp-sub { margin: 4px 0 0; color: var(--muted); }
+.fcamp-acoes { margin: 0 0 0 auto; font-size: 12.5px; color: var(--muted); }
+
+/* Período: `.seg` — botões colados, o ativo em dourado claro, o intervalo ao lado. */
+.fcamp-filtro { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; min-width: 0; }
+.fcamp-seg {
+  display: inline-flex;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  scrollbar-width: none;
+}
+.fcamp-seg::-webkit-scrollbar { display: none; }
+.fcamp-seg button {
+  all: unset;
+  flex: none;
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.fcamp-seg button:hover { color: var(--ink); }
+.fcamp-seg button[aria-pressed='true'] {
+  background: var(--gold-soft);
+  color: var(--on-gold-soft);
+  font-weight: 600;
+}
+.fcamp-seg button:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+.fcamp-filtro-meses { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fcamp-filtro-meses label { font-size: 12.5px; color: var(--muted); }
+.fcamp-filtro-meses input {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  color: var(--ink);
+  font: inherit;
+}
+.fcamp-intervalo { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Os quatro indicadores, o primeiro escuro. */
+.fcamp-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.fcamp-kpi {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.fcamp-kpi > span { font-size: 12px; color: var(--muted); }
+.fcamp-kpi > b {
+  font-family: var(--fcamp-serif);
+  font-weight: 600;
+  font-size: 34px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.fcamp-kpi > small { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fcamp-kpi:first-child {
+  background: linear-gradient(
+    135deg,
+    var(--fcamp-destaque) 0%,
+    color-mix(in srgb, var(--fcamp-destaque) 88%, var(--gold)) 100%
+  );
+  border-color: transparent;
+  color: var(--fcamp-destaque-tinta);
+}
+.fcamp-kpi:first-child > span { color: var(--fcamp-destaque-rotulo); }
+.fcamp-kpi:first-child > small { color: var(--fcamp-destaque-legenda); }
+
+/* Blocos em cartão branco. */
+.fcamp-painel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.fcamp-ph { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fcamp-ph h2 { margin: 0; font-family: var(--fcamp-serif); font-weight: 600; font-size: 23px; line-height: 1.25; }
+.fcamp-ph-nota { margin: 0; font-size: 12.5px; color: var(--muted); }
+.fcamp-grid2 { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; align-items: start; }
+.fcamp-grid2 > * { min-width: 0; }
+
+/* Tabelas: rolam dentro do cartão, nunca a página. */
+.fcamp-tabela { overflow-x: auto; min-width: 0; }
+.fcamp-tabela table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.fcamp-tabela th {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: var(--bg);
+}
+.fcamp-tabela td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.fcamp-tabela tr:last-child td { border-bottom: 0; }
+.fcamp-tabela .fcamp-num { text-align: right; white-space: nowrap; }
+.fcamp-nm { display: block; font-weight: 500; }
+.fcamp-nm-link { color: var(--ink); text-decoration: none; }
+.fcamp-nm-link:hover { color: var(--gold-ink); }
+.fcamp-nm-link:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 2px; }
+.fcamp-sm { font-size: 12px; color: var(--muted); }
+.fcamp-traco { color: var(--muted); }
+.fcamp-vazio { margin: 0; color: var(--muted); font-size: 13px; padding: 10px 0; }
+.fcamp-tabela td.fcamp-vazio { padding: 14px; }
+
+/* A barrinha sobre cada mês, enchendo da direita (`.vbar` do protótipo). */
+.fcamp-vbar {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: 100%;
+  min-width: 56px;
+  height: 4px;
+  margin: 0 0 4px;
+  border: 0;
+  border-radius: 99px;
+  overflow: hidden;
+  background: var(--fcamp-trilha);
+  color: var(--gold);
+  direction: rtl;
+}
+.fcamp-vbar::-webkit-progress-bar { background: var(--fcamp-trilha); border-radius: 99px; }
+.fcamp-vbar::-webkit-progress-value { background: var(--gold); border-radius: 99px; }
+.fcamp-vbar::-moz-progress-bar { background: var(--gold); border-radius: 99px; }
+
+/* Linhas (ranking e atualização): nome à esquerda, valor ou selo à direita, detalhe embaixo. */
+.fcamp-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.fcamp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  align-items: center;
+}
+.fcamp-row:first-child { border-top: 0; }
+.fcamp-row-rk { grid-template-columns: 28px minmax(0, 1fr) auto; }
+.fcamp-t { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.fcamp-t-mudo { font-weight: 400; font-size: 12.5px; color: var(--muted); }
+.fcamp-d { font-size: 12.5px; color: var(--muted); grid-column: 1 / -1; font-variant-numeric: tabular-nums; }
+.fcamp-d-rk { grid-column: 2 / -1; }
+.fcamp-valor { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fcamp-rk {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.fcamp-rk.fcamp-rk-ouro { background: var(--gold); border-color: var(--gold); color: var(--on-gold); }
+
+.fcamp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: end;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 9px;
+  border-radius: 99px;
+  white-space: nowrap;
+  background: var(--fcamp-trilha);
+  color: var(--muted);
+}
+.fcamp-chip.fcamp-chip-bom { background: var(--ok-soft); color: var(--ok); }
+.fcamp-chip.fcamp-chip-bom::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.fcamp-aviso {
+  margin: 0;
+  background: var(--gold-soft);
+  color: var(--on-gold-soft);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+@media (max-width: 1000px) {
+  .fcamp-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fcamp-grid2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  /* Alvo de toque: a recepção usa com a mão ocupada. */
+  .fcamp-seg button { padding: 10px 12px; }
+  /* Dois por linha em 390 px: o valor em centavos não pode quebrar no meio, então a serifa encolhe com a tela. */
+  .fcamp-kpi > b { font-size: clamp(19px, 5.2vw, 28px); white-space: nowrap; overflow-wrap: normal; }
+  .fcamp-painel { padding: 14px; }
+}

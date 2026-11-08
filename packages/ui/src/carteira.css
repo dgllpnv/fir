@@ -2761,3 +2761,7 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
 .bib-perigo { color: var(--bad); }
 .bib-mensagem { width: 100%; font: inherit; line-height: 1.5; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; }
 .bib-regra { display: grid; gap: 8px; max-width: 420px; margin-top: 8px; }
+
+/* A meta da Jornada (rotina.css) tem `.meta-linha .num` em 18 px dourado, e o nome alcança a linha da meta da
+   carteira (meta-pecas.tsx) na aba Plano da ficha. Dentro da carteira, o número segue o texto da linha. */
+.carteira .meta-linha .num { font-size: inherit; font-weight: inherit; color: inherit; }

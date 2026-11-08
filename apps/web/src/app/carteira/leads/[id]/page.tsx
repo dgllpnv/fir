@@ -1,21 +1,27 @@
 'use client'
 
 import type { FichaDoLeadSaida, LeadComercialNaLista, ListaDeClientesDaCarteiraSaida } from '@fir/contracts'
-import { formatarDinheiro, formatarPercentual } from '@fir/ui'
+import { temPermCarteira } from '@fir/domain'
+import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { MarcarLeadPerdido, RegistrarContatoDoLead } from '@/components/carteira/lead-contato'
 import { FormularioDoLead } from '@/components/carteira/lead-formulario'
-import { BotaoWhatsApp } from '@/components/carteira/lead-pecas'
+import { BotaoWhatsApp, DuasColunasDoLead, TelaDaProspeccao } from '@/components/carteira/lead-pecas'
+import { PainelDoRoteiro } from '@/components/carteira/lead-roteiros'
+import { MensagemWhatsApp } from '@/components/carteira/mensagem-whatsapp'
 import {
   ROTULO_DA_ETAPA,
   ROTULO_DA_TEMPERATURA,
+  CLASSE_DO_NAO_CONTATAR,
   ROTULO_DO_NIVEL,
   classeDaEtapa,
   classeDaTemperatura,
   diaCompleto,
   diaCurto,
+  percentualCurto,
+  roteiroInicial,
 } from '@/components/carteira/lead-rotulos'
 import { Carregando, Toast } from '@/components/estados'
 import { Modal } from '@/components/modal'
@@ -30,8 +36,10 @@ import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
  * Editar; o sinal em destaque; o histórico de contatos; os dados; "Virou
  * cliente" e "Marcar como perdido", ou "Abrir cadastro do cliente".
  *
- * O botão "Briefing" fica de fora (B, D-5) e o painel do roteiro chega com o
- * ticket 3A. Abrir esta ficha grava o acesso no servidor (LGPD A53).
+ * Briefing, roteiro e mensagem pronta (D-25): "Briefing" leva ao Roteiro de
+ * briefing do Método (o briefing GRAVADO espera o jurídico, D-5); o painel
+ * "Roteiro" monta a mensagem no servidor e abre o modal do 3A. Abrir esta
+ * ficha grava o acesso no servidor (LGPD A53).
  *
  * "Não contatar" e "Excluir a pedido do titular" (LGPD A37) ficam recolhidos
  * no fim: são raros, e o segundo não tem volta.
@@ -41,14 +49,16 @@ type Estado =
   | { tag: 'erro'; mensagem: string }
   | { tag: 'pronto'; ficha: FichaDoLeadSaida }
 
-type Janela = 'nenhuma' | 'contato' | 'editar' | 'perder' | 'converter' | 'excluir'
+type Janela =
+  | { tag: 'nenhuma' | 'contato' | 'editar' | 'perder' | 'converter' | 'excluir' }
+  | { tag: 'mensagem'; roteiro: string }
 
 export default function FichaDoLead() {
   const { id } = useParams<{ id: string }>()
   const { sessao } = useCarteira()
   const [estado, setEstado] = useState<Estado>({ tag: 'carregando' })
   const [tentativa, setTentativa] = useState(0)
-  const [janela, setJanela] = useState<Janela>('nenhuma')
+  const [janela, setJanela] = useState<Janela>({ tag: 'nenhuma' })
   const [clientes, setClientes] = useState<{ id: string; nome: string }[]>([])
   const [recado, setRecado] = useState<string | null>(null)
   const [erroDeAcao, setErroDeAcao] = useState('')
@@ -74,7 +84,7 @@ export default function FichaDoLead() {
   }, [sessao.tag, id, tentativa])
 
   async function abrirEditar() {
-    setJanela('editar')
+    setJanela({ tag: 'editar' })
     if (clientes.length > 0) return
     try {
       const r = await chamar<ListaDeClientesDaCarteiraSaida>('v1/carteira/clientes')
@@ -94,7 +104,7 @@ export default function FichaDoLead() {
           ? { method: 'POST' }
           : { method: caminho === '' ? 'PATCH' : 'POST', body: JSON.stringify(corpo) },
       )
-      setJanela('nenhuma')
+      setJanela({ tag: 'nenhuma' })
       setRecado(aviso)
       recarregar()
     } catch (e) {
@@ -112,20 +122,20 @@ export default function FichaDoLead() {
 
   if (sessao.tag !== 'pronta' || estado.tag === 'carregando') {
     return (
-      <section className="lead-tela">
+      <TelaDaProspeccao>
         <NavDaCarteira atual="/carteira/leads" />
         {voltar}
         <Carregando linhas={6} />
-      </section>
+      </TelaDaProspeccao>
     )
   }
   if (estado.tag === 'erro') {
     return (
-      <section className="lead-tela">
+      <TelaDaProspeccao>
         <NavDaCarteira atual="/carteira/leads" />
         {voltar}
         <ErroDaCarteira mensagem={estado.mensagem} recarregar={recarregar} />
-      </section>
+      </TelaDaProspeccao>
     )
   }
 
@@ -133,9 +143,10 @@ export default function FichaDoLead() {
   const { lead } = ficha
   const responsavel = ficha.equipe.find((p) => p.id === lead.responsavelUsuarioGestaoId)?.nome ?? '—'
   const fechado = lead.etapa === 'ganho' || lead.etapa === 'perdido'
+  const inicial = roteiroInicial(lead.etapa, lead.sinal)
 
   return (
-    <section className="lead-tela">
+    <TelaDaProspeccao>
       <NavDaCarteira atual="/carteira/leads" />
       {voltar}
 
@@ -147,7 +158,7 @@ export default function FichaDoLead() {
             <p className="lead-chips">
               <span className={classeDaEtapa(lead.etapa)}>{ROTULO_DA_ETAPA[lead.etapa]}</span>
               <span className={classeDaTemperatura(lead.temperatura)}>{ROTULO_DA_TEMPERATURA[lead.temperatura]}</span>
-              {lead.naoContatar ? <span className="pill mau">Não contatar</span> : null}
+              {lead.naoContatar ? <span className={CLASSE_DO_NAO_CONTATAR}>Não contatar</span> : null}
               <span className="muted">
                 {lead.origem}
                 {lead.quemIndicou ? ` · indicação de ${lead.quemIndicou}` : ''}
@@ -155,12 +166,18 @@ export default function FichaDoLead() {
             </p>
           </div>
           <div className="lead-acoes">
-            <BotaoWhatsApp lead={lead} grande />
+            <BotaoWhatsApp lead={lead} grande aoAbrir={() => setJanela({ tag: 'mensagem', roteiro: inicial })} />
             {lead.naoContatar ? null : (
-              <button type="button" className="btn ghost" onClick={() => setJanela('contato')}>
+              <button type="button" className="btn ghost" onClick={() => setJanela({ tag: 'contato' })}>
                 Registrar contato
               </button>
             )}
+            {/* O briefing GRAVADO espera o jurídico (D-5); até lá, o roteiro de briefing do Método. */}
+            {temPermCarteira(sessao.usuarioDeGestao, 'metodo') ? (
+              <Link className="btn ghost" href="/carteira/metodo/roteiros">
+                Briefing
+              </Link>
+            ) : null}
             {lead.excluidoAPedido ? null : (
               <button type="button" className="btn ghost" onClick={() => void abrirEditar()}>
                 Editar
@@ -177,12 +194,21 @@ export default function FichaDoLead() {
         </div>
       ) : null}
 
-      <div className="lead-duas">
+      {lead.excluidoAPedido ? null : (
+        <PainelDoRoteiro
+          lead={lead}
+          inicial={inicial}
+          aoEnviar={(roteiro) => setJanela({ tag: 'mensagem', roteiro })}
+          aoAvisar={setRecado}
+        />
+      )}
+
+      <DuasColunasDoLead>
         <section className="lead-painel" aria-labelledby="lead-historico">
           <div className="lead-painel-cabeca">
             <h2 id="lead-historico">Histórico de contatos</h2>
             {lead.naoContatar ? null : (
-              <button type="button" className="btn ghost lead-mini" onClick={() => setJanela('contato')}>
+              <button type="button" className="btn ghost lead-mini" onClick={() => setJanela({ tag: 'contato' })}>
                 Registrar contato
               </button>
             )}
@@ -284,19 +310,19 @@ export default function FichaDoLead() {
           ) : lead.excluidoAPedido ? null : (
             <div className="lead-acoes">
               {lead.etapa !== 'perdido' ? (
-                <button type="button" className="btn" onClick={() => setJanela('converter')}>
+                <button type="button" className="btn" onClick={() => setJanela({ tag: 'converter' })}>
                   Virou cliente
                 </button>
               ) : null}
               {!fechado ? (
-                <button type="button" className="btn ghost lead-perigo" onClick={() => setJanela('perder')}>
+                <button type="button" className="btn ghost lead-perigo" onClick={() => setJanela({ tag: 'perder' })}>
                   Marcar como perdido
                 </button>
               ) : null}
             </div>
           )}
         </section>
-      </div>
+      </DuasColunasDoLead>
 
       {ficha.beneficio !== null ? (
         <section className="lead-painel" aria-labelledby="lead-beneficio">
@@ -306,7 +332,7 @@ export default function FichaDoLead() {
           <p>
             <b>{ficha.beneficio.beneficiario}</b>{' '}
             <span className="muted num">
-              · {formatarPercentual(BigInt(ficha.beneficio.percentualCentesimos))} de desconto na mensalidade seguinte
+              · {percentualCurto(ficha.beneficio.percentualCentesimos)} de desconto na mensalidade seguinte
             </span>
           </p>
           <p className="nota">
@@ -349,25 +375,25 @@ export default function FichaDoLead() {
               </span>
             </label>
             {lead.clienteCarteiraId === null ? (
-              <button type="button" className="btn ghost lead-perigo" onClick={() => setJanela('excluir')}>
+              <button type="button" className="btn ghost lead-perigo" onClick={() => setJanela({ tag: 'excluir' })}>
                 Excluir a pedido do titular
               </button>
             ) : null}
             <p role="alert" aria-live="polite" className="erro">
-              {janela === 'nenhuma' ? erroDeAcao : ''}
+              {janela.tag === 'nenhuma' ? erroDeAcao : ''}
             </p>
           </div>
         </details>
       )}
 
-      {janela === 'contato' ? (
-        <Modal titulo={`Registrar contato · ${lead.nome}`} aoFechar={() => setJanela('nenhuma')}>
+      {janela.tag === 'contato' ? (
+        <Modal titulo={`Registrar contato · ${lead.nome}`} aoFechar={() => setJanela({ tag: 'nenhuma' })}>
           <RegistrarContatoDoLead
             lead={lead}
             hoje={ficha.hoje}
             sugestao={ficha.sugestaoDeContato}
             aoRegistrar={() => {
-              setJanela('nenhuma')
+              setJanela({ tag: 'nenhuma' })
               setRecado('Contato registrado.')
               recarregar()
             }}
@@ -375,8 +401,20 @@ export default function FichaDoLead() {
         </Modal>
       ) : null}
 
-      {janela === 'editar' ? (
-        <Modal titulo={`Editar ${lead.nome}`} aoFechar={() => setJanela('nenhuma')}>
+      {janela.tag === 'mensagem' ? (
+        <MensagemWhatsApp
+          destino={{ para: 'lead', leadId: lead.id, roteiro: janela.roteiro }}
+          aoFechar={() => setJanela({ tag: 'nenhuma' })}
+          aoConfirmarEnvio={() => {
+            // O passo seguinte do protótipo: registrar o contato (L9, L13).
+            setJanela({ tag: 'contato' })
+            setRecado('Mensagem marcada como enviada. Registre o contato.')
+          }}
+        />
+      ) : null}
+
+      {janela.tag === 'editar' ? (
+        <Modal titulo={`Editar ${lead.nome}`} aoFechar={() => setJanela({ tag: 'nenhuma' })}>
           <FormularioDoLead
             lead={lead}
             equipe={ficha.equipe}
@@ -385,7 +423,7 @@ export default function FichaDoLead() {
             eu={sessao.usuarioDeGestao.id}
             hoje={ficha.hoje}
             aoSalvar={() => {
-              setJanela('nenhuma')
+              setJanela({ tag: 'nenhuma' })
               setRecado('Indicação salva.')
               recarregar()
             }}
@@ -393,13 +431,13 @@ export default function FichaDoLead() {
         </Modal>
       ) : null}
 
-      {janela === 'perder' ? (
-        <Modal titulo="Marcar como perdido" aoFechar={() => setJanela('nenhuma')}>
+      {janela.tag === 'perder' ? (
+        <Modal titulo="Marcar como perdido" aoFechar={() => setJanela({ tag: 'nenhuma' })}>
           <MarcarLeadPerdido
             lead={lead}
             hoje={ficha.hoje}
             aoMarcar={(l) => {
-              setJanela('nenhuma')
+              setJanela({ tag: 'nenhuma' })
               setRecado(l.etapa === 'espera' ? 'Movido para Em espera.' : 'Marcado como perdido.')
               recarregar()
             }}
@@ -407,8 +445,8 @@ export default function FichaDoLead() {
         </Modal>
       ) : null}
 
-      {janela === 'converter' ? (
-        <Modal titulo="Virou cliente" aoFechar={() => setJanela('nenhuma')}>
+      {janela.tag === 'converter' ? (
+        <Modal titulo="Virou cliente" aoFechar={() => setJanela({ tag: 'nenhuma' })}>
           <div className="carteira-form">
             <p>
               <b>{lead.nome}</b> vira Cliente Firmare em onboarding.
@@ -430,8 +468,8 @@ export default function FichaDoLead() {
         </Modal>
       ) : null}
 
-      {janela === 'excluir' ? (
-        <Modal titulo="Excluir a pedido do titular" aoFechar={() => setJanela('nenhuma')}>
+      {janela.tag === 'excluir' ? (
+        <Modal titulo="Excluir a pedido do titular" aoFechar={() => setJanela({ tag: 'nenhuma' })}>
           <div className="carteira-form">
             <p>
               Os dados pessoais de <b>{lead.nome}</b> e o texto do histórico são apagados agora. O telefone fica
@@ -454,6 +492,6 @@ export default function FichaDoLead() {
       ) : null}
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
-    </section>
+    </TelaDaProspeccao>
   )
 }

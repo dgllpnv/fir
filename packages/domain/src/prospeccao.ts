@@ -370,6 +370,16 @@ const ROTEIRO_DA_ETAPA: Partial<Record<EtapaDoLead, RoteiroSugerido>> = {
   espera: 'retomada',
 }
 
+/**
+ * O roteiro sugerido para a etapa (`ROT_ETAPA`, L2446), com o recuo do
+ * protótipo: etapa sem roteiro próprio (ganho, perdido) cai em "agendar".
+ * Exportada para a ficha do lead sem sinal abrir marcada a mesma ficha que o
+ * sinal usaria — a tabela existe uma vez só.
+ */
+export function roteiroDaEtapa(etapa: EtapaDoLead): RoteiroSugerido {
+  return ROTEIRO_DA_ETAPA[etapa] ?? 'agendar'
+}
+
 export type LeadParaSinal = {
   readonly etapa: EtapaDoLead
   readonly temperatura: TemperaturaDoLead
@@ -427,7 +437,7 @@ export function sinalDoLead(l: LeadParaSinal, hoje: string): SinalDoLead | null 
           ? 'retomada'
           : l.etapa === 'reuniao'
             ? 'confirmacao'
-            : (ROTEIRO_DA_ETAPA[l.etapa] ?? 'agendar'),
+            : roteiroDaEtapa(l.etapa),
     }
   } else if (l.etapa === 'novo' && l.ultimoContato === null) {
     r =
@@ -444,7 +454,7 @@ export function sinalDoLead(l: LeadParaSinal, hoje: string): SinalDoLead | null 
     r = {
       nivel: 'semana',
       motivo: `Sem interação há ${sem} dias e sem próximo passo marcado.`,
-      roteiro: ROTEIRO_DA_ETAPA[l.etapa] ?? 'agendar',
+      roteiro: roteiroDaEtapa(l.etapa),
     }
   } else if (l.etapa === 'proposta' && sem !== null && sem >= 3) {
     r = {
