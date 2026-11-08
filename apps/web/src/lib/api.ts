@@ -30,6 +30,15 @@ export const CAMINHO_TROCAR_SENHA = '/trocar-senha'
  */
 export const CAMINHO_TROCAR_SENHA_DO_PAINEL = '/superadmin/trocar-senha'
 
+/**
+ * E o mesmo desvio para os outros dois espaços de identidade — a carteira
+ * comercial (`Usuário de Gestão`) e o Portal do Grupo (`Usuário do portal`).
+ * Cada guard responde com o SEU código, e cada código tem o SEU destino: a
+ * tela de troca de senha de um espaço pede a sessão daquele espaço.
+ */
+export const CAMINHO_TROCAR_SENHA_DA_CARTEIRA = '/carteira/trocar-senha'
+export const CAMINHO_TROCAR_SENHA_DO_PORTAL = '/portal/trocar-senha'
+
 export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
   /**
    * `content-type: application/json` só quando HÁ corpo.
@@ -75,6 +84,12 @@ export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Prom
     // que ela não enxerga.
     if (corpo.codigo === 'SENHA_PROVISORIA_OPERADOR' && typeof window !== 'undefined') {
       window.location.assign(CAMINHO_TROCAR_SENHA_DO_PAINEL)
+    }
+    if (corpo.codigo === 'SENHA_PROVISORIA_CARTEIRA' && typeof window !== 'undefined') {
+      window.location.assign(CAMINHO_TROCAR_SENHA_DA_CARTEIRA)
+    }
+    if (corpo.codigo === 'SENHA_PROVISORIA_PORTAL' && typeof window !== 'undefined') {
+      window.location.assign(CAMINHO_TROCAR_SENHA_DO_PORTAL)
     }
     throw new ErroDaApi(
       r.status,

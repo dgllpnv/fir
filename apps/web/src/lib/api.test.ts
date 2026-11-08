@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CAMINHO_TROCAR_SENHA, CAMINHO_TROCAR_SENHA_DO_PAINEL, chamar, ErroDaApi } from './api'
+import {
+  CAMINHO_TROCAR_SENHA,
+  CAMINHO_TROCAR_SENHA_DA_CARTEIRA,
+  CAMINHO_TROCAR_SENHA_DO_PAINEL,
+  CAMINHO_TROCAR_SENHA_DO_PORTAL,
+  chamar,
+  ErroDaApi,
+} from './api'
 
 /**
  * O cabeçalho `content-type` não é detalhe de transporte — é o que decidiu, em
@@ -118,6 +125,25 @@ describe('chamar', () => {
     await expect(chamar('v1/superadmin/clinicas')).rejects.toThrow(ErroDaApi)
     expect(ida).toEqual([CAMINHO_TROCAR_SENHA_DO_PAINEL])
     expect(ida).not.toContain(CAMINHO_TROCAR_SENHA)
+  })
+
+  it.each([
+    ['SENHA_PROVISORIA_CARTEIRA', 'v1/carteira/clientes', CAMINHO_TROCAR_SENHA_DA_CARTEIRA],
+    ['SENHA_PROVISORIA_PORTAL', 'v1/portal/clientes', CAMINHO_TROCAR_SENHA_DO_PORTAL],
+  ])('409 %s desvia para a troca de senha DAQUELE espaço, e de nenhum outro', async (codigo, rota, destino) => {
+    // Sem este desvio, o Usuário de Gestão / do portal com provisória via um
+    // aviso vermelho sem saída — e 72 h depois ficava trancado (2026-11-08).
+    const ida: string[] = []
+    vi.stubGlobal('window', { location: { assign: (u: string) => ida.push(u) } })
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve({
+        ok: false,
+        status: 409,
+        json: async () => ({ message: 'Troque a senha provisória antes de continuar.', codigo }),
+      } as unknown as Response),
+    )
+    await expect(chamar(rota)).rejects.toThrow(ErroDaApi)
+    expect(ida).toEqual([destino])
   })
 
   it('409 de OUTRA coisa não desvia — só o código estável desvia', async () => {

@@ -1,4 +1,13 @@
-import { type CanActivate, type ExecutionContext, Inject, Injectable, NotFoundException, RequestMethod } from '@nestjs/common'
+import {
+  type CanActivate,
+  ConflictException,
+  type ExecutionContext,
+  HttpStatus,
+  Inject,
+  Injectable,
+  NotFoundException,
+  RequestMethod,
+} from '@nestjs/common'
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants'
 import { Reflector } from '@nestjs/core'
 import type { RequisicaoComCarteira } from './contexto-da-carteira'
@@ -22,6 +31,29 @@ export const DURACAO_SESSAO_CARTEIRA_MS = 12 * 60 * 60 * 1000
 
 /** As ÚNICAS rotas de carteira que atravessam sem sessão — mesma razão do painel. */
 const LIBERADAS: ReadonlySet<string> = new Set(['POST /v1/carteira/entrar', 'POST /v1/carteira/sair'])
+
+/**
+ * E as únicas que uma sessão com **senha provisória** atravessa — a mesma
+ * lista de três de `senha-provisoria.guard.ts` e de `PainelGuard`: `eu` é
+ * como a tela descobre para onde mandar a pessoa, `eu/senha` é a saída, e
+ * `sair` é a saída de quem desistiu.
+ *
+ * A provisória foi gerada pelo servidor e repassada por outra pessoa — é
+ * credencial compartilhada por construção, numa sessão que lê dado agregado
+ * de várias clínicas. A única coisa que ela pode fazer é deixar de ser.
+ */
+export const LIBERADAS_COM_PROVISORIA_NA_CARTEIRA: ReadonlySet<string> = new Set([
+  'GET /v1/carteira/eu',
+  'POST /v1/carteira/eu/senha',
+  'POST /v1/carteira/sair',
+])
+
+/**
+ * O código no corpo do 409, para a tela redirecionar sem casar texto. Um
+ * código POR espaço de identidade, como o do painel: um só faria a tela da
+ * carteira desviar para a troca de senha da clínica, que pede outra sessão.
+ */
+export const CODIGO_SENHA_PROVISORIA_DA_CARTEIRA = 'SENHA_PROVISORIA_CARTEIRA'
 
 const juntar = (...partes: (string | undefined)[]): string => {
   const limpo = partes
@@ -71,6 +103,21 @@ export class CarteiraGuard implements CanActivate {
     if (!contexto) throw new NotFoundException()
 
     req.carteira = contexto
+
+    // 409 e não 404: a sessão JÁ foi provada válida. "Termine isto primeiro"
+    // é precondição da sessão, não resposta a "você pode?" — mesma resposta
+    // da clínica e do painel. O estado vem do BANCO (`contextoDoToken`, a
+    // cada requisição), nunca do corpo nem do cookie.
+    if (
+      contexto.usuarioDeGestao.senhaProvisoria &&
+      !LIBERADAS_COM_PROVISORIA_NA_CARTEIRA.has(chave)
+    ) {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        codigo: CODIGO_SENHA_PROVISORIA_DA_CARTEIRA,
+        message: 'Troque a senha provisória antes de continuar.',
+      })
+    }
     return true
   }
 }

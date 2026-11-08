@@ -27,6 +27,19 @@ export const EntrarNoPortalEntrada = z
   .strict()
 export type EntrarNoPortalEntrada = z.infer<typeof EntrarNoPortalEntrada>
 
+/**
+ * O `Usuário do portal` troca a PRÓPRIA senha — e é a ÚNICA coisa que ele
+ * pode fazer enquanto a senha for provisória (ver `PortalGuard`). Mesma forma
+ * e mesma razão de `TrocarSenhaDaCarteiraEntrada`.
+ */
+export const TrocarSenhaDoPortalEntrada = z
+  .object({
+    atual: z.string().min(1, 'Informe a senha atual.').max(SENHA_MAX),
+    nova: z.string().min(1, 'Informe a nova senha.').max(SENHA_MAX),
+  })
+  .strict()
+export type TrocarSenhaDoPortalEntrada = z.infer<typeof TrocarSenhaDoPortalEntrada>
+
 /** O que o portal sabe sobre quem está nele. Nunca o hash. */
 export const UsuarioDoPortalPublico = z.object({
   id: Uuid,

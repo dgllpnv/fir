@@ -46,6 +46,14 @@ export function ProvedorDaCarteira({ children }: { children: ReactNode }) {
       try {
         const eu = await chamar<CarteiraEuSaida>('v1/carteira/eu')
         if (!valeu) return
+        // Senha provisória ⇒ a única coisa que a sessão pode fazer é trocá-la
+        // (`CarteiraGuard`). Sem este desvio, o usuário recém-criado cairia
+        // numa tela com 409 e nenhuma saída.
+        if (eu.usuarioDeGestao.senhaProvisoria) {
+          setSessao({ tag: 'saindo' })
+          router.replace('/carteira/trocar-senha')
+          return
+        }
         setSessao({ tag: 'pronta', usuarioDeGestao: eu.usuarioDeGestao })
       } catch (e) {
         if (!valeu) return

@@ -48,6 +48,14 @@ export function ProvedorDoPortal({ children }: { children: ReactNode }) {
       try {
         const eu = await chamar<PortalEuSaida>('v1/portal/eu')
         if (!valeu) return
+        // Senha provisória ⇒ a única coisa que a sessão pode fazer é trocá-la
+        // (`PortalGuard`). Sem este desvio, o cliente recém-cadastrado cairia
+        // numa tela com 409 e nenhuma saída.
+        if (eu.usuarioDoPortal.senhaProvisoria) {
+          setSessao({ tag: 'saindo' })
+          router.replace('/portal/trocar-senha')
+          return
+        }
         setSessao({ tag: 'pronta', usuarioDoPortal: eu.usuarioDoPortal })
       } catch (e) {
         if (!valeu) return

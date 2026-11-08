@@ -38,6 +38,11 @@ export function FaixaDoPortal() {
         {sessao.tag === 'pronta' ? (
           <div className="portal-quem">
             <span title={sessao.usuarioDoPortal.usuario}>{sessao.usuarioDoPortal.nome}</span>
+            {/* A troca VOLUNTÁRIA. A obrigatória (provisória) não passa por
+                aqui: o provedor desvia antes de a faixa existir. */}
+            <a className="btn ghost" href="/portal/trocar-senha">
+              Trocar senha
+            </a>
             <button type="button" className="btn ghost" onClick={() => void sair()} disabled={saindo}>
               {ICONE_SAIR}
               {saindo ? 'Saindo…' : 'Sair'}

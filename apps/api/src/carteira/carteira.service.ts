@@ -1,17 +1,26 @@
 import type { ClienteCarteiraNaLista, UsuarioDeGestaoPublico } from '@fir/contracts'
+import { avaliarSenha, ehErro, type ErroDeDominio } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { HASH_FALSO, PISO_DE_RESPOSTA_MS } from '../autenticacao/autenticacao.service'
 import { semaforoArgon2 } from '../autenticacao/concorrencia'
-import { conferirSenha } from '../autenticacao/senha'
+import { conferirSenha, hashDeSenha } from '../autenticacao/senha'
 import { hashDoToken, limiteExcedido, novoToken } from '../autenticacao/sessao'
 import { SISTEMA } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import { RELOGIO, type Relogio } from '../comum/relogio'
+import { registrarNoPainel } from '../painel/painel.service'
 import type { ContextoDaCarteira } from './contexto-da-carteira'
 import { DURACAO_SESSAO_CARTEIRA_MS } from './carteira.guard'
 
 export class CredencialDaCarteiraInvalida extends Error {}
 export class LimiteDeTentativasDaCarteira extends Error {}
+
+/**
+ * O que a senha nova não pode conter: o usuário e o nome de quem a escolhe.
+ * A tela adianta a mesma recusa com os mesmos dois campos de
+ * `GET /v1/carteira/eu` — a lista é esta, e só esta, dos dois lados.
+ */
+const contextoDaSenhaDaCarteira = (u: UsuarioDeGestaoPublico): string[] => [u.usuario, u.nome]
 
 type LinhaUsuarioDeGestao = {
   id: string
@@ -178,6 +187,81 @@ export class CarteiraService {
     await this.banco.nasTabelasDaCarteira(SISTEMA, async (c) => {
       await c.query('UPDATE sessoes_de_carteira SET revogada_em = now() WHERE token_hash = $1', [hash])
     })
+  }
+
+  /**
+   * O `Usuário de Gestão` troca a PRÓPRIA senha. Espelho de
+   * `AutenticacaoService.trocarAPropriaSenha` e `PainelService.trocarAPropriaSenha`
+   * — mesma ordem, mesmas duas transações curtas, mesmo Argon2 atrás do
+   * mesmo semáforo. Uma terceira forma de trocar senha é como a terceira
+   * esquece a regra de força ou a revogação das outras sessões.
+   *
+   * É a saída da provisória: sem ela, o usuário criado pelo superadmin ficava
+   * trancado 72 h depois (defeito de produção, 2026-11-08).
+   */
+  async trocarAPropriaSenha(
+    contexto: ContextoDaCarteira,
+    tokenDaSessao: string,
+    atual: string,
+    nova: string,
+  ): Promise<'ok' | 'atual-invalida' | ErroDeDominio> {
+    const eu = contexto.usuarioDeGestao
+
+    // --- TRANSAÇÃO 1 (curta): só o hash guardado. Nenhum Argon2.
+    const linha = await this.banco.nasTabelasDaCarteira(SISTEMA, async (c) => {
+      const r = await c.query<{ senha_hash: string }>(
+        'SELECT senha_hash FROM usuarios_gestao WHERE id = $1 AND ativo',
+        [eu.id],
+      )
+      return r.rows[0] ?? null
+    })
+    if (!linha) return 'atual-invalida'
+
+    // --- FORA DE TRANSAÇÃO: o semáforo e o Argon2.
+    const confere = await semaforoArgon2.executar(() => conferirSenha(atual, linha.senha_hash))
+    if (!confere) return 'atual-invalida'
+
+    // A REGRA ANTES DO HASH — a mesma invariante do produto: hashear primeiro
+    // entregaria a quem tem sessão um jeito de esgotar o semáforo com senhas
+    // que nunca seriam aceitas.
+    const juizo = avaliarSenha(nova, { contexto: contextoDaSenhaDaCarteira(eu) })
+    if (ehErro(juizo)) return juizo.erro
+
+    const hash = await semaforoArgon2.executar(() => hashDeSenha(nova))
+    const hashDaSessaoAtual = hashDoToken(tokenDaSessao)
+
+    // --- TRANSAÇÃO 2 (curta): a senha, o fim da provisória, as outras sessões
+    // e a trilha. `ComoUsuarioDeGestao` para que `app.pessoa_id` seja ESTE
+    // usuário, e não `sistema`.
+    await this.banco.nasTabelasDaCarteiraComoUsuarioDeGestao(eu, async (c) => {
+      await c.query(
+        `UPDATE usuarios_gestao
+            SET senha_hash = $1, senha_provisoria = false, senha_provisoria_expira_em = NULL
+          WHERE id = $2`,
+        [hash, eu.id],
+      )
+      // As OUTRAS sessões caem; esta sobrevive — derrubá-la devolveria a
+      // pessoa à entrada logo depois de fazer a coisa certa. Quem troca a
+      // senha o faz, metade das vezes, porque desconfia de que alguém a sabe.
+      await c.query(
+        `UPDATE sessoes_de_carteira SET revogada_em = now()
+          WHERE usuario_gestao_id = $1 AND token_hash <> $2 AND revogada_em IS NULL`,
+        [eu.id, hashDaSessaoAtual],
+      )
+      // A mesma trilha das outras escritas de identidade da carteira
+      // (`PainelCarteiraService`, sobre `usuarios_gestao`). O hash não
+      // atravessa — nem é passado.
+      await registrarNoPainel(c, {
+        atorTipo: 'usuario_gestao',
+        atorId: eu.id,
+        acao: 'alterou',
+        entidade: 'usuarios_gestao',
+        entidadeId: eu.id,
+        para: { senha_hash: '(trocada pelo próprio usuário de gestão)' },
+      })
+    })
+
+    return 'ok'
   }
 
   /**

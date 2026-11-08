@@ -1,17 +1,26 @@
 import type { UsuarioDoPortalPublico } from '@fir/contracts'
+import { avaliarSenha, ehErro, type ErroDeDominio } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { HASH_FALSO, PISO_DE_RESPOSTA_MS } from '../../autenticacao/autenticacao.service'
 import { semaforoArgon2 } from '../../autenticacao/concorrencia'
-import { conferirSenha } from '../../autenticacao/senha'
+import { conferirSenha, hashDeSenha } from '../../autenticacao/senha'
 import { hashDoToken, limiteExcedido, novoToken } from '../../autenticacao/sessao'
 import { SISTEMA } from '../../banco/ator'
 import { BancoService } from '../../banco/banco.service'
 import { RELOGIO, type Relogio } from '../../comum/relogio'
+import { registrarNoPainel } from '../../painel/painel.service'
 import type { ContextoDoPortal } from './contexto-do-portal'
 import { DURACAO_SESSAO_PORTAL_MS } from './portal.guard'
 
 export class CredencialDoPortalInvalida extends Error {}
 export class LimiteDeTentativasDoPortal extends Error {}
+
+/**
+ * O que a senha nova não pode conter: o usuário e o nome de quem a escolhe —
+ * os mesmos dois campos que a tela lê de `GET /v1/portal/eu` para adiantar a
+ * recusa.
+ */
+const contextoDaSenhaDoPortal = (u: UsuarioDoPortalPublico): string[] => [u.usuario, u.nome]
 
 type LinhaUsuarioDoPortal = {
   id: string
@@ -181,5 +190,74 @@ export class PortalService {
     await this.banco.nasTabelasDoPortal(SISTEMA, async (c) => {
       await c.query('UPDATE sessoes_do_portal SET revogada_em = now() WHERE token_hash = $1', [hash])
     })
+  }
+
+  /**
+   * O `Usuário do portal` troca a PRÓPRIA senha. Espelho de
+   * `AutenticacaoService.trocarAPropriaSenha`, `PainelService` e
+   * `CarteiraService` — mesma ordem, mesmas duas transações curtas.
+   *
+   * É a ÚNICA escrita do portal (ADR 0018 §4 continua valendo para dado
+   * comercial: nenhuma), e por isso o `fir_portal` só ganhou UPDATE nas três
+   * colunas da senha (migration 0039), nunca na tabela inteira.
+   */
+  async trocarAPropriaSenha(
+    contexto: ContextoDoPortal,
+    tokenDaSessao: string,
+    atual: string,
+    nova: string,
+  ): Promise<'ok' | 'atual-invalida' | ErroDeDominio> {
+    const eu = contexto.usuarioDoPortal
+
+    // --- TRANSAÇÃO 1 (curta): só o hash guardado. Nenhum Argon2.
+    const linha = await this.banco.nasTabelasDoPortal(SISTEMA, async (c) => {
+      const r = await c.query<{ senha_hash: string }>(
+        'SELECT senha_hash FROM usuarios_do_portal WHERE id = $1 AND ativo',
+        [eu.id],
+      )
+      return r.rows[0] ?? null
+    })
+    if (!linha) return 'atual-invalida'
+
+    // --- FORA DE TRANSAÇÃO: o semáforo e o Argon2.
+    const confere = await semaforoArgon2.executar(() => conferirSenha(atual, linha.senha_hash))
+    if (!confere) return 'atual-invalida'
+
+    // A REGRA ANTES DO HASH — mesma invariante do produto.
+    const juizo = avaliarSenha(nova, { contexto: contextoDaSenhaDoPortal(eu) })
+    if (ehErro(juizo)) return juizo.erro
+
+    const hash = await semaforoArgon2.executar(() => hashDeSenha(nova))
+    const hashDaSessaoAtual = hashDoToken(tokenDaSessao)
+
+    // --- TRANSAÇÃO 2 (curta): a senha, o fim da provisória, as outras
+    // sessões e a trilha.
+    await this.banco.nasTabelasDoPortal(SISTEMA, async (c) => {
+      await c.query(
+        `UPDATE usuarios_do_portal
+            SET senha_hash = $1, senha_provisoria = false, senha_provisoria_expira_em = NULL
+          WHERE id = $2`,
+        [hash, eu.id],
+      )
+      // As OUTRAS sessões caem; esta sobrevive.
+      await c.query(
+        `UPDATE sessoes_do_portal SET revogada_em = now()
+          WHERE usuario_portal_id = $1 AND token_hash <> $2 AND revogada_em IS NULL`,
+        [eu.id, hashDaSessaoAtual],
+      )
+      // A trilha das escritas de identidade fora de clínica, com o ator
+      // PRÓPRIO (`usuario_portal`, 0039) — nunca `sistema`, nunca
+      // `usuario_gestao`: a trilha precisa dizer que foi o cliente.
+      await registrarNoPainel(c, {
+        atorTipo: 'usuario_portal',
+        atorId: eu.id,
+        acao: 'alterou',
+        entidade: 'usuarios_do_portal',
+        entidadeId: eu.id,
+        para: { senha_hash: '(trocada pelo próprio usuário do portal)' },
+      })
+    })
+
+    return 'ok'
   }
 }

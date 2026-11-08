@@ -48,8 +48,8 @@ describe('a varredura olhou a carteira inteira', () => {
     expect(nomes).toContain('faixa.tsx')
     expect(nomes).toContain('contexto.tsx')
     expect(nomes).toContain('pecas.tsx')
-    // entrar, porta (/carteira), clientes, a ficha de um cliente, leads (G5) e rotina (G5).
-    expect(CARTEIRA.filter((f) => f.nome === 'page.tsx').length).toBe(6)
+    // entrar, trocar a senha, porta (/carteira), clientes, a ficha de um cliente, leads (G5) e rotina (G5).
+    expect(CARTEIRA.filter((f) => f.nome === 'page.tsx').length).toBe(7)
   })
 })
 
@@ -94,6 +94,8 @@ describe('o estilo mora no sistema de design, não no JSX', () => {
       'campo', 'campo-com-botao', 'olho', 'btn', 'ghost', 'link',
       'pill', 'bom', 'mau', 'alerta',
       'entrada', 'caixa', 'marca', 'erro-entrada',
+      // A frase da troca de senha, de `shell.css` — a mesma das três outras portas.
+      'aviso-primeiro-acesso',
     ])
     const usadas = new Set<string>()
     for (const f of CARTEIRA) {

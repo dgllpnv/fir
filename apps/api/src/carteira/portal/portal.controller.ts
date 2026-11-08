@@ -1,9 +1,16 @@
-import { type PortalEuSaida, type PortalSaida, EntrarNoPortalEntrada } from '@fir/contracts'
+import {
+  type PortalEuSaida,
+  type PortalSaida,
+  EntrarNoPortalEntrada,
+  TrocarSenhaDoPortalEntrada,
+} from '@fir/contracts'
 import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
+  NotFoundException,
   HttpCode,
   HttpException,
   HttpStatus,
@@ -100,6 +107,33 @@ export class PortalController {
     const token = req.cookies?.[NOME_DO_COOKIE_PORTAL]
     if (token) await this.portal.sair(token)
     res.clearCookie(NOME_DO_COOKIE_PORTAL, { path: '/' })
+  }
+
+  /**
+   * O `Usuário do portal` troca a PRÓPRIA senha — saída obrigatória da
+   * provisória (liberada pelo `PortalGuard`) e troca voluntária, numa rota
+   * só. Mesmos três status da clínica, do painel e da carteira:
+   *  - **400** o corpo não é o corpo desta rota.
+   *  - **403** a senha ATUAL não confere. Não é 401: a sessão vale.
+   *  - **422** a senha nova não passa na regra, com a mensagem do DOMÍNIO.
+   */
+  @Post('eu/senha')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async trocarSenha(
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComPortal & { cookies?: Record<string, string> },
+  ): Promise<void> {
+    const dados = TrocarSenhaDoPortalEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException('Informe a senha atual e a nova senha.')
+
+    const contexto = req.portal
+    if (!contexto) throw new NotFoundException()
+    const token = req.cookies?.[NOME_DO_COOKIE_PORTAL] ?? ''
+
+    const r = await this.portal.trocarAPropriaSenha(contexto, token, dados.data.atual, dados.data.nova)
+    if (r === 'ok') return
+    if (r === 'atual-invalida') throw new ForbiddenException('A senha atual não confere.')
+    throw new HttpException(r.mensagem, HttpStatus.UNPROCESSABLE_ENTITY)
   }
 
   @Get('eu')

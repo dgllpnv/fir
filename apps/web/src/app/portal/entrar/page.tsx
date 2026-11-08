@@ -1,5 +1,6 @@
 'use client'
 
+import type { PortalEuSaida } from '@fir/contracts'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
@@ -28,11 +29,12 @@ export default function EntrarNoPortal() {
     setSenhaVisivel(false)
     setEnviando(true)
     try {
-      await chamar('v1/portal/entrar', {
+      const eu = await chamar<PortalEuSaida>('v1/portal/entrar', {
         method: 'POST',
         body: JSON.stringify({ usuario, senha }),
       })
-      router.push('/portal/clientes')
+      // Com provisória, a única coisa que a sessão pode fazer é trocá-la.
+      router.push(eu.usuarioDoPortal.senhaProvisoria ? '/portal/trocar-senha' : '/portal/clientes')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
     } finally {

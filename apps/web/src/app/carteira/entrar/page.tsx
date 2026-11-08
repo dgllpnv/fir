@@ -1,5 +1,6 @@
 'use client'
 
+import type { CarteiraEuSaida } from '@fir/contracts'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
@@ -30,11 +31,12 @@ export default function EntrarNaCarteira() {
     setSenhaVisivel(false)
     setEnviando(true)
     try {
-      await chamar('v1/carteira/entrar', {
+      const eu = await chamar<CarteiraEuSaida>('v1/carteira/entrar', {
         method: 'POST',
         body: JSON.stringify({ usuario, senha }),
       })
-      router.push('/carteira/clientes')
+      // Com provisória, a única coisa que a sessão pode fazer é trocá-la.
+      router.push(eu.usuarioDeGestao.senhaProvisoria ? '/carteira/trocar-senha' : '/carteira/clientes')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
     } finally {

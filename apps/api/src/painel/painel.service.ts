@@ -347,7 +347,10 @@ export class PainelService {
 export async function registrarNoPainel(
   c: pg.PoolClient,
   linha: {
-    atorTipo: 'operador' | 'vps' | 'sistema'
+    // `usuario_gestao` (0032) e `usuario_portal` (0039): a troca da PRÓPRIA
+    // senha na carteira e no portal é escrita de identidade fora de clínica,
+    // e vai para esta mesma trilha.
+    atorTipo: 'operador' | 'vps' | 'sistema' | 'usuario_gestao' | 'usuario_portal'
     atorId: string | null
     acao: 'criou' | 'alterou' | 'removeu' | 'acessou' | 'entrou'
     entidade: string

@@ -28,6 +28,25 @@ export const EntrarNaCarteiraEntrada = z
   .strict()
 export type EntrarNaCarteiraEntrada = z.infer<typeof EntrarNaCarteiraEntrada>
 
+/**
+ * O `Usuário de Gestão` troca a PRÓPRIA senha — e é a ÚNICA coisa que ele
+ * pode fazer enquanto a senha for provisória (ver `CarteiraGuard`).
+ *
+ * Sem esta rota, o usuário criado pelo superadmin nasce com uma provisória
+ * que vence em 72 h e nenhum caminho para trocá-la: o login a recusa vencida,
+ * e ele fica trancado para sempre (defeito de produção, 2026-11-08).
+ * `.strict()` pela mesma razão de `TrocarSenhaEntrada`: um campo `contexto`
+ * aceito aqui seria um contexto escolhido pelo cliente. Sem a regra de força
+ * no campo `atual`: a senha antiga pode ser mais curta que a regra de hoje.
+ */
+export const TrocarSenhaDaCarteiraEntrada = z
+  .object({
+    atual: z.string().min(1, 'Informe a senha atual.').max(SENHA_MAX),
+    nova: z.string().min(1, 'Informe a nova senha.').max(SENHA_MAX),
+  })
+  .strict()
+export type TrocarSenhaDaCarteiraEntrada = z.infer<typeof TrocarSenhaDaCarteiraEntrada>
+
 /** O que a carteira sabe sobre quem está nela. Nunca o hash. */
 export const UsuarioDeGestaoPublico = z.object({
   id: Uuid,

@@ -104,6 +104,11 @@
   padding: 3px 11px;
 }
 
+/* A troca de senha (porta): o aviso da regra aparece a cada tecla, e a
+   altura fica reservada para ele não empurrar o campo seguinte para baixo do
+   dedo. Mesma regra de `.erro-reservado` do painel, com o prefixo daqui. */
+.campo .carteira-erro-reservado { display: block; min-height: 16px; }
+
 /* A lista de clientes da carteira — primeira tela de dado real. */
 .carteira-lista {
   display: grid;

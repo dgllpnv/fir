@@ -49,8 +49,8 @@ describe('a varredura olhou o portal inteiro', () => {
     expect(nomes).toContain('faixa.tsx')
     expect(nomes).toContain('contexto.tsx')
     expect(nomes).toContain('pecas.tsx')
-    // a porta (/portal), entrar e a leitura agregada (/portal/clientes).
-    expect(PORTAL.filter((f) => f.nome === 'page.tsx').length).toBe(3)
+    // a porta (/portal), entrar, trocar a senha e a leitura agregada (/portal/clientes).
+    expect(PORTAL.filter((f) => f.nome === 'page.tsx').length).toBe(4)
   })
 })
 
@@ -93,6 +93,8 @@ describe('o estilo mora no sistema de design, não no JSX', () => {
       'campo', 'campo-com-botao', 'olho', 'btn', 'ghost', 'link',
       'pill', 'bom', 'mau', 'alerta',
       'entrada', 'caixa', 'marca', 'erro-entrada',
+      // A frase da troca de senha, de `shell.css` — a mesma das três outras portas.
+      'aviso-primeiro-acesso',
     ])
     const usadas = new Set<string>()
     for (const f of PORTAL) {

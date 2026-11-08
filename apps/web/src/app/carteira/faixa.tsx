@@ -38,6 +38,11 @@ export function FaixaDaCarteira() {
         {sessao.tag === 'pronta' ? (
           <div className="carteira-quem">
             <span title={sessao.usuarioDeGestao.usuario}>{sessao.usuarioDeGestao.usuario}</span>
+            {/* A troca VOLUNTÁRIA. A obrigatória (provisória) não passa por
+                aqui: o provedor desvia antes de a faixa existir. */}
+            <a className="btn ghost" href="/carteira/trocar-senha">
+              Trocar senha
+            </a>
             <button
               type="button"
               className="btn ghost"
