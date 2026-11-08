@@ -162,7 +162,7 @@ beforeAll(async () => {
       pessoaA,
       DIA,
       EM,
-      JSON.stringify([{ acao: 'registrarOrcamento', porId: pessoaA, em: EM }]),
+      JSON.stringify([{ acao: 'registrarOrcamento', etapa: 'orcamento', porId: pessoaA, em: EM }]),
       pacienteA,
     ],
   )
@@ -178,7 +178,7 @@ beforeAll(async () => {
         pessoaA,
         DIA,
         EM,
-        JSON.stringify([{ acao: 'fechar', porId: pessoaA, em: EM }]),
+        JSON.stringify([{ acao: 'fechar', etapa: 'fechado', porId: pessoaA, em: EM }]),
         pacienteA,
       ],
     )
@@ -203,7 +203,7 @@ beforeAll(async () => {
     `INSERT INTO tarefas
        (clinica_id, solicitante_id, responsavel_id, descricao, prazo, status, criada_em, paciente_id, tipo, historico)
      VALUES ($1, $2, $2, 'fixture', $3::date, 'aberta', $4, $6, 'Consulta agendada', $5::jsonb)`,
-    [clinicaA, pessoaA, DIA, EM, JSON.stringify([{ acao: 'noshow', porId: pessoaA, em: EM }]), pacienteA],
+    [clinicaA, pessoaA, DIA, EM, JSON.stringify([{ acao: 'noshow', etapa: 'faltou', porId: pessoaA, em: EM }]), pacienteA],
   )
 
   // Aberta, com prazo no FUTURO — não é backlog vencido, e prova que o corte

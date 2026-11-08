@@ -19,6 +19,7 @@ import {
 } from '@/lib/filtro-de-contas'
 import { diaEmTexto, somarDiasNaTela } from '@/lib/formato'
 import { Carregando, Erro, Toast, Vazio } from './estados'
+import { Modal } from './modal'
 
 /**
  * **Contas a pagar.**
@@ -76,6 +77,7 @@ export function TelaContas({
   const contas = useDados<ListaDeContas>(`v1/contas${consultaDaApi(filtro)}`)
   const [form, setForm] = useState<Rascunho | null>(null)
   const [pagando, setPagando] = useState<string | null>(null)
+  const [desfazendo, setDesfazendo] = useState<ContaNaLista | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
 
   const itens = contas.dados?.itens ?? []
@@ -325,6 +327,16 @@ export function TelaContas({
                             Editar
                           </button>
                         ) : null}
+                        {/*
+                          Só com `contas.gerir`: desfazer mexe no resultado do
+                          mês. O servidor cobra o mesmo (403) — o botão
+                          escondido é conveniência, não a trava.
+                        */}
+                        {podeGerir && c.pagoEm !== null ? (
+                          <button type="button" className="link" onClick={() => setDesfazendo(c)}>
+                            Desfazer pagamento
+                          </button>
+                        ) : null}
                       </div>
                     </div>
 
@@ -360,6 +372,18 @@ export function TelaContas({
             </div>
           ),
         )
+      )}
+
+      {desfazendo === null ? null : (
+        <DesfazerPagamento
+          conta={desfazendo}
+          aoFechar={() => setDesfazendo(null)}
+          aoDesfazer={() => {
+            setDesfazendo(null)
+            setRecado('Pagamento desfeito · a conta voltou a ficar em aberto.')
+            contas.recarregar()
+          }}
+        />
       )}
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
@@ -465,6 +489,130 @@ function PainelDePagamento({
         </button>
       </div>
     </div>
+  )
+}
+
+/**
+ * **Desfazer pagamento** — para o Paguei registrado errado (D-21, item 4).
+ *
+ * Um modal, e não o painel dentro da linha do Paguei: aqui não há valor a
+ * conferir contra a linha de cima — há uma correção do resultado do mês, e o
+ * modal obriga a fechar de propósito.
+ *
+ * O texto diz o que acontece: a conta volta a ficar em aberto, o pagamento
+ * desfeito fica registrado com o motivo, e a conta do mês seguinte (se a conta
+ * é mensal) continua onde está. Pagar de novo não cria outra.
+ *
+ * **Mês anterior** (ajuste 11 do gate): o servidor responde 409
+ * `CONFIRMACAO_NECESSARIA` sem número nenhum; a TELA escreve a pergunta, com
+ * o mês que ela mesma já conhece (`pagoEm` da linha), e reenvia o MESMO corpo
+ * com `confirmarMesAnterior: true`. Cancelar não grava nada.
+ */
+function DesfazerPagamento({
+  conta,
+  aoFechar,
+  aoDesfazer,
+}: {
+  conta: ContaNaLista
+  aoFechar: () => void
+  aoDesfazer: () => void
+}) {
+  const [motivo, setMotivo] = useState('')
+  const [mesAnterior, setMesAnterior] = useState(false)
+  const [erro, setErro] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+  // Linha paga sempre tem `pagoEm`; o `?? ''` só satisfaz o tipo.
+  const pagoEm = conta.pagoEm ?? ''
+  const mesDoPagamento = pagoEm === '' ? '' : mesPorExtenso(pagoEm.slice(0, 7))
+
+  async function enviar(confirmarMesAnterior: boolean): Promise<void> {
+    setErro('')
+    if (motivo.trim().length < 3) {
+      setErro('Escreva o motivo (pelo menos 3 caracteres).')
+      return
+    }
+    setOcupado(true)
+    try {
+      await chamar(`v1/contas/${conta.id}/desfazer-pagamento`, {
+        method: 'POST',
+        body: JSON.stringify(
+          confirmarMesAnterior
+            ? { motivo: motivo.trim(), confirmarMesAnterior: true }
+            : { motivo: motivo.trim() },
+        ),
+      })
+      aoDesfazer()
+    } catch (e) {
+      // O código, nunca o texto: a única confirmação que esta rota pede é a
+      // do mês anterior.
+      if (e instanceof ErroDaApi && e.status === 409 && e.codigo === 'CONFIRMACAO_NECESSARIA') {
+        setMesAnterior(true)
+        return
+      }
+      setErro(e instanceof ErroDaApi ? e.message : 'Não consegui falar com o servidor.')
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  return (
+    <Modal titulo={`Desfazer o pagamento de ${conta.descricao}?`} aoFechar={aoFechar}>
+      <p className="nota">
+        Pago em <span className="num">{diaEmTexto(pagoEm)}</span>
+        {conta.valorPago === null ? '' : ' · '}
+        {conta.valorPago === null ? null : (
+          <span className="num">{formatarDinheiro(centavos(conta.valorPago))}</span>
+        )}
+        {conta.formaPagamento === '' ? '' : ` · ${conta.formaPagamento}`}
+      </p>
+      <p className="nota">
+        <b>A conta volta a ficar em aberto</b>, como se o “Paguei” não tivesse acontecido, e sai das
+        despesas pagas do mês. O pagamento desfeito fica registrado, com o motivo e com o seu nome.
+        Depois é só pagar de novo com os valores certos.
+      </p>
+      {conta.mensal ? (
+        <p className="nota">
+          A conta do próximo mês continua como está — pagar de novo não cria outra.
+        </p>
+      ) : null}
+
+      {mesAnterior ? (
+        <p className="nota" role="alert">
+          <b>
+            Este pagamento é de {mesDoPagamento}. Desfazer vai mudar a Visão do mês de{' '}
+            {mesDoPagamento}.
+          </b>
+        </p>
+      ) : (
+        <label className="campo">
+          Motivo
+          <input
+            maxLength={200}
+            value={motivo}
+            placeholder="Ex.: valor digitado errado"
+            onChange={(e) => setMotivo(e.target.value)}
+          />
+        </label>
+      )}
+
+      <p className="nota aviso-do-modal erro" role="alert" aria-live="polite">
+        {erro}
+      </p>
+
+      <div className="botoes">
+        <button
+          type="button"
+          className="btn"
+          disabled={ocupado}
+          onClick={() => void enviar(mesAnterior)}
+        >
+          {ocupado ? 'Desfazendo…' : mesAnterior ? 'Desfazer mesmo assim' : 'Desfazer pagamento'}
+        </button>
+        <button type="button" className="btn ghost" onClick={aoFechar} disabled={ocupado}>
+          Cancelar
+        </button>
+      </div>
+    </Modal>
   )
 }
 

@@ -159,6 +159,13 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'PATCH', caminho: '/v1/contas/:id', camposDeDinheiro: ['valor', 'valorPago'] },
   { metodo: 'DELETE', caminho: '/v1/contas/:id', camposDeDinheiro: ['valor', 'valorPago'] },
   { metodo: 'POST', caminho: '/v1/contas/:id/pagar', camposDeDinheiro: ['valor', 'valorPago'] },
+  // Devolve a `ContaNaLista` já aberta (`valorPago: null`), mas o `valor` da conta
+  // continua lá — e passa pela mesma redação.
+  {
+    metodo: 'POST',
+    caminho: '/v1/contas/:id/desfazer-pagamento',
+    camposDeDinheiro: ['valor', 'valorPago'],
+  },
   {
     metodo: 'GET',
     caminho: '/v1/visao-do-mes',
@@ -615,6 +622,9 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   // trigger — mesmo não sendo lida por rota nenhuma. É exatamente a tabela que
   // uma lista mantida à mão esqueceria: ninguém a vê na tela.
   'origens_da_v20',
+  // Desfazer pagamento de conta (0040). APPEND-ONLY como `movimentos_de_estoque`:
+  // `fir_app` só lê e insere, e a trigger recusa UPDATE/DELETE até do dono.
+  'pagamentos_de_conta_desfeitos',
   'pacientes',
   'procedimentos',
   'programas',

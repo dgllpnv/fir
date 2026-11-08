@@ -151,6 +151,7 @@ export class JornadaService {
               autor,
               agora,
               hojeDaClinica: hoje,
+              fuso,
             })
           : efeitosDa(dados, t, hoje, agora, motivo)
       const evento: EventoDeJornada = {

@@ -33,6 +33,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import type { Transacao } from '../banco/transacao'
 import { RELOGIO } from '../comum/relogio'
 import { lerTarefas, type AutorDaRequisicao } from '../tarefas/leitura'
+import { confirmacoesDe } from '../financeiro/recebimentos.avisos'
 import { exigirDominio, registrarPagamento } from '../tarefas/tarefas.service'
 import { BaixaDeInsumos, type InsumoParaBaixa } from './baixa-de-insumos'
 
@@ -156,6 +157,8 @@ export class SessoesService {
           quando: concluidaEm,
           unidade: s.unidadeId,
           autor: autor.id,
+          fuso,
+          confirmacoes: confirmacoesDe(dados),
         })
         await c.query('UPDATE recebimentos SET programa_id = $1 WHERE id = $2', [
           s.programaId,

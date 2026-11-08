@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { AvisoDeSaldo } from '@/components/programas/aviso-de-saldo'
 import {
   CartaoDeSessao,
-  corpoDaSessao,
+  concluirSessao,
   type DadosDaSessao,
 } from '@/components/programas/cartao-de-sessao'
 import { EdicaoDoPrograma } from '@/components/programas/edicao-do-programa'
@@ -46,10 +46,7 @@ export function FichaDoProgramaNaTela({ id, podeReceber, podeGerir }: Props) {
   const d = ficha.dados
 
   async function concluir(sessaoId: string, dados: DadosDaSessao) {
-    await chamar(`v1/programas/sessoes/${sessaoId}/concluir`, {
-      method: 'POST',
-      body: JSON.stringify(corpoDaSessao(dados)),
-    })
+    await concluirSessao(sessaoId, dados)
     setRecado('Sessão concluída.')
     ficha.recarregar()
   }

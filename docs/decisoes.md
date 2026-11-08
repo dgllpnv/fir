@@ -588,6 +588,21 @@ nada disto pode consumir o que ela precisa.
 
 ---
 
+## D-21 · Os achados da validação de produção — o que muda e o que fica
+
+**Data:** 2026-11-08 · **Origem:** decisão do dono sobre a seção "Para você decidir depois" do relatório de entrega · **Estado:** decidida
+
+| # | Achado | Decisão |
+|---|---|---|
+| 1 | Na contagem às cegas, quem tem `estoque` vê o saldo na lista de itens | **Seguir o protótipo.** Nada muda; o comentário em `itens.controller.ts` já registra o porquê |
+| 2 | Recebimento em dia de caixa já fechado entra sem aviso | Avisar ao lançar + marcar o dia como "mudou depois do fechamento" |
+| 3 | Avulso de mesmo valor/paciente/dia de um pagamento já registrado | Avisar antes de gravar |
+| 4 | Pagamento de conta errado sem correção (D17) | Construir "desfazer pagamento" com trilha |
+
+Spec: [avisos-de-caixa-duplicidade-e-desfazer-pagamento](specs/avisos-de-caixa-duplicidade-e-desfazer-pagamento.md).
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react'
 import type { AcoesDoCartao, DadosDaConclusao } from '@/components/cartao-de-tarefa'
 import type { MoverEtapa } from '@/components/jornada/faixa-da-jornada'
 import { chamar } from './api'
+import { postarComConfirmacao } from './dialogo-de-confirmacao'
 
 /**
  * Concluir · cancelar · reabrir · editar — escritos UMA vez.
@@ -36,7 +37,17 @@ export type UsoDasAcoes = {
   readonly aoSalvarEdicao: (aviso: string) => void
 }
 
-export function useAcoesDeTarefa(recarregar: () => void): UsoDasAcoes {
+/**
+ * O que a pergunta de confirmação (D-21) precisa saber sobre a tela.
+ * `podeVerValores` decide só se a pergunta de duplicidade mostra o valor que
+ * a própria pessoa digitou; `hoje` é o do servidor.
+ */
+export type ContextoDasAcoes = { readonly podeVerValores: boolean; readonly hoje: string | null }
+
+export function useAcoesDeTarefa(
+  recarregar: () => void,
+  contexto: ContextoDasAcoes = { podeVerValores: false, hoje: null },
+): UsoDasAcoes {
   const [emEdicao, setEmEdicao] = useState<TarefaNaLista | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
 
@@ -60,9 +71,9 @@ export function useAcoesDeTarefa(recarregar: () => void): UsoDasAcoes {
     concluir: (id: string, d: DadosDaConclusao) =>
       agir(
         () =>
-          chamar<TarefasAfetadas>(`v1/tarefas/${id}/concluir`, {
-            method: 'POST',
-            body: JSON.stringify({
+          postarComConfirmacao<TarefasAfetadas>(
+            `v1/tarefas/${id}/concluir`,
+            {
               em: d.em,
               resultado: d.resultado,
               // Dinheiro atravessa como STRING DE CENTAVOS. Nada de número
@@ -77,8 +88,14 @@ export function useAcoesDeTarefa(recarregar: () => void): UsoDasAcoes {
                       valorAberto: (d.pagamento.valorAberto ?? 0n).toString(),
                     },
                   }),
-            }),
-          }),
+            },
+            {
+              dia: d.em,
+              hoje: contexto.hoje,
+              valor: d.pagamento?.valor ?? null,
+              podeVerValores: contexto.podeVerValores,
+            },
+          ),
         'Tarefa concluída.',
       ),
     cancelar: (id: string) =>
@@ -97,9 +114,14 @@ export function useAcoesDeTarefa(recarregar: () => void): UsoDasAcoes {
   const mover: MoverEtapa = (id, corpo) =>
     agir(
       () =>
-        chamar<TarefasAfetadas>(`v1/tarefas/${id}/jornada`, {
-          method: 'POST',
-          body: JSON.stringify(corpo),
+        // Só `fechar` grava dinheiro, e só ele recebe 409 de confirmação; as
+        // outras ações passam pela mesma porta sem nunca perguntar nada. O
+        // dinheiro do fechamento entra AGORA — o dia é o hoje do servidor.
+        postarComConfirmacao<TarefasAfetadas>(`v1/tarefas/${id}/jornada`, corpo, {
+          dia: contexto.hoje,
+          hoje: contexto.hoje,
+          valor: valorDoFechamento(corpo),
+          podeVerValores: contexto.podeVerValores,
         }),
       AVISO_DA_ACAO[String(corpo['acao'])] ?? 'Registrado.',
     )
@@ -138,4 +160,12 @@ const AVISO_DA_ACAO: Readonly<Record<string, string>> = {
   followUp: 'Follow-up registrado.',
   perder: 'Orçamento marcado como perdido.',
   fechar: 'Fechamento registrado.',
+}
+
+/** O valor que a pessoa digitou no "Fechou" — texto de centavos no corpo. */
+function valorDoFechamento(corpo: Readonly<Record<string, unknown>>): bigint | null {
+  const r = corpo['recebimento']
+  if (typeof r !== 'object' || r === null) return null
+  const v = (r as Record<string, unknown>)['valor']
+  return typeof v === 'string' && /^d+$/.test(v) ? BigInt(v) : null
 }

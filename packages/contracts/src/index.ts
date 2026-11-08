@@ -6,6 +6,8 @@ export * from './pacientes'
 export * from './tarefas'
 export * from './jornada'
 export * from './financeiro'
+// Desfazer pagamento de conta (D-21, item 4).
+export * from './contas-desfazer'
 export * from './programas'
 export * from './pessoas'
 export * from './equipe'

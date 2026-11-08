@@ -9,7 +9,7 @@ import { type DadoInicial, consultaEmTexto, useDados } from '@/lib/dados'
 import { formatarDinheiro } from '@fir/ui'
 import { centavos as centavosDoTexto } from '@/lib/financeiro'
 import { diaEmTexto, linkDeWhatsApp, plural, rotuloDoDia } from '@/lib/formato'
-import { CartaoDeSessao, corpoDaSessao } from './programas/cartao-de-sessao'
+import { CartaoDeSessao, concluirSessao } from './programas/cartao-de-sessao'
 import { CartaoDeTarefa } from './cartao-de-tarefa'
 import { Carregando, Erro, Toast } from './estados'
 import { PainelDeEdicao } from './painel-de-edicao'
@@ -52,7 +52,7 @@ export function TelaHoje({
   // Concluir, cancelar, reabrir e editar são as MESMAS quatro ações da tela
   // Tarefas, e moram num lugar só. Ver `lib/acoes-de-tarefa.ts`.
   const { acoes, mover, emEdicao, fecharEdicao, recado, setRecado, aoSalvarEdicao } =
-    useAcoesDeTarefa(recarregar)
+    useAcoesDeTarefa(recarregar, { podeVerValores: podeValores, hoje: dados?.hoje ?? null })
 
   const cartao = (t: TarefaNaLista, semPrazo = false) => (
     <CartaoDeTarefa
@@ -334,9 +334,9 @@ export function TelaHoje({
                   hoje={dados.hoje}
                   podeReceber={podeReceber}
                   aoConcluir={async (id, d) => {
-                    await chamar(`v1/programas/sessoes/${id}/concluir`, {
-                      method: 'POST',
-                      body: JSON.stringify(corpoDaSessao(d)),
+                    await concluirSessao(id, d, {
+                      hoje: dados.hoje,
+                      podeVerValores: podeValores,
                     })
                     setRecado('Sessão concluída.')
                     recarregar()

@@ -4,6 +4,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { AutorDaRequisicao } from '../tarefas/leitura'
+import { confirmacoesDe } from '../financeiro/recebimentos.avisos'
 import { registrarPagamento } from '../tarefas/tarefas.service'
 import { type CartaoCarregado, centavosNoJsonb, type Efeitos } from './cartao'
 import {
@@ -58,6 +59,8 @@ export class FechamentoService {
       readonly agora: Date
       /** Dia civil do SERVIDOR, no fuso da clínica (regra 24). */
       readonly hojeDaClinica: string
+      /** O fuso da clínica — a janela do dia dos avisos de recebimento (D-21). */
+      readonly fuso: string
     },
   ): Promise<Efeitos> {
     const { cartao, dados } = x
@@ -105,6 +108,8 @@ export class FechamentoService {
       quando: x.agora,
       unidade: cartao.unidadeId,
       autor: x.autor.id,
+      fuso: x.fuso,
+      confirmacoes: confirmacoesDe(dados),
     })
 
     /**

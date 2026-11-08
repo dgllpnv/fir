@@ -143,7 +143,7 @@ export function TelaTarefas({
   )
 
   const { acoes, mover, emEdicao, fecharEdicao, recado, setRecado, aoSalvarEdicao } =
-    useAcoesDeTarefa(recarregar)
+    useAcoesDeTarefa(recarregar, { podeVerValores: podeValores, hoje: dados?.hoje ?? null })
 
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
   const unidades = useDados<ListaDeUnidades>('v1/unidades')

@@ -103,3 +103,87 @@ export function conferirCaixa(
     conferido: linhas.every((l) => l.diferenca.ehZero()),
   }
 }
+
+/**
+ * Uma forma da gaveta e o quanto ela mudou DEPOIS do fechamento.
+ *
+ * `valor = vivo − guardado`, com sinal: positivo é recebimento que entrou no
+ * dia depois de fechado; negativo é estorno ou exclusão. O nome é `valor` de
+ * propósito — é monetário, e a redação central o apaga para quem não tem
+ * `valores`. Nunca `diferenca`: aquela é `contado − esperado`, outra pergunta.
+ */
+export type AlteracaoDepoisDoFechamento = {
+  readonly forma: Forma
+  readonly valor: Dinheiro
+}
+
+/**
+ * O que mudou num dia FECHADO, por forma — as quatro, sempre.
+ *
+ * `guardado` é o esperado gravado no fechamento (nunca recalculado: é o
+ * registro do que foi conferido). `vivo` é `esperadoDoCaixa` dos recebimentos
+ * vivos de hoje — a MESMA função do fechamento, para que "mudou" nunca seja
+ * uma diferença entre duas maneiras de somar.
+ */
+export function alteracoesDepoisDoFechamento(
+  guardado: ReadonlyMap<Forma, Dinheiro>,
+  vivo: ReadonlyMap<Forma, Dinheiro>,
+): readonly AlteracaoDepoisDoFechamento[] {
+  for (const forma of guardado.keys()) exigirForma(forma)
+  for (const forma of vivo.keys()) exigirForma(forma)
+  return FORMAS_DE_CONFERENCIA.map((forma) => ({
+    forma,
+    valor: (vivo.get(forma) ?? Dinheiro.zero()).menos(guardado.get(forma) ?? Dinheiro.zero()),
+  }))
+}
+
+/**
+ * A marca "alterado depois do fechamento".
+ *
+ * Acende pela diferença **ou** pelo evento: um estorno de 100 seguido de um
+ * novo recebimento de 100 zera a diferença, e o dia mudou do mesmo jeito — a
+ * conferência daquele dia já não descreve o que está registrado.
+ */
+export function mudouDepoisDoFechamento(
+  alteracoes: readonly AlteracaoDepoisDoFechamento[],
+  houveEventoPosterior: boolean,
+): boolean {
+  return houveEventoPosterior || alteracoes.some((a) => !a.valor.ehZero())
+}
+
+/**
+ * Os avisos que um recebimento novo precisa confirmar antes de ser gravado
+ * (D-21). Os códigos são estáveis: a tela casa o código e escreve o texto.
+ */
+export const AVISOS_DE_RECEBIMENTO = ['CAIXA_FECHADO', 'POSSIVEL_DUPLICIDADE'] as const
+export type AvisoDeRecebimento = (typeof AVISOS_DE_RECEBIMENTO)[number]
+
+/**
+ * Decide o que avisar — os FATOS vêm do banco, a regra mora aqui.
+ *
+ *  - `CAIXA_FECHADO` só para o que vai à gaveta: nota promissória e valor zero
+ *    (a venda a prazo) não mudam conferência nenhuma, e avisar sobre eles
+ *    ensinaria a recepção a confirmar sem ler.
+ *  - `POSSIVEL_DUPLICIDADE` ignora a forma (o mesmo dinheiro lançado em Pix e
+ *    em Dinheiro continua sendo o mesmo dinheiro) e nunca vale para zero.
+ *
+ * É só aviso: quem garante a regra 3 é o índice único por tarefa.
+ */
+export function avisosDoRecebimento(x: {
+  readonly forma: string
+  readonly valor: Dinheiro
+  readonly caixaFechado: boolean
+  readonly haRecebimentoIgual: boolean
+  readonly confirmarCaixaFechado: boolean
+  readonly confirmarDuplicidade: boolean
+}): readonly AvisoDeRecebimento[] {
+  const temDinheiro = x.valor.centavos > 0n
+  const avisos: AvisoDeRecebimento[] = []
+  if (temDinheiro && x.forma !== FORA_DA_CONFERENCIA && x.caixaFechado && !x.confirmarCaixaFechado) {
+    avisos.push('CAIXA_FECHADO')
+  }
+  if (temDinheiro && x.haRecebimentoIgual && !x.confirmarDuplicidade) {
+    avisos.push('POSSIVEL_DUPLICIDADE')
+  }
+  return avisos
+}

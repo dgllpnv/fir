@@ -1,6 +1,7 @@
 import {
   ConsultaDeContas,
   type ContaNaLista,
+  DesfazerPagamentoDeConta,
   type ListaDeContas,
   PagarConta,
   type ResultadoDoPagamento,
@@ -36,8 +37,8 @@ import { ContasService } from './contas.service'
  * (`if (!mePode('contas.gerir') && c.responsavelId !== me.id)`), e a diferença
  * importa: a conta do pró-labore não aparece para a recepção.
  *
- * `@Exige('contas')` na CLASSE; `@Exige('contas.gerir')` sobrescreve nas três
- * ações que mudam o cadastro. `getAllAndOverride` no guard faz o do handler
+ * `@Exige('contas')` na CLASSE; `@Exige('contas.gerir')` sobrescreve nas
+ * ações que mudam o cadastro e no desfazer pagamento. `getAllAndOverride` no guard faz o do handler
  * vencer o da classe.
  */
 @Controller('v1/contas')
@@ -103,6 +104,23 @@ export class ContasController {
     const dados = PagarConta.safeParse(corpo)
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     return this.contas.pagar(ctxDe(req), id, dados.data)
+  }
+
+  /**
+   * Desfazer o Paguei exige `contas.gerir`: mexe no resultado do mês, e quem
+   * paga só as suas contas não corrige o fechamento. 409 `CONFIRMACAO_NECESSARIA`
+   * com `MES_ANTERIOR` quando o pagamento é de mês já virado — ver o serviço.
+   */
+  @Post(':id/desfazer-pagamento')
+  @Exige('contas.gerir')
+  async desfazerPagamento(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() corpo: unknown,
+  ): Promise<ContaNaLista> {
+    const dados = DesfazerPagamentoDeConta.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    return this.contas.desfazerPagamento(ctxDe(req), id, dados.data)
   }
 }
 

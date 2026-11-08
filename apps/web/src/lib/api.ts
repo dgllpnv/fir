@@ -11,6 +11,11 @@ export class ErroDaApi extends Error {
     mensagem: string,
     /** O código estável do corpo, quando há um. A tela casa isto, nunca texto. */
     readonly codigo?: string,
+    /**
+     * Os avisos de `CONFIRMACAO_NECESSARIA` (D-21) — códigos, nunca números.
+     * Quem os transforma em pergunta é `lib/confirmacao.tsx`.
+     */
+    readonly avisos?: readonly string[],
   ) {
     super(mensagem)
   }
@@ -60,7 +65,11 @@ export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Prom
     },
   })
   if (!r.ok) {
-    const corpo = (await r.json().catch(() => ({}))) as { message?: string; codigo?: string }
+    const corpo = (await r.json().catch(() => ({}))) as {
+      message?: string
+      codigo?: string
+      avisos?: unknown
+    }
     /**
      * O DESVIO PARA A TROCA DE SENHA mora aqui, e não em cada tela.
      *
@@ -95,6 +104,9 @@ export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Prom
       r.status,
       corpo.message ?? 'Não foi possível completar a ação.',
       corpo.codigo,
+      Array.isArray(corpo.avisos)
+        ? corpo.avisos.filter((a): a is string => typeof a === 'string')
+        : undefined,
     )
   }
   return r.status === 204 ? (undefined as T) : ((await r.json()) as T)

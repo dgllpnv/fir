@@ -1,3 +1,4 @@
+import { temPerm } from '@fir/domain'
 import { TelaNovaTarefa } from '@/components/tela-nova-tarefa'
 import { sessaoAtual } from '@/lib/sessao'
 
@@ -21,7 +22,7 @@ export default async function Nova({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const { minhaPessoaId } = await sessaoAtual()
+  const { minhaPessoaId, perfis, quem } = await sessaoAtual()
   const p = await searchParams
   const texto = (chave: string): string | undefined => {
     const v = p[chave]
@@ -31,6 +32,7 @@ export default async function Nova({
   return (
     <TelaNovaTarefa
       eu={minhaPessoaId}
+      podeValores={temPerm(quem, perfis, 'valores')}
       inicial={{
         ...(texto('pacienteId') === undefined ? {} : { pacienteId: texto('pacienteId')! }),
         ...(texto('tipo') === undefined ? {} : { tipo: texto('tipo')! }),

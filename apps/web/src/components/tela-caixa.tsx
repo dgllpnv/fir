@@ -180,6 +180,7 @@ export function TelaCaixa({
                     {f.fechadoPor}
                     {f.obs === '' ? '' : ` · ${f.obs}`}
                   </small>
+                  {f.mudouDepoisDoFechamento ? <SeloDeAlterado /> : null}
                 </div>
                 <Selo conferido={f.conferido} diferenca={f.diferenca} />
               </button>
@@ -267,6 +268,10 @@ function Fechado({ c }: { c: Extract<ConferenciaDeCaixa, { fechado: true }> }) {
         {c.obs === '' ? null : <> Observação: {c.obs}</>}
       </p>
 
+      {c.mudouDepoisDoFechamento ? (
+        <AlteradoDepoisDoFechamento alteracoes={c.alteracoesDepoisDoFechamento} />
+      ) : null}
+
       {c.promissorias.quantidade === 0 ? null : (
         <p className="nota" style={{ margin: 0 }}>
           {/* Fora dos DOIS lados da conferência: a promissória é receita, mas
@@ -278,6 +283,55 @@ function Fechado({ c }: { c: Extract<ConferenciaDeCaixa, { fechado: true }> }) {
       )}
     </div>
   )
+}
+
+/**
+ * **O dia mudou DEPOIS de fechado (D-21).**
+ *
+ * A tabela acima continua sendo o que foi conferido — o servidor não a
+ * recalcula, e esta tela também não. Embaixo, o que entrou ou saiu depois,
+ * por forma, **para quem tem `valores`**: sem a permissão o servidor manda
+ * `valor: null` e só a frase aparece. Nenhum `if` de permissão aqui; a
+ * linha sem número simplesmente não tem o que mostrar.
+ *
+ * A marca pode estar acesa com todas as linhas em zero: um estorno de 100
+ * seguido de um novo lançamento de 100 se anula na soma, e o dia mudou do
+ * mesmo jeito.
+ */
+function AlteradoDepoisDoFechamento({
+  alteracoes,
+}: {
+  alteracoes: Extract<ConferenciaDeCaixa, { fechado: true }>['alteracoesDepoisDoFechamento']
+}) {
+  const comNumero = alteracoes.filter((a) => a.valor !== null && a.valor !== '0')
+  return (
+    <div className="nota" style={{ margin: 0 }}>
+      <SeloDeAlterado />{' '}
+      Houve lançamento, estorno ou exclusão neste dia depois que o caixa foi fechado. O fechamento
+      acima é o que foi conferido e não muda.
+      {comNumero.length === 0 ? null : (
+        <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+          {comNumero.map((a) => {
+            const n = BigInt(a.valor!)
+            return (
+              <li key={a.forma}>
+                {a.forma}:{' '}
+                <span className="num">
+                  {/* O sinal vira palavra, como na frase da diferença. */}
+                  {n > 0n ? 'entrou ' : 'saiu '}
+                  {formatarDinheiro(n > 0n ? n : -n)}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function SeloDeAlterado() {
+  return <span className="pill alerta">alterado depois do fechamento</span>
 }
 
 /** O módulo de um valor, para a frase que já carrega o sinal em palavra. */

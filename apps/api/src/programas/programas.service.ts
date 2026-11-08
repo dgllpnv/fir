@@ -30,6 +30,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { Transacao } from '../banco/transacao'
 import { RELOGIO, type Relogio } from '../comum/relogio'
+import { conferirAvisosDoRecebimento, confirmacoesDe } from '../financeiro/recebimentos.avisos'
 import { BaixaDeInsumos } from './baixa-de-insumos'
 import {
   MontadorDePrograma,
@@ -408,6 +409,17 @@ export class ProgramasService {
     unidade: string | null,
   ): Promise<string> {
     const pagamento = dados.pagamento!
+    // A entrada da adesão é dinheiro que entra HOJE (`agora`): pode cair num
+    // caixa já fechado e repetir um pagamento já lançado (D-21).
+    await conferirAvisosDoRecebimento(c, {
+      clinicaId: ctx.clinicaId,
+      pacienteId: dados.pacienteId,
+      valor: pagamento.valorEntrada,
+      forma: pagamento.forma ?? '',
+      recebidoEm: agora,
+      fuso: ctx.fuso,
+      confirmacoes: confirmacoesDe(dados),
+    })
     const tarefa = await c.query<{ id: string }>(
       `INSERT INTO tarefas
          (clinica_id, solicitante_id, responsavel_id, descricao, prazo, prioridade,

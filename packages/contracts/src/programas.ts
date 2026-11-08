@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Hora, quantidadeEmTexto, Uuid } from './comum'
 import { HojeComFinanceiro } from './financeiro'
-import { FORMAS, PagamentoEmbutido, TarefaNaLista } from './tarefas'
+import { confirmacoesDoRecebimento, FORMAS, PagamentoEmbutido, TarefaNaLista } from './tarefas'
 
 /**
  * O CATÁLOGO E O PROGRAMA — o vocabulário que o legado inverte.
@@ -274,6 +274,7 @@ export const MontarPrograma = z
           'Escolha a forma de pagamento da entrada — e não informe forma nenhuma quando a paciente não pagou nada agora.',
       })
       .optional(),
+    ...confirmacoesDoRecebimento,
   })
   .strict()
 export type MontarPrograma = z.infer<typeof MontarPrograma>
@@ -291,6 +292,7 @@ export const ConcluirSessao = z
     reprogramar: z.boolean(),
     obs: z.string().trim().max(300).default(''),
     pagamento: PagamentoEmbutido.optional(),
+    ...confirmacoesDoRecebimento,
   })
   .strict()
 export type ConcluirSessao = z.infer<typeof ConcluirSessao>

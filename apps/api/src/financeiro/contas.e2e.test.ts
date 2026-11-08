@@ -167,6 +167,12 @@ describe('a recorrência mensal, com âncora', () => {
     ).toHaveLength(0)
     // A paga e a próxima — nunca três.
     expect(await contarDaSerie(a.body.id)).toBe(2)
+    // E EXATAMENTE UM pagamento (2026-11-08): antes, quando as duas abas se
+    // cruzavam, as duas respondiam 201 e o segundo UPDATE sobrescrevia o
+    // primeiro pagamento em silêncio. Agora o `AND pago_em IS NULL` deixa o
+    // banco decidir — o segundo recebe 409, cruzando ou não.
+    const status = r.map((x) => (x.status === 'fulfilled' ? x.value.statusCode : 0)).sort()
+    expect(status).toEqual([201, 409])
   })
 
   it('a âncora não se move ao EDITAR o vencimento de uma parcela', async () => {

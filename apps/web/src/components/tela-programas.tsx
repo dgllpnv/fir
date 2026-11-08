@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import {
   CartaoDeSessao,
-  corpoDaSessao,
+  concluirSessao,
   type DadosDaSessao,
 } from '@/components/programas/cartao-de-sessao'
 import { chamar } from '@/lib/api'
@@ -66,10 +66,7 @@ export function TelaProgramas({ podeReceber }: Props) {
   const d = painel.dados
 
   async function concluir(id: string, dados: DadosDaSessao) {
-    await chamar(`v1/programas/sessoes/${id}/concluir`, {
-      method: 'POST',
-      body: JSON.stringify(corpoDaSessao(dados)),
-    })
+    await concluirSessao(id, dados)
     setRecado('Sessão concluída.')
     painel.recarregar()
   }

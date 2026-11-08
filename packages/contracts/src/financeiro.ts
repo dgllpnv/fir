@@ -1,7 +1,7 @@
 import { CATEGORIAS_DESP, FORMAS_DE_CONFERENCIA, FORMAS_DE_SAIDA } from '@fir/domain'
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Mes, Uuid } from './comum'
-import { FORMAS, RespostaDeHoje } from './tarefas'
+import { confirmacoesDoRecebimento, FORMAS, RespostaDeHoje } from './tarefas'
 
 /**
  * As formas de ENTRADA são as mesmas de `tarefas.ts` — `FORMAS` —, e esta
@@ -68,6 +68,7 @@ const comumDoRecebimento = {
   em: DiaCivil,
   obs: Obs,
   unidadeId: Uuid.nullish(),
+  ...confirmacoesDoRecebimento,
 }
 
 export const REFERENCIAS = ['consulta', 'sinal', 'novo', 'programa', 'saldo'] as const
@@ -384,6 +385,21 @@ export const CaixaFechado = z
     diferenca: centavosNaSaida,
     /** Informativo, FORA da conferência: promissória não está na gaveta. */
     promissorias: z.object({ quantidade: z.number().int(), valor: centavosNaSaida }),
+    /**
+     * O dia mudou DEPOIS de fechado (D-21): recebimento lançado, estornado ou
+     * tarefa excluída depois de `fechadoEm`, ou a soma viva por forma já não
+     * bate com o esperado guardado. Booleano: atravessa para quem não tem
+     * `valores`. O fechamento guardado NUNCA é recalculado.
+     */
+    mudouDepoisDoFechamento: z.boolean(),
+    /**
+     * Por forma, as quatro: `valor = vivo − guardado`, com sinal. `valor` é
+     * monetário e a redação o apaga; nunca `diferenca`, que é contado −
+     * esperado. Array, não mapa — a chave de um mapa é onde a redação não chega.
+     */
+    alteracoesDepoisDoFechamento: z.array(
+      z.object({ forma: z.enum(FORMAS_DE_CONFERENCIA), valor: centavosNaSaida }),
+    ),
   })
   .strict()
 export type CaixaFechado = z.infer<typeof CaixaFechado>
@@ -411,6 +427,12 @@ export const FechamentoNaLista = z.object({
   /** Derivado; é o que a equipe sem `valores` lê. Ver `CaixaFechado.conferido`. */
   conferido: z.boolean(),
   diferenca: centavosNaSaida,
+  /**
+   * O selo "alterado depois do fechamento". SÓ o booleano: a diferença por
+   * forma é da leitura do dia (`GET /v1/caixa?dia=`), e a lista continua com
+   * um campo monetário só.
+   */
+  mudouDepoisDoFechamento: z.boolean(),
 })
 export type FechamentoNaLista = z.infer<typeof FechamentoNaLista>
 

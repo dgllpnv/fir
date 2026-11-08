@@ -34,6 +34,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { SESSAO_PELA_ROTA_PROPRIA } from '../programas/mensagens'
 import { type AutorDaRequisicao, lerTarefas, TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from './leitura'
+import { confirmacoesDe } from '../financeiro/recebimentos.avisos'
 import { exigirDominio, registrarPagamento } from './tarefas.service'
 
 /**
@@ -207,6 +208,8 @@ export class ConclusaoService {
           quando: concluidaEm,
           unidade: t.unidadeId,
           autor: autor.id,
+          fuso,
+          confirmacoes: confirmacoesDe(dados),
         })
       }
 

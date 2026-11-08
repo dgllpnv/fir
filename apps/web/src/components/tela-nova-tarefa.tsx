@@ -21,7 +21,7 @@ import {
   TIPOS,
 } from '@fir/domain'
 import { useState } from 'react'
-import { chamar } from '@/lib/api'
+import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { useDados } from '@/lib/dados'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto } from '@/lib/formato'
@@ -72,9 +72,11 @@ type Props = {
   readonly eu: string
   /** Pré-preenchimento vindo de Hoje (aniversário) ou da ficha da paciente. */
   readonly inicial: { pacienteId?: string; tipo?: string; descricao?: string }
+  /** Só decide se a pergunta de duplicidade (D-21) mostra o valor digitado. */
+  readonly podeValores?: boolean
 }
 
-export function TelaNovaTarefa({ eu, inicial }: Props) {
+export function TelaNovaTarefa({ eu, inicial, podeValores = false }: Props) {
   const clinica = useDados<ClinicaAtual>('v1/clinica')
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
   const unidades = useDados<ListaDeUnidades>('v1/unidades')
@@ -98,6 +100,7 @@ export function TelaNovaTarefa({ eu, inicial }: Props) {
       pacienteInicial={prefixada.dados}
       tipoInicial={inicial.tipo ?? ''}
       descricaoInicial={inicial.descricao ?? ''}
+      podeValores={podeValores}
     />
   )
 }
@@ -110,6 +113,7 @@ function Formulario({
   pacienteInicial,
   tipoInicial,
   descricaoInicial,
+  podeValores,
 }: {
   eu: string
   hoje: string
@@ -118,6 +122,7 @@ function Formulario({
   pacienteInicial: TPacienteEncontrado | null
   tipoInicial: string
   descricaoInicial: string
+  podeValores: boolean
 }) {
   const [modo, setModo] = useState<'interna' | 'paciente'>(
     pacienteInicial !== null ? 'paciente' : 'interna',
@@ -271,9 +276,13 @@ function Formulario({
 
     setSalvando(true)
     try {
-      const r = await chamar<TarefasAfetadas>('v1/tarefas', {
-        method: 'POST',
-        body: JSON.stringify(corpo),
+      // O lançamento retroativo com pagamento pode cair num dia de caixa já
+      // fechado ou repetir um pagamento (D-21): a pergunta vem da porta única.
+      const r = await postarComConfirmacao<TarefasAfetadas>('v1/tarefas', corpo, {
+        dia: data,
+        hoje,
+        valor: pagamento?.valor ?? null,
+        podeVerValores: podeValores,
       })
       setRecado(
         r.todas.length > 1

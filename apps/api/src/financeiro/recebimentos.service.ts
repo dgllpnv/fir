@@ -18,6 +18,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { unidadeValida } from '../comum/unidade'
 import { DINHEIRO_QUE_ENTROU } from './dinheiro-que-entrou'
+import { confirmacoesDe, conferirAvisosDoRecebimento } from './recebimentos.avisos'
 
 /**
  * O QUE o paciente está pagando → o TIPO de tarefa que o faturamento
@@ -174,6 +175,18 @@ export class RecebimentosService {
           throw new ConflictException('Este paciente não tem programa em andamento.')
         }
       }
+
+      // DEPOIS de `porRequisicao` (ajuste 3 do gate): o duplo toque devolve a
+      // linha que o primeiro gravou, e nunca um 409 sobre ela mesma.
+      await conferirAvisosDoRecebimento(c, {
+        clinicaId: ctx.clinicaId,
+        pacienteId: dados.pacienteId,
+        valor: dados.valor,
+        forma: dados.forma,
+        recebidoEm,
+        fuso: ctx.fuso,
+        confirmacoes: confirmacoesDe(dados),
+      })
 
       const unidade = await unidadeValida(c, dados.unidadeId)
       const tipo = TIPO_DA_REFERENCIA[ref]

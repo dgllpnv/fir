@@ -11,7 +11,7 @@ import {
   type EstadoDoMontador,
 } from '@/components/programas/montador'
 import { SeletorDePaciente } from '@/components/seletor-de-paciente'
-import { chamar } from '@/lib/api'
+import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { useDados } from '@/lib/dados'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { Carregando, Erro, Toast } from './estados'
@@ -129,9 +129,11 @@ function Formulario({
 
     setSalvando(true)
     try {
-      const r = await chamar<{ id: string }>('v1/programas', {
-        method: 'POST',
-        body: JSON.stringify({
+      // A entrada é dinheiro que entra HOJE: pode cair num caixa já fechado ou
+      // repetir um pagamento já lançado (D-21) — a pergunta vem da porta única.
+      const r = await postarComConfirmacao<{ id: string }>(
+        'v1/programas',
+        {
           pacienteId: paciente.id,
           inicio: montagem.inicio,
           ...(hora === '' ? {} : { hora }),
@@ -160,8 +162,14 @@ function Formulario({
               : { valor: (centavosDoTexto(x.valor) ?? 0n).toString() }),
           })),
           ...(pagamento === undefined ? {} : { pagamento }),
-        }),
-      })
+        },
+        {
+          dia: hoje,
+          hoje,
+          valor: centavosDaEntrada,
+          podeVerValores: podeValores,
+        },
+      )
       router.push(`/programas/${r.id}`)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não consegui criar o programa.')

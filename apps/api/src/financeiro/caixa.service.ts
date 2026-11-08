@@ -6,6 +6,7 @@ import type {
   FechamentoNaLista,
 } from '@fir/contracts'
 import {
+  alteracoesDepoisDoFechamento,
   conferirCaixa,
   diaCivil,
   Dinheiro,
@@ -14,6 +15,7 @@ import {
   type Forma,
   FORMAS_DE_CONFERENCIA,
   janela,
+  mudouDepoisDoFechamento,
 } from '@fir/domain'
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
@@ -172,17 +174,25 @@ export class CaixaService {
           LIMIT ${ULTIMOS}`,
         [ctx.clinicaId],
       )
-      return r.rows.map((x) => ({
-        dia: x.dia,
-        fechadoPor: x.fechado_por_nome,
-        fechadoEm: x.fechado_em.toISOString(),
-        obs: x.obs,
-        // `conferido` é o booleano que a recepcionista sem `valores` lê, e ele
-        // é POR LINHA: sobra em Pix e falta igual em dinheiro zeram o total e
-        // a clínica teria dois erros achando que não tem nenhum.
-        conferido: x.conferido,
-        diferenca: x.diferenca,
-      }))
+      const itens: FechamentoNaLista[] = []
+      for (const x of r.rows) {
+        // Uma leitura por dia, e são no máximo quinze: a mesma função da
+        // leitura do dia, para que o selo da lista e o do dia nunca discordem.
+        const depois = await this.depoisDoFechamento(c, ctx, x)
+        itens.push({
+          dia: x.dia,
+          fechadoPor: x.fechado_por_nome,
+          fechadoEm: x.fechado_em.toISOString(),
+          obs: x.obs,
+          // `conferido` é o booleano que a recepcionista sem `valores` lê, e ele
+          // é POR LINHA: sobra em Pix e falta igual em dinheiro zeram o total e
+          // a clínica teria dois erros achando que não tem nenhum.
+          conferido: x.conferido,
+          diferenca: x.diferenca,
+          mudouDepoisDoFechamento: depois.mudou,
+        })
+      }
+      return itens
     })
   }
 
@@ -206,6 +216,7 @@ export class CaixaService {
     const conf = conferirCaixa(mapa((l) => l.esperado), mapa((l) => l.contado))
 
     const promissorias = await this.promissoriasDoDia(c, ctx, caixa.dia)
+    const depois = await this.depoisDoFechamento(c, ctx, caixa, mapa((l) => l.esperado))
 
     return {
       dia: caixa.dia,
@@ -222,7 +233,64 @@ export class CaixaService {
       })),
       diferenca: conf.diferenca.centavos.toString(),
       promissorias,
+      mudouDepoisDoFechamento: depois.mudou,
+      alteracoesDepoisDoFechamento: depois.alteracoes.map((a) => ({
+        forma: a.forma,
+        valor: a.valor.centavos.toString(),
+      })),
     }
+  }
+
+  /**
+   * **O QUE MUDOU DEPOIS DO FECHAMENTO (D-21)** — só existe para dia FECHADO.
+   *
+   * Recebe a linha de `caixas_do_dia`, e só a leitura de um dia fechado a tem:
+   * a regra 6 continua sendo a forma do código, não um `if`. O esperado
+   * guardado é lido, nunca recalculado — é o registro do que foi conferido.
+   *
+   * A soma viva é `esperadoDoCaixa(recebimentosDoDia(…))`: a MESMA função do
+   * fechamento. Duas maneiras de somar dariam "mudou" para um dia que não
+   * mudou.
+   *
+   * O evento posterior pega o caso que se anula — estorno de 100 e novo
+   * recebimento de 100 depois de fechado. A diferença é zero; o dia mudou.
+   * Conta só o que vai à gaveta (`NA_GAVETA`, sem promissória): a promissória
+   * lançada num dia fechado não mexe em conferência nenhuma.
+   */
+  private async depoisDoFechamento(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    caixa: { id: string; dia: string; fechado_em: Date },
+    guardadoLido?: ReadonlyMap<Forma, Dinheiro>,
+  ): Promise<{ mudou: boolean; alteracoes: ReturnType<typeof alteracoesDepoisDoFechamento> }> {
+    const guardado = guardadoLido ?? (await this.guardadoDoCaixa(c, caixa.id))
+    const vivo = esperadoDoCaixa(await this.recebimentosDoDia(c, ctx, caixa.dia))
+    const alteracoes = alteracoesDepoisDoFechamento(guardado, vivo)
+
+    const j = janela(caixa.dia, caixa.dia, ctx.fuso)
+    const ev = await c.query<{ houve: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM recebimentos r
+           LEFT JOIN tarefas t ON t.id = r.tarefa_id
+          WHERE r.clinica_id = $1 AND ${NA_GAVETA} AND r.forma <> $5
+            AND r.recebido_em >= $2 AND r.recebido_em < $3
+            AND (r.criado_em > $4 OR r.estornado_em > $4 OR t.excluida_em > $4)
+       ) AS houve`,
+      [ctx.clinicaId, j.de, j.ate, caixa.fechado_em, FORA_DA_CONFERENCIA],
+    )
+    return { mudou: mudouDepoisDoFechamento(alteracoes, ev.rows[0]!.houve), alteracoes }
+  }
+
+  private async guardadoDoCaixa(
+    c: pg.PoolClient,
+    caixaId: string,
+  ): Promise<ReadonlyMap<Forma, Dinheiro>> {
+    const r = await c.query<{ forma: string; esperado: string }>(
+      'SELECT forma, esperado::text AS esperado FROM caixa_por_forma WHERE caixa_id = $1',
+      [caixaId],
+    )
+    // `forma` vem do CHECK da tabela, restrito às quatro da gaveta.
+    return new Map(r.rows.map((l) => [l.forma as Forma, dinheiro(l.esperado)]))
   }
 
   private async caixaDoDia(

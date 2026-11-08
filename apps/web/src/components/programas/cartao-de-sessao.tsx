@@ -5,6 +5,7 @@ import { FORMAS } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
 import { useState } from 'react'
+import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto, linkDeWhatsApp } from '@/lib/formato'
 import { ICONE_CHECK, ICONE_WHATSAPP } from '@/lib/icones'
@@ -381,4 +382,25 @@ export function corpoDaSessao(d: DadosDaSessao): Record<string, unknown> {
           },
         }),
   }
+}
+
+/**
+ * Concluir a sessão — **a porta única das três telas** (agenda de Programas,
+ * ficha do programa e Hoje), com a confirmação dos avisos de recebimento
+ * (D-21) já dentro. Uma cópia por tela é a que esquece de perguntar.
+ */
+export function concluirSessao(
+  id: string,
+  d: DadosDaSessao,
+  ctx: { readonly hoje: string | null; readonly podeVerValores: boolean } = {
+    hoje: null,
+    podeVerValores: false,
+  },
+): Promise<unknown> {
+  return postarComConfirmacao(`v1/programas/sessoes/${id}/concluir`, corpoDaSessao(d), {
+    dia: d.em,
+    hoje: ctx.hoje,
+    valor: d.pagamento?.valor ?? null,
+    podeVerValores: ctx.podeVerValores,
+  })
 }

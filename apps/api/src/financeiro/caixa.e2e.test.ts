@@ -160,7 +160,9 @@ describe('POST /v1/caixa — o fechamento', () => {
     // O total zera; as linhas não. É o total que engana, e é por isso que
     // `conferido` não é `diferenca === 0`.
     await registrar({ valor: '10000', forma: 'Pix' })
-    await registrar({ valor: '10000', forma: 'Dinheiro' })
+    // Mesmo valor, mesma paciente, mesmo dia — a forma não desfaz o aviso de
+    // duplicidade (D-21). É outro dinheiro, e a pessoa confirma.
+    await registrar({ valor: '10000', forma: 'Dinheiro', confirmarDuplicidade: true })
 
     const r = await fechar(HOJE, { Pix: '5000', Dinheiro: '15000' })
     expect(r.body.diferenca).toBe('0')

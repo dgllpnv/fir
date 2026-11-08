@@ -297,6 +297,9 @@ describe('a lista de pacientes em programa', () => {
     })
     await programaEmVolta({
       pagamento: { valorTotal: '400000', valorEntrada: '50000', forma: 'Pix' },
+      // A MESMA entrada, da mesma paciente, no mesmo dia: é o aviso de
+      // duplicidade (D-21), e aqui é de fato outro dinheiro.
+      confirmarDuplicidade: true,
     })
     const lista = (await painel({ situacao: 'saldo' })).body.lista as { saldo: string }[]
     expect(lista.map((x) => x.saldo)).toEqual(['350000', '50000'])

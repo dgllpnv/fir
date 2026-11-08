@@ -61,6 +61,52 @@ export const PagamentoEmbutido = z
 export type PagamentoEmbutido = z.infer<typeof PagamentoEmbutido>
 
 /**
+ * **A CONFIRMAÇÃO EXPLÍCITA (D-21)** — o padrão único dos avisos do servidor.
+ *
+ * Quando um aviso se aplica, a rota responde 409 com `ConfirmacaoNecessaria`
+ * e não grava nada. A tela pergunta e, se a pessoa confirma, reenvia o MESMO
+ * corpo com a chave do aviso em `true`.
+ *
+ * **O 409 não carrega número nenhum.** A redação central (regra 17) só alcança
+ * respostas de sucesso; um valor dentro do corpo de erro atravessaria inteiro
+ * para quem não tem `valores`. Quem escreve o texto é a TELA, com o valor que
+ * a própria pessoa digitou.
+ */
+export const CODIGO_CONFIRMACAO_NECESSARIA = 'CONFIRMACAO_NECESSARIA'
+
+/** `MES_ANTERIOR` é o do desfazer pagamento de conta; os dois primeiros, de recebimento. */
+export const AVISOS_DE_CONFIRMACAO = ['CAIXA_FECHADO', 'POSSIVEL_DUPLICIDADE', 'MES_ANTERIOR'] as const
+export type AvisoDeConfirmacao = (typeof AVISOS_DE_CONFIRMACAO)[number]
+
+export const ConfirmacaoNecessaria = z
+  .object({
+    statusCode: z.literal(409),
+    codigo: z.literal(CODIGO_CONFIRMACAO_NECESSARIA),
+    avisos: z.array(z.enum(AVISOS_DE_CONFIRMACAO)).min(1),
+    message: z.string(),
+  })
+  .strict()
+export type ConfirmacaoNecessaria = z.infer<typeof ConfirmacaoNecessaria>
+
+/**
+ * As duas confirmações de TODO corpo que grava recebimento — avulso, concluir
+ * tarefa, criar tarefa já concluída, concluir sessão, fechar na jornada e
+ * montar programa com entrada. Um objeto só, espalhado nos seis: a sétima
+ * porta de dinheiro copia daqui, não reinventa o nome.
+ *
+ * `z.literal(true)`: `false` explícito não é confirmação, e aceitá-lo daria
+ * duas maneiras de dizer "não confirmei".
+ */
+export const confirmacoesDoRecebimento = {
+  confirmarCaixaFechado: z.literal(true).optional(),
+  confirmarDuplicidade: z.literal(true).optional(),
+}
+export type ConfirmacoesDoRecebimento = {
+  readonly confirmarCaixaFechado?: true | undefined
+  readonly confirmarDuplicidade?: true | undefined
+}
+
+/**
  * QUANDO a tarefa acontece. União discriminada, e não `realizada: boolean` +
  * `datas: string[]`.
  *
@@ -132,6 +178,9 @@ const comumDaTarefa = {
   obs: z.string().trim().max(300).default(''),
   unidadeId: Uuid.nullish(),
   quando: Quando,
+  // O lançamento retroativo com pagamento grava recebimento — e pode cair
+  // num dia de caixa já fechado, que é justamente o caso que o aviso pega.
+  ...confirmacoesDoRecebimento,
 }
 
 /**
@@ -166,6 +215,7 @@ export const Concluir = z
     resultado: z.string().trim().max(300).default(''),
     obs: z.string().trim().max(300).optional(),
     pagamento: PagamentoEmbutido.optional(),
+    ...confirmacoesDoRecebimento,
   })
   .strict()
 export type Concluir = z.infer<typeof Concluir>

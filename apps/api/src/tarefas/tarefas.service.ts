@@ -1,4 +1,9 @@
-import type { CriarTarefa, PagamentoEmbutido, TarefasAfetadas } from '@fir/contracts'
+import type {
+  ConfirmacoesDoRecebimento,
+  CriarTarefa,
+  PagamentoEmbutido,
+  TarefasAfetadas,
+} from '@fir/contracts'
 import {
   aceitaPagamento,
   diaCivil,
@@ -19,6 +24,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { unidadeValida } from '../comum/unidade'
+import { conferirAvisosDoRecebimento, confirmacoesDe } from '../financeiro/recebimentos.avisos'
 import { brAno, lerTarefas, TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from './leitura'
 
 /**
@@ -171,7 +177,15 @@ export class TarefasService {
         dados.quando.modo === 'serie'
           ? await this.criarSerie(c, comum, dados.quando, agora)
           : dados.quando.modo === 'retroativo'
-            ? await this.criarRetroativa(c, comum, dados.quando, agora, hoje, fuso)
+            ? await this.criarRetroativa(
+                c,
+                comum,
+                dados.quando,
+                agora,
+                hoje,
+                fuso,
+                confirmacoesDe(dados),
+              )
             : await this.criarAgendada(c, comum, dados.quando, agora)
 
       const todas = await lerTarefas(c, clinicaId, hoje, ids)
@@ -225,6 +239,7 @@ export class TarefasService {
     agora: Date,
     hoje: string,
     fuso: string,
+    confirmacoes: ConfirmacoesDoRecebimento,
   ): Promise<string[]> {
     const concluidaEm = exigirDominio(instanteDaConclusao(q.em, hoje, fuso, agora))
 
@@ -274,6 +289,8 @@ export class TarefasService {
         quando: concluidaEm,
         unidade: t.unidade,
         autor: t.autor,
+        fuso,
+        confirmacoes,
       })
     }
     return ids
@@ -392,6 +409,10 @@ export async function registrarPagamento(
     quando: Date
     unidade: string | null
     autor: PessoaId
+    /** O fuso da clínica: a janela do dia dos avisos (D-21). */
+    fuso: string
+    /** As confirmações que o corpo trouxe. Ver `recebimentos.avisos.ts`. */
+    confirmacoes: ConfirmacoesDoRecebimento
   },
 ): Promise<string> {
   if (x.pacienteId === null) {
@@ -404,6 +425,17 @@ export async function registrarPagamento(
       'Este tipo de tarefa não guarda pagamento. Use Recebimento para registrar dinheiro recebido.',
     )
   }
+  // O MESMO instante que vai ser gravado (`quando`): retroativo incluído.
+  await conferirAvisosDoRecebimento(c, {
+    clinicaId: x.clinicaId,
+    pacienteId: x.pacienteId,
+    valor: x.pagamento.valor,
+    forma: x.pagamento.forma,
+    recebidoEm: x.quando,
+    fuso: x.fuso,
+    confirmacoes: x.confirmacoes,
+  })
+
   // `RETURNING id` porque o épico 5 precisa carimbar `programa_id` nesta
   // linha, na MESMA transação: é só isso que falta para o saldo em aberto
   // deixar de ser um grupo só (regra 5). Quem não precisa do id ignora o

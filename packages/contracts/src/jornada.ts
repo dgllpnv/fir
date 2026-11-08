@@ -1,7 +1,7 @@
 import { ETAPAS } from '@fir/domain'
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Hora, Uuid } from './comum'
-import { PagamentoEmbutido } from './tarefas'
+import { confirmacoesDoRecebimento, PagamentoEmbutido } from './tarefas'
 
 /**
  * `POST /v1/tarefas/:id/jornada` — UMA AÇÃO, UM CORPO.
@@ -150,6 +150,7 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
        */
       inicioDoPrograma: DiaCivil.optional(),
       nota: Nota,
+      ...confirmacoesDoRecebimento,
     })
     .strict(),
   // `motivoId`, e NÃO o nome: o nome vem da lista da clínica, resolvido no

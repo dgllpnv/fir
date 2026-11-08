@@ -1,18 +1,22 @@
-import type {
-  ConsultaDeContas,
-  ContaNaLista,
-  ListaDeContas,
-  PagarConta,
-  ResultadoDoPagamento,
-  SalvarConta,
+import {
+  CODIGO_CONFIRMACAO_NECESSARIA,
+  type ConfirmacaoNecessaria,
+  type ConsultaDeContas,
+  type ContaNaLista,
+  type DesfazerPagamentoDeConta,
+  type ListaDeContas,
+  type PagarConta,
+  type ResultadoDoPagamento,
+  type SalvarConta,
 } from '@fir/contracts'
 import {
   diaCivil,
   Dinheiro,
   FORMA_NAO_INFORMADA,
   infoDaCategoria,
-  proximoVencimento,
+  podeDesfazerPagamento,
   somarDias,
+  vencimentoDaRenovacao,
 } from '@fir/domain'
 import {
   BadRequestException,
@@ -23,7 +27,7 @@ import {
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import type pg from 'pg'
-import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
+import { exigePessoa, pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -300,7 +304,7 @@ export class ContasService {
       const atual = await this.linhaCrua(c, ctx, id)
       if (atual.pago_em !== null) {
         throw new ConflictException(
-          'Esta conta já foi paga e faz parte do resultado do mês. Para corrigir, edite o valor pago.',
+          'Esta conta já foi paga e faz parte do resultado do mês. Para corrigir, use "Desfazer pagamento".',
         )
       }
       await c.query('UPDATE contas_a_pagar SET excluida_em = now() WHERE id = $1', [id])
@@ -315,6 +319,11 @@ export class ContasService {
    * `if (!F.contas.some(y => y.descricao === c.descricao && …))`: a chave por
    * descrição quebra assim que alguém renomeia a conta, e o `if` perde a
    * corrida. O banco não perde.
+   *
+   * E a próxima só nasce se a série NÃO tem — nem teve e foi excluída — conta
+   * com vencimento posterior a esta (`vencimentoDaRenovacao`, ajuste 10 do
+   * gate): desfazer e refazer o Paguei, mesmo depois de adiar o vencimento ou
+   * de excluir a seguinte, não dá à série uma segunda conta à frente.
    */
   async pagar(ctx: Contexto, id: string, dados: PagarConta): Promise<ResultadoDoPagamento> {
     const hoje = this.hojeDaClinica(ctx.fuso)
@@ -330,16 +339,24 @@ export class ContasService {
       // ou `''` = "Não informada"; NUNCA `atual.forma_prevista`. A tela já
       // pré-preenche o Paguei com a prevista — se chegou vazio, foi a pessoa
       // que limpou, e o servidor não inventa a forma que o extrato vai cobrar.
-      await c.query(
+      //
+      // `AND pago_em IS NULL` + `rowCount`: dois "Paguei" ao mesmo tempo (duas
+      // abas) liam a conta aberta e o segundo UPDATE SOBRESCREVIA o primeiro
+      // pagamento em silêncio — achado no gate do desfazer (2026-11-08). Agora o
+      // banco decide: o segundo recebe "já foi paga", e nada é sobrescrito.
+      const pagou = await c.query(
         `UPDATE contas_a_pagar SET pago_em=$2, valor_pago=$3, forma_pagamento=$4, pago_por=$5
-          WHERE id=$1`,
+          WHERE id=$1 AND pago_em IS NULL`,
         [id, dados.em, dados.valor.toString(), dados.formaPagamento ?? '', pessoaDoAtor(ctx.ator)],
       )
+      if (pagou.rowCount !== 1) throw new ConflictException('Esta conta já foi paga.')
 
       let proxima: ContaNaLista | null = null
-      if (atual.serie_id !== null) {
-        const ancora = await this.ancoraDa(c, atual.serie_id)
-        const vencimento = proximoVencimento(atual.vencimento, ancora)
+      const vencimento =
+        atual.serie_id === null
+          ? null
+          : await this.vencimentoDaRenovacao(c, ctx, atual.serie_id, atual.vencimento)
+      if (vencimento !== null) {
         const nova = await c.query<{ id: string }>(
           `INSERT INTO contas_a_pagar
              (clinica_id, descricao, categoria, valor, vencimento, fornecedor, responsavel_id,
@@ -367,6 +384,116 @@ export class ContasService {
 
       return { conta: await this.lerUma(c, ctx, id, hoje), proxima }
     })
+  }
+
+  /**
+   * Desfaz o Paguei: a conta volta para EM ABERTO e o pagamento desfeito vai,
+   * inteiro e com o motivo, para `pagamentos_de_conta_desfeitos` — na MESMA
+   * transação (D-21, item 4; ajustes 9 e 11 do gate).
+   *
+   * `FOR UPDATE` serializa duas abas desfazendo ao mesmo tempo: a segunda
+   * espera, relê a linha já aberta e recebe 409. O `UPDATE … AND pago_em IS NOT
+   * NULL` e o `rowCount = 1` são a segunda trava — a linha append-only só
+   * nasce de um pagamento que esta transação de fato desfez, e é isso que
+   * mantém Σ registrados = Σ vivos + Σ desfeitos.
+   *
+   * A conta do mês seguinte, criada no Paguei original, FICA: pagar de novo
+   * não a recria (`vencimentoDaRenovacao`).
+   */
+  async desfazerPagamento(
+    ctx: Contexto,
+    id: string,
+    dados: DesfazerPagamentoDeConta,
+  ): Promise<ContaNaLista> {
+    const hoje = this.hojeDaClinica(ctx.fuso)
+    // Corrigir o resultado do mês é ato de uma pessoa da clínica; a sessão de
+    // suporte não assina `desfeito_por`.
+    const desfeitoPor = exigePessoa(ctx.ator)
+
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      const r = await c.query<{
+        pago_em: string | null
+        valor_pago: string | null
+        forma_pagamento: string
+        pago_por: string | null
+        categoria: string
+        vencimento: string
+      }>(
+        `SELECT pago_em::text AS pago_em, valor_pago::text AS valor_pago, forma_pagamento,
+                pago_por, categoria, vencimento::text AS vencimento
+           FROM contas_a_pagar
+          WHERE clinica_id = $1 AND id = $2 AND excluida_em IS NULL
+            AND ($3::boolean OR responsavel_id = $4)
+            FOR UPDATE`,
+        [ctx.clinicaId, id, ctx.gerir, pessoaDoAtor(ctx.ator)],
+      )
+      const atual = r.rows[0]
+      if (atual === undefined) throw new NotFoundException('Conta não encontrada.')
+
+      const pode = podeDesfazerPagamento(atual.pago_em, hoje, dados.confirmarMesAnterior === true)
+      if (pode.tipo === 'erro') {
+        if (pode.erro.codigo === 'CONTA_NAO_PAGA') throw new ConflictException(pode.erro.mensagem)
+        // SEM número nenhum: o 409 não passa pela redação central (ajuste 5).
+        const corpo: ConfirmacaoNecessaria = {
+          statusCode: 409,
+          codigo: CODIGO_CONFIRMACAO_NECESSARIA,
+          avisos: [...pode.erro.avisos],
+          message: pode.erro.mensagem,
+        }
+        throw new ConflictException(corpo)
+      }
+
+      const limpou = await c.query(
+        `UPDATE contas_a_pagar
+            SET pago_em = NULL, valor_pago = NULL, forma_pagamento = '', pago_por = NULL
+          WHERE id = $1 AND pago_em IS NOT NULL`,
+        [id],
+      )
+      if (limpou.rowCount !== 1) throw new ConflictException('Esta conta não está paga.')
+
+      await c.query(
+        `INSERT INTO pagamentos_de_conta_desfeitos
+           (clinica_id, conta_id, pago_em, valor_pago, forma_pagamento, pago_por,
+            categoria, vencimento, motivo, desfeito_por)
+         VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8::date, $9, $10)`,
+        [
+          ctx.clinicaId,
+          id,
+          atual.pago_em,
+          atual.valor_pago,
+          atual.forma_pagamento,
+          atual.pago_por,
+          atual.categoria,
+          atual.vencimento,
+          dados.motivo,
+          desfeitoPor,
+        ],
+      )
+      return this.lerUma(c, ctx, id, hoje)
+    })
+  }
+
+  /**
+   * O vencimento da renovação — ou `null` se a série JÁ TEM conta depois desta,
+   * inclusive excluída (ajuste 10). A regra é `vencimentoDaRenovacao`, do
+   * domínio; aqui só se busca o que ela precisa olhar.
+   *
+   * Sem `excluida_em IS NULL` de propósito: a seguinte que a gestora excluiu
+   * não volta porque alguém desfez e refez o Paguei (regra 27).
+   */
+  private async vencimentoDaRenovacao(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    serieId: string,
+    vencimentoPago: string,
+  ): Promise<string | null> {
+    const ancora = await this.ancoraDa(c, serieId)
+    const r = await c.query<{ vencimento: string }>(
+      `SELECT vencimento::text AS vencimento FROM contas_a_pagar
+        WHERE clinica_id = $1 AND serie_id = $2`,
+      [ctx.clinicaId, serieId],
+    )
+    return vencimentoDaRenovacao(vencimentoPago, ancora, r.rows.map((x) => x.vencimento))
   }
 
   /**

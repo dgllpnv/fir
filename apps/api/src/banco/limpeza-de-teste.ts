@@ -91,6 +91,38 @@ export async function apagarMovimentosDeEstoqueDeTeste(
 }
 
 /**
+ * Apaga os PAGAMENTOS DE CONTA DESFEITOS de uma clínica de teste (0040).
+ *
+ * Mesma forma de `apagarMovimentosDeEstoqueDeTeste`: append-only nas duas
+ * camadas, e precisar desligar a trigger aqui é a prova de que ela funciona.
+ * Em PRODUÇÃO nada disto é apagado — desfazer um desfazer é pagar de novo.
+ *
+ * Tem de rodar ANTES de apagar `contas_a_pagar` e `pessoas`, que a linha
+ * referencia.
+ */
+export async function apagarPagamentosDesfeitosDeTeste(
+  cliente: pg.Client,
+  clinicaId: string,
+): Promise<void> {
+  await cliente.query('BEGIN')
+  try {
+    await cliente.query(
+      'ALTER TABLE pagamentos_de_conta_desfeitos DISABLE TRIGGER pagamentos_desfeitos_sem_update',
+    )
+    await cliente.query('DELETE FROM pagamentos_de_conta_desfeitos WHERE clinica_id = $1', [
+      clinicaId,
+    ])
+    await cliente.query(
+      'ALTER TABLE pagamentos_de_conta_desfeitos ENABLE TRIGGER pagamentos_desfeitos_sem_update',
+    )
+    await cliente.query('COMMIT')
+  } catch (e) {
+    await cliente.query('ROLLBACK')
+    throw e
+  }
+}
+
+/**
  * Desfaz um OPERADOR de teste, trilha do painel inclusive.
  *
  * `auditoria_do_painel` é append-only nas duas camadas, como a `auditoria`, e
@@ -252,6 +284,8 @@ export async function apagarClinicaDeTeste(cliente: pg.Client, clinicaId: string
   // ANTES do laço: o movimento aponta para `tarefas`, `pacientes`,
   // `procedimentos`, `programas` e `itens_de_estoque` — todos apagados abaixo.
   await apagarMovimentosDeEstoqueDeTeste(cliente, clinicaId)
+  // ANTES do laço também: aponta para `contas_a_pagar` e `pessoas`.
+  await apagarPagamentosDesfeitosDeTeste(cliente, clinicaId)
   for (const tabela of EM_ORDEM_DE_APAGAR) {
     await cliente.query(`DELETE FROM ${tabela} WHERE clinica_id = $1`, [clinicaId])
   }

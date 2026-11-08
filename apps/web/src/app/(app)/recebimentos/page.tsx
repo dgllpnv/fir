@@ -13,5 +13,11 @@ import { sessaoAtual } from '@/lib/sessao'
 export default async function Recebimentos() {
   const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'receber')) return <SemAcesso tela="Recebimentos" />
-  return <TelaRecebimentos hoje={eu.hoje} mes={eu.hoje.slice(0, 7)} />
+  return (
+    <TelaRecebimentos
+      hoje={eu.hoje}
+      mes={eu.hoje.slice(0, 7)}
+      podeValores={temPerm(quem, perfis, 'valores')}
+    />
+  )
 }

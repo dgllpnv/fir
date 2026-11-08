@@ -2,11 +2,14 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { Dinheiro } from '../dinheiro'
 import {
+  alteracoesDepoisDoFechamento,
+  avisosDoRecebimento,
   conferirCaixa,
   esperadoDoCaixa,
   FORA_DA_CONFERENCIA,
   FORMAS_DE_CONFERENCIA,
   type Forma,
+  mudouDepoisDoFechamento,
 } from './caixa'
 
 const c = (n: number) => Dinheiro.deCentavos(BigInt(n))
@@ -208,5 +211,114 @@ describe('conferirCaixa — propriedades', () => {
         }
       }),
     )
+  })
+})
+
+describe('alteracoesDepoisDoFechamento', () => {
+  const formaArb = fc.constantFrom(...FORMAS_DE_CONFERENCIA)
+  const mapaArb = fc
+    .array(fc.tuple(formaArb, fc.bigInt({ min: 0n, max: 10n ** 12n })), { maxLength: 8 })
+    .map((pares) => {
+      const m = new Map<Forma, Dinheiro>()
+      for (const [f, v] of pares) m.set(f, (m.get(f) ?? Dinheiro.zero()).mais(Dinheiro.deCentavos(v)))
+      return m as ReadonlyMap<Forma, Dinheiro>
+    })
+  const soma = (xs: Iterable<Dinheiro>) => [...xs].reduce((s, x) => s.mais(x), Dinheiro.zero())
+
+  it('números à mão: fechou Pix 100,00; entrou 50,00 em Pix depois → Pix +50,00, demais 0', () => {
+    const r = alteracoesDepoisDoFechamento(new Map([['Pix', c(10000)]]), new Map([['Pix', c(15000)]]))
+    expect(r.map((l) => [l.forma, l.valor.centavos])).toEqual([
+      ['Pix', 5000n],
+      ['Dinheiro', 0n],
+      ['Cartão de crédito', 0n],
+      ['Cartão de débito', 0n],
+    ])
+  })
+
+  it('estorno depois do fechamento sai NEGATIVO', () => {
+    const r = alteracoesDepoisDoFechamento(new Map([['Dinheiro', c(10000)]]), new Map())
+    expect(r.find((l) => l.forma === 'Dinheiro')!.valor.centavos).toBe(-10000n)
+  })
+
+  it('PROPRIEDADE: Σ alterações = Σ vivo − Σ guardado, e cada linha é vivo − guardado da forma', () => {
+    fc.assert(
+      fc.property(mapaArb, mapaArb, (guardado, vivo) => {
+        const r = alteracoesDepoisDoFechamento(guardado, vivo)
+        expect(r.map((l) => l.forma)).toEqual([...FORMAS_DE_CONFERENCIA])
+        expect(soma(r.map((l) => l.valor)).centavos).toBe(
+          soma(vivo.values()).menos(soma(guardado.values())).centavos,
+        )
+        for (const l of r) {
+          const v = vivo.get(l.forma) ?? Dinheiro.zero()
+          const g = guardado.get(l.forma) ?? Dinheiro.zero()
+          expect(l.valor.centavos).toBe(v.menos(g).centavos)
+        }
+      }),
+    )
+  })
+
+  it('PROPRIEDADE: sem mudança posterior (vivo = guardado), toda alteração é zero e nada acende', () => {
+    fc.assert(
+      fc.property(mapaArb, (m) => {
+        const r = alteracoesDepoisDoFechamento(m, m)
+        expect(r.every((l) => l.valor.ehZero())).toBe(true)
+        expect(mudouDepoisDoFechamento(r, false)).toBe(false)
+      }),
+    )
+  })
+
+  it('a marca acende com evento posterior mesmo quando a diferença se anula', () => {
+    const r = alteracoesDepoisDoFechamento(new Map([['Pix', c(10000)]]), new Map([['Pix', c(10000)]]))
+    expect(mudouDepoisDoFechamento(r, true)).toBe(true)
+  })
+
+  it('a promissória no guardado é defeito — ela não está na gaveta', () => {
+    expect(() =>
+      alteracoesDepoisDoFechamento(new Map([['Nota promissória' as Forma, c(1)]]), new Map()),
+    ).toThrow(/promissória/)
+  })
+})
+
+describe('avisosDoRecebimento', () => {
+  const base = {
+    forma: 'Pix',
+    valor: c(10000),
+    caixaFechado: false,
+    haRecebimentoIgual: false,
+    confirmarCaixaFechado: false,
+    confirmarDuplicidade: false,
+  }
+
+  it('nada a avisar → lista vazia', () => {
+    expect(avisosDoRecebimento(base)).toEqual([])
+  })
+
+  it('caixa fechado avisa; confirmado, não', () => {
+    expect(avisosDoRecebimento({ ...base, caixaFechado: true })).toEqual(['CAIXA_FECHADO'])
+    expect(avisosDoRecebimento({ ...base, caixaFechado: true, confirmarCaixaFechado: true })).toEqual([])
+  })
+
+  it('caixa fechado NÃO se aplica a nota promissória nem a valor zero (fora da gaveta)', () => {
+    expect(avisosDoRecebimento({ ...base, caixaFechado: true, forma: FORA_DA_CONFERENCIA })).toEqual([])
+    expect(avisosDoRecebimento({ ...base, caixaFechado: true, valor: c(0), forma: '' })).toEqual([])
+  })
+
+  it('duplicidade avisa em qualquer forma, promissória inclusive; confirmada, não', () => {
+    expect(avisosDoRecebimento({ ...base, haRecebimentoIgual: true })).toEqual(['POSSIVEL_DUPLICIDADE'])
+    expect(
+      avisosDoRecebimento({ ...base, haRecebimentoIgual: true, forma: FORA_DA_CONFERENCIA }),
+    ).toEqual(['POSSIVEL_DUPLICIDADE'])
+    expect(avisosDoRecebimento({ ...base, haRecebimentoIgual: true, confirmarDuplicidade: true })).toEqual([])
+  })
+
+  it('valor zero nunca é duplicidade', () => {
+    expect(avisosDoRecebimento({ ...base, haRecebimentoIgual: true, valor: c(0), forma: '' })).toEqual([])
+  })
+
+  it('os dois juntos, e cada confirmação só apaga o seu', () => {
+    const ambos = { ...base, caixaFechado: true, haRecebimentoIgual: true }
+    expect(avisosDoRecebimento(ambos)).toEqual(['CAIXA_FECHADO', 'POSSIVEL_DUPLICIDADE'])
+    expect(avisosDoRecebimento({ ...ambos, confirmarCaixaFechado: true })).toEqual(['POSSIVEL_DUPLICIDADE'])
+    expect(avisosDoRecebimento({ ...ambos, confirmarDuplicidade: true })).toEqual(['CAIXA_FECHADO'])
   })
 })

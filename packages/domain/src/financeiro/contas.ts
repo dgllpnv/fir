@@ -1,4 +1,5 @@
 import { somarMeses } from '../relogio'
+import { erro, ok, type Result } from '../resultado'
 
 export type TipoDeDespesa = 'fixa' | 'variavel'
 
@@ -87,4 +88,73 @@ export function proximoVencimento(vencimento: string, diaDaSerie: number): strin
     throw new Error(`Dia de vencimento da série precisa estar entre 1 e 31, recebeu ${diaDaSerie}.`)
   }
   return somarMeses(vencimento, 1, diaDaSerie)
+}
+
+/**
+ * O vencimento da conta que o Paguei renova — ou `null`, quando a série JÁ
+ * TEM conta depois desta.
+ *
+ * `vencimentosDaSerie` são TODOS os vencimentos da série, **inclusive os das
+ * contas excluídas**. Os dois furos que isto fecha (ajuste 10 do gate do
+ * desfazer pagamento):
+ *
+ *  - **editar o vencimento**: pagou dezembro (nasceu 31/01), desfez, adiou
+ *    dezembro para 05/01 e pagou de novo. O próximo vencimento agora é 28/02,
+ *    que NÃO colide com 31/01 no índice `conta_da_serie_por_mes` — sem esta
+ *    regra a série ganharia duas contas à frente;
+ *  - **excluir a seguinte**: pagou, a gestora excluiu janeiro, desfez e pagou
+ *    de novo. O índice é parcial (`excluida_em IS NULL`), então nada o impede
+ *    de recriar a conta que alguém apagou — e recriar o que o usuário apagou é
+ *    exatamente o que a regra 27 proíbe.
+ *
+ * O `ON CONFLICT` da renovação continua no SQL: esta função decide o caso
+ * sequencial, o índice decide a corrida.
+ */
+export function vencimentoDaRenovacao(
+  vencimentoPago: string,
+  diaDaSerie: number,
+  vencimentosDaSerie: readonly string[],
+): string | null {
+  // ISO `AAAA-MM-DD` ordena como texto — a comparação é de dia civil.
+  if (vencimentosDaSerie.some((v) => v > vencimentoPago)) return null
+  return proximoVencimento(vencimentoPago, diaDaSerie)
+}
+
+/** O aviso que pede segunda confirmação antes de desfazer um pagamento. */
+export type AvisoDoDesfazer = 'MES_ANTERIOR'
+
+export type ErroDoDesfazer =
+  | { readonly codigo: 'CONTA_NAO_PAGA'; readonly mensagem: string }
+  | {
+      readonly codigo: 'CONFIRMACAO_NECESSARIA'
+      readonly mensagem: string
+      readonly avisos: readonly AvisoDoDesfazer[]
+    }
+
+/**
+ * Pode desfazer o pagamento desta conta agora?
+ *
+ * `hoje` é o dia do SERVIDOR no fuso da clínica (regra 24): o pagamento é "de
+ * mês anterior" quando o mês civil de `pagoEm` é anterior ao mês de `hoje`.
+ * Desfazer um pagamento de setembro em outubro muda a Visão do mês de
+ * setembro — que provavelmente já foi lida e discutida — e por isso pede uma
+ * segunda confirmação explícita (ajuste 11). O aviso não carrega número
+ * nenhum: a tela escreve o texto.
+ */
+export function podeDesfazerPagamento(
+  pagoEm: string | null,
+  hoje: string,
+  confirmarMesAnterior: boolean,
+): Result<true, ErroDoDesfazer> {
+  if (pagoEm === null) {
+    return erro({ codigo: 'CONTA_NAO_PAGA', mensagem: 'Esta conta não está paga.' })
+  }
+  if (pagoEm.slice(0, 7) < hoje.slice(0, 7) && !confirmarMesAnterior) {
+    return erro({
+      codigo: 'CONFIRMACAO_NECESSARIA',
+      mensagem: 'Este pagamento é de um mês anterior. Confirme para desfazer.',
+      avisos: ['MES_ANTERIOR'],
+    })
+  }
+  return ok(true)
 }

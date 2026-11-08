@@ -9,7 +9,8 @@ import type {
 } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
 import { useMemo, useState } from 'react'
-import { chamar, ErroDaApi } from '@/lib/api'
+import { ErroDaApi } from '@/lib/api'
+import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { consultaEmTexto, useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
@@ -73,7 +74,16 @@ const REFERENCIAS = [
 
 type Referencia = (typeof REFERENCIAS)[number]['k']
 
-export function TelaRecebimentos({ hoje, mes }: { hoje: string; mes: string }) {
+export function TelaRecebimentos({
+  hoje,
+  mes,
+  podeValores,
+}: {
+  hoje: string
+  mes: string
+  /** Só decide se a pergunta de duplicidade (D-21) mostra o valor digitado. */
+  podeValores: boolean
+}) {
   const [paciente, setPaciente] = useState<TPacienteEncontrado | null>(null)
   const [ref, setRef] = useState<Referencia | ''>('')
   const [valor, setValor] = useState('')
@@ -137,9 +147,11 @@ export function TelaRecebimentos({ hoje, mes }: { hoje: string; mes: string }) {
 
     setSalvando(true)
     try {
-      await chamar('v1/recebimentos', {
-        method: 'POST',
-        body: JSON.stringify({
+      // O MESMO `requisicaoId` no reenvio confirmado: é o mesmo dinheiro que
+      // a pessoa está lançando, e o duplo toque continua idempotente.
+      await postarComConfirmacao(
+        'v1/recebimentos',
+        {
           requisicaoId,
           pacienteId: paciente.id,
           valor: emCentavos.toString(),
@@ -150,8 +162,9 @@ export function TelaRecebimentos({ hoje, mes }: { hoje: string; mes: string }) {
           ...(escolhida.abre && abertoEmCentavos !== null
             ? { valorAberto: abertoEmCentavos.toString() }
             : {}),
-        }),
-      })
+        },
+        { dia: em, hoje, valor: emCentavos, podeVerValores: podeValores },
+      )
       setRecado('Recebimento registrado.')
       limpar()
       doDia.recarregar()
