@@ -26,6 +26,7 @@ import {
 } from '@fir/contracts'
 import {
   BadRequestException,
+  ForbiddenException,
   Body,
   Controller,
   Delete,
@@ -353,11 +354,11 @@ export class ItensController {
       // Mesma frase do `AutorizacaoGuard`, sem dizer qual permissão falta: a
       // lista de chaves de quem não as tem é um mapa do que existe atrás da
       // porta.
-      throw new BadRequestException('Sem acesso a esta ação.')
+      throw new ForbiddenException('Sem acesso a esta ação.')
     }
     // Custo só com `estoque.gerir` — ele é dinheiro, e a enfermagem não o vê.
     if (dados.data.tipo === 'entrada' && dados.data.custo != null && !c.pode('estoque.gerir')) {
-      throw new BadRequestException('Sem acesso a esta ação.')
+      throw new ForbiddenException('Sem acesso a esta ação.')
     }
 
     return this.movimentos.registrar(

@@ -563,7 +563,9 @@ describe('movEstoque — a conversão, o sinal e a sobra', () => {
       motivo: 'Correção de lançamento',
     }
     // MANUAL: "Ajuste de estoque — só administrativo" (regra 13).
-    await mover(enfermagem, { ...base, sentido: 'faltou' }).expect(400)
+    // 403, não 400 — falta PERMISSÃO, não há erro no corpo (achado na validação
+    // de produção de 2026-11-08; o guard e as outras rotas já respondiam 403).
+    await mover(enfermagem, { ...base, sentido: 'faltou' }).expect(403)
     // Sem `sentido`, 400: no protótipo um corpo sem `sinal` TIRA do estoque,
     // porque `Number(undefined)===1` é falso e o `else` é −1.
     await mover(gestora, base).expect(400)
@@ -666,7 +668,7 @@ describe('movEstoque — a conversão, o sinal e a sobra', () => {
     await mover(enfermagem, {
       itemId: frasco, tipo: 'entrada', quantidade: '1000', unidade: 'ampola',
       dia: HOJE_NA_CLINICA, lote: '2027-06-30', custo: '45000',
-    }).expect(400)
+    }).expect(403)
     // E sem custo, a enfermagem lança a entrada normalmente.
     await mover(enfermagem, {
       itemId: frasco, tipo: 'entrada', quantidade: '1000', unidade: 'ampola',
