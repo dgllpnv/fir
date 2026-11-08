@@ -625,6 +625,17 @@ Spec: [avisos-de-caixa-duplicidade-e-desfazer-pagamento](specs/avisos-de-caixa-d
 
 ---
 
+## D-23 · Ajustes do superadmin pedidos pelo dono (2026-11-08)
+
+O dono testou o superadmin em produção e pediu, com o protótipo do Firmare Gestão como referência ("precisa estar exatamente igual"):
+
+1. **Criar grupo, clínica e usuário de gestão por botão no topo** que abre o formulário, como "Adicionar pessoa" em `/usuarios` da clínica — não mais formulário no fim da página.
+2. **Uma clínica pertence a no máximo um grupo de cliente** (mantido). O **grupo Firmare** vê todas as clínicas sem vínculo: é o escopo `geral` apresentado como grupo.
+3. **Sem segundo fator por enquanto.** A exigência de TOTP da ADR 0022 fica **desligada** (por chave de configuração, código preservado), e some da tela o "Perdeu o celular?". No lugar, o superadmin **redefine a senha do usuário de gestão escolhendo uma senha provisória**, que ele troca no primeiro acesso (mesmo padrão da D-18 para a clínica). Revoga a decisão D-22 item 13.
+4. **Modal de edição de usuário maior.**
+5. **Espaço** entre "Grupos" e "Clientes de cada grupo" em `/superadmin/grupos`.
+6. **Um login só para a Firmare:** todo superadmin tem automaticamente uma conta de gestão no grupo Firmare (vê todas as clínicas, perfil Diretoria, com valores). Ao entrar em `/superadmin`, abre a **Visão geral do protótipo** com todas as clínicas; o menu traz também Clínicas, Grupos e Usuários de gestão. **O painel passa a ver dinheiro** — revoga, para o superadmin, a regra "nenhum dinheiro atravessa o painel" (ADR nova substitui a parte correspondente da ADR 0011).
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

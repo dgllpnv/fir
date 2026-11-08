@@ -1,7 +1,7 @@
 'use client'
 
 import type { TPacienteEncontrado, TRespostaDaBusca } from '@fir/contracts'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { consultaEmTexto, useDados, useEspera } from '@/lib/dados'
 import { FormularioDePaciente } from './formulario-de-paciente'
 
@@ -24,13 +24,34 @@ import { FormularioDePaciente } from './formulario-de-paciente'
  * o balcão vincular a tarefa à paciente certa sem ganhar acesso ao financeiro
  * dela.
  */
+/**
+ * Lupa em traço, do mesmo desenho dos ícones da casa (`lib/icones.tsx`:
+ * 24×24, `currentColor`, traço 1.8). `aria-hidden`: o rótulo "Paciente" já
+ * diz o que o campo é.
+ */
+const LUPA = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m16 16 4.5 4.5" />
+  </svg>
+)
+
 export function SeletorDePaciente({
   escolhido,
   aoEscolher,
+  destaque = false,
 }: {
   escolhido: TPacienteEncontrado | null
   aoEscolher: (p: TPacienteEncontrado | null) => void
+  /**
+   * **O primeiro passo do fluxo, em destaque** — usado no Recebimento, onde
+   * nada mais acontece antes de escolher a paciente. Só muda o desenho
+   * (bloco dourado, rótulo maior, lupa, dica curta); a busca, o cadastro
+   * embutido e o "Trocar" são exatamente os mesmos.
+   */
+  destaque?: boolean
 }) {
+  const dicaId = useId()
   const [busca, setBusca] = useState('')
   const [cadastrando, setCadastrando] = useState(false)
   const q = useEspera(busca.trim(), 250)
@@ -87,18 +108,36 @@ export function SeletorDePaciente({
   // continua dizendo que não deu, mas sem sugerir que é permissão.
   const falhou = achados.erro !== null
 
+  const campo = (
+    <input
+      type="search"
+      autoComplete="off"
+      value={busca}
+      placeholder={destaque ? 'Nome da paciente' : 'Digite o nome para buscar'}
+      aria-describedby={destaque ? dicaId : undefined}
+      onChange={(e) => setBusca(e.target.value)}
+    />
+  )
+
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      <label className="campo">
-        Paciente
-        <input
-          type="search"
-          autoComplete="off"
-          value={busca}
-          placeholder="Digite o nome para buscar"
-          onChange={(e) => setBusca(e.target.value)}
-        />
-      </label>
+    <div className={destaque ? 'busca-de-paciente' : undefined} style={{ display: 'grid', gap: 8 }}>
+      {destaque ? (
+        <label className="campo">
+          <span className="rotulo">Paciente</span>
+          <span className="dica-do-passo" id={dicaId}>
+            Digite ao menos duas letras do nome. Paciente nova se cadastra aqui mesmo.
+          </span>
+          <span className="com-lupa">
+            {LUPA}
+            {campo}
+          </span>
+        </label>
+      ) : (
+        <label className="campo">
+          Paciente
+          {campo}
+        </label>
+      )}
 
       {falhou ? (
         <p className="nota">{achados.erro}</p>

@@ -5,9 +5,11 @@ import type {
   GrupoCriadoSaida,
   GrupoNaLista,
   ListaDeGruposSaida,
+  ListaDeUsuariosDeGestaoSaida,
+  UsuarioDeGestaoNaLista,
   UsuarioDoPortalCriadoSaida,
 } from '@fir/contracts'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Modal } from '@/components/modal'
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
@@ -20,8 +22,11 @@ import { ClientesDosGrupos } from './clientes-dos-grupos'
  * nunca uma concessão. O operador cria o grupo aqui, e vincula clínicas já
  * existentes a ele (`Cliente Firmare`), uma de cada vez.
  *
- * A ordem é a mesma de `clinicas/page.tsx`: ver a lista primeiro, criar por
- * último — o raro (criar grupo) fica recolhido, como `design.md` §1 manda.
+ * Criar grupo é um botão no topo que abre um modal (D-23 item 1), como em
+ * `clinicas/page.tsx`. O **grupo Firmare** vem fixo antes da lista (D-23
+ * item 2): é o escopo `geral` apresentado como grupo — vê todas as clínicas
+ * sem vínculo nenhum, e por isso não tem "Vincular clínica". Uma clínica
+ * continua pertencendo a no máximo um grupo de cliente.
  *
  * **Vincular clínica NÃO fica dentro da tela de uma clínica.** A clínica, no
  * painel, não tem tela própria de edição — só `pessoas/page.tsx`, que já
@@ -44,7 +49,10 @@ export default function Grupos() {
   /** O grupo cujo painel de "dar acesso ao portal" está aberto. `null` = nenhum. */
   const [dandoAcesso, setDandoAcesso] = useState<GrupoNaLista | null>(null)
   const [acessoCriado, setAcessoCriado] = useState<UsuarioDoPortalCriadoSaida | null>(null)
-  const dobra = useRef<HTMLDetailsElement>(null)
+  const [criando, setCriando] = useState(false)
+  /** Quem tem o grupo Firmare (escopo `geral`). `null` = carregando. */
+  const [daFirmare, setDaFirmare] = useState<UsuarioDeGestaoNaLista[] | null>(null)
+  const [erroFirmare, setErroFirmare] = useState('')
   /** Sobe quando um vínculo cria um cliente — a lista por grupo relê. */
   const [versaoDosClientes, setVersaoDosClientes] = useState(0)
 
@@ -64,16 +72,26 @@ export default function Grupos() {
     }
   }, [tentativa])
 
+  useEffect(() => {
+    let valeu = true
+    chamar<ListaDeUsuariosDeGestaoSaida>('v1/superadmin/usuarios-gestao')
+      .then((r) => {
+        if (valeu) setDaFirmare(r.usuariosDeGestao.filter((u) => u.escopo === 'geral'))
+      })
+      .catch((x: unknown) => {
+        if (valeu) setErroFirmare(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+      })
+    return () => {
+      valeu = false
+    }
+  }, [])
+
   const recarregarGrupos = () => {
     setGrupos(null)
     setTentativa((n) => n + 1)
   }
 
-  const abrirCriacao = () => {
-    if (dobra.current === null) return
-    dobra.current.open = true
-    dobra.current.scrollIntoView({ block: 'nearest' })
-  }
+  const abrirCriacao = () => setCriando(true)
 
   const clinicas = sessao.tag === 'pronta' ? sessao.clinicas : []
 
@@ -85,10 +103,18 @@ export default function Grupos() {
         <h2>Grupos</h2>
       </div>
       <p className="nota">
-        Cada <b>Clínica</b> pertence a exatamente um grupo. Vincular uma clínica aqui cria o{' '}
-        <b>Cliente Firmare</b> dela — o registro comercial que a carteira usa para separar o que é
+        Cada <b>Clínica</b> pertence a no máximo um grupo de cliente. Vincular uma clínica aqui cria
+        o <b>Cliente Firmare</b> dela — o registro comercial que a carteira usa para separar o que é
         de uma rede do que não é.
       </p>
+
+      <div className="superadmin-acoes-topo">
+        <button type="button" className="btn" onClick={abrirCriacao}>
+          Adicionar grupo
+        </button>
+      </div>
+
+      <GrupoFirmare usuarios={daFirmare} erro={erroFirmare} />
 
       {erro !== '' ? (
         <ErroDoPainel mensagem={erro} recarregar={recarregarGrupos} />
@@ -96,9 +122,10 @@ export default function Grupos() {
         <Carregando linhas={3} fino />
       ) : grupos.length === 0 ? (
         <Vazio>
-          <b>Nenhum grupo ainda.</b>
+          <b>Nenhum grupo de cliente ainda.</b>
           <p className="nota">
-            Crie o primeiro grupo para começar a organizar a carteira por rede de clínicas.
+            Crie o primeiro grupo para organizar a carteira por rede de clínicas. Enquanto isso, o
+            grupo Firmare já vê todas.
           </p>
           <button type="button" className="btn" onClick={abrirCriacao}>
             Criar o primeiro grupo
@@ -222,24 +249,63 @@ export default function Grupos() {
         />
       )}
 
-      <FormularioDeGrupo
-        dobra={dobra}
-        aoCriar={(g: GrupoCriadoSaida['grupo']) => {
-          setRecado(`Grupo ${g.nome} criado.`)
-          recarregarGrupos()
-        }}
-      />
+      {criando ? (
+        <FormularioDeGrupo
+          aoFechar={() => setCriando(false)}
+          aoCriar={(g: GrupoCriadoSaida['grupo']) => {
+            setCriando(false)
+            setRecado(`Grupo ${g.nome} criado.`)
+            recarregarGrupos()
+          }}
+        />
+      ) : null}
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
   )
 }
 
+/**
+ * O GRUPO FIRMARE, fixo. Não é uma linha de `grupos`: é o escopo `geral` dos
+ * usuários de gestão, mostrado onde a pergunta "quem vê o quê" está em cena.
+ * A lista vem do servidor; a tela só separa quem tem o escopo.
+ */
+function GrupoFirmare({ usuarios, erro }: { usuarios: UsuarioDeGestaoNaLista[] | null; erro: string }) {
+  return (
+    <div className="superadmin-grupo-firmare" role="group" aria-label="Grupo Firmare">
+      <div className="grupo-firmare-linha">
+        <span className="grupo-firmare-nome">Firmare</span>
+        <span className="pill dourado">vê todas as clínicas automaticamente</span>
+      </div>
+      {erro !== '' ? (
+        <p className="nota erro-do-painel">Não consegui listar quem tem este grupo: {erro}</p>
+      ) : usuarios === null ? (
+        <p className="nota">Carregando quem tem este grupo…</p>
+      ) : usuarios.length === 0 ? (
+        <p className="nota">
+          Ninguém ainda. Dê o grupo Firmare a um usuário em <b>Usuários de gestão</b>.
+        </p>
+      ) : (
+        <ul aria-label="Usuários do grupo Firmare">
+          {usuarios.map((u) => (
+            <li key={u.id}>
+              <span className={u.ativo ? 'pill' : 'pill mau'}>
+                {u.nome}
+                {u.ativo ? '' : ' (desativado)'}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function FormularioDeGrupo({
-  dobra,
+  aoFechar,
   aoCriar,
 }: {
-  dobra: React.RefObject<HTMLDetailsElement | null>
+  aoFechar: () => void
   aoCriar: (g: GrupoCriadoSaida['grupo']) => void
 }) {
   const [erro, setErro] = useState('')
@@ -256,8 +322,6 @@ function FormularioDeGrupo({
         body: JSON.stringify({ nome }),
       })
       aoCriar(r.grupo)
-      setNome('')
-      if (dobra.current !== null) dobra.current.open = false
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
     } finally {
@@ -266,9 +330,8 @@ function FormularioDeGrupo({
   }
 
   return (
-    <details className="superadmin-dobra" ref={dobra}>
-      <summary>Criar grupo</summary>
-      <form onSubmit={criar}>
+    <Modal titulo="Adicionar grupo" aoFechar={aoFechar}>
+      <form onSubmit={criar} className="superadmin-form-largo">
         <p className="nota">
           O nome é o que a equipe da Firmare vê na carteira — o nome da rede, não o de uma
           clínica.
@@ -283,11 +346,16 @@ function FormularioDeGrupo({
           {erro}
         </p>
 
-        <button type="submit" disabled={enviando} className="btn">
-          {enviando ? 'Criando…' : 'Criar grupo'}
-        </button>
+        <div className="botoes">
+          <button type="submit" disabled={enviando} className="btn">
+            {enviando ? 'Criando…' : 'Criar grupo'}
+          </button>
+          <button type="button" className="btn ghost" onClick={aoFechar} disabled={enviando}>
+            Cancelar
+          </button>
+        </div>
       </form>
-    </details>
+    </Modal>
   )
 }
 

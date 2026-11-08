@@ -117,6 +117,8 @@ chave estável dele volta a ser usável (o índice único é parcial).
 
 **A formulação que vale: o acesso é total; o registro é obrigatório.** A clínica não pode nos barrar, mas pode nos **ver**. Toda ação do operador dentro de uma clínica cai na `auditoria` **dela**, com `ator_tipo = 'operador'`, pela trigger. O que é **sobre operadores** — "o operador entrou", "a senha dele foi redefinida pela VPS" — vai para `auditoria_do_painel`, porque `auditoria.clinica_id` é `NOT NULL` e a clínica sentinela foi recusada por escrito na migration `0002`.
 
+**Um login só para a Firmare** (D-23 item 6, ADR 0024): todo operador tem uma `Conta de gestão do operador`, e entrar no painel abre também a carteira — `/superadmin` é a Visão geral. O operador continua sem perfil e sem dinheiro nas rotas do painel; o que ele vê da carteira, vê como aquele `Usuário de Gestão`.
+
 A **cadeia de criação** (D-10): superadmin → cria a clínica e a administradora dela; admin → cria a equipe. A cadeia de **"esqueci a senha"** é a mesma, ao contrário: pessoa → o admin redefine; admin → o superadmin redefine; superadmin → **comando na VPS**, por quem tem SSH, gravado na trilha.
 
 ### `Sessão de suporte`
@@ -553,6 +555,26 @@ a mesma função no servidor e na tela:
 - **Setor** (`setor`): diz quem recebe item de checklist. **Nunca autoriza.**
 - **Diretoria (acesso total)**: não é papel gravado; é o conjunto completo
   dessas chaves, escrito por extenso.
+
+### `Grupo Firmare`
+O escopo `geral` **apresentado como grupo** (D-23 item 2): a própria Firmare,
+que vê todas as clínicas sem vínculo. **Não é uma linha de `grupos`** — a
+alternativa "grupo GERAL contendo todas as clínicas" segue rejeitada pela ADR
+0011 (uma clínica, um grupo). Quem é do Grupo Firmare é o `Usuário de Gestão`
+com `escopo = 'geral'`, e a tela chama esse escopo pelo nome do grupo.
+
+### `Conta de gestão do operador`
+O `Usuário de Gestão` que **todo `Operador` tem automaticamente** (D-23 item 6,
+ADR 0024, migration 0061): Grupo Firmare, perfil Diretoria completo, **sem senha
+própria**. Nasce com o operador (gatilho no banco, inclusive pelo break-glass da
+VPS), acompanha o `ativo` e o nome dele, e não se edita — perfil, senha e estado
+são recusados pelo banco. **Entrada única:** o login do painel abre também a
+sessão desta conta (`__Host-fir-carteira`, mesma duração da sessão do painel), e
+sair do painel encerra as duas. É por ela que o superadmin vê dinheiro — pela
+rota da carteira; as rotas `/v1/superadmin/*` continuam sem dinheiro. Com o
+segundo fator da carteira ligado, ela não abre (a entrada única não o contorna).
+Nunca chame de "superadmin na carteira" nem de "conta do painel": o ator é o
+`Usuário de Gestão`, e o vínculo diz de qual operador ele é.
 
 ### `Cliente Firmare`
 O registro comercial de quem contrata a consultoria. Existe **antes** de haver

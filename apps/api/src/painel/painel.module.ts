@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common'
 import { LimitePorOrigem } from '../autenticacao/limite-por-origem'
+import { CarteiraModule } from '../carteira/carteira.module'
+import { CarteiraService } from '../carteira/carteira.service'
+import { ABRIDOR_DA_CONTA_DE_GESTAO } from './abridor-da-conta-de-gestao'
 import { provedorDeRelogio } from '../comum/relogio'
 import {
   JANELA_PAINEL_POR_ORIGEM_MS,
@@ -26,6 +29,10 @@ import { SessaoDeSuporteService } from './sessao-de-suporte.service'
  * painel sem guard não entrega UMA clínica, entrega todas.
  */
 @Module({
+  // A entrada única (ADR 0024): o login do painel abre a sessão da conta de
+  // gestão do operador pelo `CarteiraService` — a sessão de carteira nasce
+  // só pela conexão `fir_carteira`.
+  imports: [CarteiraModule],
   controllers: [PainelController, PainelClinicasController, PainelCarteiraController],
   providers: [
     PainelService,
@@ -34,6 +41,7 @@ import { SessaoDeSuporteService } from './sessao-de-suporte.service'
     PainelPessoasService,
     SessaoDeSuporteService,
     PainelGuard,
+    { provide: ABRIDOR_DA_CONTA_DE_GESTAO, useExisting: CarteiraService },
     provedorDeRelogio,
     {
       provide: LIMITE_DO_PAINEL,

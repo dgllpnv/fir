@@ -69,7 +69,7 @@ export function ClientesDosGrupos({
   const codigoDa = (id: string | null) => (id === null ? null : (clinicas.find((c) => c.id === id)?.codigo ?? 'clínica'))
 
   return (
-    <section>
+    <section className="superadmin-clientes-dos-grupos">
       <div className="titulo">
         <h2>Clientes de cada grupo</h2>
       </div>

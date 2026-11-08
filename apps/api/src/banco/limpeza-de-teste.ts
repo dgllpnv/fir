@@ -134,6 +134,14 @@ export async function apagarPagamentosDesfeitosDeTeste(
  * e a trilha dele continua sendo a resposta a "quem entrou no painel".
  */
 export async function apagarOperadorDeTeste(cliente: pg.Client, operadorId: string): Promise<void> {
+  // A conta de gestão do operador (0061, ADR 0024) sai junto: sem isto, cada
+  // execução deixaria uma conta geral desativada para trás.
+  const conta = (
+    await cliente.query<{ id: string }>(
+      'SELECT usuario_gestao_id AS id FROM contas_de_gestao_do_operador WHERE operador_id = $1',
+      [operadorId],
+    )
+  ).rows[0]?.id
   await cliente.query('DELETE FROM sessoes_de_operador WHERE operador_id = $1', [operadorId])
   await cliente.query('BEGIN')
   try {
@@ -141,6 +149,12 @@ export async function apagarOperadorDeTeste(cliente: pg.Client, operadorId: stri
       'ALTER TABLE auditoria_do_painel DISABLE TRIGGER auditoria_do_painel_sem_update',
     )
     await cliente.query('DELETE FROM auditoria_do_painel WHERE ator_id = $1', [operadorId])
+    if (conta) {
+      await cliente.query(
+        'DELETE FROM auditoria_do_painel WHERE ator_id = $1 OR entidade_id = $1::text',
+        [conta],
+      )
+    }
     await cliente.query(
       'ALTER TABLE auditoria_do_painel ENABLE TRIGGER auditoria_do_painel_sem_update',
     )
@@ -150,6 +164,12 @@ export async function apagarOperadorDeTeste(cliente: pg.Client, operadorId: stri
     throw e
   }
   await cliente.query('DELETE FROM operadores WHERE id = $1', [operadorId])
+  if (conta) {
+    await cliente.query('DELETE FROM sessoes_de_carteira WHERE usuario_gestao_id = $1', [conta])
+    // Se o teste escreveu algo COMO a conta (ela é referência de outras
+    // tabelas), ela fica — desativada pelo gatilho da 0061, nunca ativa.
+    await cliente.query('DELETE FROM usuarios_gestao WHERE id = $1', [conta]).catch(() => undefined)
+  }
 }
 
 /**

@@ -4,10 +4,13 @@ import type {
   GrupoNaLista,
   ListaDeGruposSaida,
   ListaDeUsuariosDeGestaoSaida,
+  RedefinirSenhaDoUsuarioDeGestaoEntrada,
+  SenhaDoUsuarioDeGestaoRedefinida,
   UsuarioDeGestaoCriadoSaida,
   UsuarioDeGestaoNaLista,
 } from '@fir/contracts'
-import { useEffect, useRef, useState } from 'react'
+import { SENHA_MAX, SENHA_MIN, avaliarSenha, ehErro } from '@fir/domain'
+import { useEffect, useState } from 'react'
 import { Modal } from '@/components/modal'
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
@@ -21,6 +24,9 @@ import {
   perfilParaEnviar,
 } from './campos-do-perfil'
 
+/** O que o modal "anote esta senha" precisa — da criação ou da redefinição. */
+type SenhaParaMostrar = { nome: string; usuario: string; senhaProvisoria: string }
+
 /**
  * **USUÁRIOS DE GESTÃO** — o ator da carteira (ADR 0011). Só o `Operador` cria
  * um, nunca convite interno, e esta tela é **separada e explícita** da tela
@@ -28,9 +34,9 @@ import {
  * autorização diferentes, e confundir os formulários foi exatamente o que a
  * ADR rejeitou (ver "Alternativas rejeitadas").
  *
- * A ordem é a mesma de `grupos/page.tsx`: lista primeiro, criação recolhida
- * por último — o raro (criar uma conta) fica atrás de `+ Mais opções`
- * (`details`), como `design.md` §1 manda.
+ * Criar é um botão no topo que abre o formulário num modal largo (D-23 itens 1
+ * e 4), como "Adicionar pessoa" em `/usuarios` da clínica. O escopo é
+ * escolhido como GRUPO: "Firmare" é o escopo `geral` (D-23 item 2).
  *
  * **O nome do grupo, não o id**: a lista de usuários não tem `grupo.nome`
  * (ela não existe no servidor — a RLS por grupo não dá à carteira um JOIN
@@ -44,11 +50,12 @@ export default function UsuariosDeGestao() {
   const [erro, setErro] = useState('')
   const [grupos, setGrupos] = useState<GrupoNaLista[] | null>(null)
   const [erroGrupos, setErroGrupos] = useState('')
-  const [criado, setCriado] = useState<UsuarioDeGestaoCriadoSaida | null>(null)
+  /** A provisória a mostrar uma vez — da criação ou da redefinição. Só neste estado. */
+  const [senhaMostrada, setSenhaMostrada] = useState<SenhaParaMostrar | null>(null)
+  const [criando, setCriando] = useState(false)
   const [editando, setEditando] = useState<UsuarioDeGestaoNaLista | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
   const [tentativa, setTentativa] = useState(0)
-  const dobra = useRef<HTMLDetailsElement>(null)
 
   useEffect(() => {
     let valeu = true
@@ -86,11 +93,7 @@ export default function UsuariosDeGestao() {
     setTentativa((n) => n + 1)
   }
 
-  const abrirCriacao = () => {
-    if (dobra.current === null) return
-    dobra.current.open = true
-    dobra.current.scrollIntoView({ block: 'nearest' })
-  }
+  const abrirCriacao = () => setCriando(true)
 
   const nomeDoGrupo = (grupoId: string | null) => {
     if (grupoId === null) return null
@@ -105,13 +108,18 @@ export default function UsuariosDeGestao() {
         <h2>Usuários de gestão</h2>
       </div>
       <p className="nota">
-        Vê um grupo inteiro — todas as clínicas que pertencem a ele — nunca uma clínica isolada.
-        Quem precisa de acesso total à carteira recebe o escopo <b>geral</b>; quem cuida de uma
-        rede, o escopo <b>grupo</b>.
+        Cada usuário de gestão está em um grupo e vê as clínicas dele, nunca uma clínica isolada. O
+        grupo <b>Firmare</b> vê todas as clínicas; um grupo de cliente, só as daquela rede.
       </p>
 
-      {criado === null ? null : (
-        <SenhaDoUsuarioDeGestao resultado={criado} aoFechar={() => setCriado(null)} />
+      <div className="superadmin-acoes-topo">
+        <button type="button" className="btn" onClick={abrirCriacao}>
+          Adicionar usuário de gestão
+        </button>
+      </div>
+
+      {senhaMostrada === null ? null : (
+        <SenhaDoUsuarioDeGestao senha={senhaMostrada} aoFechar={() => setSenhaMostrada(null)} />
       )}
 
       {erro !== '' ? (
@@ -132,7 +140,7 @@ export default function UsuariosDeGestao() {
             <tr>
               <th>Nome</th>
               <th>Usuário</th>
-              <th>Escopo</th>
+              <th>Grupo</th>
               <th>Perfil</th>
               <th>Estado</th>
               <th>Acesso</th>
@@ -146,8 +154,8 @@ export default function UsuariosDeGestao() {
               <tr key={u.id}>
                 <td data-rotulo="Nome">{u.nome}</td>
                 <td data-rotulo="Usuário">{u.usuario}</td>
-                <td data-rotulo="Escopo">
-                  {u.escopo === 'geral' ? 'Geral' : (nomeDoGrupo(u.grupoId) ?? 'Grupo')}
+                <td data-rotulo="Grupo">
+                  {u.escopo === 'geral' ? 'Firmare' : (nomeDoGrupo(u.grupoId) ?? 'Grupo de cliente')}
                 </td>
                 <td data-rotulo="Perfil">
                   <ChipsDoPerfil perfil={u} escopo={u.escopo} />
@@ -160,21 +168,31 @@ export default function UsuariosDeGestao() {
                   )}
                 </td>
                 <td data-rotulo="Acesso">
-                  {u.aguardandoPrimeiroAcesso ? (
+                  {u.contaDoOperador ? (
+                    // ADR 0024: entra pelo login do painel, nunca por senha.
+                    <span className="pill dourado">conta do superadmin</span>
+                  ) : u.aguardandoPrimeiroAcesso ? (
                     <span className="pill">aguardando 1º acesso</span>
                   ) : (
                     <span className="muted">já entrou</span>
                   )}
                 </td>
                 <td className="coluna-acao">
-                  <button
-                    type="button"
-                    className="link"
-                    onClick={() => setEditando(u)}
-                    title={`Editar ${u.nome}`}
-                  >
-                    Editar
-                  </button>
+                  {/* A conta de gestão do superadmin acompanha o operador (ADR
+                      0024): perfil, estado e senha não se editam — o servidor
+                      recusa com 409, e a tela não oferece o que vai recusar. */}
+                  {u.contaDoOperador ? (
+                    <span className="muted">acompanha o operador</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => setEditando(u)}
+                      title={`Editar ${u.nome}`}
+                    >
+                      Editar
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -193,45 +211,134 @@ export default function UsuariosDeGestao() {
             setRecado(`${u.nome} foi atualizado(a).`)
             recarregarUsuarios()
           }}
+          aoRedefinir={(s) => {
+            const u = editando
+            // O modal de edição fecha: dois modais empilhados disputariam o
+            // foco e o Esc. A provisória gerada abre o seu; a escolhida não —
+            // `null` é o servidor dizendo que quem redefiniu já a sabe.
+            setEditando(null)
+            if (s.senhaProvisoria !== null) {
+              setSenhaMostrada({ nome: u.nome, usuario: u.usuario, senhaProvisoria: s.senhaProvisoria })
+            }
+            setRecado(
+              s.senhaProvisoria === null
+                ? `Senha de ${u.nome} trocada. As sessões foram encerradas, e ela vai escolher outra no primeiro acesso.`
+                : `Senha de ${u.nome} redefinida. As sessões foram encerradas.`,
+            )
+            recarregarUsuarios()
+          }}
         />
       )}
 
-      <FormularioDeUsuarioDeGestao
-        dobra={dobra}
-        grupos={grupos}
-        erroGrupos={erroGrupos}
-        aoCriar={(r) => {
-          setCriado(r)
-          setRecado(`${r.usuarioDeGestao.nome} foi criado como usuário de gestão.`)
-          recarregarUsuarios()
-        }}
-      />
+      {criando ? (
+        <FormularioDeUsuarioDeGestao
+          grupos={grupos}
+          erroGrupos={erroGrupos}
+          aoFechar={() => setCriando(false)}
+          aoCriar={(r) => {
+            setCriando(false)
+            setSenhaMostrada({
+              nome: r.usuarioDeGestao.nome,
+              usuario: r.usuarioDeGestao.usuario,
+              senhaProvisoria: r.senhaProvisoria,
+            })
+            setRecado(`${r.usuarioDeGestao.nome} foi criado como usuário de gestão.`)
+            recarregarUsuarios()
+          }}
+        />
+      ) : null}
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
   )
 }
 
-function FormularioDeUsuarioDeGestao({
-  dobra,
+/**
+ * **O GRUPO, num seletor só** — D-23 item 2. A primeira opção, fixa, é o
+ * **grupo Firmare**: é o escopo `geral` (vê todas as clínicas, sem vínculo
+ * nenhum) apresentado como grupo. As outras são os grupos de cliente, escopo
+ * `grupo`. O servidor não mudou: a tela só traduz a escolha para o par
+ * `escopo` + `grupoId` que o contrato sempre pediu.
+ */
+const FIRMARE = '__firmare'
+
+/** `FIRMARE`, o id de um grupo de cliente, ou `''` (nada escolhido ainda). */
+type EscolhaDeGrupo = string
+
+const escopoDa = (escolha: EscolhaDeGrupo): 'geral' | 'grupo' =>
+  escolha === FIRMARE ? 'geral' : 'grupo'
+
+const escolhaDo = (u: Pick<UsuarioDeGestaoNaLista, 'escopo' | 'grupoId'>): EscolhaDeGrupo =>
+  u.escopo === 'geral' ? FIRMARE : (u.grupoId ?? '')
+
+const escopoParaEnviar = (escolha: EscolhaDeGrupo) =>
+  escolha === FIRMARE
+    ? { escopo: 'geral' as const, grupoId: null }
+    : { escopo: 'grupo' as const, grupoId: escolha }
+
+function SeletorDeGrupo({
+  escolha,
   grupos,
   erroGrupos,
-  aoCriar,
+  aoMudar,
 }: {
-  dobra: React.RefObject<HTMLDetailsElement | null>
+  escolha: EscolhaDeGrupo
   grupos: GrupoNaLista[] | null
   erroGrupos: string
+  aoMudar: (e: EscolhaDeGrupo) => void
+}) {
+  return (
+    <label className="campo">
+      Grupo
+      <select value={escolha} onChange={(e) => aoMudar(e.target.value)} required>
+        <option value="" disabled>
+          Escolha o grupo
+        </option>
+        <option value={FIRMARE}>Firmare — vê todas as clínicas</option>
+        {(grupos ?? []).map((g) => (
+          <option key={g.id} value={g.id} disabled={!g.ativo && g.id !== escolha}>
+            {g.nome}
+            {g.ativo ? '' : ' (desativado)'}
+          </option>
+        ))}
+      </select>
+      {erroGrupos !== '' ? (
+        <small className="erro-do-painel">
+          Não consegui listar os grupos de cliente: {erroGrupos}
+        </small>
+      ) : grupos === null ? (
+        <small>Carregando os grupos de cliente…</small>
+      ) : grupos.length === 0 ? (
+        <small>Nenhum grupo de cliente ainda. Crie um em Grupos para dar acesso a uma rede só.</small>
+      ) : (
+        <small>Um grupo de cliente vê só as clínicas daquela rede.</small>
+      )}
+    </label>
+  )
+}
+
+function FormularioDeUsuarioDeGestao({
+  grupos,
+  erroGrupos,
+  aoFechar,
+  aoCriar,
+}: {
+  grupos: GrupoNaLista[] | null
+  erroGrupos: string
+  aoFechar: () => void
   aoCriar: (r: UsuarioDeGestaoCriadoSaida) => void
 }) {
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
-  const [form, setForm] = useState<{
-    usuario: string
-    nome: string
-    escopo: 'geral' | 'grupo'
-    grupoId: string
-  }>({ usuario: '', nome: '', escopo: 'geral', grupoId: '' })
+  const [form, setForm] = useState({ usuario: '', nome: '' })
+  /**
+   * Nasce SEM grupo escolhido, de propósito: é a decisão que diz se a pessoa vê
+   * uma rede ou a carteira inteira, e um padrão pré-marcado é a escolha que
+   * ninguém fez.
+   */
+  const [escolha, setEscolha] = useState<EscolhaDeGrupo>('')
   const [perfil, setPerfil] = useState<PerfilNoFormulario>(perfilNovo)
+  const escopo = escopoDa(escolha)
 
   async function criar(e: React.FormEvent) {
     e.preventDefault()
@@ -243,15 +350,11 @@ function FormularioDeUsuarioDeGestao({
         body: JSON.stringify({
           usuario: form.usuario,
           nome: form.nome,
-          escopo: form.escopo,
-          grupoId: form.escopo === 'grupo' ? form.grupoId : null,
-          ...perfilParaEnviar(perfil, form.escopo),
+          ...escopoParaEnviar(escolha),
+          ...perfilParaEnviar(perfil, escopo),
         }),
       })
       aoCriar(r)
-      setForm({ usuario: '', nome: '', escopo: 'geral', grupoId: '' })
-      setPerfil(perfilNovo())
-      if (dobra.current !== null) dobra.current.open = false
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
     } finally {
@@ -259,11 +362,8 @@ function FormularioDeUsuarioDeGestao({
     }
   }
 
-  const precisaDeGrupo = form.escopo === 'grupo'
-
   return (
-    <details className="superadmin-dobra" ref={dobra}>
-      <summary>Criar usuário de gestão</summary>
+    <Modal titulo="Adicionar usuário de gestão" aoFechar={aoFechar} classe="superadmin-modal-largo">
       <form onSubmit={criar} className="superadmin-form-largo">
         <label className="campo">
           Nome
@@ -290,87 +390,37 @@ function FormularioDeUsuarioDeGestao({
           </small>
         </label>
 
-        {/*
-          Dois rádios, não um `<select>`: são só duas opções e a diferença entre
-          elas é a decisão mais importante do formulário — ela decide se o campo
-          de grupo existe. Um rádio deixa as duas opções visíveis ao mesmo
-          tempo, em vez de escondidas atrás de um toque.
-        */}
-        <fieldset className="campo superadmin-campo-radios">
-          <legend>Escopo</legend>
-          <label>
-            <input
-              type="radio"
-              name="escopo"
-              value="geral"
-              checked={form.escopo === 'geral'}
-              onChange={() => setForm({ ...form, escopo: 'geral', grupoId: '' })}
-            />
-            Geral <small>— vê a carteira inteira, todos os grupos</small>
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="escopo"
-              value="grupo"
-              checked={form.escopo === 'grupo'}
-              onChange={() => setForm({ ...form, escopo: 'grupo' })}
-            />
-            Grupo <small>— vê só as clínicas de um grupo</small>
-          </label>
-        </fieldset>
+        <SeletorDeGrupo
+          escolha={escolha}
+          grupos={grupos}
+          erroGrupos={erroGrupos}
+          aoMudar={setEscolha}
+        />
 
-        {!precisaDeGrupo ? null : erroGrupos !== '' ? (
-          <p className="nota erro-do-painel">{erroGrupos}</p>
-        ) : grupos === null ? (
-          <p className="nota">Carregando os grupos…</p>
-        ) : grupos.length === 0 ? (
-          <p className="nota">
-            Nenhum grupo cadastrado ainda — crie um em <b>Grupos</b> antes de atribuir este
-            escopo.
-          </p>
-        ) : (
-          <label className="campo">
-            Grupo
-            <select
-              value={form.grupoId}
-              onChange={(e) => setForm({ ...form, grupoId: e.target.value })}
-              required
-            >
-              <option value="" disabled>
-                Escolha o grupo
-              </option>
-              {grupos.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.nome}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <CamposDoPerfil perfil={perfil} escopo={form.escopo} aoMudar={setPerfil} prefixo="criar" />
+        <CamposDoPerfil perfil={perfil} escopo={escopo} aoMudar={setPerfil} prefixo="criar" />
 
         <p role="alert" aria-live="polite" className="erro-do-painel">
           {erro}
         </p>
 
-        <button
-          type="submit"
-          disabled={enviando || (precisaDeGrupo && (grupos === null || grupos.length === 0))}
-          className="btn"
-        >
-          {enviando ? 'Criando…' : 'Criar usuário de gestão'}
-        </button>
+        <div className="botoes">
+          <button type="submit" disabled={enviando || escolha === ''} className="btn">
+            {enviando ? 'Criando…' : 'Criar usuário de gestão'}
+          </button>
+          <button type="button" className="btn ghost" onClick={aoFechar} disabled={enviando}>
+            Cancelar
+          </button>
+        </div>
       </form>
-    </details>
+    </Modal>
   )
 }
 
 /**
- * Edita um `Usuário de Gestão` já existente — nome, escopo, grupo, estado e
- * o perfil (G8 0.5), por completo. `usuario` (login) não aparece aqui, de propósito: mesma
- * decisão de `EditarPessoaNoPainelEntrada` no servidor.
+ * Edita um `Usuário de Gestão` já existente — nome, grupo, estado e o perfil
+ * (G8 0.5), por completo, mais a redefinição da senha (D-23 item 3). `usuario`
+ * (login) não aparece aqui, de propósito: mesma decisão de
+ * `EditarPessoaNoPainelEntrada` no servidor.
  */
 function PainelDeEdicaoDeUsuarioDeGestao({
   usuario,
@@ -378,27 +428,21 @@ function PainelDeEdicaoDeUsuarioDeGestao({
   erroGrupos,
   aoFechar,
   aoSalvar,
+  aoRedefinir,
 }: {
   usuario: UsuarioDeGestaoNaLista
   grupos: GrupoNaLista[] | null
   erroGrupos: string
   aoFechar: () => void
   aoSalvar: (u: UsuarioDeGestaoNaLista) => void
+  aoRedefinir: (s: SenhaDoUsuarioDeGestaoRedefinida) => void
 }) {
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
-  const [form, setForm] = useState<{
-    nome: string
-    escopo: 'geral' | 'grupo'
-    grupoId: string
-    ativo: boolean
-  }>({
-    nome: usuario.nome,
-    escopo: usuario.escopo,
-    grupoId: usuario.grupoId ?? '',
-    ativo: usuario.ativo,
-  })
+  const [form, setForm] = useState({ nome: usuario.nome, ativo: usuario.ativo })
+  const [escolha, setEscolha] = useState<EscolhaDeGrupo>(() => escolhaDo(usuario))
   const [perfil, setPerfil] = useState<PerfilNoFormulario>(() => perfilDoUsuario(usuario))
+  const escopo = escopoDa(escolha)
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
@@ -411,10 +455,9 @@ function PainelDeEdicaoDeUsuarioDeGestao({
           method: 'PATCH',
           body: JSON.stringify({
             nome: form.nome,
-            escopo: form.escopo,
-            grupoId: form.escopo === 'grupo' ? form.grupoId : null,
+            ...escopoParaEnviar(escolha),
             ativo: form.ativo,
-            ...perfilParaEnviar(perfil, form.escopo),
+            ...perfilParaEnviar(perfil, escopo),
           }),
         },
       )
@@ -426,10 +469,8 @@ function PainelDeEdicaoDeUsuarioDeGestao({
     }
   }
 
-  const precisaDeGrupo = form.escopo === 'grupo'
-
   return (
-    <Modal titulo={`Editar ${usuario.nome}`} aoFechar={aoFechar}>
+    <Modal titulo={`Editar ${usuario.nome}`} aoFechar={aoFechar} classe="superadmin-modal-largo">
       <form onSubmit={salvar} className="superadmin-form-largo">
         <label className="campo">
           Nome
@@ -440,53 +481,14 @@ function PainelDeEdicaoDeUsuarioDeGestao({
           />
         </label>
 
-        <fieldset className="campo superadmin-campo-radios">
-          <legend>Escopo</legend>
-          <label>
-            <input
-              type="radio"
-              name="escopo-edicao"
-              value="geral"
-              checked={form.escopo === 'geral'}
-              onChange={() => setForm({ ...form, escopo: 'geral', grupoId: '' })}
-            />
-            Geral <small>— vê a carteira inteira, todos os grupos</small>
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="escopo-edicao"
-              value="grupo"
-              checked={form.escopo === 'grupo'}
-              onChange={() => setForm({ ...form, escopo: 'grupo' })}
-            />
-            Grupo <small>— vê só as clínicas de um grupo</small>
-          </label>
-        </fieldset>
+        <SeletorDeGrupo
+          escolha={escolha}
+          grupos={grupos}
+          erroGrupos={erroGrupos}
+          aoMudar={setEscolha}
+        />
 
-        {!precisaDeGrupo ? null : erroGrupos !== '' ? (
-          <p className="nota erro-do-painel">{erroGrupos}</p>
-        ) : grupos === null ? (
-          <p className="nota">Carregando os grupos…</p>
-        ) : (
-          <label className="campo">
-            Grupo
-            <select
-              value={form.grupoId}
-              onChange={(e) => setForm({ ...form, grupoId: e.target.value })}
-              required
-            >
-              <option value="" disabled>
-                Escolha o grupo
-              </option>
-              {grupos.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.nome}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <CamposDoPerfil perfil={perfil} escopo={escopo} aoMudar={setPerfil} prefixo="editar" />
 
         <label className="caixa">
           <input
@@ -497,18 +499,12 @@ function PainelDeEdicaoDeUsuarioDeGestao({
           <span>Ativo</span>
         </label>
 
-        <CamposDoPerfil perfil={perfil} escopo={form.escopo} aoMudar={setPerfil} prefixo="editar" />
-
         <p role="alert" aria-live="polite" className="erro-do-painel">
           {erro}
         </p>
 
         <div className="botoes">
-          <button
-            type="submit"
-            disabled={enviando || (precisaDeGrupo && form.grupoId === '')}
-            className="btn"
-          >
+          <button type="submit" disabled={enviando || escolha === ''} className="btn">
             {enviando ? 'Salvando…' : 'Salvar'}
           </button>
           <button type="button" className="btn ghost" onClick={aoFechar} disabled={enviando}>
@@ -516,36 +512,53 @@ function PainelDeEdicaoDeUsuarioDeGestao({
           </button>
         </div>
       </form>
-      <RedefinirSegundoFator usuarioId={usuario.id} nome={usuario.nome} />
+      <RedefinirSenhaDoUsuarioDeGestao usuario={usuario} aoRedefinir={aoRedefinir} />
     </Modal>
   )
 }
 
 /**
- * "Perdi o celular": apaga o segundo fator da pessoa, invalida os códigos de
- * recuperação e derruba todas as sessões; o próximo login cai no cadastro de
- * novo (ADR 0022). Recolhido porque é raro, e com motivo obrigatório: o runbook
- * (`infra/producao/README.md`) exige confirmar a identidade FORA do canal do
- * pedido antes — reset pedido por WhatsApp é o ataque.
+ * **REDEFINIR A SENHA** — D-23 item 3, no lugar do "Perdeu o celular?" (o
+ * segundo fator foi desligado pelo dono). O mesmo padrão da clínica
+ * (`tela-usuarios.tsx`, D-18): quem redefine pode **escolher** a provisória
+ * ou deixar vazio para o servidor gerar; nos dois casos ela é provisória e a
+ * pessoa troca no primeiro acesso.
+ *
+ * Dois toques, porque redefinir derruba as sessões dela. A regra de força é a
+ * de `packages/domain` (`avaliarSenha`), só para adiantar a recusa: o servidor
+ * julga de novo, e a mensagem dele é a que vale. O contexto daqui é um
+ * SUBCONJUNTO do dele (nome e usuário), então a tela não recusa o que o
+ * servidor aceitaria.
  */
-function RedefinirSegundoFator({ usuarioId, nome }: { usuarioId: string; nome: string }) {
-  const [motivo, setMotivo] = useState('')
-  const [recado, setRecado] = useState('')
+function RedefinirSenhaDoUsuarioDeGestao({
+  usuario,
+  aoRedefinir,
+}: {
+  usuario: UsuarioDeGestaoNaLista
+  aoRedefinir: (s: SenhaDoUsuarioDeGestaoRedefinida) => void
+}) {
+  const [confirmando, setConfirmando] = useState(false)
+  const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const escolhida = senha.trim()
+  const juizo =
+    escolhida === ''
+      ? null
+      : avaliarSenha(escolhida, { contexto: [usuario.usuario, usuario.nome], dono: 'deOutra' })
+  const avisoDaRegra = juizo !== null && ehErro(juizo) ? juizo.erro.mensagem : ''
 
-  async function redefinir(e: React.FormEvent) {
-    e.preventDefault()
+  async function redefinir() {
     setErro('')
-    setRecado('')
     setEnviando(true)
     try {
-      await chamar<null>(`v1/superadmin/usuarios-gestao/${usuarioId}/segundo-fator/resetar`, {
-        method: 'POST',
-        body: JSON.stringify({ motivo }),
-      })
-      setMotivo('')
-      setRecado(`Verificação em duas etapas de ${nome} redefinida. No próximo acesso, ela cadastra o celular de novo.`)
+      const corpo: RedefinirSenhaDoUsuarioDeGestaoEntrada =
+        escolhida === '' ? {} : { senha: escolhida }
+      const s = await chamar<SenhaDoUsuarioDeGestaoRedefinida>(
+        `v1/superadmin/usuarios-gestao/${usuario.id}/senha`,
+        { method: 'POST', body: JSON.stringify(corpo) },
+      )
+      aoRedefinir(s)
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
     } finally {
@@ -554,37 +567,81 @@ function RedefinirSegundoFator({ usuarioId, nome }: { usuarioId: string; nome: s
   }
 
   return (
-    <details>
-      <summary>Perdeu o celular? Redefinir a verificação em duas etapas</summary>
-      <form onSubmit={redefinir} className="superadmin-form-largo">
-        <p className="nota">
-          Antes, confirme que é mesmo {nome}, por um canal diferente do pedido (ligue para o número que já
-          está no cadastro). Isso derruba todas as sessões dela.
-        </p>
-        <label className="campo">
-          Motivo e como a identidade foi confirmada
-          <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} minLength={10} required />
-        </label>
-        <p role="alert" aria-live="polite" className="erro-do-painel">
-          {erro}
-        </p>
-        <p aria-live="polite" className="nota">
-          {recado}
-        </p>
+    <section className="superadmin-redefinir-senha" aria-label={`Senha de ${usuario.nome}`}>
+      <h3>Senha</h3>
+      {!confirmando ? (
         <div className="botoes">
-          <button type="submit" className="btn ghost" disabled={enviando || motivo.trim().length < 10}>
-            {enviando ? 'Redefinindo…' : 'Redefinir duas etapas'}
+          <button type="button" className="btn ghost" onClick={() => setConfirmando(true)}>
+            Redefinir senha
           </button>
         </div>
-      </form>
-    </details>
+      ) : (
+        <>
+          <label className="campo">
+            Senha provisória <small>(deixe vazio para o sistema gerar)</small>
+            <input
+              type="text"
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              maxLength={SENHA_MAX}
+              value={senha}
+              placeholder="Em branco = o sistema gera e mostra aqui"
+              onChange={(e) => setSenha(e.target.value)}
+            />
+            <small className="erro-reservado">
+              {avisoDaRegra !== ''
+                ? avisoDaRegra
+                : `Pelo menos ${SENHA_MIN} caracteres. Pode ser uma frase.`}
+            </small>
+          </label>
+          <p className="nota">
+            A senha atual deixa de valer e <b>as sessões abertas de {usuario.nome} caem</b>.{' '}
+            {escolhida === ''
+              ? 'A nova aparece aqui, uma vez — anote antes de fechar.'
+              : `Ela entra como provisória: ${usuario.nome} vai ter de trocá-la no primeiro acesso, porque você também a conhece.`}
+          </p>
+          <p role="alert" aria-live="polite" className="erro-do-painel">
+            {erro}
+          </p>
+          <div className="botoes">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void redefinir()}
+              disabled={enviando || avisoDaRegra !== ''}
+            >
+              {enviando
+                ? 'Redefinindo…'
+                : escolhida === ''
+                  ? 'Confirmar: gerar senha nova'
+                  : 'Confirmar: usar esta senha'}
+            </button>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setConfirmando(false)
+                setSenha('')
+                setErro('')
+              }}
+              disabled={enviando}
+            >
+              Deixar como está
+            </button>
+          </div>
+        </>
+      )}
+    </section>
   )
 }
 
 /**
  * A senha provisória do `Usuário de Gestão`, mostrada uma vez — mesmo padrão
  * de `components/senha-provisoria.tsx` (modal, obrigado a fechar de
- * propósito, cópia do par usuário+senha).
+ * propósito, cópia do par usuário+senha). Serve à criação e à redefinição
+ * com senha gerada (D-23 item 3).
  *
  * **Por que não reaproveitar o componente da casa diretamente:** ele exige
  * `expiraEm`, e `UsuarioDeGestaoCriadoSaida` não devolve esse instante — ao
@@ -595,15 +652,15 @@ function RedefinirSegundoFator({ usuarioId, nome }: { usuarioId: string; nome: s
  * local diz a mesma verdade sem a data que não existe na resposta.
  */
 function SenhaDoUsuarioDeGestao({
-  resultado,
+  senha,
   aoFechar,
 }: {
-  resultado: UsuarioDeGestaoCriadoSaida
+  senha: SenhaParaMostrar
   aoFechar: () => void
 }) {
   const [copiado, setCopiado] = useState<'nao' | 'sim' | 'falhou'>('nao')
-  const { nome, usuario } = resultado.usuarioDeGestao
-  const paraCopiar = `Usuário: ${usuario}\nSenha provisória: ${resultado.senhaProvisoria}`
+  const { nome, usuario } = senha
+  const paraCopiar = `Usuário: ${usuario}\nSenha provisória: ${senha.senhaProvisoria}`
 
   async function copiar() {
     try {
@@ -618,7 +675,7 @@ function SenhaDoUsuarioDeGestao({
     <Modal titulo={`Senha provisória de ${nome}`} aoFechar={aoFechar}>
       <p className="nota">
         <b>Ela aparece só desta vez.</b> Nem você nem ninguém consegue ler esta senha depois de
-        fechar. Se perder, não há como redefini-la por aqui ainda — avise a Firmare.
+        fechar. Se perder, gere outra em <b>Editar</b> › <b>Redefinir senha</b>.
       </p>
 
       <div className="campo">
@@ -632,7 +689,7 @@ function SenhaDoUsuarioDeGestao({
           className="superadmin-segredo"
           type="text"
           readOnly
-          value={resultado.senhaProvisoria}
+          value={senha.senhaProvisoria}
         />
       </div>
 

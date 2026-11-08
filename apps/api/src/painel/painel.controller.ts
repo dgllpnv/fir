@@ -6,6 +6,7 @@ import {
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -21,15 +22,20 @@ import {
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { FilaCheia, RETRY_AFTER_FILA_CHEIA } from '../autenticacao/concorrencia'
 import { LimitePorOrigem } from '../autenticacao/limite-por-origem'
+import { NOME_DO_COOKIE_CARTEIRA } from '../carteira/carteira.guard'
 import type { RequisicaoComPainel } from './contexto-do-painel'
 import { DURACAO_SESSAO_PAINEL_MS, NOME_DO_COOKIE_PAINEL } from './painel.guard'
 import {
+  type ContaDeGestaoDoLogin,
   CredencialDeOperadorInvalida,
   LimiteDeTentativasDoOperador,
   PainelService,
 } from './painel.service'
 import { LIMITE_DO_PAINEL } from './limite-do-painel'
 import { SoOperador } from './so-operador.decorator'
+
+/** O 409 de `POST eu/conta-de-gestao` com o segundo fator ligado (ADR 0024 §4). */
+export const CODIGO_CONTA_DE_GESTAO_COM_SEGUNDO_FATOR = 'CONTA_DE_GESTAO_COM_SEGUNDO_FATOR'
 
 /** Uma frase só para toda falha de credencial de operador. */
 const FRASE = 'Usuário ou senha incorretos.'
@@ -81,7 +87,10 @@ export class PainelController {
     if (!dados.success) throw new BadRequestException('Confira o usuário e a senha.')
 
     try {
-      const { operador, token } = await this.painel.entrar(dados.data.usuario, dados.data.senha)
+      const { operador, token, contaDeGestao } = await this.painel.entrar(
+        dados.data.usuario,
+        dados.data.senha,
+      )
       res.setCookie(NOME_DO_COOKIE_PAINEL, token, {
         httpOnly: true,
         secure: true,
@@ -93,6 +102,7 @@ export class PainelController {
         path: '/',
         maxAge: Math.floor(DURACAO_SESSAO_PAINEL_MS / 1000),
       })
+      gravarCookieDaContaDeGestao(res, contaDeGestao)
       return { operador }
     } catch (e) {
       if (e instanceof LimiteDeTentativasDoOperador) {
@@ -132,6 +142,9 @@ export class PainelController {
     const token = req.cookies?.[NOME_DO_COOKIE_PAINEL]
     if (token) await this.painel.sair(token)
     res.clearCookie(NOME_DO_COOKIE_PAINEL, { path: '/' })
+    // A sessão da conta de gestão já foi revogada no banco por `sair`; o
+    // cookie sai junto para a tela da carteira não guardar um token morto.
+    res.clearCookie(NOME_DO_COOKIE_CARTEIRA, { path: '/' })
   }
 
   /**
@@ -169,6 +182,42 @@ export class PainelController {
     throw new HttpException(r.mensagem, HttpStatus.UNPROCESSABLE_ENTITY)
   }
 
+  /**
+   * REABRE a sessão da `Conta de gestão do operador` (ADR 0024) para quem já
+   * está no painel: depois de trocar a senha provisória (o login não a abre
+   * nesse caso), ou quando o cookie da carteira venceu ou foi largado pelo
+   * "Sair" da carteira. A sessão do painel é a prova; o corpo é vazio.
+   *
+   *  - **204** com o cookie `__Host-fir-carteira`;
+   *  - **409** `CONTA_DE_GESTAO_COM_SEGUNDO_FATOR`: o segundo fator está
+   *    ligado, e a entrada única não o contorna. Código PRÓPRIO, e não o
+   *    `SEGUNDO_FATOR_CARTEIRA` do guard: `chamar` desvia aquele para o
+   *    cadastro do TOTP, e a conta do operador não tem por onde se cadastrar;
+   *  - **404** o operador não tem conta ativa (não deveria acontecer: a 0061
+   *    provisiona todas).
+   *
+   * Sob senha provisória o `PainelGuard` já respondeu 409 antes daqui.
+   */
+  @Post('eu/conta-de-gestao')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async abrirContaDeGestao(
+    @Req() req: RequisicaoComPainel,
+    @Res({ passthrough: true }) res: FastifyReply,
+  ): Promise<void> {
+    const contexto = req.painel
+    if (!contexto) throw new NotFoundException()
+    const conta = await this.painel.abrirContaDeGestao(contexto.ator)
+    if (conta.tag === 'segundo-fator') {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        codigo: CODIGO_CONTA_DE_GESTAO_COM_SEGUNDO_FATOR,
+        message: 'Com a verificação em duas etapas ligada, a carteira não abre pelo painel.',
+      })
+    }
+    if (conta.tag === 'sem-conta') throw new NotFoundException()
+    gravarCookieDaContaDeGestao(res, conta)
+  }
+
   @Get('eu')
   eu(@Req() req: RequisicaoComPainel): PainelEuSaida {
     // `!` seria uma afirmação sem prova: o guard popula `req.painel`, mas um
@@ -178,4 +227,20 @@ export class PainelController {
     if (!contexto) throw new NotFoundException()
     return { operador: contexto.operador }
   }
+}
+
+/**
+ * O cookie da carteira para a conta de gestão do operador: o MESMO nome e os
+ * mesmos atributos do login da carteira, com a duração da sessão do PAINEL
+ * (ADR 0024 §2) — as duas nascem juntas e vencem juntas.
+ */
+function gravarCookieDaContaDeGestao(res: FastifyReply, conta: ContaDeGestaoDoLogin): void {
+  if (conta.tag !== 'aberta') return
+  res.setCookie(NOME_DO_COOKIE_CARTEIRA, conta.token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict',
+    path: '/',
+    maxAge: Math.floor(DURACAO_SESSAO_PAINEL_MS / 1000),
+  })
 }

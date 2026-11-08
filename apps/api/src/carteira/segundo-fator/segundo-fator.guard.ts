@@ -13,6 +13,7 @@ import { Reflector } from '@nestjs/core'
 import { NOME_DO_COOKIE_CARTEIRA } from '../carteira.guard'
 import type { RequisicaoComCarteira } from '../contexto-da-carteira'
 import { SO_USUARIO_DE_GESTAO } from '../so-usuario-de-gestao.decorator'
+import { segundoFatorLigado } from './ligado'
 import { SegundoFatorDaCarteiraService } from './segundo-fator.service'
 
 /** O código no corpo do 409, para a tela desviar sem casar texto. */
@@ -33,17 +34,6 @@ export const LIBERADAS_SEM_SEGUNDO_FATOR: ReadonlySet<string> = new Set([
 ])
 const TROCA_DE_SENHA = 'POST /v1/carteira/eu/senha'
 
-/**
- * A obrigatoriedade só pode ser relaxada FORA de produção, e só para conta
- * que ainda não cadastrou TOTP — é como os e2e dos outros módulos da
- * carteira continuam testando o que testam (mesma ideia de
- * `MAX_LOGIN_POR_ORIGEM` no `vitest.config.ts`). Em produção a variável é
- * ignorada: não existe chave que desligue o segundo fator lá.
- * Lido a cada requisição, para o e2e deste módulo poder ligar a regra.
- */
-export const obrigatoriedadeRelaxada = (ambiente: NodeJS.ProcessEnv = process.env): boolean =>
-  ambiente['NODE_ENV'] !== 'production' && ambiente['SEGUNDO_FATOR_CARTEIRA_OPCIONAL_FORA_DE_PRODUCAO'] === '1'
-
 const juntar = (...partes: (string | undefined)[]): string =>
   `/${partes
     .filter((p): p is string => typeof p === 'string')
@@ -60,6 +50,11 @@ const juntar = (...partes: (string | undefined)[]): string =>
  * Guard à parte, e não um estado a mais dentro do `CarteiraGuard`, só por
  * propriedade de arquivo no G8 (o `CarteiraGuard` é do ticket 0.5). A regra
  * é a mesma: o estado vem do BANCO a cada requisição.
+ *
+ * Só age com `SEGUNDO_FATOR_CARTEIRA_LIGADO` ligada (ADR 0023). Ligada, é o
+ * guard da ADR 0022 sem relaxamento nenhum: a antiga
+ * `SEGUNDO_FATOR_CARTEIRA_OPCIONAL_FORA_DE_PRODUCAO` saiu, porque os e2e dos
+ * outros módulos rodam com a chave desligada, que é o padrão.
  */
 @Injectable()
 export class SegundoFatorDaCarteiraGuard implements CanActivate {
@@ -69,6 +64,10 @@ export class SegundoFatorDaCarteiraGuard implements CanActivate {
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
+    // D-23 item 3 (ADR 0023): desligado, a senha basta — nenhuma rota pede o
+    // segundo fator, nem a quem já o tem ativo.
+    if (!segundoFatorLigado()) return true
+
     const soCarteira = this.reflector.getAllAndOverride<boolean | undefined>(SO_USUARIO_DE_GESTAO, [
       ctx.getHandler(),
       ctx.getClass(),
@@ -83,7 +82,6 @@ export class SegundoFatorDaCarteiraGuard implements CanActivate {
     const estado = await this.servico.estadoDaSessao(token)
     if (!estado) throw new NotFoundException()
     if (estado.ativo && estado.sessaoVerificada) return true
-    if (!estado.ativo && obrigatoriedadeRelaxada()) return true
 
     const prefixo = Reflect.getMetadata(PATH_METADATA, ctx.getClass()) as string | undefined
     const caminho = Reflect.getMetadata(PATH_METADATA, ctx.getHandler()) as string | undefined

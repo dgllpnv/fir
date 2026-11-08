@@ -57,6 +57,7 @@ import {
   LimiteDoSegundoFator,
   SegundoFatorDaCarteiraService,
 } from './segundo-fator/segundo-fator.service'
+import { segundoFatorLigado } from './segundo-fator/ligado'
 
 const FRASE = 'Usuário ou senha incorretos.'
 
@@ -98,8 +99,11 @@ export class CarteiraController {
 
     // G8 0.6 (A-12): a SEGUNDA etapa vem pela mesma rota — mesmo limite por
     // origem, mesma liberação no `CarteiraGuard` —, com o cookie do desafio.
+    // Desligado (ADR 0023), não há segunda etapa: o corpo dela cai no 400 da
+    // senha, e nenhum desafio antigo vira sessão.
+    const ligado = segundoFatorLigado()
     const segunda = SegundaEtapaDeEntrarNaCarteiraEntrada.safeParse(corpo)
-    if (segunda.success) return this.segundaEtapa(segunda.data, req, res)
+    if (ligado && segunda.success) return this.segundaEtapa(segunda.data, req, res)
 
     const dados = EntrarNaCarteiraEntrada.safeParse(corpo)
     if (!dados.success) throw new BadRequestException('Confira o usuário e a senha.')
@@ -118,8 +122,13 @@ export class CarteiraController {
         return { segundoFatorExigido: true }
       }
       this.gravarSessao(res, r.token)
-      // Sessão sem desafio = conta ainda sem TOTP: só alcança o cadastro.
-      return { usuarioDeGestao: r.usuarioDeGestao, segundoFator: { ativo: false }, avisoDeRecuperacao: null }
+      // Sessão sem desafio: com o segundo fator ligado, é conta ainda sem
+      // TOTP, e só alcança o cadastro; desligado, é a sessão inteira.
+      return {
+        usuarioDeGestao: r.usuarioDeGestao,
+        segundoFator: { ativo: r.segundoFatorAtivo, exigido: ligado },
+        avisoDeRecuperacao: null,
+      }
     } catch (e) {
       if (e instanceof LimiteDeTentativasDaCarteira) {
         res.header('Retry-After', String(RETRY_AFTER_LIMITE_POR_CONTA))
@@ -167,7 +176,11 @@ export class CarteiraController {
       this.gravarSessao(res, token)
       const contexto = await this.carteira.contextoDoToken(token)
       if (!contexto) throw expirado()
-      return { usuarioDeGestao: contexto.usuarioDeGestao, segundoFator: { ativo: true }, avisoDeRecuperacao: aviso }
+      return {
+        usuarioDeGestao: contexto.usuarioDeGestao,
+        segundoFator: { ativo: true, exigido: true },
+        avisoDeRecuperacao: aviso,
+      }
     } catch (e) {
       if (e instanceof DesafioDaCarteiraInvalido) {
         res.clearCookie(NOME_DO_COOKIE_DESAFIO_DA_CARTEIRA, { path: '/' })
@@ -238,9 +251,9 @@ export class CarteiraController {
   async eu(@Req() req: RequisicaoComCarteira): Promise<CarteiraEuComSegundoFatorSaida> {
     // O guard já recusou (404) se não houver contexto — chegar aqui garante
     // que `req.carteira` existe. `segundoFator` diz à tela se manda para o
-    // cadastro (G8 0.6).
+    // cadastro (G8 0.6) — só se o servidor o exige (ADR 0023).
     const { ativo } = await this.segundoFator.resumo(req.carteira!.usuarioDeGestao.id)
-    return { usuarioDeGestao: req.carteira!.usuarioDeGestao, segundoFator: { ativo } }
+    return { usuarioDeGestao: req.carteira!.usuarioDeGestao, segundoFator: { ativo, exigido: segundoFatorLigado() } }
   }
 
   @Get('clientes')

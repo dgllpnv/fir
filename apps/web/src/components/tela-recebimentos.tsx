@@ -195,11 +195,10 @@ export function TelaRecebimentos({
       </p>
 
       <form className="formulario" onSubmit={registrar} style={{ maxWidth: 'none' }}>
-        <SeletorDePaciente escolhido={paciente} aoEscolher={setPaciente} />
+        <SeletorDePaciente escolhido={paciente} aoEscolher={setPaciente} destaque />
 
-        {paciente === null ? (
-          <p className="nota">Escolha a paciente para continuar.</p>
-        ) : (
+        {/* Sem paciente, só o bloco do primeiro passo: a dica dele já diz o que fazer. */}
+        {paciente === null ? null : (
           <>
             <AvisoDeRepeticao estado={recentes} />
             <AvisoDeSaldo estado={saldo} />

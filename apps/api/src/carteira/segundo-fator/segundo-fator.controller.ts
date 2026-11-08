@@ -9,6 +9,7 @@ import {
 import {
   BadRequestException,
   Body,
+  type CanActivate,
   ConflictException,
   Controller,
   ForbiddenException,
@@ -17,15 +18,19 @@ import {
   HttpException,
   HttpStatus,
   Inject,
+  Injectable,
+  NotFoundException,
   Post,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
 import { FilaCheia, RETRY_AFTER_FILA_CHEIA } from '../../autenticacao/concorrencia'
 import { NOME_DO_COOKIE_CARTEIRA } from '../carteira.guard'
 import type { RequisicaoComCarteira } from '../contexto-da-carteira'
 import { SoUsuarioDeGestao } from '../so-usuario-de-gestao.decorator'
+import { segundoFatorLigado } from './ligado'
 import {
   CadastroDoSegundoFatorExpirado,
   CodigoDoSegundoFatorInvalido,
@@ -40,6 +45,19 @@ import {
 type Req = RequisicaoComCarteira & { cookies?: Record<string, string> }
 
 /**
+ * Com `SEGUNDO_FATOR_CARTEIRA_LIGADO` desligada (ADR 0023), as rotas de
+ * cadastro não existem: 404, como uma rota que nunca foi escrita. Roda depois
+ * dos `APP_GUARD` — sem sessão, o `CarteiraGuard` já respondeu 404.
+ */
+@Injectable()
+export class SoComSegundoFatorLigado implements CanActivate {
+  canActivate(): boolean {
+    if (!segundoFatorLigado()) throw new NotFoundException()
+    return true
+  }
+}
+
+/**
  * O segundo fator do PRÓPRIO `Usuário de Gestão` (A-12). Cadastro e
  * confirmação passam pelo `SegundoFatorDaCarteiraGuard` mesmo numa sessão
  * sem segundo fator; a regeneração de códigos, não — ela exige a sessão
@@ -49,6 +67,7 @@ type Req = RequisicaoComCarteira & { cookies?: Record<string, string> }
  * no-store`: o segredo não fica num cache de disco do navegador.
  */
 @SoUsuarioDeGestao()
+@UseGuards(SoComSegundoFatorLigado)
 @Controller('v1/carteira/eu/segundo-fator')
 export class SegundoFatorDaCarteiraController {
   constructor(@Inject(SegundoFatorDaCarteiraService) private readonly servico: SegundoFatorDaCarteiraService) {}

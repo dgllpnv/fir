@@ -99,7 +99,9 @@ type Requisicao = RequisicaoComContexto & RequisicaoComPortal & RequisicaoComCar
  *    (ADR 0017 §3, ADR 0018), só se `PortalGuard` provou a sessão — e só a
  *    conta com `ve_valores` (LGPD A52: a segunda conta não é o titular).
  *  - **operador** (`@SoOperador`): o painel trata identidade e tenancy, nunca
- *    negócio — nenhum dinheiro atravessa (`superadmin/identidade.test.ts`).
+ *    negócio — nenhum dinheiro atravessa as rotas `/v1/superadmin/*`. O
+ *    superadmin vê dinheiro só pela conta de gestão vinculada, nas rotas
+ *    `/v1/carteira/*` sob a sessão da carteira (ADR 0024).
  *  - **clínica**: a permissão da `Pessoa` (`req.contexto.pode`).
  */
 export function decisorDaRota(espaco: EspacoDaRota, req: Requisicao): (chave: ChaveDePermissao) => boolean {

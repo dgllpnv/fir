@@ -15,8 +15,16 @@ import { CarteiraEuSaida } from './carteira'
 
 const Codigo = z.string().min(1, 'Informe o código.').max(32)
 
-/** O estado que a tela precisa para decidir para onde mandar a pessoa. */
-export const EstadoDoSegundoFatorNaSessao = z.object({ ativo: z.boolean() })
+/**
+ * O estado que a tela precisa para decidir para onde mandar a pessoa.
+ *
+ *  - `ativo` — a CONTA tem TOTP ativo.
+ *  - `exigido` — o servidor exige o segundo fator (`SEGUNDO_FATOR_CARTEIRA_LIGADO`,
+ *    ADR 0023). Desligado, a tela não desvia para o cadastro nem mostra
+ *    "Duas etapas", mesmo com `ativo: true`. A tela não sabe da chave por
+ *    conta própria: é o servidor quem diz, para religar não exigir build.
+ */
+export const EstadoDoSegundoFatorNaSessao = z.object({ ativo: z.boolean(), exigido: z.boolean() })
 export type EstadoDoSegundoFatorNaSessao = z.infer<typeof EstadoDoSegundoFatorNaSessao>
 
 /** `GET /v1/carteira/eu` — o `eu` de sempre, mais o estado do segundo fator. */
@@ -41,10 +49,12 @@ export type AvisoDeRecuperacao = z.infer<typeof AvisoDeRecuperacao>
 
 /**
  * O que `POST /v1/carteira/entrar` devolve:
- *  - `{ segundoFatorExigido: true }` — a senha conferiu e a conta tem TOTP;
- *    NENHUMA sessão nasceu, só o cookie do desafio (5 min).
- *  - o `eu` com o estado do segundo fator — a sessão nasceu. Se o segundo
- *    fator ainda não está ativo, a sessão só alcança o cadastro, `eu` e
+ *  - `{ segundoFatorExigido: true }` — a senha conferiu, a conta tem TOTP e
+ *    o segundo fator está ligado; NENHUMA sessão nasceu, só o cookie do
+ *    desafio (5 min). Com `SEGUNDO_FATOR_CARTEIRA_LIGADO` desligada (o
+ *    padrão, ADR 0023), esta forma NUNCA sai.
+ *  - o `eu` com o estado do segundo fator — a sessão nasceu. Com o segundo
+ *    fator ligado e ainda não ativo, a sessão só alcança o cadastro, `eu` e
  *    `sair`.
  */
 export const EntrarNaCarteiraSaida = z.union([

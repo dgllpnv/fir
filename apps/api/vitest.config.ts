@@ -15,14 +15,14 @@ export default defineConfig({
     // entradas do mesmo loopback. Quem mede o limite de verdade é o
     // `describe` dedicado, que substitui o provedor por uma instância de
     // teto 3.
-    // E o SEGUNDO FATOR da carteira (G8 0.6): obrigatório para todo Usuário
-    // de Gestão, mas os e2e dos outros módulos da carteira testam o que
-    // testam com contas sem TOTP. A variável só relaxa conta SEM TOTP e é
-    // ignorada em produção; `segundo-fator.e2e.test.ts` a desliga e mede a regra.
+    // E o SEGUNDO FATOR da carteira: desligado, que é o padrão de produção
+    // desde a D-23 (ADR 0023) — fixado aqui para que um shell com a chave
+    // ligada não mude o que os e2e medem. `segundo-fator.e2e.test.ts` a liga
+    // para si e mede a regra da ADR 0022.
     env: {
       MAX_LOGIN_POR_ORIGEM: '5000',
       MAX_PAINEL_POR_ORIGEM: '5000',
-      SEGUNDO_FATOR_CARTEIRA_OPCIONAL_FORA_DE_PRODUCAO: '1',
+      SEGUNDO_FATOR_CARTEIRA_LIGADO: 'false',
     },
   },
 })

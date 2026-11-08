@@ -51,6 +51,12 @@ export default function SegundoFatorDaCarteira() {
           window.location.assign('/carteira/trocar-senha')
           return
         }
+        // Desligado no servidor (ADR 0023): esta tela não tem o que fazer, e
+        // as rotas dela respondem 404.
+        if (!eu.segundoFator.exigido) {
+          window.location.assign('/carteira')
+          return
+        }
         if (!eu.segundoFator.ativo) {
           setEtapa({ tag: 'senha' })
           return

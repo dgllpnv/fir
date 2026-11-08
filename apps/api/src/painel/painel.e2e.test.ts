@@ -186,16 +186,19 @@ describe('POST /v1/superadmin/entrar', () => {
     )
     await entrarNoPainel().expect(200)
 
+    // Duas linhas, desde a ADR 0024: a entrada no painel e a abertura da
+    // conta de gestão dele (entrada única), as duas com o operador por ator.
     const t = await migrate.query<{ ator_tipo: string; acao: string; entidade: string }>(
       `SELECT ator_tipo, acao, entidade FROM auditoria_do_painel
-        WHERE ator_id = $1 ORDER BY em DESC, id DESC LIMIT 1`,
+        WHERE ator_id = $1 ORDER BY em DESC, id DESC LIMIT 2`,
       [operador],
     )
-    expect(t.rows[0]).toMatchObject({
-      ator_tipo: 'operador',
-      acao: 'entrou',
-      entidade: 'operadores',
-    })
+    expect(t.rows).toEqual(
+      expect.arrayContaining([
+        { ator_tipo: 'operador', acao: 'entrou', entidade: 'operadores' },
+        { ator_tipo: 'operador', acao: 'entrou', entidade: 'usuarios_gestao' },
+      ]),
+    )
 
     const depoisDaClinica = await migrate.query<{ n: string }>(
       'SELECT count(*) AS n FROM auditoria WHERE clinica_id = $1',

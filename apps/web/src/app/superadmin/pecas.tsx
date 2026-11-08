@@ -166,15 +166,22 @@ export function SeletorDeClinica({
 }
 
 /**
- * **AS TRÊS SEÇÕES DO PAINEL, SEMPRE NA MESMA ORDEM.**
+ * **AS SEÇÕES DO PAINEL, SEMPRE NA MESMA ORDEM.**
  *
  * A carteira comercial (Grupo, Cliente Firmare, Usuário de Gestão — ADR 0011)
  * trouxe duas telas novas, e sem navegação entre elas cada uma só se alcança
  * digitando o endereço — o painel não tem menu nenhum hoje, porque nasceu com
  * uma lista só. `aria-current="page"` é o que diz, sem cor nenhuma extra, onde
  * a pessoa está — a mesma pergunta que a faixa já responde para a clínica.
+ *
+ * D-23 item 6 (ADR 0024): a Visão geral vem primeiro — é a tela que o login
+ * abre —, e "Gestão da carteira" leva à carteira inteira (`/carteira`), que a
+ * sessão aberta pelo login do painel já autoriza. Ela sai do casco do painel
+ * de propósito: lá a faixa é a da carteira, e o que se faz é da carteira.
  */
 const SECOES: readonly { href: string; rotulo: string }[] = [
+  { href: '/superadmin', rotulo: 'Visão geral' },
+  { href: '/carteira', rotulo: 'Gestão da carteira' },
   { href: '/superadmin/clinicas', rotulo: 'Clínicas' },
   { href: '/superadmin/grupos', rotulo: 'Grupos' },
   { href: '/superadmin/usuarios-gestao', rotulo: 'Usuários de gestão' },

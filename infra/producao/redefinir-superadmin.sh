@@ -87,6 +87,10 @@ docker compose exec -T -e PGPASSWORD="$SENHA_POSTGRES" postgres \
 --
 -- A senha nasce PROVISÓRIA com 72 h. Quem entrar com ela só consegue
 -- trocá-la — o `PainelGuard` barra o resto.
+--
+-- A CONTA DE GESTÃO do operador (D-23 item 6, ADR 0024) nasce junto, na
+-- mesma transação, pelo gatilho da migration 0061 — este script não a cria
+-- à mão. Reativar o operador (o ON CONFLICT abaixo) reativa a conta.
 INSERT INTO operadores (usuario, nome, senha_hash, ativo,
                         senha_provisoria, senha_provisoria_expira_em)
 VALUES (normalizar_nome(:'usuario'), :'nome', :'hash', true,
@@ -128,6 +132,8 @@ echo
 echo "Esta senha aparece UMA VEZ. Ela vence em 72 horas e quem entrar com"
 echo "ela só consegue trocá-la — o painel fica fechado até a troca."
 echo "Dite-a; não a cole num chat que fica gravado."
+echo "A Visão geral (/superadmin) abre depois da troca: a conta de gestão do"
+echo "operador já existe e não tem senha própria (ADR 0024)."
 echo
 
 # O AVISO DOS DOIS OPERADORES.

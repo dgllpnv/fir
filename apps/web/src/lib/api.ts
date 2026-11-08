@@ -98,7 +98,9 @@ export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Prom
       window.location.assign(CAMINHO_TROCAR_SENHA_DA_CARTEIRA)
     }
     // G8 0.6 (A-12): sessão da carteira sem segundo fator — a etapa seguinte
-    // à provisória, com o seu próprio código e o seu próprio destino.
+    // à provisória, com o seu próprio código e o seu próprio destino. Com o
+    // segundo fator desligado no servidor (ADR 0023, o padrão) este 409 nunca
+    // sai, e o desvio nunca acontece; fica para religar sem build.
     if (corpo.codigo === 'SEGUNDO_FATOR_CARTEIRA' && typeof window !== 'undefined') {
       window.location.assign('/carteira/segundo-fator')
     }

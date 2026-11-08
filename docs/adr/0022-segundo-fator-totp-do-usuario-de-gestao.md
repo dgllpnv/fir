@@ -1,6 +1,8 @@
 # ADR 0022 — Segundo fator (TOTP) do Usuário de Gestão
 
-**Status:** aceita · 2026-11-08
+**Status:** aceita · 2026-11-08 · **emendada pela [ADR 0023](0023-segundo-fator-desligado-por-decisao-do-dono.md)
+(D-23):** a exigência está desligada por padrão (`SEGUNDO_FATOR_CARTEIRA_LIGADO`); ligada, vale tudo o que
+está abaixo, menos o relaxamento `SEGUNDO_FATOR_CARTEIRA_OPCIONAL_FORA_DE_PRODUCAO` da decisão 7, que saiu.
 **Substitui:** a emenda de 2026-11-05 da ADR 0012 ("sem MFA"). **Fecha:** a dívida D3b.
 **Origem:** D-22 item 13 (o dono decidiu construir); gate appsec G8, ajuste A-12 e casos de abuso 26–35.
 **Divergência do protótipo:** o protótipo Firmare Gestão não tem segundo fator. Esta é uma decisão de produto

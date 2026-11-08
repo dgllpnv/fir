@@ -21,10 +21,12 @@ import { hotp } from './totp'
  * O SEGUNDO FATOR DA CARTEIRA (gate appsec A-12), ponta a ponta: app inteiro,
  * Postgres real, relógio deslocável. Os casos de abuso 26–35 do gate.
  *
- * A obrigatoriedade é medida LIGADA aqui (o `vitest.config.ts` a relaxa para
- * os outros e2e da carteira; o guard lê a variável a cada requisição).
+ * Medido com `SEGUNDO_FATOR_CARTEIRA_LIGADO` LIGADA: é o comportamento que
+ * religar a chave tem de devolver, exatamente (ADR 0023). O `vitest.config.ts`
+ * a deixa desligada, o padrão; o servidor a lê a cada requisição. O desligado
+ * é medido em `segundo-fator-desligado.e2e.test.ts`.
  */
-process.env['SEGUNDO_FATOR_CARTEIRA_OPCIONAL_FORA_DE_PRODUCAO'] = '0'
+process.env['SEGUNDO_FATOR_CARTEIRA_LIGADO'] = 'true'
 
 const URL_MIG =
   process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'
@@ -85,7 +87,7 @@ const codigo = (segredo: string, delta = 0): string =>
 /** Senha → sessão SEM segundo fator (conta ainda sem TOTP). */
 const entrarSemTotp = async (usuario: string): Promise<string> => {
   const r = guardar(await http().post('/v1/carteira/entrar').send({ usuario, senha: SENHA }).expect(200))
-  expect(r.body.segundoFator).toEqual({ ativo: false })
+  expect(r.body.segundoFator).toEqual({ ativo: false, exigido: true })
   return cookieChamado(r, SESSAO)!
 }
 
@@ -175,7 +177,7 @@ describe('obrigatoriedade — sessão sem segundo fator (A-12)', () => {
     const sessao = await entrarSemTotp(usuario)
 
     const eu = await http().get('/v1/carteira/eu').set('Cookie', sessao).expect(200)
-    expect(eu.body.segundoFator).toEqual({ ativo: false })
+    expect(eu.body.segundoFator).toEqual({ ativo: false, exigido: true })
     await http().get('/v1/carteira/eu/segundo-fator').set('Cookie', sessao).expect(200)
 
     const preso = await http().get('/v1/carteira/clientes').set('Cookie', sessao).expect(409)
@@ -264,7 +266,7 @@ describe('login com segundo fator', () => {
 
     const r = await segundaEtapa(desafio, { codigo: codigo(segredo) })
     expect(r.status).toBe(200)
-    expect(r.body.segundoFator).toEqual({ ativo: true })
+    expect(r.body.segundoFator).toEqual({ ativo: true, exigido: true })
     expect(r.body.avisoDeRecuperacao).toBeNull()
     const sessao = cookieChamado(r, SESSAO)!
     await http().get('/v1/carteira/clientes').set('Cookie', sessao).expect(200)

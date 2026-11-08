@@ -43,10 +43,13 @@ export function FaixaDaCarteira() {
             <a className="btn ghost" href="/carteira/trocar-senha">
               Trocar senha
             </a>
-            {/* G8 0.6: estado do segundo fator e códigos de recuperação novos. */}
-            <a className="btn ghost" href="/carteira/segundo-fator">
-              Duas etapas
-            </a>
+            {/* G8 0.6: estado do segundo fator e códigos de recuperação novos —
+                só quando o servidor o exige (ADR 0023: desligado por padrão). */}
+            {sessao.segundoFatorExigido ? (
+              <a className="btn ghost" href="/carteira/segundo-fator">
+                Duas etapas
+              </a>
+            ) : null}
             <button
               type="button"
               className="btn ghost"

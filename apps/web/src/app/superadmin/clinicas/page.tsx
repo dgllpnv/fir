@@ -3,7 +3,7 @@
 import type { ClinicaCriada, ClinicaNaLista, SessaoDeSuporteCriada } from '@fir/contracts'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { Modal } from '@/components/modal'
 import { SenhaProvisoria } from '@/components/senha-provisoria'
@@ -14,10 +14,10 @@ import { ErroDoPainel, NavDoPainel, SeletorDeClinica } from '../pecas'
 /**
  * **As clínicas** — a lista, a busca e a criação.
  *
- * A ordem da tela é a ordem do uso: buscar (duas letras e Enter), ver, e só
- * então criar. Criar clínica são cinco campos e acontece uma vez por cliente
- * novo; `docs/design.md` §1 manda recolher o raro, e aberto esse formulário
- * empurrava a lista para baixo da dobra em 390 px.
+ * Criar fica num botão no TOPO, que abre o formulário num modal (D-23 item 1,
+ * o mesmo lugar de "Adicionar pessoa" em `/usuarios` da clínica). Recolhido
+ * do mesmo jeito que antes — o formulário não ocupa a tela até ser pedido —,
+ * mas achável sem rolar até o fim da lista.
  *
  * **A lista é o mínimo** (`id`, `codigo`, `nome`, `fuso`, `ativa`) e continua
  * sendo: nada de contagem de pacientes "para enriquecer a tela", que é o mapa
@@ -31,13 +31,8 @@ export default function Clinicas() {
   const [editando, setEditando] = useState<ClinicaNaLista | null>(null)
   /** Uma mensagem por vez, e toda ação confirma o que aconteceu (design.md §4). */
   const [recado, setRecado] = useState<string | null>(null)
-  const dobra = useRef<HTMLDetailsElement>(null)
-
-  const abrirCriacao = () => {
-    if (dobra.current === null) return
-    dobra.current.open = true
-    dobra.current.scrollIntoView({ block: 'nearest' })
-  }
+  const [criando, setCriando] = useState(false)
+  const abrirCriacao = () => setCriando(true)
 
   return (
     <section>
@@ -53,6 +48,12 @@ export default function Clinicas() {
         Cada clínica tem o próprio código, o próprio fuso e a própria equipe. Daqui saem a clínica
         e a administradora dela; o resto da equipe nasce dentro da clínica, criada por ela.
       </p>
+
+      <div className="superadmin-acoes-topo">
+        <button type="button" className="btn" onClick={abrirCriacao}>
+          Adicionar clínica
+        </button>
+      </div>
 
       {criada === null ? null : (
         <SenhaProvisoria
@@ -171,17 +172,20 @@ export default function Clinicas() {
         />
       )}
 
-      <FormularioDeClinica
-        dobra={dobra}
-        aoCriar={(c) => {
-          setCriada(c)
+      {criando ? (
+        <FormularioDeClinica
+          aoFechar={() => setCriando(false)}
+          aoCriar={(c) => {
+            setCriando(false)
+            setCriada(c)
           // A caixa da provisória confirma a SENHA; o recado confirma a
           // CLÍNICA, que é o que a pessoa pediu. Sem ele, criar uma clínica
           // termina numa caixa que fala de outra coisa.
-          setRecado(`Clínica ${c.codigo} criada, com os perfis padrão e ${c.admin.nome}.`)
-        }}
-        aoRecarregar={recarregar}
-      />
+            setRecado(`Clínica ${c.codigo} criada, com os perfis padrão e ${c.admin.nome}.`)
+          }}
+          aoRecarregar={recarregar}
+        />
+      ) : null}
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
@@ -202,11 +206,11 @@ const FUSOS = [
 ]
 
 function FormularioDeClinica({
-  dobra,
+  aoFechar,
   aoCriar,
   aoRecarregar,
 }: {
-  dobra: React.RefObject<HTMLDetailsElement | null>
+  aoFechar: () => void
   aoCriar: (c: ClinicaCriada) => void
   aoRecarregar: () => void
 }) {
@@ -235,8 +239,6 @@ function FormularioDeClinica({
         }),
       })
       aoCriar(r)
-      setForm({ codigo: '', nome: '', fuso: 'America/Bahia', adminNome: '', adminUsuario: '' })
-      if (dobra.current !== null) dobra.current.open = false
       aoRecarregar()
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
@@ -246,9 +248,8 @@ function FormularioDeClinica({
   }
 
   return (
-    <details className="superadmin-dobra" ref={dobra}>
-      <summary>Criar clínica e administradora</summary>
-      <form onSubmit={criar}>
+    <Modal titulo="Adicionar clínica" aoFechar={aoFechar}>
+      <form onSubmit={criar} className="superadmin-form-largo">
         <p className="nota">
           Uma chamada entrega a clínica funcionando: clínica, perfis padrão e a administradora com
           senha provisória. Tudo ou nada — meia criação é o estado que produz um chamado.
@@ -330,11 +331,16 @@ function FormularioDeClinica({
           {erro}
         </p>
 
-        <button type="submit" disabled={enviando} className="btn">
-          {enviando ? 'Criando…' : 'Criar clínica e administradora'}
-        </button>
+        <div className="botoes">
+          <button type="submit" disabled={enviando} className="btn">
+            {enviando ? 'Criando…' : 'Criar clínica e administradora'}
+          </button>
+          <button type="button" className="btn ghost" onClick={aoFechar} disabled={enviando}>
+            Cancelar
+          </button>
+        </div>
       </form>
-    </details>
+    </Modal>
   )
 }
 

@@ -259,6 +259,39 @@ export const UsuarioDeGestaoCriadoSaida = z.object({
 export type UsuarioDeGestaoCriadoSaida = z.infer<typeof UsuarioDeGestaoCriadoSaida>
 
 /**
+ * **O superadmin REDEFINE a senha de um `Usuário de Gestão`** —
+ * `POST /v1/superadmin/usuarios-gestao/:id/senha` (D-23 item 3). O mesmo
+ * padrão da clínica (D-18, `RedefinirSenha` em `pessoas.ts`):
+ *
+ *  - **sem `senha`** — o servidor gera, e devolve UMA vez.
+ *  - **com `senha`** — o superadmin escolhe; a regra de força é a mesma da
+ *    troca própria, com o nome e o usuário DA PESSOA no contexto.
+ *
+ * As duas continuam **provisórias** (72 h, troca obrigatória no primeiro
+ * acesso): quem digitou a senha passa a conhecê-la. Todas as sessões da
+ * pessoa caem. Substitui, enquanto o segundo fator estiver desligado (ADR
+ * 0023), o "Perdeu o celular?".
+ */
+export const RedefinirSenhaDoUsuarioDeGestaoEntrada = z
+  .object({ senha: z.string().min(1).max(SENHA_MAX).optional() })
+  .strict()
+export type RedefinirSenhaDoUsuarioDeGestaoEntrada = z.infer<typeof RedefinirSenhaDoUsuarioDeGestaoEntrada>
+
+/**
+ * O que a redefinição devolve. **`senhaProvisoria` é `null` quando o
+ * superadmin ESCOLHEU a senha**: ecoar o que o cliente acabou de enviar a
+ * poria no corpo da resposta (log do proxy, histórico) sem informar nada a
+ * ninguém. `null` também diz à tela para não abrir o modal "anote esta
+ * senha". Mesma forma de `SenhaRedefinida`.
+ */
+export const SenhaDoUsuarioDeGestaoRedefinida = z.object({
+  id: Uuid,
+  senhaProvisoria: z.string().nullable(),
+  senhaProvisoriaExpiraEm: z.string(),
+})
+export type SenhaDoUsuarioDeGestaoRedefinida = z.infer<typeof SenhaDoUsuarioDeGestaoRedefinida>
+
+/**
  * Um `Usuário de Gestão` na lista do painel do superadmin — a mesma decisão
  * de `PessoaNaLista` (pessoas.ts), e pela mesma razão: o booleano "senha
  * provisória" é útil sobre OUTRA pessoa ("ela ainda não entrou") e perigoso
@@ -280,6 +313,11 @@ export const UsuarioDeGestaoNaLista = z.object({
   grupoId: Uuid.nullable(),
   ativo: z.boolean(),
   aguardandoPrimeiroAcesso: z.boolean(),
+  /**
+   * A `Conta de gestão do operador` (ADR 0024): sem senha, perfil e estado
+   * acompanham o operador. A tela não oferece editar nem redefinir senha.
+   */
+  contaDoOperador: z.boolean(),
 }).merge(PerfilDoUsuarioDeGestao)
 export type UsuarioDeGestaoNaLista = z.infer<typeof UsuarioDeGestaoNaLista>
 

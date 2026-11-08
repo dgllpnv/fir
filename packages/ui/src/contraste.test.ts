@@ -77,7 +77,8 @@ const TEXTO: readonly [string, string, string][] = [
   ['--muted', '--surface', 'linha de meta dentro de cartão'],
   ['--gold-ink', '--bg', 'eyebrow, link'],
   ['--gold-ink', '--surface', 'link dentro de cartão'],
-  ['--on-gold-soft', '--gold-soft', 'contador, pílula de paciente'],
+  ['--on-gold-soft', '--gold-soft', 'contador, pílula de paciente, dica do passo "Paciente"'],
+  ['--ink', '--gold-soft', 'rótulo "Paciente" no primeiro passo do Recebimento'],
   /*
    * A faixa do painel do superadmin é dourado PREENCHIDO em largura cheia, e
    * sobre ela TODO texto é `--on-gold`: a marca, a clínica em que se age e o
@@ -129,6 +130,7 @@ const AA = 4.5
  */
 const GRAFICO: readonly [string, string, string][] = [
   ['--bad-on-gold', '--gold', 'bolinha de atraso no dia selecionado da semana'],
+  ['--gold-ink', '--gold-soft', 'contorno do campo "Paciente" no primeiro passo do Recebimento'],
 ]
 
 const AA_GRAFICO = 3

@@ -97,7 +97,34 @@ O painel cria clínica e administradora **em qualquer clínica** — é a creden
 
 **Gatilho:** o primeiro operador que precisar entrar de fora dos endereços conhecidos, ou a entrada de CDN/domínio próprio (P-8). O que cabe é WebAuthn no painel, não TOTP: com dois usuários, uma chave física é mais barata de operar que um segredo compartilhado.
 
-### ~~D3b · O `Usuário de Gestão` (carteira comercial) não tem MFA nem allowlist de rede~~ — **RESOLVIDA (2026-11-08)**
+### D3c · 2FA da carteira desligado por decisão do dono; gatilho para religar
+
+**O que é:** a D-23 item 3 (2026-11-08) desligou a exigência de TOTP do `Usuário de Gestão`
+(ADR 0023). O código da ADR 0022 continua inteiro, atrás da chave
+`SEGUNDO_FATOR_CARTEIRA_LIGADO` (padrão `false`, `infra/producao/docker-compose.yml`). Hoje a
+carteira volta ao estado da D3b original: senha + Argon2 + limite por conta e por origem +
+revogação instantânea, sem segundo fator e sem allowlist de rede. Quem esquece a senha é
+atendido pelo superadmin, que redefine e escolhe uma provisória
+(`POST /v1/superadmin/usuarios-gestao/:id/senha`).
+
+**O que a torna cara com o tempo:** a mesma razão da D3b — a equipe comercial cresce, entra
+de qualquer lugar, e a superfície de senha vazada ou reusada cresce com ela. A carteira lê
+dado agregado de várias clínicas.
+
+**Como religar:** `SEGUNDO_FATOR_CARTEIRA_LIGADO=true` no `.env` de `infra/producao` e
+`docker compose up -d api`. Não exige build. O que acontece na hora: quem já tinha TOTP volta a
+receber o desafio no login; quem não tinha é desviado para o cadastro; **as sessões abertas só
+com a senha enquanto estava desligado ficam presas no cadastro (409) até a pessoa sair e
+entrar com o código**. `FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA` tem de ser a mesma de antes: trocar a
+chave invalida os segredos já cifrados.
+
+**Gatilho para religar:** qualquer um dos três — (1) o primeiro incidente ou suspeita de
+senha de `Usuário de Gestão` vazada; (2) a carteira passar de cinco usuários de gestão ativos,
+ou ganhar o primeiro usuário de fora da Firmare (escopo `grupo` do lado da cliente, pendência
+A-5); (3) o painel do superadmin ganhar MFA (D3a) — a assimetria se inverteria e a carteira
+passaria a ser a porta mais fraca para dado agregado.
+
+### ~~D3b · O `Usuário de Gestão` (carteira comercial) não tem MFA nem allowlist de rede~~ — **RESOLVIDA (2026-11-08), REABERTA como D3c pela D-23**
 
 **Resolução:** D-22 item 13 e ADR 0022. TOTP obrigatório para todo Usuário de Gestão (G8 0.6, gate A-12). Continua sem allowlist de rede. A assimetria com o painel (D3a) fica registrada na ADR. O texto abaixo fica como registro.
 

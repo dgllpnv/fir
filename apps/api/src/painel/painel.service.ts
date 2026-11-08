@@ -8,12 +8,28 @@ import { conferirSenha, hashDeSenha } from '../autenticacao/senha'
 import { hashDoToken, limiteExcedido, novoToken } from '../autenticacao/sessao'
 import { SISTEMA, operadorIdDeFonteConfiavel, type OperadorId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
+import { ABRIDOR_DA_CONTA_DE_GESTAO, type AbridorDaContaDeGestao } from './abridor-da-conta-de-gestao'
+import { segundoFatorLigado } from '../carteira/segundo-fator/ligado'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import type { ContextoDoPainel } from './contexto-do-painel'
 import { DURACAO_SESSAO_PAINEL_MS } from './painel.guard'
 
 export class CredencialDeOperadorInvalida extends Error {}
 export class LimiteDeTentativasDoOperador extends Error {}
+
+/**
+ * Como ficou a sessão da `Conta de gestão do operador` (ADR 0024):
+ *  - `segundo-fator`: `SEGUNDO_FATOR_CARTEIRA_LIGADO` está ligada, e a
+ *    entrada única não contorna o segundo fator — a conta não tem senha nem
+ *    código, então não há sessão de carteira para ela até existir segundo
+ *    fator no PAINEL (ADR 0024 §4);
+ *  - `sem-conta`: o vínculo não existe, a conta está desativada, ou a senha
+ *    do operador ainda é provisória.
+ */
+export type ContaDeGestaoDoLogin =
+  | { readonly tag: 'aberta'; readonly token: string }
+  | { readonly tag: 'segundo-fator' }
+  | { readonly tag: 'sem-conta' }
 
 type LinhaOperador = {
   id: string
@@ -57,6 +73,7 @@ export class PainelService {
   constructor(
     @Inject(BancoService) private readonly banco: BancoService,
     @Inject(RELOGIO) private readonly relogio: Relogio,
+    @Inject(ABRIDOR_DA_CONTA_DE_GESTAO) private readonly carteira: AbridorDaContaDeGestao,
   ) {}
 
   /**
@@ -74,10 +91,22 @@ export class PainelService {
    * O painel tem **um** usuário conhecido e a credencial mais valiosa do
    * produto. É a rota que mais precisa destes três, não a que menos precisa.
    */
-  async entrar(usuario: string, senha: string): Promise<{ operador: OperadorPublico; token: string }> {
+  async entrar(
+    usuario: string,
+    senha: string,
+  ): Promise<{ operador: OperadorPublico; token: string; contaDeGestao: ContaDeGestaoDoLogin }> {
     const inicio = performance.now()
     try {
-      return await this.entrarSemPiso(usuario, senha)
+      const r = await this.entrarSemPiso(usuario, senha)
+      // UM LOGIN SÓ (D-23 item 6, ADR 0024): a senha do painel abre também a
+      // sessão da conta de gestão vinculada. Nunca com senha PROVISÓRIA: ela
+      // só pode deixar de ser (`PainelGuard`), e a carteira não teria esse
+      // freio para esta conta. Depois da troca, a tela pede a sessão por
+      // `POST /v1/superadmin/eu/conta-de-gestao`.
+      const contaDeGestao: ContaDeGestaoDoLogin = r.operador.senhaProvisoria
+        ? { tag: 'sem-conta' }
+        : await this.abrirContaDeGestao(operadorIdDeFonteConfiavel(r.operador.id))
+      return { ...r, contaDeGestao }
     } finally {
       const falta = PISO_DE_RESPOSTA_MS - (performance.now() - inicio)
       if (falta > 0) await new Promise((r) => setTimeout(r, falta))
@@ -177,6 +206,33 @@ export class PainelService {
     if (resultado.tipo === 'limite') throw new LimiteDeTentativasDoOperador()
     if (resultado.tipo === 'invalida') throw new CredencialDeOperadorInvalida()
     return { operador: resultado.operador, token: resultado.token }
+  }
+
+  /**
+   * A sessão da `Conta de gestão do operador`, com a MESMA duração da sessão
+   * do painel (ADR 0024 §2). Chamada pelo login e pela rota que a reabre.
+   *
+   * O operador vem de fonte confiável (a senha que acabou de conferir, ou o
+   * hash do cookie do painel), nunca de parâmetro. A abertura fica na trilha
+   * do painel com o OPERADOR como ator e a conta dele como entidade; o que a
+   * conta fizer depois vai para as trilhas da carteira como
+   * `usuario_gestao:<id>`, e o vínculo é o que liga as duas.
+   */
+  async abrirContaDeGestao(ator: OperadorId): Promise<ContaDeGestaoDoLogin> {
+    if (segundoFatorLigado()) return { tag: 'segundo-fator' }
+    const sessao = await this.carteira.abrirSessaoDaContaDoOperador(ator.id, DURACAO_SESSAO_PAINEL_MS)
+    if (!sessao) return { tag: 'sem-conta' }
+    await this.banco.nasTabelasDoPainel(ator, (c) =>
+      registrarNoPainel(c, {
+        atorTipo: 'operador',
+        atorId: ator.id,
+        acao: 'entrou',
+        entidade: 'usuarios_gestao',
+        entidadeId: sessao.usuarioDeGestaoId,
+        motivo: 'entrada única pelo painel (ADR 0024)',
+      }),
+    )
+    return { tag: 'aberta', token: sessao.token }
   }
 
   /**
@@ -324,6 +380,17 @@ export class PainelService {
         // com `ator_tipo = 'operador'`: a clínica vê a revogação como vê a
         // abertura.
         await c.query('SELECT revogar_sessoes_de_operador($1)', [quem])
+        // E a conta de gestão vinculada (ADR 0024): TODA sessão viva dela,
+        // não só a do cookie desta requisição. Ela só tem sessão aberta pelo
+        // painel, e "Sair" é a intenção de largar a credencial — o mesmo
+        // raciocínio das sessões de suporte, logo acima.
+        await c.query(
+          `UPDATE sessoes_de_carteira SET revogada_em = now()
+            WHERE revogada_em IS NULL
+              AND usuario_gestao_id = (SELECT usuario_gestao_id FROM contas_de_gestao_do_operador
+                                        WHERE operador_id = $1)`,
+          [quem],
+        )
       })
     }
 

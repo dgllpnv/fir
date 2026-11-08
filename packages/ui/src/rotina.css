@@ -175,6 +175,10 @@ details.filtros[open] > summary::after { transform: rotate(-135deg) translateY(-
 }
 .link.perigo { color: var(--bad); }
 .link:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+/* Ícone dentro de um link de texto ("‹ Equipe" na ficha): sem tamanho, o SVG
+   de 24×24 sem largura ocupava a largura que achasse — medido em 390 px, uma
+   seta de 40 px em cima do título. Fica do corpo da letra. */
+.link > svg { width: 1.1em; height: 1.1em; vertical-align: -0.2em; }
 
 .nota { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 .aviso-filtro {
@@ -235,6 +239,38 @@ details.filtros[open] > summary::after { transform: rotate(-135deg) translateY(-
 /* ---------- grupos ---------- */
 
 .grupo { margin-bottom: 20px; }
+/*
+ * O grupo RECOLHIDO — hoje, o das contas já pagas em Contas a pagar. Um
+ * `<details>` nativo (teclado e leitor de tela de graça), com a seta em
+ * `--gold-ink` dizendo que o título abre. O título é o mesmo `h3` com
+ * contador dos outros grupos: o número continua visível fechado.
+ */
+.grupo-recolhido > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+.grupo-recolhido > summary::-webkit-details-marker { display: none; }
+.grupo-recolhido > summary > h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  margin: 0;
+}
+.grupo-recolhido > summary > h3::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  border-right: 2px solid var(--gold-ink);
+  border-bottom: 2px solid var(--gold-ink);
+  transform: rotate(-45deg);
+}
+.grupo-recolhido[open] > summary { margin-bottom: 10px; }
+.grupo-recolhido[open] > summary > h3::after { transform: rotate(45deg); }
 .grupo > h3 {
   display: flex;
   align-items: center;
@@ -396,15 +432,35 @@ details.pendentes:not([open]) .ver-aberto { display: none; }
 
 /* ---------- painel de conclusão, DENTRO do cartão ---------- */
 
+/*
+ * **Área de leitura é papel branco** (`--surface`), como no protótipo, onde
+ * todo formulário é um `.card`. O `.painel` nasceu com o fundo da PÁGINA
+ * (`--bg`) porque vivia dentro do cartão de tarefa — e foi copiado para os
+ * formulários de unidade, procedimento, paciente, ficha e usuário, que ficam
+ * soltos sobre a página. Ali o bege sobre bege apagava o bloco inteiro, e o
+ * dono do produto mediu em produção: "dificulta a leitura".
+ *
+ * Por isso o padrão é a superfície, e o recuo para `--bg` só vale quando o
+ * painel está DENTRO de outra superfície (cartão de tarefa, formulário, lista,
+ * modal) — ali o tom do papel é o que separa o bloco do que está em volta.
+ * No escuro o par é o mesmo: `--surface` #221A10 sobre `--bg` #17110A.
+ */
 .painel {
   display: grid;
   gap: 10px;
   border: 1px solid var(--line);
   border-radius: var(--r);
-  background: var(--bg);
+  background: var(--surface);
   padding: 12px;
   margin-top: 4px;
 }
+:is(.cartao, .formulario, .tarefa, .linhas, .modal, .ficha-bloco, .item-do-programa, .item-montado)
+  .painel {
+  background: var(--bg);
+}
+/* O formulário de cadastro aberto no alto da tela (Unidades, Procedimentos)
+   vem logo antes da lista, e as duas molduras se encostavam. */
+section > .painel { margin-bottom: 14px; }
 .painel > b { font-size: 13.5px; }
 .par { display: grid; gap: 10px; }
 @media (min-width: 520px) {
@@ -466,12 +522,38 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
    pacientes dentro de cinquenta caixas é papel de parede (design.md §3). O
    traço inferior já separa, e cabe o dobro de nomes na mesma tela — densidade
    é feature. */
-.linhas { display: grid; margin-bottom: 14px; }
+/*
+ * **A lista é papel branco**, como a `.prow` e a `.arow` do protótipo: nome e
+ * número lidos sobre `--surface`, não sobre o bege da página. Uma caixa só
+ * para a lista inteira, e não um cartão por linha — densidade é feature, e
+ * dez pacientes cabem onde três cartões caberiam (design.md §1).
+ *
+ * Dentro de outra superfície (o cartão do caixa, a seção do programa, o
+ * modal) a lista não ganha segunda moldura: borda dentro de borda é ruído.
+ */
+.linhas {
+  display: grid;
+  margin-bottom: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.linhas > :last-child,
+.linhas > :last-child > .linha:last-child { border-bottom: 0; }
+:is(.cartao, .formulario, .tarefa, .modal, .ficha-bloco, .item-do-programa, .item-montado) .linhas {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+:is(.cartao, .formulario, .tarefa, .modal, .ficha-bloco, .item-do-programa, .item-montado) .linha {
+  padding-inline: 6px;
+}
 .linha {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 6px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   color: inherit;
   text-decoration: none;
@@ -556,7 +638,19 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
 
 /* ---------- formulário ---------- */
 
-.formulario { display: grid; gap: 14px; max-width: 560px; }
+/* O formulário é o `.card` do protótipo (`<form class="card">` em Nova
+   tarefa, Recebimento e Nova adesão): superfície branca com borda, o mesmo
+   desenho do `.cartao` do caixa e das contas. Solto sobre o bege, rótulo e
+   campo perdiam o contorno. */
+.formulario {
+  display: grid;
+  gap: 14px;
+  max-width: 560px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px;
+}
 .campo small { font-weight: 400; color: var(--muted); }
 .campo .erro { font-size: 12px; color: var(--bad); font-weight: 500; }
 .caixa {
@@ -616,6 +710,68 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
 .sugestoes button:last-child { border-bottom: 0; }
 .sugestoes button:hover { background: var(--gold-soft); }
 .sugestoes button b { color: var(--gold-ink); }
+
+/*
+ * **O PRIMEIRO PASSO DO RECEBIMENTO** — escolher a paciente.
+ *
+ * Nada mais acontece antes dele, e no balcão ele se perdia: um campo do
+ * mesmo tamanho dos outros, no alto de um formulário que ainda nem apareceu.
+ * Aqui ele vira o assunto da tela, no vocabulário da casa: fundo
+ * `--gold-soft` com o traço dourado à esquerda (o mesmo de `.escolhido`,
+ * que é o estado seguinte deste bloco), rótulo em Lora, campo alto com lupa.
+ *
+ * Contraste (`contraste.test.ts`): o rótulo é `--ink` sobre `--gold-soft` e
+ * a dica é `--on-gold-soft`, a tinta medida para esse fundo. O campo em si
+ * fica em `--surface`, então o texto digitado é o par de sempre.
+ */
+.busca-de-paciente {
+  border: 1px solid var(--gold);
+  border-left-width: 3px;
+  border-radius: var(--r);
+  background: var(--gold-soft);
+  padding: 14px;
+}
+.busca-de-paciente > .campo { gap: 6px; }
+.busca-de-paciente .rotulo {
+  font-family: var(--display);
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.busca-de-paciente .dica-do-passo {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--on-gold-soft);
+}
+.busca-de-paciente .com-lupa { position: relative; display: block; margin-top: 4px; }
+.busca-de-paciente .com-lupa > svg {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  transform: translateY(-50%);
+  color: var(--gold-ink);
+  pointer-events: none;
+}
+.busca-de-paciente .campo .com-lupa input {
+  min-height: 54px;
+  padding-left: 46px;
+  font-size: 17px;
+  background: var(--surface);
+  /* `--gold-ink` e não `--gold`: a borda é o contorno do campo, e contorno
+     de campo precisa de 3:1 contra o fundo (WCAG 1.4.11). `--gold` sobre
+     `--gold-soft` dá menos que isso no claro. */
+  border-color: var(--gold-ink);
+}
+.busca-de-paciente .campo .com-lupa input:hover { border-color: var(--gold-ink); }
+.busca-de-paciente .campo .com-lupa input:focus {
+  outline: 2px solid var(--gold-ink);
+  outline-offset: 2px;
+}
+.busca-de-paciente .nota { margin: 0; color: var(--on-gold-soft); }
+.busca-de-paciente .sugestoes button { min-height: 48px; font-size: 14.5px; }
 
 .toast {
   display: flex;

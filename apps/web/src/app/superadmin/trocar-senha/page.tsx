@@ -72,7 +72,9 @@ export default function TrocarSenhaDoOperador() {
       })
       // Recarga completa, e não navegação do cliente: a troca revoga as outras
       // sessões de operador e muda o que o servidor devolve em toda rota.
-      window.location.assign('/superadmin/clinicas')
+      // A Visão geral pede a sessão da conta de gestão, que o login não abriu
+      // enquanto a senha era provisória (ADR 0024).
+      window.location.assign('/superadmin')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
       setEnviando(false)

@@ -43,11 +43,14 @@ export function Modal({
   titulo,
   aoFechar,
   children,
+  classe,
 }: {
   /** O rótulo acessível **e** o título visível. Um texto, não dois. */
   titulo: string
   aoFechar: () => void
   children: ReactNode
+  /** Classe a mais na caixa: um modificador de tamanho (o modal largo do painel). */
+  classe?: string
 }) {
   const caixa = useRef<HTMLDivElement>(null)
   const idDoTitulo = useId()
@@ -110,7 +113,7 @@ export function Modal({
     */
     <div className="veu-de-modal">
       <div
-        className="modal"
+        className={classe === undefined ? 'modal' : `modal ${classe}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={idDoTitulo}

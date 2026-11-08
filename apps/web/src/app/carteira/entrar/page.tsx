@@ -19,6 +19,11 @@ import { destinoDepoisDeEntrar, formatarQuando } from '../segundo-fator/destino'
  * cadastrado, a senha certa não abre a carteira — abre a pergunta do código.
  * O desafio vive num cookie do servidor por 5 min; esta tela só guarda em
  * que etapa está. Sem "lembrar este aparelho" (A-12, primeira versão).
+ *
+ * DESLIGADO POR PADRÃO (D-23, ADR 0023): com `SEGUNDO_FATOR_CARTEIRA_LIGADO`
+ * desligada, o servidor nunca devolve `segundoFatorExigido`, e a etapa do
+ * código não aparece — a senha abre a carteira. O código fica para religar
+ * sem build: quem decide é a resposta do servidor, não esta tela.
  */
 type Etapa = 'senha' | 'codigo' | 'aviso'
 

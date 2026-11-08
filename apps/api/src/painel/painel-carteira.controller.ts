@@ -15,6 +15,8 @@ import {
   CriarUsuarioDeGestaoEntrada,
   EditarGrupoEntrada,
   EditarUsuarioDeGestaoEntrada,
+  RedefinirSenhaDoUsuarioDeGestaoEntrada,
+  type SenhaDoUsuarioDeGestaoRedefinida,
 } from '@fir/contracts'
 import {
   BadRequestException,
@@ -24,6 +26,7 @@ import {
   Get,
   HttpException,
   HttpStatus,
+  HttpCode,
   Inject,
   NotFoundException,
   Param,
@@ -31,6 +34,7 @@ import {
   Post,
   Req,
 } from '@nestjs/common'
+import { SenhaFraca } from '../pessoas/escrita-de-pessoa'
 import type { RequisicaoComPainel } from './contexto-do-painel'
 import { mensagemDeValidacao, traduzirErroDoBanco } from '../carteira/cadastro-do-cliente'
 import {
@@ -39,6 +43,8 @@ import {
   ClinicaDeOutroGrupo,
   ClinicaJaTemClienteFirmare,
   ClinicaOuGrupoNaoExiste,
+  ContaDeGestaoDoOperadorFixa,
+  ContaDeGestaoDoOperadorSemSenha,
   GrupoDesativado,
   GrupoNaoExiste,
   PainelCarteiraService,
@@ -113,6 +119,41 @@ export class PainelCarteiraController {
     } catch (e) {
       if (e instanceof UsuarioDeGestaoNaoExiste) {
         throw new NotFoundException('Usuário de gestão não encontrado.')
+      }
+      // ADR 0024: a conta de gestão do operador acompanha o operador.
+      if (e instanceof ContaDeGestaoDoOperadorFixa) {
+        throw new ConflictException('Esta é a conta de gestão de um superadmin: perfil e estado acompanham o operador e não se editam aqui.')
+      }
+      throw e
+    }
+  }
+
+  /**
+   * O superadmin redefine a senha de um `Usuário de Gestão` (D-23 item 3),
+   * no padrão da clínica (D-18). `senha` opcional: sem ela, o servidor gera
+   * e devolve uma vez; com ela, a resposta traz `senhaProvisoria: null`.
+   *  - **400** corpo fora do contrato — frase FIXA: nunca ecoa a senha.
+   *  - **404** id malformado ou inexistente (a mesma resposta, de propósito).
+   *  - **422** a senha escolhida não passa na regra, com a frase do domínio.
+   */
+  @Post('usuarios-gestao/:id/senha')
+  @HttpCode(HttpStatus.OK)
+  async redefinirSenhaDoUsuarioDeGestao(
+    @Param('id') id: string,
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComPainel,
+  ): Promise<SenhaDoUsuarioDeGestaoRedefinida> {
+    if (!Uuid.safeParse(id).success) throw new NotFoundException('Usuário de gestão não encontrado.')
+    // `?? {}`: quem não escolhe a senha pode não mandar corpo nenhum.
+    const dados = RedefinirSenhaDoUsuarioDeGestaoEntrada.safeParse(corpo ?? {})
+    if (!dados.success) throw new BadRequestException('Confira a senha provisória.')
+    try {
+      return await this.servico.redefinirSenhaDoUsuarioDeGestao(req.painel!.ator, id, dados.data.senha)
+    } catch (e) {
+      if (e instanceof UsuarioDeGestaoNaoExiste) throw new NotFoundException('Usuário de gestão não encontrado.')
+      if (e instanceof SenhaFraca) throw new HttpException(e.message, HttpStatus.UNPROCESSABLE_ENTITY)
+      if (e instanceof ContaDeGestaoDoOperadorSemSenha) {
+        throw new ConflictException('Esta é a conta de gestão de um superadmin: ela entra pelo painel e não tem senha.')
       }
       throw e
     }

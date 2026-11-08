@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { ehPortaDaCarteira } from '@/lib/rota-da-carteira'
+import { CAMINHO_SEGUNDO_FATOR_DA_CARTEIRA, precisaCadastrarSegundoFator } from './segundo-fator/destino'
 
 /**
  * QUEM ESTÁ NA CARTEIRA — resolvido uma vez, para a faixa e para as telas.
@@ -19,7 +20,12 @@ type Sessao =
   | { readonly tag: 'carregando' }
   | { readonly tag: 'saindo' }
   | { readonly tag: 'erro'; readonly mensagem: string }
-  | { readonly tag: 'pronta'; readonly usuarioDeGestao: UsuarioDeGestaoPublico }
+  | {
+      readonly tag: 'pronta'
+      readonly usuarioDeGestao: UsuarioDeGestaoPublico
+      /** O servidor exige o segundo fator (ADR 0023)? A faixa só mostra "Duas etapas" se sim. */
+      readonly segundoFatorExigido: boolean
+    }
 
 type Carteira = {
   readonly sessao: Sessao
@@ -54,14 +60,20 @@ export function ProvedorDaCarteira({ children }: { children: ReactNode }) {
           router.replace('/carteira/trocar-senha')
           return
         }
-        // Sem o app autenticador cadastrado ⇒ a única coisa que a sessão pode
-        // fazer é cadastrá-lo (G8 0.6, `SegundoFatorDaCarteiraGuard`).
-        if (!eu.segundoFator.ativo) {
+        // Segundo fator exigido pelo servidor e o app ainda não cadastrado ⇒ a
+        // única coisa que a sessão pode fazer é cadastrá-lo (G8 0.6,
+        // `SegundoFatorDaCarteiraGuard`). Desligado no servidor (ADR 0023),
+        // nunca desvia.
+        if (precisaCadastrarSegundoFator(eu)) {
           setSessao({ tag: 'saindo' })
-          router.replace('/carteira/segundo-fator')
+          router.replace(CAMINHO_SEGUNDO_FATOR_DA_CARTEIRA)
           return
         }
-        setSessao({ tag: 'pronta', usuarioDeGestao: eu.usuarioDeGestao })
+        setSessao({
+          tag: 'pronta',
+          usuarioDeGestao: eu.usuarioDeGestao,
+          segundoFatorExigido: eu.segundoFator.exigido,
+        })
       } catch (e) {
         if (!valeu) return
         if (e instanceof ErroDaApi && e.status === 404) {

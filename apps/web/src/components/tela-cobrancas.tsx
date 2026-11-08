@@ -7,8 +7,9 @@ import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { centavos } from '@/lib/financeiro'
-import { diaEmTexto, linkDeWhatsApp, plural } from '@/lib/formato'
+import { diaEmTexto, plural } from '@/lib/formato'
 import { Carregando, Erro, Toast, Vazio } from './estados'
+import { AVISO_DO_LEMBRETE, lembrarPeloWhatsApp } from './lembrar-pelo-whatsapp'
 
 /**
  * **Cobranças — a fila de ligação.**
@@ -89,6 +90,7 @@ export function TelaCobrancas() {
                 <LinhaDeCobranca
                   key={x.pacienteId}
                   item={x}
+                  avisar={setRecado}
                   aoRegistrar={(aviso) => {
                     setRecado(aviso)
                     cobrancas.recarregar()
@@ -107,37 +109,38 @@ export function TelaCobrancas() {
 
 function LinhaDeCobranca({
   item,
+  avisar,
   aoRegistrar,
 }: {
   item: CobrancaNaLista
+  /** Só a mensagem, sem recarregar a fila: nada mudou no servidor. */
+  avisar: (aviso: string) => void
+  /** O contato foi gravado: a mensagem e a fila relida. */
   aoRegistrar: (aviso: string) => void
 }) {
   const [enviando, setEnviando] = useState(false)
-  const whats = linkDeWhatsApp(item.telefone)
 
   /**
-   * Abre a conversa com a mensagem pronta e **registra o contato**.
-   *
-   * A janela é aberta ANTES do `await`: o navegador só permite abrir aba nova
-   * dentro do gesto do usuário, e esperar a resposta do servidor primeiro faz
-   * o bloqueador de pop-up engolir o link. Por isso a aba nasce em branco e
-   * recebe a URL depois.
+   * Abre a conversa com a mensagem pronta e registra o contato — a regra e o
+   * porquê do jeito de abrir a aba estão em `lembrar-pelo-whatsapp.ts`.
    */
   async function lembrar(): Promise<void> {
-    if (whats === null) return
-    const aba = window.open('', '_blank', 'noopener')
     setEnviando(true)
     try {
-      const m = await chamar<MensagemDeCobranca>(`v1/cobrancas/${item.pacienteId}/mensagem`)
-      if (aba !== null) aba.location.href = `${whats}?text=${encodeURIComponent(m.texto)}`
-      await chamar('v1/cobrancas', {
-        method: 'POST',
-        body: JSON.stringify({ pacienteId: item.pacienteId, canal: 'WhatsApp' }),
+      const r = await lembrarPeloWhatsApp({
+        telefone: item.telefone,
+        abrirAba: () => window.open('', '_blank'),
+        buscarMensagem: async () =>
+          (await chamar<MensagemDeCobranca>(`v1/cobrancas/${item.pacienteId}/mensagem`)).texto,
+        registrarContato: async () => {
+          await chamar('v1/cobrancas', {
+            method: 'POST',
+            body: JSON.stringify({ pacienteId: item.pacienteId, canal: 'WhatsApp' }),
+          })
+        },
       })
-      aoRegistrar('Contato de cobrança registrado.')
-    } catch {
-      aba?.close()
-      aoRegistrar('Não consegui registrar o contato. Tente de novo.')
+      if (r === 'aberto') aoRegistrar(AVISO_DO_LEMBRETE[r])
+      else avisar(AVISO_DO_LEMBRETE[r])
     } finally {
       setEnviando(false)
     }
@@ -167,11 +170,14 @@ function LinhaDeCobranca({
         </small>
       </div>
       <div className="botoes">
-        {whats === null ? null : (
-          <button type="button" className="btn ghost" disabled={enviando} onClick={lembrar}>
-            {enviando ? 'Abrindo…' : 'Lembrar pelo WhatsApp'}
-          </button>
-        )}
+        {/*
+          Sempre visível, mesmo sem telefone — o protótipo o escondia, e a
+          recepção procurava o botão sem saber por que ele não estava ali. Sem
+          telefone, o toque diz o que falta e onde resolver.
+        */}
+        <button type="button" className="btn ghost" disabled={enviando} onClick={() => void lembrar()}>
+          {enviando ? 'Abrindo…' : 'Lembrar pelo WhatsApp'}
+        </button>
         <Link className="link" href="/recebimentos">
           Recebeu
         </Link>

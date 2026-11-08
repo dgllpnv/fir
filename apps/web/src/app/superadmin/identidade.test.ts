@@ -304,8 +304,59 @@ describe('quem não sabe em qual clínica está, não age', () => {
   })
 })
 
-describe('o painel trata identidade, e nada de negócio', () => {
-  it('nenhum dinheiro atravessa', () => {
+/**
+ * **A REGRA MUDOU EM 2026-11-08 (D-23 item 6, ADR 0024), e o que ela diz
+ * agora é mais estreito do que parece.**
+ *
+ * Antes: "nenhum dinheiro atravessa o painel". Agora o superadmin VÊ dinheiro
+ * — a Visão geral, com MRR e ticket — mas pela CONTA DE GESTÃO dele, sob a
+ * sessão da carteira, pela rota da carteira (`GET /v1/carteira/painel`). O
+ * que continua proibido:
+ *
+ *  1. uma tela do painel formatar dinheiro por conta própria (a Visão geral é
+ *     o componente da carteira, não uma cópia aqui);
+ *  2. o componente buscar dinheiro numa rota `/v1/superadmin/*` — essas
+ *     continuam redigidas pelo `RedacaoInterceptor` (espaço `operador`), e é
+ *     o e2e `conta-de-gestao-do-operador.e2e.test.ts` que o prova no servidor.
+ */
+describe('o painel vê dinheiro só pela conta de gestão (ADR 0024)', () => {
+  const VISAO = readFileSync(
+    join(AQUI, '..', '..', 'components', 'carteira', 'visao-geral.tsx'),
+    'utf8',
+  )
+  const CARTEIRA = readFileSync(join(AQUI, '..', 'carteira', 'page.tsx'), 'utf8')
+  const porta = PAINEL.find((f) => f.nome === 'page.tsx' && f.texto.includes('VisaoGeralDoPainel'))
+
+  it('a porta do painel É a Visão geral, e é o MESMO componente da carteira', () => {
+    expect(porta, '`/superadmin` deixou de abrir a Visão geral').toBeDefined()
+    const importa = /import \{ VisaoGeral \} from '@\/components\/carteira\/visao-geral'/
+    expect(porta!.texto).toMatch(importa)
+    expect(CARTEIRA, '`/carteira` tem de usar o mesmo componente, nunca uma cópia').toMatch(importa)
+    expect(semComentarios(porta!.texto)).toMatch(/<VisaoGeral\b/)
+  })
+
+  it('o componente busca tudo em `/v1/carteira/*` — nada em `/v1/superadmin/*`', () => {
+    const rotas = [...semComentarios(VISAO).matchAll(/chamar(?:<[^>]*>)?\(\s*[`'"]([^`'"]+)/g)].map((m) => m[1]!)
+    expect(rotas.length, 'nenhuma chamada lida — a varredura não verificaria nada').toBeGreaterThan(1)
+    expect(rotas.filter((r) => !r.startsWith('v1/carteira/'))).toEqual([])
+  })
+
+  it('a porta só fala com o painel para PEDIR a sessão da conta, nunca para ler dado', () => {
+    const doPainel = [...semComentarios(porta!.texto).matchAll(/chamar(?:<[^>]*>)?\(\s*[`'"](v1\/superadmin\/[^`'"]+)/g)].map(
+      (m) => m[1]!,
+    )
+    expect(doPainel).toEqual(['v1/superadmin/eu/conta-de-gestao'])
+  })
+
+  it('o menu traz a Visão geral primeiro, depois a carteira, Clínicas, Grupos e Usuários de gestão', () => {
+    const pecas = PAINEL.find((f) => f.nome === 'pecas.tsx')!
+    const rotulos = [...pecas.texto.matchAll(/\{ href: '[^']+', rotulo: '([^']+)' \}/g)].map((m) => m[1])
+    expect(rotulos).toEqual(['Visão geral', 'Gestão da carteira', 'Clínicas', 'Grupos', 'Usuários de gestão'])
+  })
+})
+
+describe('o painel trata identidade; o negócio vem pela conta de gestão', () => {
+  it('nenhuma tela do painel formata dinheiro por conta própria', () => {
     for (const f of PAINEL) {
       const codigo = semComentarios(f.texto)
       expect(codigo, `${f.nome} formata dinheiro`).not.toMatch(/formatarDinheiro|toFixed|R\$/)

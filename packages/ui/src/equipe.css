@@ -36,12 +36,27 @@
  * e devolve a pílula ao tamanho de pílula. `colisoes.test.ts` passa a reprovar
  * qualquer variante de `.pill` que vire classe solta de novo.
  */
-.alertas { display: grid; }
+/* Papel branco, como a `.linhas` (rotina.css): a lista de alertas é área de
+   leitura, e sobre o bege da página ela apagava. Dentro de uma superfície (a
+   ficha aberta) não ganha segunda moldura. */
+.alertas {
+  display: grid;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.alertas > .alerta:last-child { border-bottom: 0; }
+:is(.ficha-bloco, .modal, .painel, .cartao) .alertas {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
 .alertas > .alerta {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px 6px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
   min-height: 56px;
 }
@@ -52,7 +67,7 @@
   color: var(--muted);
   overflow-wrap: anywhere;
 }
-/* `--bad` como TINTA sobre `--bg`: o par está medido em contraste.test.ts. */
+/* `--bad` como TINTA sobre `--surface` (e `--bg`): os dois pares estão medidos em contraste.test.ts. */
 .alertas > .alerta.critico > .info span { color: var(--bad); }
 .alertas > .alerta > .acao { flex-shrink: 0; align-self: center; }
 

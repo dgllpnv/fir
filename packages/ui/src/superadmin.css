@@ -619,3 +619,86 @@ details.superadmin-dobra[open] > summary::after { transform: rotate(-135deg) tra
 .superadmin-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .superadmin-telas { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); column-gap: 12px; }
 .superadmin-telas > legend { grid-column: 1 / -1; }
+
+/* ---------- D-23: criar por botão no topo, modal largo, grupo Firmare ---------- */
+
+/*
+ * O BOTÃO DE CRIAR, no topo — D-23 item 1, o mesmo lugar de "Adicionar
+ * pessoa" em `/usuarios` da clínica (`.acoes-de-tela` de `rotina.css`).
+ * Prefixado e não reaproveitado: `identidade.test.ts` reprova classe do painel
+ * que exista no CSS do produto. Mesma forma, mesmo alvo de toque.
+ */
+.superadmin-acoes-topo { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+.superadmin-acoes-topo .btn { padding: 9px 14px; min-height: 44px; font-size: 13.5px; }
+
+/*
+ * O MODAL LARGO — D-23 item 4. O perfil do usuário de gestão são onze campos
+ * e nove telas; em 460 px de largura isso era uma coluna de rolagem longa no
+ * computador. Até 880 px e 90% da altura, rolando por dentro (a caixa rola,
+ * nunca a página — ver `modal.css`). Em 390 px nada muda: a caixa já ocupa a
+ * largura toda que o véu dá.
+ */
+.veu-de-modal > .modal.superadmin-modal-largo {
+  max-width: min(880px, 94vw);
+  max-height: min(90vh, 100%);
+}
+.superadmin-modal-largo .superadmin-form-largo { max-width: none; }
+@media (min-width: 720px) {
+  /* Duas colunas para os campos curtos; o que é lista, aviso ou ação ocupa a
+     linha inteira, para não virar uma coluna estreita ao lado de um vazio. */
+  .superadmin-modal-largo .superadmin-form-largo {
+    grid-template-columns: 1fr 1fr;
+    column-gap: 20px;
+    /* Sem isto o campo ao lado de um que tem nota embaixo estica até a altura
+       da linha — medido: "Clientes que vê" com o select de 60 px. */
+    align-items: start;
+  }
+  .superadmin-modal-largo .superadmin-form-largo > fieldset,
+  .superadmin-modal-largo .superadmin-form-largo > .caixa,
+  .superadmin-modal-largo .superadmin-form-largo > .nota,
+  .superadmin-modal-largo .superadmin-form-largo > .erro-do-painel,
+  .superadmin-modal-largo .superadmin-form-largo > .botoes,
+  .superadmin-modal-largo .superadmin-form-largo > .superadmin-linha-cheia { grid-column: 1 / -1; }
+}
+
+/*
+ * REDEFINIR A SENHA do usuário de gestão — D-23 item 3, no lugar do "Perdeu o
+ * celular?". Separado do formulário por um traço: é outra ação, com outro
+ * efeito (derruba as sessões dela), e não sai pelo botão Salvar.
+ */
+.superadmin-redefinir-senha {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  max-width: 460px;
+}
+.superadmin-redefinir-senha > h3 { margin: 0; font-size: 14px; font-weight: 600; }
+
+/*
+ * O GRUPO FIRMARE — D-23 item 2. É o escopo `geral` apresentado como grupo:
+ * vê todas as clínicas sem vínculo nenhum, então não tem "Vincular clínica"
+ * nem "Dar acesso ao portal". Fixo no topo da lista, com o traço dourado do
+ * dossiê: é o grupo da casa.
+ */
+.superadmin-grupo-firmare {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r);
+  background: var(--surface);
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+.superadmin-grupo-firmare > .grupo-firmare-linha {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.superadmin-grupo-firmare .grupo-firmare-nome { font-family: var(--display); font-size: 16px; font-weight: 700; }
+.superadmin-grupo-firmare ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* D-23 item 5: "Clientes de cada grupo" encostava no bloco "Grupos". */
+.superadmin-clientes-dos-grupos { margin-top: 36px; }

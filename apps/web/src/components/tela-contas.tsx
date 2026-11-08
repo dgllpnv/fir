@@ -5,7 +5,7 @@ import { CATEGORIAS_DESP, FORMA_NAO_INFORMADA, FORMAS_DE_SAIDA } from '@fir/doma
 import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { centavos, mesesAte, nomeDoMes, rotuloDoMes } from '@/lib/financeiro'
@@ -18,6 +18,7 @@ import {
   opcoesDeForma,
 } from '@/lib/filtro-de-contas'
 import { diaEmTexto, somarDiasNaTela } from '@/lib/formato'
+import { aplicarPagamento, gruposDeContas } from './contas-na-tela'
 import { Carregando, Erro, Toast, Vazio } from './estados'
 import { Modal } from './modal'
 
@@ -79,9 +80,18 @@ export function TelaContas({
   const [pagando, setPagando] = useState<string | null>(null)
   const [desfazendo, setDesfazendo] = useState<ContaNaLista | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
+  /**
+   * Releitura DEPOIS de uma ação nesta tela (o "Paguei"): a lista que já está
+   * desenhada — com o pagamento aplicado — fica, em vez de virar esqueleto.
+   * Só nesse caso: trocar de filtro continua mostrando o esqueleto, porque ali
+   * a lista desenhada é a do filtro anterior.
+   */
+  const [relendo, setRelendo] = useState(false)
+  useEffect(() => {
+    if (!contas.carregando) setRelendo(false)
+  }, [contas.carregando])
 
   const itens = contas.dados?.itens ?? []
-  const abertas = itens.filter((c) => c.pagoEm === null)
   const limite = somarDiasNaTela(hoje, 7)
   /** O mês das PAGAS: o da URL, ou o corrente. */
   const mesDasPagas = filtro.mes ?? mes
@@ -101,35 +111,7 @@ export function TelaContas({
     ? `Pagas em ${mesPorExtenso(mesDasPagas)}${filtro.forma === null ? '' : ` · ${filtro.forma}`}`
     : `Pagas em ${mesDasPagas === mes ? nomeDoMes(mesDasPagas) : mesPorExtenso(mesDasPagas)}`
 
-  const grupos: { titulo: string; lista: ContaNaLista[]; atrasado?: true }[] = [
-    { titulo: 'Vencidas', lista: abertas.filter((c) => c.vencida), atrasado: true },
-    {
-      titulo: 'Próximos 7 dias',
-      lista: abertas.filter((c) => !c.vencida && c.vencimento <= limite),
-    },
-    {
-      titulo: 'Ainda neste mês',
-      lista: abertas.filter(
-        (c) => !c.vencida && c.vencimento > limite && c.vencimento.slice(0, 7) === mes,
-      ),
-    },
-    /*
-      **Depois deste mês** — grupo que o protótipo NÃO tem, e a falta dele é
-      um defeito medido: pagar uma conta mensal cria a do mês seguinte, a tela
-      avisa "a conta de 25/11 já foi criada" — e ela não aparece em lugar
-      nenhum, porque os três grupos de abertas param no fim do mês corrente.
-      Uma conta que existe e some é como a recepção deixa de confiar na lista
-      e passa a conferir no papel.
-    */
-    {
-      titulo: 'Depois deste mês',
-      lista: abertas.filter((c) => c.vencimento.slice(0, 7) > mes),
-    },
-    {
-      titulo: tituloDasPagas,
-      lista: itens.filter((c) => c.pagoEm !== null),
-    },
-  ]
+  const grupos = gruposDeContas({ itens, mes, limite, tituloDasPagas })
   const meses = mesesAte(mes)
   if (!meses.includes(mesDasPagas)) meses.push(mesDasPagas)
 
@@ -221,7 +203,7 @@ export function TelaContas({
         />
       )}
 
-      {contas.carregando ? (
+      {contas.carregando && !(relendo && contas.dados !== null) ? (
         <Carregando linhas={4} fino />
       ) : contas.erro !== null ? (
         <Erro mensagem={contas.erro} recarregar={contas.recarregar} />
@@ -247,11 +229,21 @@ export function TelaContas({
       ) : (
         grupos.map((g) =>
           g.lista.length === 0 ? null : (
-            <div className="grupo" key={g.titulo}>
-              <h3>
-                {g.titulo}
-                <span className="contador">{g.lista.length}</span>
-              </h3>
+            /*
+              AS PAGAS FICAM RECOLHIDAS fora do modo filtrado. Abertas, elas
+              eram a razão de "paguei e a conta não sumiu": a linha paga
+              continuava na mesma tela, com o mesmo nome e o mesmo valor, logo
+              abaixo — e a mensal renovada aparecia junto, também com o mesmo
+              nome. A lista de cima é a de PAGAR; as pagas estão a um toque.
+              No modo "só pagas" (o toque da Visão do mês) elas SÃO o assunto
+              e ficam abertas.
+            */
+            <MolduraDoGrupo
+              key={g.titulo}
+              titulo={g.titulo}
+              quantas={g.lista.length}
+              recolhido={g.pagas === true && !soPagas}
+            >
               <div className="linhas">
                 {g.lista.map((c) => (
                   <div key={c.id}>
@@ -345,9 +337,13 @@ export function TelaContas({
                         conta={c}
                         hoje={hoje}
                         aoFechar={() => setPagando(null)}
-                        aoPagar={(aviso) => {
+                        aoPagar={(aviso, r) => {
                           setPagando(null)
                           setRecado(aviso)
+                          // A conta sai das abertas JÁ, com o que o servidor
+                          // devolveu; a releitura vem atrás para o resto.
+                          contas.trocar((l) => aplicarPagamento(l, r))
+                          setRelendo(true)
                           contas.recarregar()
                         }}
                       />
@@ -369,7 +365,7 @@ export function TelaContas({
                   </span>
                 </div>
               ) : null}
-            </div>
+            </MolduraDoGrupo>
           ),
         )
       )}
@@ -391,6 +387,42 @@ export function TelaContas({
   )
 }
 
+/**
+ * O grupo da lista: título com contador e as linhas. `recolhido` vira um
+ * `<details>` fechado — o das pagas fora do modo filtrado. Não controlado de
+ * propósito: quem abriu as pagas continua com elas abertas depois de um
+ * "Desfazer pagamento" que relê a lista.
+ */
+function MolduraDoGrupo({
+  titulo,
+  quantas,
+  recolhido,
+  children,
+}: {
+  titulo: string
+  quantas: number
+  recolhido: boolean
+  children: ReactNode
+}) {
+  const cabeca = (
+    <h3>
+      {titulo}
+      <span className="contador">{quantas}</span>
+    </h3>
+  )
+  return recolhido ? (
+    <details className="grupo grupo-recolhido">
+      <summary>{cabeca}</summary>
+      {children}
+    </details>
+  ) : (
+    <div className="grupo">
+      {cabeca}
+      {children}
+    </div>
+  )
+}
+
 /** Registrar pagamento — DENTRO da linha, com o valor da conta já preenchido. */
 function PainelDePagamento({
   conta,
@@ -401,7 +433,7 @@ function PainelDePagamento({
   conta: ContaNaLista
   hoje: string
   aoFechar: () => void
-  aoPagar: (aviso: string) => void
+  aoPagar: (aviso: string, r: ResultadoDoPagamento) => void
 }) {
   const [em, setEm] = useState(hoje)
   const [valor, setValor] = useState(conta.valor === null ? '' : textoDeCentavos(BigInt(conta.valor)))
@@ -433,8 +465,9 @@ function PainelDePagamento({
       })
       aoPagar(
         r.proxima === null
-          ? 'Pagamento registrado.'
-          : `Pagamento registrado · a conta de ${diaEmTexto(r.proxima.vencimento)} já foi criada.`,
+          ? 'Pagamento registrado · a conta foi para as pagas.'
+          : `Pagamento registrado · a conta foi para as pagas, e a de ${diaEmTexto(r.proxima.vencimento)} já foi criada.`,
+        r,
       )
     } catch (e) {
       setErro(e instanceof ErroDaApi ? e.message : 'Não consegui falar com o servidor.')

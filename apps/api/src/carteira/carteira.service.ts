@@ -37,6 +37,7 @@ import { gravarAuditoriaDaCarteira } from './financeiro/auditoria-da-carteira'
 import { COLUNAS_DO_PERFIL, type LinhaDoPerfil, perfilDaLinha } from './perfil-do-usuario-de-gestao'
 import { competenciaDoMes } from './financeiro/gerar-cobrancas'
 import { criarDesafioDeCarteira } from './segundo-fator/desafio'
+import { segundoFatorLigado } from './segundo-fator/ligado'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -44,10 +45,16 @@ export class CredencialDaCarteiraInvalida extends Error {}
 
 /**
  * O login: a sessão, ou — com TOTP ativo (G8 0.6, A-12) — só o token opaco
- * do DESAFIO, que não abre rota nenhuma.
+ * do DESAFIO, que não abre rota nenhuma. `segundoFatorAtivo` é o estado da
+ * CONTA, que pode ser `true` numa sessão aberta só com a senha — é o caso de
+ * `SEGUNDO_FATOR_CARTEIRA_LIGADO` desligada (ADR 0023).
  */
 export type ResultadoDeEntrarNaCarteira =
-  | { readonly usuarioDeGestao: UsuarioDeGestaoPublico; readonly token: string }
+  | {
+      readonly usuarioDeGestao: UsuarioDeGestaoPublico
+      readonly token: string
+      readonly segundoFatorAtivo: boolean
+    }
   | { readonly desafio: string }
 export class LimiteDeTentativasDaCarteira extends Error {}
 
@@ -217,12 +224,15 @@ export class CarteiraService {
 
       // G8 0.6 (A-12): com TOTP ativo, a senha certa entrega um DESAFIO, não
       // uma sessão — a sessão só nasce depois do código
-      // (`SegundoFatorDaCarteiraService.concluirDesafio`).
+      // (`SegundoFatorDaCarteiraService.concluirDesafio`). Com
+      // `SEGUNDO_FATOR_CARTEIRA_LIGADO` desligada (D-23, ADR 0023), a senha
+      // basta, inclusive para quem já tem TOTP ativo.
       const totp = await c.query<{ ativo: boolean }>(
         'SELECT ativado_em IS NOT NULL AS ativo FROM segundo_fator_da_carteira WHERE usuario_gestao_id = $1',
         [usuarioDeGestao.id],
       )
-      if (totp.rows[0]?.ativo) {
+      const segundoFatorAtivo = totp.rows[0]?.ativo === true
+      if (segundoFatorAtivo && segundoFatorLigado()) {
         return { tipo: 'desafio' as const, desafio: await criarDesafioDeCarteira(c, usuarioDeGestao.id) }
       }
 
@@ -237,13 +247,18 @@ export class CarteiraService {
         tipo: 'ok' as const,
         token,
         usuarioDeGestao: usuarioDeGestaoPublico(usuarioDeGestao),
+        segundoFatorAtivo,
       }
     })
 
     if (resultado.tipo === 'limite') throw new LimiteDeTentativasDaCarteira()
     if (resultado.tipo === 'invalida') throw new CredencialDaCarteiraInvalida()
     if (resultado.tipo === 'desafio') return { desafio: resultado.desafio }
-    return { usuarioDeGestao: resultado.usuarioDeGestao, token: resultado.token }
+    return {
+      usuarioDeGestao: resultado.usuarioDeGestao,
+      token: resultado.token,
+      segundoFatorAtivo: resultado.segundoFatorAtivo,
+    }
   }
 
   /**
@@ -268,6 +283,43 @@ export class CarteiraService {
       const usuarioDeGestao = r.rows[0]
       if (!usuarioDeGestao) return null
       return { usuarioDeGestao: usuarioDeGestaoPublico(usuarioDeGestao) } satisfies ContextoDaCarteira
+    })
+  }
+
+  /**
+   * D-23 item 6 (ADR 0024): a sessão da `Conta de gestão do operador`, aberta
+   * pelo login do PAINEL — nunca por senha (a conta não tem uma). Só a conta
+   * VINCULADA a um operador ativo: o `JOIN` é a prova, não o chamador.
+   *
+   * Pela conexão `fir_carteira`, como todo login da carteira: `fir_painel`
+   * não cria sessão de carteira (guarda da 0055 e da 0061).
+   *
+   * A sessão nasce SEM `segundo_fator_em`. Com
+   * `SEGUNDO_FATOR_CARTEIRA_LIGADO`, o `SegundoFatorDaCarteiraGuard` a trata
+   * como qualquer sessão sem código e devolve 409 — a entrada única não
+   * contorna o segundo fator (ADR 0024 §4).
+   */
+  async abrirSessaoDaContaDoOperador(
+    operadorId: string,
+    duracaoMs: number,
+  ): Promise<{ token: string; usuarioDeGestaoId: string } | null> {
+    return this.banco.nasTabelasDaCarteira(SISTEMA, async (c) => {
+      const r = await c.query<{ id: string }>(
+        `SELECT u.id
+           FROM contas_de_gestao_do_operador v
+           JOIN usuarios_gestao u ON u.id = v.usuario_gestao_id
+          WHERE v.operador_id = $1 AND u.ativo`,
+        [operadorId],
+      )
+      const conta = r.rows[0]
+      if (!conta) return null
+      const { token, hash } = novoToken()
+      await c.query(
+        `INSERT INTO sessoes_de_carteira (usuario_gestao_id, token_hash, expira_em)
+         VALUES ($1, $2, now() + ($3 || ' milliseconds')::interval)`,
+        [conta.id, hash, String(duracaoMs)],
+      )
+      return { token, usuarioDeGestaoId: conta.id }
     })
   }
 

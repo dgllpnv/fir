@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { ICONE_SAIR } from '@/lib/icones'
@@ -34,6 +34,7 @@ import { usePainel } from './contexto'
 export function FaixaDoPainel() {
   const { sessao, clinicaAberta } = usePainel()
   const router = useRouter()
+  const caminho = usePathname()
   const [saindo, setSaindo] = useState(false)
 
   async function sair() {
@@ -57,7 +58,7 @@ export function FaixaDoPainel() {
           <small>Firmare · Gestão de Rotina</small>
         </div>
 
-        <p className="onde">{ondeEstou(clinicaAberta)}</p>
+        <p className="onde">{ondeEstou(clinicaAberta, caminho)}</p>
 
         {sessao.tag === 'pronta' ? (
           <div className="faixa-quem">
@@ -79,10 +80,21 @@ export function FaixaDoPainel() {
 }
 
 /**
- * A frase da clínica, nas quatro situações — e **cada uma diz a verdade do
+ * A frase da clínica, nas cinco situações — e **cada uma diz a verdade do
  * estado**, inclusive a que admite não saber.
  */
-function ondeEstou(c: ReturnType<typeof usePainel>['clinicaAberta']) {
+function ondeEstou(c: ReturnType<typeof usePainel>['clinicaAberta'], caminho: string) {
+  // A Visão geral (ADR 0024) não age em clínica nenhuma: ela LÊ todas, pela
+  // conta de gestão do operador. Dizer "você está na lista do painel" ali
+  // seria afirmar o lugar errado.
+  if (c === 'nenhuma' && caminho.replace(/\/$/, '') === '/superadmin') {
+    return (
+      <>
+        <span>Visão geral</span>
+        <b className="nome">todas as clínicas</b>
+      </>
+    )
+  }
   if (c === 'nenhuma') {
     return (
       <>

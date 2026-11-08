@@ -333,6 +333,8 @@ describe('GET /v1/superadmin/usuarios-gestao', () => {
       'grupoId',
       'ativo',
       'aguardandoPrimeiroAcesso',
+      // ADR 0024: a conta de gestão do operador não se edita pela tela.
+      'contaDoOperador',
       // G8 0.5: o perfil — o que a pessoa PODE, nunca o que ela fez.
       'valores',
       'carteira',

@@ -146,6 +146,8 @@ services:
       # Segundo fator da carteira (G8 0.6, A-12): cifra do segredo TOTP e
       # pepper dos códigos de recuperação. `:?` para a API não subir sem ela.
       FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA: ${FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA:?rode ./implantar.sh}
+      # Exigência do segundo fator: desligada por decisão do dono (D-23, ADR 0023).
+      SEGUNDO_FATOR_CARTEIRA_LIGADO: ${SEGUNDO_FATOR_CARTEIRA_LIGADO:-false}
 
       TZ: UTC
       HOST: '0.0.0.0'

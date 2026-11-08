@@ -8,6 +8,7 @@ import type {
   EditarGrupoEntrada,
   EditarUsuarioDeGestaoEntrada,
   GrupoNaLista,
+  SenhaDoUsuarioDeGestaoRedefinida,
   UsuarioDeGestaoNaLista,
   UsuarioDeGestaoPublico,
 } from '@fir/contracts'
@@ -26,7 +27,7 @@ import {
 import { competenciaDoMes } from '../carteira/financeiro/gerar-cobrancas'
 import { type LinhaDoPerfil, colunasDoPerfil, perfilDaLinha } from '../carteira/perfil-do-usuario-de-gestao'
 import { RELOGIO, type Relogio } from '../comum/relogio'
-import { gerarProvisoria } from '../pessoas/escrita-de-pessoa'
+import { type Provisoria, gerarProvisoria, provisoriaEscolhida } from '../pessoas/escrita-de-pessoa'
 import { registrarNoPainel } from './painel.service'
 
 const UNICIDADE_VIOLADA = '23505'
@@ -42,6 +43,22 @@ export class ClienteCarteiraNaoExiste extends Error {}
 export class ClinicaDeOutroGrupo extends Error {}
 export class ClienteJaTemClinica extends Error {}
 export class GrupoDesativado extends Error {}
+/**
+ * A `Conta de gestão do operador` (ADR 0024) não tem senha: ela entra pelo
+ * login do painel. O gatilho da 0061 recusa a escrita de senha nela
+ * (`conta_de_gestao_do_operador_fixa`); isto é a tradução para 409.
+ */
+export class ContaDeGestaoDoOperadorSemSenha extends Error {}
+const VIOLACAO_DE_CHECK = '23514'
+/**
+ * A mesma conta, na EDIÇÃO: perfil, escopo e estado acompanham o operador e
+ * não se editam (o mesmo gatilho da 0061). 409, nunca 500.
+ */
+export class ContaDeGestaoDoOperadorFixa extends Error {}
+const ehContaFixa = (e: unknown): boolean => {
+  const x = e as { code?: string; constraint?: string }
+  return x.code === VIOLACAO_DE_CHECK && x.constraint === 'conta_de_gestao_do_operador_fixa'
+}
 
 type LinhaClienteNoPainel = {
   id: string
@@ -129,8 +146,11 @@ export class PainelCarteiraService {
         grupo_id: string | null
         ativo: boolean
         senha_provisoria: boolean
+        conta_do_operador: boolean
       } & LinhaDoPerfil>(
-        `SELECT id, usuario, nome, escopo, grupo_id, ativo, senha_provisoria, ${colunasDoPerfil()}
+        `SELECT id, usuario, nome, escopo, grupo_id, ativo, senha_provisoria, ${colunasDoPerfil()},
+                EXISTS (SELECT 1 FROM contas_de_gestao_do_operador v WHERE v.usuario_gestao_id = usuarios_gestao.id)
+                  AS conta_do_operador
            FROM usuarios_gestao
           ORDER BY nome`,
       ),
@@ -143,6 +163,7 @@ export class PainelCarteiraService {
       grupoId: u.grupo_id,
       ativo: u.ativo,
       aguardandoPrimeiroAcesso: u.senha_provisoria,
+      contaDoOperador: u.conta_do_operador,
       ...perfilDaLinha(u),
     }))
   }
@@ -459,7 +480,10 @@ export class PainelCarteiraService {
           WHERE id = $1
         RETURNING id, usuario, nome, escopo, grupo_id, ativo, senha_provisoria, ${colunasDoPerfil()}`,
         [id, dados.nome, dados.escopo, dados.grupoId, dados.ativo, ...valoresDoPerfil(dados)],
-      )
+      ).catch((e: unknown) => {
+        if (ehContaFixa(e)) throw new ContaDeGestaoDoOperadorFixa()
+        throw e
+      })
       const linha = r.rows[0]!
       await registrarNoPainel(c, {
         atorTipo: 'operador',
@@ -484,9 +508,98 @@ export class PainelCarteiraService {
         grupoId: linha.grupo_id,
         ativo: linha.ativo,
         aguardandoPrimeiroAcesso: linha.senha_provisoria,
+        contaDoOperador:
+          (await c.query('SELECT 1 FROM contas_de_gestao_do_operador WHERE usuario_gestao_id = $1', [linha.id])).rows
+            .length > 0,
         ...perfilDaLinha(linha),
       }
     })
+  }
+
+  /**
+   * **REDEFINIR a senha de um `Usuário de Gestão`** (D-23 item 3) — o mesmo
+   * padrão da clínica (D-18, `PainelPessoasService.redefinirSenha`):
+   * gerada quando `escolhida` não vem, escolhida pelo Operador quando vem.
+   * As duas PROVISÓRIAS, com as mesmas 72 h: o `CarteiraGuard` já força a
+   * troca no primeiro acesso.
+   *
+   * Três transações curtas, na ordem de `trocarAPropriaSenha`: a leitura do
+   * alvo (404 antes de qualquer Argon2, e o contexto da regra de força), o
+   * hash FORA de transação, e a escrita. A regra de força vem antes do hash.
+   *
+   * Na escrita: a senha, TODAS as sessões e desafios da pessoa revogados, e
+   * a trilha em `auditoria_do_painel` — com a ORIGEM da senha, nunca ela.
+   */
+  async redefinirSenhaDoUsuarioDeGestao(
+    ator: OperadorId,
+    id: string,
+    escolhida: string | undefined,
+  ): Promise<SenhaDoUsuarioDeGestaoRedefinida> {
+    const alvo = await this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(ator, async (c) => {
+      const r = await c.query<{ usuario: string; nome: string }>(
+        'SELECT usuario, nome FROM usuarios_gestao WHERE id = $1',
+        [id],
+      )
+      return r.rows[0] ?? null
+    })
+    if (!alvo) throw new UsuarioDeGestaoNaoExiste()
+
+    const agora = this.relogio.agora()
+    const provisoria: Provisoria =
+      escolhida === undefined
+        ? await gerarProvisoria(agora)
+        : await provisoriaEscolhida(agora, escolhida, [alvo.usuario, alvo.nome])
+
+    await this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(ator, async (c) => {
+      const antes = await c.query<{ senha_provisoria: boolean }>(
+        'SELECT senha_provisoria FROM usuarios_gestao WHERE id = $1 FOR UPDATE',
+        [id],
+      )
+      const linha = antes.rows[0]
+      if (!linha) throw new UsuarioDeGestaoNaoExiste()
+      try {
+        await c.query(
+          `UPDATE usuarios_gestao
+              SET senha_hash = $2, senha_provisoria = true, senha_provisoria_expira_em = $3
+            WHERE id = $1`,
+          [id, provisoria.hash, provisoria.expiraEm],
+        )
+      } catch (e) {
+        const pgErro = e as { code?: string; constraint?: string }
+        if (pgErro.code === VIOLACAO_DE_CHECK && pgErro.constraint === 'conta_de_gestao_do_operador_fixa') {
+          throw new ContaDeGestaoDoOperadorSemSenha()
+        }
+        throw e
+      }
+      await c.query(
+        'UPDATE sessoes_de_carteira SET revogada_em = now() WHERE usuario_gestao_id = $1 AND revogada_em IS NULL',
+        [id],
+      )
+      // Um desafio do segundo fator em curso nasceu da senha ANTIGA.
+      await c.query(
+        `UPDATE desafios_de_carteira SET revogado_em = now()
+          WHERE usuario_gestao_id = $1 AND revogado_em IS NULL AND concluido_em IS NULL`,
+        [id],
+      )
+      await registrarNoPainel(c, {
+        atorTipo: 'operador',
+        atorId: ator.id,
+        acao: 'alterou',
+        entidade: 'usuarios_gestao',
+        entidadeId: id,
+        de: { senhaProvisoria: linha.senha_provisoria },
+        para: {
+          senhaProvisoria: true,
+          senhaRedefinida: escolhida === undefined ? 'gerada pelo servidor' : 'escolhida pelo operador',
+        },
+      })
+    })
+
+    return {
+      id,
+      senhaProvisoria: provisoria.senha,
+      senhaProvisoriaExpiraEm: provisoria.expiraEm.toISOString(),
+    }
   }
 
   async criarUsuarioDeGestao(
