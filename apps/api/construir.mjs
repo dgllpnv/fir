@@ -244,6 +244,20 @@ await build({
 })
 
 /**
+ * OS TRÊS WORKERS DA CARTEIRA (D13): uso diário (G4), cobranças (G3) e
+ * rotinas internas (G5). Existiam só em dev — nunca entraram na imagem, e as
+ * filas deles nem subiam (`:` no nome, recusado pelo BullMQ 5). Mesma imagem,
+ * um `command` cada; nenhum precisa de rede de saída.
+ */
+for (const [entrada, saida] of [
+  ['src/carteira/jobs/worker-uso-diario.ts', 'dist/worker-uso-diario.js'],
+  ['src/carteira/financeiro/worker-cobrancas.ts', 'dist/worker-cobrancas.js'],
+  ['src/carteira/prospeccao/worker-rotinas-internas.ts', 'dist/worker-rotinas-internas.js'],
+]) {
+  await build({ ...comum, entryPoints: [entrada], outfile: saida })
+}
+
+/**
  * O que **não** entra na imagem, e é decisão e não esquecimento:
  *
  * - `semear.ts` — a semente da clínica de demonstração tem a senha escrita
@@ -253,4 +267,4 @@ await build({
  *   exercitar de verdade.
  */
 
-console.log('\nAPI construída em dist/ (api.js, migrar.js, credencial.js, migrar-clinica.js, worker-agenda.js).')
+console.log('\nAPI construída em dist/ (api.js, migrar.js, credencial.js, migrar-clinica.js, worker-agenda.js, worker-uso-diario.js, worker-cobrancas.js, worker-rotinas-internas.js).')

@@ -6,7 +6,7 @@ import IORedis from 'ioredis'
  * `carteira/jobs/fila-uso-diario.ts` (G4): `Queue`/`Worker` do BullMQ, nome da
  * fila em português (vocabulário de produto), infraestrutura em inglês.
  */
-export const NOME_DA_FILA_COBRANCAS = 'carteira:gerar-cobrancas'
+export const NOME_DA_FILA_COBRANCAS = 'carteira-gerar-cobrancas'
 
 /** Único, para `removeRepeatable` aceitar os mesmos parâmetros no deploy seguinte. */
 export const NOME_DO_JOB_COBRANCAS = 'gerar-cobrancas-do-mes'

@@ -78,6 +78,12 @@ beforeAll(async () => {
   migrate = new pg.Client({ connectionString: URL_MIG })
   migrate.on('error', (e) => console.error('[uso-diario] migrate:', e.message))
   await migrate.connect()
+  // TRAVA COMPARTILHADA com o outro arquivo de job da carteira (D16). Os dois
+  // jobs varrem TODO `Cliente Firmare` ativo do banco, e em paralelo cada um
+  // escrevia para os clientes do outro: contagem errada e limpeza abortada por
+  // FK. A trava é de SESSÃO nesta conexão — o outro arquivo espera aqui até
+  // `migrate.end()` soltá-la. Serializa só estes dois, não a suíte inteira.
+  await migrate.query("SELECT pg_advisory_lock(hashtext('teste:jobs-da-carteira'))")
   await declararAtorSistema(migrate)
   banco = new BancoService()
 
@@ -101,8 +107,11 @@ beforeAll(async () => {
   // Login no dia — `usuarios_ativos` (decisão do dono, plano §9 Q4).
   await migrate.query(
     `INSERT INTO sessoes (clinica_id, pessoa_id, token_hash, criada_em, expira_em)
-     VALUES ($1, $2, 'hash-de-teste', $3::timestamptz, $3::timestamptz + interval '1 day')`,
-    [clinicaA, pessoaA, EM],
+     VALUES ($1, $2, $4, $3::timestamptz, $3::timestamptz + interval '1 day')`,
+    // Token ÚNICO por execução: `sessoes.token_hash` é UNIQUE, e um valor fixo
+    // fazia toda execução seguinte colidir com a linha que uma execução
+    // interrompida deixou para trás — a suíte ficava vermelha para sempre.
+    [clinicaA, pessoaA, EM, `hash-de-teste-${Date.now()}-${Math.random()}`],
   )
 
   const pacienteA = (
@@ -265,6 +274,12 @@ afterAll(async () => {
   await migrate.query('DELETE FROM uso_diario_cliente WHERE cliente_carteira_id = ANY($1)', [
     [clienteA, clienteB, clienteOnboarding],
   ])
+  // O job do OUTRO arquivo (rodando em paralelo, D16) também escreve para
+  // estes clientes; sem limpar as duas tabelas, a FK aborta a limpeza e o
+  // resíduo contamina a próxima execução.
+  for (const t of ['uso_diario_cliente', 'cobrancas_do_cliente_firmare']) {
+    await migrate.query(`DELETE FROM ${t} WHERE cliente_carteira_id = ANY($1)`, [ [clienteA, clienteB, clienteOnboarding], ])
+  }
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [
     [clienteA, clienteB, clienteOnboarding],
   ])
@@ -306,8 +321,14 @@ describe('executarUsoDiarioCliente — G4', () => {
   it('calcula a linha do dia para cada Cliente Firmare ATIVO, e só para eles', async () => {
     const resumo = await executarUsoDiarioCliente(banco, relogio, DIA)
     expect(resumo.falhas).toEqual([])
-    // Só os DOIS 'ativo' — o 'onboarding' não entra.
-    expect(resumo.processados).toBe(2)
+    // Só os 'ativo' entram — o 'onboarding' não. A prova é POR CLIENTE, não
+    // pelo `processados` global: o job varre todo `Cliente Firmare` ativo do
+    // banco (D16), e o arquivo de cobranças, rodando em paralelo, tem os dele.
+    // `toBe(2)` sobre o total falhava com 9 assim que os dois arquivos se
+    // cruzavam — medido em 2026-11-08.
+    expect(resumo.processados).toBeGreaterThanOrEqual(2)
+    expect(await linhaDe(clienteB)).toBeDefined()
+    expect(await linhaDe(clienteOnboarding)).toBeUndefined()
 
     const a = await linhaDe(clienteA)
     expect(a).toBeDefined()

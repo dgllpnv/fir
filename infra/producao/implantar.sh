@@ -377,8 +377,10 @@ docker compose run --rm --no-deps \
 # também o subiria, mas aqui a lista é o inventário do que o deploy entrega.
 # Ele usa a imagem `fir/api`, então o selo conferido no passo 2.5 já cobre o
 # código dele — não há segunda imagem para selar.
-echo "==> subindo API, web e worker-agenda"
-docker compose up -d api web worker-agenda
+# Os três da carteira (D13) entram pela mesma razão: estavam só em dev.
+WORKERS="worker-agenda worker-uso-diario worker-cobrancas worker-rotinas-internas"
+echo "==> subindo API, web e workers ($WORKERS)"
+docker compose up -d api web $WORKERS
 
 # ---------------------------------------------------------------------------
 # 7 · verificação
@@ -492,7 +494,7 @@ else
   echo "  ok  a API não tem rota de saída"
 fi
 
-# 7.6c · o worker-agenda está de pé, e não em laço de reinício.
+# 7.6c · os workers (agenda e os três da carteira) estão de pé, e não em laço de reinício.
 #
 # Ele não tem healthcheck (ver o compose), então `Up` no `ps` não basta: um
 # processo que morre na inicialização — `DATABASE_URL` errada, migration que
@@ -501,17 +503,23 @@ fi
 #
 # Falha aqui é deploy RECUSADO: o worker roda a mesma imagem da API, então um
 # worker que não inicia costuma ser sintoma de algo que também morde a API.
-worker=$(docker compose ps -q worker-agenda || true)
-reinicios_antes=$(docker inspect -f '{{.RestartCount}}' "$worker" 2>/dev/null || echo x)
+declare -A reinicios_antes=()
+for w in $WORKERS; do
+  id=$(docker compose ps -q "$w" || true)
+  reinicios_antes[$w]=$(docker inspect -f "{{.RestartCount}}" "$id" 2>/dev/null || echo x)
+done
 sleep 15
-estado_worker=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$worker" 2>/dev/null || echo 'ausente x')
-if [ "$estado_worker" = "running $reinicios_antes" ]; then
-  echo "  ok  o worker-agenda está de pé (sem reinício em 15 s)"
-else
-  echo "  ERRO: o worker-agenda não está estável (estado/reinícios: $estado_worker; antes: $reinicios_antes)." >&2
-  docker compose logs --tail 40 worker-agenda >&2
-  falhou=1
-fi
+for w in $WORKERS; do
+  id=$(docker compose ps -q "$w" || true)
+  estado=$(docker inspect -f "{{.State.Status}} {{.RestartCount}}" "$id" 2>/dev/null || echo "ausente x")
+  if [ "$estado" = "running ${reinicios_antes[$w]}" ]; then
+    echo "  ok  $w está de pé (sem reinício em 15 s)"
+  else
+    echo "  ERRO: $w não está estável (estado/reinícios: $estado; antes: ${reinicios_antes[$w]})." >&2
+    docker compose logs --tail 40 "$w" >&2
+    falhou=1
+  fi
+done
 
 # 7.6d · o worker-agenda TEM rota de saída — é a razão de ele existir.
 # ATENÇÃO, não erro: o que se mede depende do DNS de fora da VPS, e a falha

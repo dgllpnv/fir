@@ -8,7 +8,7 @@ import IORedis from 'ioredis'
  * §6); o nome da FILA, visível em log e no painel do Redis, é em português —
  * é vocabulário de produto, não de framework.
  */
-export const NOME_DA_FILA_USO_DIARIO = 'carteira:uso-diario-cliente'
+export const NOME_DA_FILA_USO_DIARIO = 'carteira-uso-diario-cliente'
 
 /** O nome do job repetível dentro da fila — único, para `removeRepeatable` aceitar os mesmos parâmetros no deploy seguinte. */
 export const NOME_DO_JOB_USO_DIARIO = 'calcular-uso-diario'

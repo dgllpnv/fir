@@ -199,6 +199,81 @@ services:
     # publicada, nenhuma label do Traefik: nada de fora chega até ele.
     networks: [dados, saida]
 
+  # Telemetria diária do FIR Clinic para a carteira (G4), 06:00 UTC.
+  # Worker da carteira (D13): mesma imagem, sem porta, sem Traefik, SÓ na rede
+  # `dados` — ele não fala com a internet, e por isso não ganha `saida`.
+  # Duas conexões: `fir_app` (o job lê dentro de cada clínica, com a RLS
+  # dela) e `fir_carteira` (escreve nas tabelas da carteira, RLS por grupo).
+  worker-uso-diario:
+    image: fir/api:${VERSAO:-mais-recente}
+    command: ["node", "worker-uso-diario.js"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://fir_app:${SENHA_APP:?}@postgres:5432/fir
+      DATABASE_URL_CARTEIRA: ${DATABASE_URL_CARTEIRA:?rode ./provisionar-carteira.sh}
+      REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
+      TZ: UTC
+      NODE_OPTIONS: --max-old-space-size=192
+    mem_limit: 256m
+    cpus: 0.5
+    # Mesmo motivo do worker-agenda: o HEALTHCHECK HTTP herdado nunca responde aqui.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [dados]
+
+  # Cobranças mensais do Cliente Firmare (G3), dia 1 às 07:00 UTC.
+  # Worker da carteira (D13): mesma imagem, sem porta, sem Traefik, SÓ na rede
+  # `dados` — ele não fala com a internet, e por isso não ganha `saida`.
+  # Duas conexões: `fir_app` (o job lê dentro de cada clínica, com a RLS
+  # dela) e `fir_carteira` (escreve nas tabelas da carteira, RLS por grupo).
+  worker-cobrancas:
+    image: fir/api:${VERSAO:-mais-recente}
+    command: ["node", "worker-cobrancas.js"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://fir_app:${SENHA_APP:?}@postgres:5432/fir
+      DATABASE_URL_CARTEIRA: ${DATABASE_URL_CARTEIRA:?rode ./provisionar-carteira.sh}
+      REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
+      TZ: UTC
+      NODE_OPTIONS: --max-old-space-size=192
+    mem_limit: 256m
+    cpus: 0.5
+    # Mesmo motivo do worker-agenda: o HEALTHCHECK HTTP herdado nunca responde aqui.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [dados]
+
+  # Tarefas das rotinas internas da carteira (G5), 06:30 UTC.
+  # Worker da carteira (D13): mesma imagem, sem porta, sem Traefik, SÓ na rede
+  # `dados` — ele não fala com a internet, e por isso não ganha `saida`.
+  # Duas conexões: `fir_app` (o job lê dentro de cada clínica, com a RLS
+  # dela) e `fir_carteira` (escreve nas tabelas da carteira, RLS por grupo).
+  worker-rotinas-internas:
+    image: fir/api:${VERSAO:-mais-recente}
+    command: ["node", "worker-rotinas-internas.js"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://fir_app:${SENHA_APP:?}@postgres:5432/fir
+      DATABASE_URL_CARTEIRA: ${DATABASE_URL_CARTEIRA:?rode ./provisionar-carteira.sh}
+      REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
+      TZ: UTC
+      NODE_OPTIONS: --max-old-space-size=192
+    mem_limit: 256m
+    cpus: 0.5
+    # Mesmo motivo do worker-agenda: o HEALTHCHECK HTTP herdado nunca responde aqui.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [dados]
+
   web:
     image: fir/web:${VERSAO:-mais-recente}
     restart: unless-stopped

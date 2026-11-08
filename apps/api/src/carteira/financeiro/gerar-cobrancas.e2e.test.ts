@@ -82,6 +82,12 @@ beforeAll(async () => {
   migrate = new pg.Client({ connectionString: URL_MIG })
   migrate.on('error', (e) => console.error('[gerar-cobrancas] migrate:', e.message))
   await migrate.connect()
+  // TRAVA COMPARTILHADA com o outro arquivo de job da carteira (D16). Os dois
+  // jobs varrem TODO `Cliente Firmare` ativo do banco, e em paralelo cada um
+  // escrevia para os clientes do outro: contagem errada e limpeza abortada por
+  // FK. A trava é de SESSÃO nesta conexão — o outro arquivo espera aqui até
+  // `migrate.end()` soltá-la. Serializa só estes dois, não a suíte inteira.
+  await migrate.query("SELECT pg_advisory_lock(hashtext('teste:jobs-da-carteira'))")
   await declararAtorSistema(migrate)
   banco = new BancoService()
 
@@ -102,6 +108,12 @@ afterAll(async () => {
   await migrate.query('DELETE FROM cobrancas_do_cliente_firmare WHERE cliente_carteira_id = ANY($1)', [
     [clienteA, clienteOnboarding],
   ])
+  // O job do OUTRO arquivo (rodando em paralelo, D16) também escreve para
+  // estes clientes; sem limpar as duas tabelas, a FK aborta a limpeza e o
+  // resíduo contamina a próxima execução.
+  for (const t of ['uso_diario_cliente', 'cobrancas_do_cliente_firmare']) {
+    await migrate.query(`DELETE FROM ${t} WHERE cliente_carteira_id = ANY($1)`, [[clienteA, clienteOnboarding]])
+  }
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [[clienteA, clienteOnboarding]])
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB]])
   await apagarClinicaDeTeste(migrate, clinicaA)
@@ -144,8 +156,10 @@ describe('executarGeracaoDeCobrancas — G3', () => {
       expect(antes.mensalidade_centavos).toBe('185033')
 
       // Rodar de novo para a MESMA competência não toca a linha existente.
-      const resumo = await executarGeracaoDeCobrancas(banco, relogio, COMPETENCIA)
-      expect(resumo.geradas).toBe(0) // nada NOVO foi gerado — já existia.
+      // Sem `expect(resumo.geradas).toBe(0)`: o total é GLOBAL (D16), e o
+      // arquivo de uso diário, em paralelo, cria clientes ativos que este job
+      // varre. A prova que importa é a deste cliente, logo abaixo.
+      await executarGeracaoDeCobrancas(banco, relogio, COMPETENCIA)
 
       const depois = await cobrancaDe(clienteA)
       expect(depois.mensalidade_centavos).toBe('185033')
@@ -160,8 +174,9 @@ describe('executarGeracaoDeCobrancas — G3', () => {
 
     for (let i = 0; i < 2; i++) {
       await migrate.query('UPDATE clientes_carteira SET mensalidade_centavos = 999999 WHERE id = $1', [clienteA])
-      const resumo = await executarGeracaoDeCobrancas(banco, relogio, COMPETENCIA)
-      expect(resumo.geradas).toBe(0)
+      // A contagem e o valor DESTE cliente, abaixo, são a prova — não o
+      // `geradas` global, que inclui clientes de outro arquivo em paralelo (D16).
+      await executarGeracaoDeCobrancas(banco, relogio, COMPETENCIA)
     }
     await migrate.query('UPDATE clientes_carteira SET mensalidade_centavos = 185033 WHERE id = $1', [clienteA])
 
@@ -208,6 +223,12 @@ describe('executarGeracaoDeCobrancas — ATOMICIDADE benefício × cobrança (ac
       `DELETE FROM cobrancas_do_cliente_firmare WHERE cliente_carteira_id = ANY($1)`,
       [[clienteA, clienteC]],
     )
+    // O job do OUTRO arquivo (rodando em paralelo, D16) também escreve para
+    // estes clientes; sem limpar as duas tabelas, a FK aborta a limpeza e o
+    // resíduo contamina a próxima execução.
+    for (const t of ['uso_diario_cliente', 'cobrancas_do_cliente_firmare']) {
+      await migrate.query(`DELETE FROM ${t} WHERE cliente_carteira_id = $1`, [clienteC])
+    }
     await migrate.query('DELETE FROM clientes_carteira WHERE id = $1', [clienteC])
     await apagarClinicaDeTeste(migrate, clinicaC)
   })
@@ -317,6 +338,12 @@ describe('BeneficiosDeIndicacaoService.criar — consumo pelo job (gap do code-r
     await migrate.query('DELETE FROM beneficios_de_indicacao WHERE cliente_carteira_id = $1', [clienteD])
     await migrate.query('DELETE FROM cobrancas_do_cliente_firmare WHERE cliente_carteira_id = $1', [clienteD])
     await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [usuario.id])
+    // O job do OUTRO arquivo (rodando em paralelo, D16) também escreve para
+    // estes clientes; sem limpar as duas tabelas, a FK aborta a limpeza e o
+    // resíduo contamina a próxima execução.
+    for (const t of ['uso_diario_cliente', 'cobrancas_do_cliente_firmare']) {
+      await migrate.query(`DELETE FROM ${t} WHERE cliente_carteira_id = $1`, [clienteD])
+    }
     await migrate.query('DELETE FROM clientes_carteira WHERE id = $1', [clienteD])
     await apagarClinicaDeTeste(migrate, clinicaD)
   })

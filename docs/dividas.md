@@ -96,7 +96,9 @@ Decisão do dono (2026-11-05, ver ADR 0012, emenda): manter o mesmo padrão de s
 
 **Gatilho:** o primeiro deploy em VPS com `Usuário de Gestão` acessando de fora da rede controlada (o caso normal, não a exceção) — reavaliar TOTP nesse momento, não depois de um incidente. Também reabre se o painel do superadmin (D3a) ganhar allowlist antes da carteira: a assimetria entre os dois voltaria a existir.
 
-### D13 · Os dois workers BullMQ da carteira (G3 e G4) não têm processo registrado em `infra/producao/`
+### ~~D13 · Os dois workers BullMQ da carteira (G3 e G4) não têm processo registrado em `infra/producao/`~~ — **RESOLVIDA (2026-11-08)**
+
+**Resolução:** os três nomes de fila trocaram `:` por `-` (reproduzido antes: `Queue name cannot contain :`; depois, os três artefatos de `dist/` sobem e registram o agendamento no Redis — `0 6 * * *`, `0 7 1 * *`, `30 6 * * *`). `construir.mjs` empacota `worker-uso-diario.js`, `worker-cobrancas.js` e `worker-rotinas-internas.js`; o compose de produção ganhou os três serviços (só rede `dados`, `fir_app` + `fir_carteira`); `implantar.sh` os sobe e a asserção 7.6c recusa o deploy se qualquer worker entrar em laço de reinício. O texto abaixo fica como registro.
 
 `apps/api/src/carteira/jobs/worker-uso-diario.ts` (G4) e
 `apps/api/src/carteira/financeiro/worker-cobrancas.ts` (G3) são, por desenho —
@@ -191,6 +193,8 @@ página carregada no front.
 ---
 
 ### D16 · Os jobs de G3 e G4 varrem `clientes_carteira` inteira, sem filtro — e colidem quando os testes rodam em paralelo
+
+**Mitigação nos testes (2026-11-08):** os dois arquivos e2e dos jobs passaram a disputar uma trava consultiva do Postgres (`pg_advisory_lock`) e rodam um de cada vez entre si; as asserções sobre o total global (`processados`, `geradas`) viraram provas por cliente; e a limpeza apaga as linhas dos DOIS jobs antes do cliente. Medido: antes, falhas intermitentes em 2 de 3 execuções; depois, 78/78 em 5 execuções seguidas. O job em si continua varrendo tudo — é o desenho dele em produção.
 
 `executarGeracaoDeCobrancas` (G3, `gerar-cobrancas.ts`) e
 `executarUsoDiarioCliente` (G4, `uso-diario-cliente.ts`) fazem `SELECT ...

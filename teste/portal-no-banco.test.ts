@@ -448,8 +448,18 @@ describe('REGRESSÃO: fir_portal com app.escopo=geral (sem app.portal_*) não co
   let usuarioGestaoId: string
 
   beforeAll(async () => {
-    const ug = await migrate.query<{ id: string }>(`SELECT id FROM usuarios_gestao LIMIT 1`)
-    usuarioGestaoId = ug.rows[0]!.id
+    // O PRÓPRIO usuário de gestão, nunca "qualquer um que exista": o
+    // `SELECT … LIMIT 1` de antes dependia de outro arquivo ter deixado um no
+    // banco naquele instante — num banco novo (e em paralelo, quando o outro
+    // arquivo já tinha limpado o seu) o teste caía com TypeError antes de
+    // provar a regressão de RLS que ele existe para provar.
+    usuarioGestaoId = (
+      await migrate.query<{ id: string }>(
+        `INSERT INTO usuarios_gestao (usuario, nome, senha_hash, escopo, grupo_id)
+         VALUES ($1, 'Regressão RLS', 'x', 'grupo', $2) RETURNING id`,
+        [`regressao.rls.${Date.now()}`, grupoA],
+      )
+    ).rows[0]!.id
 
     campanhaId = (
       await migrate.query<{ id: string }>(
@@ -505,6 +515,7 @@ describe('REGRESSÃO: fir_portal com app.escopo=geral (sem app.portal_*) não co
     await migrate.query('DELETE FROM lancamentos_de_indicador WHERE id = $1', [lancamentoId])
     await migrate.query('DELETE FROM indicadores_carteira WHERE id = $1', [indicadorId])
     await migrate.query('DELETE FROM campanhas_carteira WHERE id = $1', [campanhaId])
+    await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [usuarioGestaoId])
   })
 
   /** Mesma conexão/transação de `comoSessaoDoPortal`, mas fixando SÓ `app.escopo` — nunca `app.portal_*` — que é exatamente a reprodução do revisor. */

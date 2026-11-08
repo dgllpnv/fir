@@ -7,7 +7,7 @@ import IORedis from 'ioredis'
  * fila-cobrancas.ts` (G3): `Queue`/`Worker` do BullMQ, nome da fila em
  * português (vocabulário de produto), infraestrutura em inglês.
  */
-export const NOME_DA_FILA_ROTINAS_INTERNAS = 'carteira:gerar-tarefas-de-rotinas-internas'
+export const NOME_DA_FILA_ROTINAS_INTERNAS = 'carteira-gerar-tarefas-de-rotinas-internas'
 
 /** Único, para `removeRepeatable` aceitar os mesmos parâmetros no deploy seguinte. */
 export const NOME_DO_JOB_ROTINAS_INTERNAS = 'gerar-tarefas-de-rotinas-internas'
