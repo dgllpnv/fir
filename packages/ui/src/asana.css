@@ -1,0 +1,71 @@
+/* ---------------------------------------------------------------------------
+   IMPORTAR REUNIÕES DO ASANA (G8 4B; protótipo `abrirAsana`/`desenharAsana`,
+   L1785–1811). `components/carteira/importar-do-asana.tsx`. Prefixo `asana-`
+   em tudo. Em 390 px nada rola na horizontal: o nome e a nota quebram, e a
+   LISTA rola por dentro (o protótipo faz o mesmo com `.alist`), para o botão
+   "Importar" não sumir debaixo de duzentas tarefas.
+   --------------------------------------------------------------------------- */
+.asana { display: grid; gap: 12px; min-width: 0; }
+.asana-texto { margin: 0; font-size: 13px; color: var(--muted); }
+.asana-arquivo { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.asana-arquivo input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.asana-arquivo input[type='file']:focus-visible + .btn { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.asana-nome-do-arquivo { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.asana-alerta { margin: 0; font-size: 13px; color: var(--bad); }
+/* Mesmo par de `.conteudo-aviso-fixo` (texto `--ink` sobre `--warn-soft`), já medido. */
+.asana-lgpd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--warn-soft);
+  border-radius: var(--r);
+  padding: 8px 12px;
+}
+.asana-lista {
+  display: grid;
+  gap: 2px;
+  max-height: min(48vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 4px;
+  margin: 0;
+  list-style: none;
+}
+.asana-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 6px;
+  min-height: 44px;
+  border-radius: calc(var(--r) - 2px);
+  cursor: pointer;
+  min-width: 0;
+}
+.asana-item input { width: 20px; height: 20px; margin: 1px 0 0; flex: none; accent-color: var(--gold-ink); }
+.asana-item-desabilitado { cursor: default; }
+.asana-item-desabilitado .asana-tarefa { color: var(--muted); }
+.asana-corpo { display: grid; gap: 2px; min-width: 0; font-size: 13.5px; }
+.asana-tarefa { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.asana-meta { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.asana-meta .num { font-variant-numeric: tabular-nums; }
+.asana-nota {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.asana-rodape { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+@media (max-width: 419px) {
+  .asana-rodape { display: grid; }
+  .asana-rodape > .btn { width: 100%; }
+}

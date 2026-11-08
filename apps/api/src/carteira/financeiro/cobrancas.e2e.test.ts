@@ -4,6 +4,7 @@ import type { UsuarioDeGestaoPublico } from '@fir/contracts'
 import { BancoService } from '../../banco/banco.service'
 import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
 import { CobrancaCarteiraNaoEncontrada, CobrancasCarteiraService } from './cobrancas.service'
+import { perfilPadraoDoBanco } from '../perfil-do-usuario-de-gestao'
 
 /**
  * **G3 — `CobrancasCarteiraService`, contra Postgres real.**
@@ -43,7 +44,7 @@ beforeAll(async () => {
   await migrate.connect()
   await declararAtorSistema(migrate)
   banco = new BancoService()
-  servico = new CobrancasCarteiraService(banco)
+  servico = new CobrancasCarteiraService(banco, { agora: () => new Date('2026-11-15T12:00:00.000Z') })
 
   grupo = (await migrate.query<{ id: string }>(`INSERT INTO grupos (nome) VALUES ($1) RETURNING id`, [
     `Grupo ${codigo}`,
@@ -66,7 +67,7 @@ beforeAll(async () => {
       [`cob.${codigo}`, grupo],
     )
   ).rows[0]!.id
-  usuario = { id: usuarioGestaoId, usuario: `cob.${codigo}`, nome: 'Teste', escopo: 'grupo', grupoId: grupo, senhaProvisoria: false }
+  usuario = { id: usuarioGestaoId, usuario: `cob.${codigo}`, nome: 'Teste', escopo: 'grupo', grupoId: grupo, senhaProvisoria: false, ...perfilPadraoDoBanco('grupo') }
 
   idsDasCobrancas.push(await novaCobranca('2026-09-01', 100000))
   idsDasCobrancas.push(await novaCobranca('2026-10-01', 100000, 10000))

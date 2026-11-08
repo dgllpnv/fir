@@ -20,6 +20,11 @@ const ALVOS = [
   // também roda em produção (`worker-agenda` no compose). Localmente ele
   // precisa de internet para baixar o feed — a máquina de desenvolvimento tem.
   { nome: 'agenda', arquivo: 'src/agenda/worker-agenda.ts' },
+  // G8: antivírus dos anexos (sem ele, todo anexo fica 'pendente'), leitura
+  // das planilhas de indicadores e sincronização das campanhas das clínicas.
+  { nome: 'anexos', arquivo: 'src/carteira/anexos/worker-anexos.ts' },
+  { nome: 'planilhas', arquivo: 'src/carteira/planilhas/worker-planilhas.ts' },
+  { nome: 'campanhas', arquivo: 'src/carteira/campanhas/worker-campanhas.ts' },
 ]
 
 const processos = ALVOS.map(({ nome, arquivo }) => {

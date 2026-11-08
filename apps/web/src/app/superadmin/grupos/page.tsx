@@ -13,6 +13,7 @@ import { Carregando, Toast, Vazio } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { usePainel } from '../contexto'
 import { ErroDoPainel, NavDoPainel } from '../pecas'
+import { ClientesDosGrupos } from './clientes-dos-grupos'
 
 /**
  * **OS GRUPOS DA CARTEIRA** — ADR 0011: fato de tenancy acima de `Clinica`,
@@ -44,6 +45,8 @@ export default function Grupos() {
   const [dandoAcesso, setDandoAcesso] = useState<GrupoNaLista | null>(null)
   const [acessoCriado, setAcessoCriado] = useState<UsuarioDoPortalCriadoSaida | null>(null)
   const dobra = useRef<HTMLDetailsElement>(null)
+  /** Sobe quando um vínculo cria um cliente — a lista por grupo relê. */
+  const [versaoDosClientes, setVersaoDosClientes] = useState(0)
 
   useEffect(() => {
     let valeu = true
@@ -186,6 +189,7 @@ export default function Grupos() {
           aoVincular={(cliente) => {
             const clinica = clinicas.find((c) => c.id === cliente.clinicaId)
             setVinculando(null)
+            setVersaoDosClientes((n) => n + 1)
             setRecado(
               `${clinica?.codigo ?? 'A clínica'} foi vinculada ao grupo ${vinculando.nome}.`,
             )
@@ -207,6 +211,15 @@ export default function Grupos() {
 
       {acessoCriado === null ? null : (
         <SenhaDoUsuarioDoPortal resultado={acessoCriado} aoFechar={() => setAcessoCriado(null)} />
+      )}
+
+      {grupos === null || grupos.length === 0 ? null : (
+        <ClientesDosGrupos
+          grupos={grupos}
+          clinicas={clinicas}
+          versao={versaoDosClientes}
+          aoMudar={(r) => setRecado(r)}
+        />
       )}
 
       <FormularioDeGrupo

@@ -2,6 +2,7 @@ import {
   type CanActivate,
   ConflictException,
   type ExecutionContext,
+  ForbiddenException,
   HttpStatus,
   Inject,
   Injectable,
@@ -13,6 +14,35 @@ import { Reflector } from '@nestjs/core'
 import type { RequisicaoComCarteira } from './contexto-da-carteira'
 import { CarteiraService } from './carteira.service'
 import { SO_USUARIO_DE_GESTAO } from './so-usuario-de-gestao.decorator'
+import { responsavelImpostoPeloPerfil, temPermCarteira } from '@fir/domain'
+import { telaDaRota } from './modulos-das-rotas'
+
+/**
+ * Onde uma rota de carteira nomeia um `Cliente Firmare`: o `:id` de
+ * `clientes/:id/**`, o `:clienteId` de qualquer rota, e `clienteId` ou
+ * `clienteCarteiraId` na query ou no corpo. É por aqui que "só a minha
+ * carteira" (A-3) chega a TODA rota que recebe um cliente, num ponto só, sem
+ * depender de cada serviço lembrar.
+ */
+function clientesNomeados(
+  molde: string,
+  req: { params?: unknown; query?: unknown; body?: unknown },
+): string[] {
+  const ids: string[] = []
+  const de = (o: unknown, chave: string) => {
+    if (o && typeof o === 'object') {
+      const v = (o as Record<string, unknown>)[chave]
+      if (typeof v === 'string' && v !== '') ids.push(v)
+    }
+  }
+  if (/^\/v1\/carteira\/clientes\/:id(\/|$)/.test(molde)) de(req.params, 'id')
+  de(req.params, 'clienteId')
+  for (const fonte of [req.query, req.body]) {
+    de(fonte, 'clienteId')
+    de(fonte, 'clienteCarteiraId')
+  }
+  return [...new Set(ids)]
+}
 
 /**
  * O cookie da carteira. Outro nome, outro espaço de identidade — não
@@ -92,7 +122,9 @@ export class CarteiraGuard implements CanActivate {
 
     const req = ctx
       .switchToHttp()
-      .getRequest<RequisicaoComCarteira & { cookies?: Record<string, string> }>()
+      .getRequest<
+        RequisicaoComCarteira & { cookies?: Record<string, string>; params?: unknown; query?: unknown; body?: unknown }
+      >()
     const token = req.cookies?.[NOME_DO_COOKIE_CARTEIRA]
     // Mesma resposta para "sem cookie", "inválido", "expirado" e
     // "desativado" — quatro frases diferentes seriam quatro informações de
@@ -103,6 +135,7 @@ export class CarteiraGuard implements CanActivate {
     if (!contexto) throw new NotFoundException()
 
     req.carteira = contexto
+    const usuario = contexto.usuarioDeGestao
 
     // 409 e não 404: a sessão JÁ foi provada válida. "Termine isto primeiro"
     // é precondição da sessão, não resposta a "você pode?" — mesma resposta
@@ -117,6 +150,24 @@ export class CarteiraGuard implements CanActivate {
         codigo: CODIGO_SENHA_PROVISORIA_DA_CARTEIRA,
         message: 'Troque a senha provisória antes de continuar.',
       })
+    }
+
+    // A TELA da rota (A-4): negação por padrão. Rota sem tela declarada em
+    // `modulos-das-rotas.ts` é recusada; tela não concedida, também. O perfil
+    // vem do banco, relido agora (`contextoDoToken`), nunca do cookie.
+    const molde = juntar(prefixo, caminho)
+    const verboTexto = verbo === undefined ? '?' : (RequestMethod[verbo] ?? '?')
+    const tela = telaDaRota(verboTexto, molde)
+    if (tela === null || (tela !== 'livre' && !temPermCarteira(usuario, tela))) {
+      throw new ForbiddenException('Seu acesso não inclui esta tela.')
+    }
+
+    // "Só a minha carteira" (A-3): cliente alheio responde 404, a MESMA
+    // resposta de um id que não existe — nada confirma que ele existe.
+    if (responsavelImpostoPeloPerfil(usuario) !== null) {
+      for (const id of clientesNomeados(molde, req)) {
+        if (!(await this.carteira.clienteEstaNaMinhaCarteira(usuario, id))) throw new NotFoundException()
+      }
     }
     return true
   }

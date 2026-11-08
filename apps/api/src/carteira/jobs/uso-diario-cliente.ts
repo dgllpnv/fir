@@ -1,14 +1,16 @@
-import { janela, somarDias } from '@fir/domain'
+import { alertaDeUso, janela, saudeDoUso, somarDias } from '@fir/domain'
 import type pg from 'pg'
 import { SISTEMA } from '../../banco/ator'
 import { BancoService } from '../../banco/banco.service'
 import { clinicaIdDeFonteConfiavel } from '../../banco/clinica-id'
 import type { Relogio } from '../../comum/relogio'
 import { diaDaClinica } from '../../estoque/dia-da-clinica'
+import { COLUNAS_DE_USO, type LinhaDeUsoDb, linhaDeUso } from '../uso/linha-de-uso'
 import { consultarPrazos, contarConversaoDeOrcamentos, contarTarefasCriadas } from '../../painel-geral/metricas-diarias'
 import {
   contarContatosDePacientes,
   contarFaltas,
+  contarFaltasRecontatadas,
   contarTarefasConcluidas,
   contarTarefasVencidasAbertas,
   contarUsuarios,
@@ -36,14 +38,21 @@ import {
  * MESMA linha, nunca duplica — e é assim que `uso-diario-cliente.e2e.test.ts`
  * prova.
  *
- * **NUNCA escreve em `faltas_recontatadas`.** A definição ("falta ou
- * falta+desmarque", "data da falta ou do reagendamento") tem decisão do dono
- * registrada (plano §9, Q5/Q5b), mas rastrear o reagendamento SUBSEQUENTE a
- * uma falta é trabalho novo de consulta que não foi escopo deste ticket — ver
- * o relatório final. A coluna fica com o `DEFAULT 0` do INSERT e intocada no
- * `UPDATE` (fora do `SET`), exatamente como o comentário dela pede: "0 aqui
- * seria 'zero recontatos', não 'ainda não decidido'" — e por isso este job
- * não escreve nem um `0` explícito nela.
+ * **`faltas_recontatadas` (G8 1D).** Decisão do dono (plano §9, itens 5/5b):
+ * reagendamento NO DIA de um cartão cuja etapa anterior era `faltou` ou
+ * `desmarcou` — `contarFaltasRecontatadas`. Desde a migration 0046 a coluna é
+ * NULL até este job calcular o dia, e a tela oculta o número enquanto houver
+ * dia sem cálculo na janela (PP-8).
+ *
+ * **R13 — o alerta de uso baixo.** Depois de gravar o dia, a saúde do uso
+ * (`saudeDoUso`, `@fir/domain` — a MESMA regra da tela FIR Clinic) é avaliada
+ * com "hoje" = o dia seguinte ao calculado. Crítico vira uma tarefa interna
+ * de prioridade alta, "FIR Clinic sem uso em X: ligar para a recepção", com
+ * chave `(cliente_carteira_id, alerta_de_uso_dia)` e `ON CONFLICT DO NOTHING`:
+ * rodar três vezes cria uma, e a que a equipe cancelou não renasce (regra 27).
+ * Só o nome da clínica e a situação, nunca nome de funcionária (A19). Sem
+ * responsável: o "setor comercial" do protótipo (L1576) chega com os perfis
+ * do Usuário de Gestão (ticket 0.5).
  */
 
 export type FalhaDoJob = { readonly clienteCarteiraId: string; readonly clinicaId: string; readonly erro: string }
@@ -55,7 +64,7 @@ export type ResumoDoJob = {
   readonly falhas: readonly FalhaDoJob[]
 }
 
-type ClienteAtivo = { id: string; clinica_id: string; grupo_id: string }
+type ClienteAtivo = { id: string; nome: string; clinica_id: string; grupo_id: string }
 
 /**
  * Roda para TODOS os `Cliente Firmare` com `status = 'ativo'`.
@@ -72,8 +81,11 @@ export async function executarUsoDiarioCliente(
 ): Promise<ResumoDoJob> {
   const clientes = await banco.nasTabelasDaCarteiraComEscopo('geral', null, (c) =>
     c.query<ClienteAtivo>(
-      `SELECT id, clinica_id, grupo_id FROM clientes_carteira
-        WHERE status = 'ativo' AND excluido_em IS NULL`,
+      `SELECT id, nome, clinica_id, grupo_id FROM clientes_carteira
+        WHERE status = 'ativo' AND excluido_em IS NULL
+          -- Desde a 0047 o cliente pode existir sem clínica na FIR Clinic (D-22
+          -- item 4): sem clínica não há uso a medir, e isso não é falha.
+          AND clinica_id IS NOT NULL`,
     ),
   )
   if (clientes.rows.length === 0) return { processados: 0, falhas: [] }
@@ -116,7 +128,7 @@ export async function executarUsoDiarioCliente(
       const clinicaId = clinicaIdDeFonteConfiavel(cliente.clinica_id)
 
       const linha = await banco.naClinica(clinicaId, SISTEMA, async (c: pg.PoolClient) => {
-        const [prazos, tarefasCriadas, tarefasConcluidas, vencidasAbertas, contatos, orcamentos, faltas, usuarios, receita] =
+        const [prazos, tarefasCriadas, tarefasConcluidas, vencidasAbertas, contatos, orcamentos, faltas, recontatadas, usuarios, receita] =
           await Promise.all([
             consultarPrazos(c, cliente.clinica_id, { de: dia, ate: dia }, dia, fuso),
             contarTarefasCriadas(c, cliente.clinica_id, { de: dia, ate: dia }, fuso),
@@ -125,6 +137,7 @@ export async function executarUsoDiarioCliente(
             contarContatosDePacientes(c, cliente.clinica_id, j),
             contarConversaoDeOrcamentos(c, cliente.clinica_id, j),
             contarFaltas(c, cliente.clinica_id, j),
+            contarFaltasRecontatadas(c, cliente.clinica_id, j),
             contarUsuarios(c, cliente.clinica_id, j),
             somarReceitaRegistrada(c, cliente.clinica_id, j),
           ])
@@ -139,6 +152,7 @@ export async function executarUsoDiarioCliente(
           orcamentosEnviados: orcamentos.enviados,
           orcamentosPagos: orcamentos.fechados,
           faltas,
+          faltasRecontatadas: recontatadas,
           receitaRegistrada: receita,
         }
       })
@@ -149,8 +163,8 @@ export async function executarUsoDiarioCliente(
              cliente_carteira_id, grupo_id, dia,
              usuarios_cadastrados, usuarios_ativos, tarefas_criadas, tarefas_concluidas,
              tarefas_no_prazo, tarefas_vencidas_abertas, contatos_pacientes,
-             orcamentos_enviados, orcamentos_pagos, faltas, receita_registrada
-           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+             orcamentos_enviados, orcamentos_pagos, faltas, receita_registrada, faltas_recontatadas
+           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
            ON CONFLICT (cliente_carteira_id, dia) DO UPDATE SET
              usuarios_cadastrados     = EXCLUDED.usuarios_cadastrados,
              usuarios_ativos          = EXCLUDED.usuarios_ativos,
@@ -162,11 +176,8 @@ export async function executarUsoDiarioCliente(
              orcamentos_enviados      = EXCLUDED.orcamentos_enviados,
              orcamentos_pagos         = EXCLUDED.orcamentos_pagos,
              faltas                   = EXCLUDED.faltas,
-             receita_registrada       = EXCLUDED.receita_registrada`,
-          // `faltas_recontatadas` FORA da lista — nem no INSERT (fica no
-          // `DEFAULT 0` da coluna) nem no `SET` do UPDATE (fica com o que já
-          // estava lá). Rodar este job de novo não apaga um valor lançado à
-          // mão por outra via, no dia em que ela existir.
+             receita_registrada       = EXCLUDED.receita_registrada,
+             faltas_recontatadas      = EXCLUDED.faltas_recontatadas`,
           [
             cliente.id,
             cliente.grupo_id,
@@ -182,9 +193,12 @@ export async function executarUsoDiarioCliente(
             linha.orcamentosPagos,
             linha.faltas,
             linha.receitaRegistrada.toString(),
+            linha.faltasRecontatadas,
           ],
         ),
       )
+
+      await alertarUsoBaixo(banco, cliente, somarDias(dia, 1))
       processados += 1
     } catch (erro) {
       falhas.push({
@@ -196,4 +210,29 @@ export async function executarUsoDiarioCliente(
   }
 
   return { processados, falhas }
+}
+
+/**
+ * R13. "Hoje" é o dia seguinte ao recém-calculado: em produção, o dia corrente
+ * da clínica; num reprocessamento, o dia em que o alerta teria nascido. A
+ * janela da saúde é a semana anterior a ele — 14 dias de linhas bastam.
+ */
+async function alertarUsoBaixo(banco: BancoService, cliente: ClienteAtivo, hoje: string): Promise<void> {
+  await banco.nasTabelasDaCarteiraComEscopo('geral', null, async (c) => {
+    const linhas = await c.query<LinhaDeUsoDb>(
+      `SELECT ${COLUNAS_DE_USO} FROM uso_diario_cliente
+        WHERE cliente_carteira_id = $1 AND dia >= $2::date AND dia < $3::date`,
+      [cliente.id, somarDias(hoje, -14), hoje],
+    )
+    const alerta = alertaDeUso(cliente.nome, saudeDoUso(linhas.rows.map(linhaDeUso), hoje))
+    if (alerta === null) return
+    await c.query(
+      `INSERT INTO tarefas_internas
+         (titulo, descricao, grupo_id, cliente_carteira_id, prazo, prioridade, alerta_de_uso_dia)
+       VALUES ($1, $2, $3, $4, $5::date, 'alta', $5::date)
+       ON CONFLICT (cliente_carteira_id, alerta_de_uso_dia) WHERE alerta_de_uso_dia IS NOT NULL
+       DO NOTHING`,
+      [alerta.titulo, alerta.descricao, cliente.grupo_id, cliente.id, hoje],
+    )
+  })
 }

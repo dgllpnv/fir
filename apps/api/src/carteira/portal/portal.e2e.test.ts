@@ -56,8 +56,9 @@ const criarUsuarioDoPortal = async (
 ): Promise<string> => {
   const coluna = escopo === 'cliente' ? 'cliente_carteira_id' : 'grupo_id'
   const r = await migrate.query<{ id: string }>(
-    `INSERT INTO usuarios_do_portal (usuario, nome, senha_hash, escopo, ${coluna}, ativo)
-     VALUES ($1, 'Teste do Portal', $2, $3, $4, $5) RETURNING id`,
+    // `ve_valores`: estas contas são a do titular (LGPD A52, 0059).
+    `INSERT INTO usuarios_do_portal (usuario, nome, senha_hash, escopo, ${coluna}, ativo, ve_valores)
+     VALUES ($1, 'Teste do Portal', $2, $3, $4, $5, true) RETURNING id`,
     [usuario, await hashDeSenha(SENHA), escopo, alvo, ativo],
   )
   return r.rows[0]!.id
@@ -119,11 +120,13 @@ beforeAll(async () => {
   // pequena (menos de 5 orçamentos pagos — some em "Outras campanhas").
   await migrate.query(
     `INSERT INTO campanhas_carteira
-       (cliente_carteira_id, grupo_id, origem, nome, periodo_inicio, periodo_fim, metrica, meta, resultado, orcamentos_pagos)
+       (cliente_carteira_id, grupo_id, origem, nome, periodo_inicio, periodo_fim, metrica, meta, resultado, orcamentos_pagos,
+        mes_referencia, receita_centavos)
      VALUES
-       ($1, $2, 'manual', 'Campanha Grande', '2026-01-01', '2026-01-31', 'receita', 100000, 500000, 12),
-       ($1, $2, 'manual', 'Campanha Pequena (3 pacientes)', '2026-02-01', '2026-02-28', 'receita', 10000, 90000, 3)`,
-    [clienteX, grupo],
+       ($1, $2, 'manual', 'Campanha Grande', $3, $3, 'receita', 100000, 500000, 12, $3, 500000),
+       ($1, $2, 'manual', 'Campanha Pequena (3 pacientes)', $3, $3, 'receita', 10000, 90000, 3, $3, 90000)`,
+    // G8 3D: a célula é campanha × mês (0043) e o portal mostra os 12 meses até o atual — o mês corrente cabe sempre.
+    [clienteX, grupo, `${new Date().toISOString().slice(0, 7)}-01`],
   )
 
   usuarioPortalX = await criarUsuarioDoPortal(PORTAL_X, 'cliente', clienteX)
@@ -162,6 +165,7 @@ afterAll(async () => {
   await migrate.query('DELETE FROM usuarios_do_portal WHERE id = ANY($1)', [
     [usuarioPortalX, usuarioPortalGrupo, usuarioPortalInativo],
   ])
+  await migrate.query('DELETE FROM reunioes_comerciais WHERE cliente_carteira_id = $1', [clienteX])
   await migrate.query('DELETE FROM sessoes_de_carteira WHERE usuario_gestao_id = $1', [usuarioDeGestao])
   await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [usuarioDeGestao])
   await migrate.query('DELETE FROM campanhas_carteira WHERE cliente_carteira_id = $1', [clienteX])
@@ -296,7 +300,7 @@ describe('GET /v1/portal/clientes — o núcleo do Portal do Grupo', () => {
     expect(nomes).not.toContain('Cliente Portal Z')
   })
 
-  it('redação de valores: o Usuário do portal SEMPRE vê o próprio dinheiro (ADR 0017 §3)', async () => {
+  it('redação de valores: o titular (ve_valores) vê o próprio dinheiro (ADR 0017 §3, LGPD A52)', async () => {
     const sessao = paresDe(cookies(await entrarNoPortal(PORTAL_X).expect(200)))
     const r = await http().get('/v1/portal/clientes').set('Cookie', sessao).expect(200)
     const cliente = r.body.clientes.find((c: { nome: string }) => c.nome === 'Cliente Portal X')
@@ -313,7 +317,26 @@ describe('GET /v1/portal/clientes — o núcleo do Portal do Grupo', () => {
     expect(nomes).toEqual(['Campanha Grande'])
     expect(JSON.stringify(cliente.campanhas)).not.toContain('Pequena')
     const outras = cliente.campanhas.find((c: { tipo: string }) => c.tipo === 'outras')
-    expect(outras).toMatchObject({ tipo: 'outras', quantidade: 1 })
+    // CE-3: uma campanha só no balde — o valor dela NÃO vai junto (era 90000).
+    expect(outras).toEqual({ tipo: 'outras', quantidade: 1, resultadoEmDinheiro: null })
+    expect(JSON.stringify(cliente.campanhas)).not.toContain('90000')
+  })
+
+  it('reuniões (G8 0.1): só a ata compartilhada chega, e só com as colunas da lista branca (LGPD A7)', async () => {
+    await declararAtorSistema(migrate)
+    await migrate.query(
+      `INSERT INTO reunioes_comerciais (cliente_carteira_id, grupo_id, data, resumo, encaminhamentos, por_usuario_gestao_id, compartilhada)
+       VALUES ($1, $2, '2026-10-01', 'Impressões internas: a dona parece desanimada', NULL, $3, DEFAULT),
+              ($1, $2, '2026-10-08', 'Ata compartilhada', 'Revisar roteiro', $3, true)`,
+      [clienteX, grupo, usuarioDeGestao],
+    )
+    const sessao = paresDe(cookies(await entrarNoPortal(PORTAL_X).expect(200)))
+    const r = await http().get('/v1/portal/clientes').set('Cookie', sessao).expect(200)
+    const cliente = r.body.clientes.find((c: { nome: string }) => c.nome === 'Cliente Portal X')
+    expect(cliente.reunioes.map((x: { resumo: string }) => x.resumo)).toEqual(['Ata compartilhada'])
+    // G8 3D: os anexos (link e arquivo) entram na lista branca do A7.
+    expect(Object.keys(cliente.reunioes[0]).sort()).toEqual(['arquivos', 'data', 'encaminhamentos', 'id', 'links', 'resumo'])
+    expect(JSON.stringify(r.body)).not.toContain('Impressões internas')
   })
 
   it('registro de acesso: lê o grupo (2 clínicas) e grava DUAS linhas de auditoria, uma em cada clínica (ADR 0018 critério 5)', async () => {

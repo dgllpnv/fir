@@ -1,11 +1,19 @@
 import {
-  type CarteiraEuSaida,
+  type CadastroDoClienteSaida,
+  type CarteiraEuComSegundoFatorSaida,
+  type EntrarNaCarteiraSaida,
   type ListaDeClientesDaCarteiraSaida,
+  type OpcoesDoCadastroSaida,
+  CriarClienteNaCarteiraEntrada,
+  EditarCadastroDoClienteEntrada,
   EntrarNaCarteiraEntrada,
+  SegundaEtapaDeEntrarNaCarteiraEntrada,
   TrocarSenhaDaCarteiraEntrada,
+  Uuid,
 } from '@fir/contracts'
 import {
   BadRequestException,
+  ConflictException,
   Controller,
   ForbiddenException,
   Get,
@@ -14,25 +22,47 @@ import {
   HttpException,
   HttpStatus,
   Inject,
+  Param,
+  Patch,
   Post,
   Body,
   Req,
   Res,
 } from '@nestjs/common'
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { DURACAO_DESAFIO_MS } from '@fir/domain'
 import { FilaCheia, RETRY_AFTER_FILA_CHEIA } from '../autenticacao/concorrencia'
 import { LimitePorOrigem } from '../autenticacao/limite-por-origem'
 import type { RequisicaoComCarteira } from './contexto-da-carteira'
 import { DURACAO_SESSAO_CARTEIRA_MS, NOME_DO_COOKIE_CARTEIRA } from './carteira.guard'
+import { mensagemDeValidacao, traduzirErroDoBanco, trazCampoDeValor } from './cadastro-do-cliente'
 import {
   CarteiraService,
+  ChaveDeCriacaoEmUso,
+  ClienteDaCarteiraNaoEncontrado,
   CredencialDaCarteiraInvalida,
+  GrupoCruzadoNaCriacao,
+  GrupoDeCriacaoInvalido,
   LimiteDeTentativasDaCarteira,
+  ResponsavelForaDoGrupo,
+  SemPermissaoDeEncerrar,
+  SemPermissaoDeTrocarResponsavel,
+  SemPermissaoDeValoresNaCarteira,
 } from './carteira.service'
 import { LIMITE_DA_CARTEIRA } from './limite-da-carteira'
 import { SoUsuarioDeGestao } from './so-usuario-de-gestao.decorator'
+import {
+  CodigoDoSegundoFatorInvalido,
+  DesafioDaCarteiraInvalido,
+  LimiteDoSegundoFator,
+  SegundoFatorDaCarteiraService,
+} from './segundo-fator/segundo-fator.service'
 
 const FRASE = 'Usuário ou senha incorretos.'
+
+/** O cookie do DESAFIO (A-12): não é sessão, nenhuma rota de carteira o lê. */
+export const NOME_DO_COOKIE_DESAFIO_DA_CARTEIRA = '__Host-fir-carteira-desafio'
+export const CODIGO_DESAFIO_INVALIDO = 'DESAFIO_DA_CARTEIRA_INVALIDO'
 const RETRY_AFTER_LIMITE_POR_CONTA = 15 * 60
 
 /**
@@ -47,6 +77,7 @@ export class CarteiraController {
   constructor(
     @Inject(CarteiraService) private readonly carteira: CarteiraService,
     @Inject(LIMITE_DA_CARTEIRA) private readonly limitePorOrigem: LimitePorOrigem,
+    @Inject(SegundoFatorDaCarteiraService) private readonly segundoFator: SegundoFatorDaCarteiraService,
   ) {}
 
   @Post('entrar')
@@ -55,7 +86,7 @@ export class CarteiraController {
     @Body() corpo: unknown,
     @Req() req: FastifyRequest,
     @Res({ passthrough: true }) res: FastifyReply,
-  ): Promise<CarteiraEuSaida> {
+  ): Promise<EntrarNaCarteiraSaida> {
     const origem = req.ip
     if (!this.limitePorOrigem.registrar(origem)) {
       res.header('Retry-After', String(this.limitePorOrigem.esperaEmSegundos(origem)))
@@ -65,19 +96,30 @@ export class CarteiraController {
       )
     }
 
+    // G8 0.6 (A-12): a SEGUNDA etapa vem pela mesma rota — mesmo limite por
+    // origem, mesma liberação no `CarteiraGuard` —, com o cookie do desafio.
+    const segunda = SegundaEtapaDeEntrarNaCarteiraEntrada.safeParse(corpo)
+    if (segunda.success) return this.segundaEtapa(segunda.data, req, res)
+
     const dados = EntrarNaCarteiraEntrada.safeParse(corpo)
     if (!dados.success) throw new BadRequestException('Confira o usuário e a senha.')
 
     try {
-      const { usuarioDeGestao, token } = await this.carteira.entrar(dados.data.usuario, dados.data.senha)
-      res.setCookie(NOME_DO_COOKIE_CARTEIRA, token, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'strict',
-        path: '/',
-        maxAge: Math.floor(DURACAO_SESSAO_CARTEIRA_MS / 1000),
-      })
-      return { usuarioDeGestao }
+      const r = await this.carteira.entrar(dados.data.usuario, dados.data.senha)
+      if ('desafio' in r) {
+        // Nenhuma sessão nasceu: só o desafio, 5 min, num cookie à parte.
+        res.setCookie(NOME_DO_COOKIE_DESAFIO_DA_CARTEIRA, r.desafio, {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'strict',
+          path: '/',
+          maxAge: Math.floor(DURACAO_DESAFIO_MS / 1000),
+        })
+        return { segundoFatorExigido: true }
+      }
+      this.gravarSessao(res, r.token)
+      // Sessão sem desafio = conta ainda sem TOTP: só alcança o cadastro.
+      return { usuarioDeGestao: r.usuarioDeGestao, segundoFator: { ativo: false }, avisoDeRecuperacao: null }
     } catch (e) {
       if (e instanceof LimiteDeTentativasDaCarteira) {
         res.header('Retry-After', String(RETRY_AFTER_LIMITE_POR_CONTA))
@@ -98,6 +140,56 @@ export class CarteiraController {
       }
       throw e
     }
+  }
+
+  /**
+   * O desafio + um código (TOTP ou de recuperação) → a sessão.
+   *  - **401** `DESAFIO_DA_CARTEIRA_INVALIDO`: sem desafio, vencido, usado, ou
+   *    morto por cinco erros — volte à senha.
+   *  - **401** código incorreto.
+   *  - **429** limite POR CONTA do segundo fator.
+   */
+  private async segundaEtapa(
+    entrada: SegundaEtapaDeEntrarNaCarteiraEntrada,
+    req: { cookies?: { [nome: string]: string | undefined } },
+    res: FastifyReply,
+  ): Promise<EntrarNaCarteiraSaida> {
+    const desafio = req.cookies?.[NOME_DO_COOKIE_DESAFIO_DA_CARTEIRA]
+    const expirado = () =>
+      new HttpException(
+        { statusCode: HttpStatus.UNAUTHORIZED, codigo: CODIGO_DESAFIO_INVALIDO, message: 'O tempo para o código acabou. Entre de novo com a senha.' },
+        HttpStatus.UNAUTHORIZED,
+      )
+    if (!desafio) throw expirado()
+    try {
+      const { token, aviso } = await this.segundoFator.concluirDesafio(desafio, entrada)
+      res.clearCookie(NOME_DO_COOKIE_DESAFIO_DA_CARTEIRA, { path: '/' })
+      this.gravarSessao(res, token)
+      const contexto = await this.carteira.contextoDoToken(token)
+      if (!contexto) throw expirado()
+      return { usuarioDeGestao: contexto.usuarioDeGestao, segundoFator: { ativo: true }, avisoDeRecuperacao: aviso }
+    } catch (e) {
+      if (e instanceof DesafioDaCarteiraInvalido) {
+        res.clearCookie(NOME_DO_COOKIE_DESAFIO_DA_CARTEIRA, { path: '/' })
+        throw expirado()
+      }
+      if (e instanceof CodigoDoSegundoFatorInvalido) throw new HttpException('Código incorreto.', HttpStatus.UNAUTHORIZED)
+      if (e instanceof LimiteDoSegundoFator) {
+        res.header('Retry-After', String(Math.ceil(e.esperaMs / 1000)))
+        throw new HttpException('Muitos códigos errados. Espere um pouco e tente de novo.', HttpStatus.TOO_MANY_REQUESTS)
+      }
+      throw e
+    }
+  }
+
+  private gravarSessao(res: FastifyReply, token: string): void {
+    res.setCookie(NOME_DO_COOKIE_CARTEIRA, token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      path: '/',
+      maxAge: Math.floor(DURACAO_SESSAO_CARTEIRA_MS / 1000),
+    })
   }
 
   /** Liberada pelo `CarteiraGuard` — um cookie expirado precisa poder ser limpo. */
@@ -143,15 +235,99 @@ export class CarteiraController {
   }
 
   @Get('eu')
-  eu(@Req() req: RequisicaoComCarteira): CarteiraEuSaida {
+  async eu(@Req() req: RequisicaoComCarteira): Promise<CarteiraEuComSegundoFatorSaida> {
     // O guard já recusou (404) se não houver contexto — chegar aqui garante
-    // que `req.carteira` existe.
-    return { usuarioDeGestao: req.carteira!.usuarioDeGestao }
+    // que `req.carteira` existe. `segundoFator` diz à tela se manda para o
+    // cadastro (G8 0.6).
+    const { ativo } = await this.segundoFator.resumo(req.carteira!.usuarioDeGestao.id)
+    return { usuarioDeGestao: req.carteira!.usuarioDeGestao, segundoFator: { ativo } }
   }
 
   @Get('clientes')
   async clientes(@Req() req: RequisicaoComCarteira): Promise<ListaDeClientesDaCarteiraSaida> {
     const clientes = await this.carteira.clientes(req.carteira!.usuarioDeGestao)
     return { clientes }
+  }
+
+  /**
+   * G8 0.4 — criar um `Cliente Firmare` do zero, sem clínica (D-22 item 4).
+   *  - **400** corpo fora do contrato (a mensagem nunca ecoa o valor).
+   *  - **403** campo de valor sem `valores` (A-6), ou grupo de outro escopo.
+   *  - **409** a chave de criação é de um cliente que esta sessão não vê.
+   *  - **422** grupo ausente/inativo para `geral`, ou responsável de fora.
+   * Repetir a mesma `chaveDeCriacao` devolve o mesmo cliente (A-20).
+   */
+  @Post('clientes')
+  async criarCliente(@Body() corpo: unknown, @Req() req: RequisicaoComCarteira): Promise<CadastroDoClienteSaida> {
+    const dados = CriarClienteNaCarteiraEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(mensagemDeValidacao(dados.error.issues))
+    return this.traduzindo(async () => {
+      const r = await this.carteira.criarCliente(req.carteira!.usuarioDeGestao, dados.data, trazCampoDeValor(corpo))
+      return { cliente: r.cliente }
+    })
+  }
+
+  @Get('cadastro/opcoes')
+  async opcoesDoCadastro(@Req() req: RequisicaoComCarteira): Promise<OpcoesDoCadastroSaida> {
+    return this.carteira.opcoesDoCadastro(req.carteira!.usuarioDeGestao)
+  }
+
+  /** O cadastro de UM cliente. 404 idêntico para "não existe" e "é de outro grupo". */
+  @Get('clientes/:id')
+  async cadastro(@Param('id') id: string, @Req() req: RequisicaoComCarteira): Promise<CadastroDoClienteSaida> {
+    if (!Uuid.safeParse(id).success) throw new NotFoundException('Cliente não encontrado.')
+    return this.traduzindo(async () => ({ cliente: await this.carteira.cadastro(req.carteira!.usuarioDeGestao, id) }))
+  }
+
+  /**
+   * Edita o cadastro. Campo ausente = não mexer. Campo de valor presente —
+   * mesmo `null` — sem `valores` = 403, e nada é gravado (appsec A-6).
+   */
+  @Patch('clientes/:id')
+  async editarCadastro(
+    @Param('id') id: string,
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComCarteira,
+  ): Promise<CadastroDoClienteSaida> {
+    if (!Uuid.safeParse(id).success) throw new NotFoundException('Cliente não encontrado.')
+    const dados = EditarCadastroDoClienteEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(mensagemDeValidacao(dados.error.issues))
+    return this.traduzindo(async () => ({
+      cliente: await this.carteira.editarCadastro(req.carteira!.usuarioDeGestao, id, dados.data, trazCampoDeValor(corpo)),
+    }))
+  }
+
+  /** As exceções do cadastro → status HTTP, num lugar só. */
+  private async traduzindo<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn()
+    } catch (e) {
+      if (e instanceof ClienteDaCarteiraNaoEncontrado) throw new NotFoundException('Cliente não encontrado.')
+      if (e instanceof SemPermissaoDeValoresNaCarteira) {
+        throw new ForbiddenException('Mensalidade e pagamento só com a permissão de valores.')
+      }
+      if (e instanceof SemPermissaoDeEncerrar) {
+        throw new ForbiddenException('Encerrar ou reativar um cliente encerrado exige administrar a carteira.')
+      }
+      if (e instanceof SemPermissaoDeTrocarResponsavel) {
+        throw new ForbiddenException('Trocar o responsável exige ver todas as clientes.')
+      }
+      if (e instanceof GrupoCruzadoNaCriacao) {
+        throw new ForbiddenException('Você não pode criar um cliente em outro grupo.')
+      }
+      if (e instanceof GrupoDeCriacaoInvalido) throw new HttpException(e.mensagem, HttpStatus.UNPROCESSABLE_ENTITY)
+      if (e instanceof ResponsavelForaDoGrupo) {
+        throw new HttpException(
+          'Este responsável não é do grupo do cliente, ou está desativado.',
+          HttpStatus.UNPROCESSABLE_ENTITY,
+        )
+      }
+      if (e instanceof ChaveDeCriacaoEmUso) {
+        throw new ConflictException('Este formulário já foi usado. Recarregue a página e tente de novo.')
+      }
+      const traduzido = traduzirErroDoBanco(e)
+      if (traduzido) throw new HttpException(traduzido.mensagem, traduzido.status)
+      throw e
+    }
   }
 }

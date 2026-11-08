@@ -8,6 +8,7 @@ import { AppModule } from '../app.module'
 import { hashDeSenha } from '../autenticacao/senha'
 import {
   apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
   apagarOperadorDeTeste,
   declararAtorSistema,
 } from '../banco/limpeza-de-teste'
@@ -23,6 +24,16 @@ const URL_MIG =
 
 const SENHA_OP = 'quatro-pedras-no-caminho'
 const PROVISORIA = /^[a-z]+(-[a-z]+){3}$/
+/** G8 0.5: os sete campos do perfil, sempre enviados pela tela (a colaboradora nova do protótipo, L2965). */
+const PERFIL = {
+  valores: false,
+  carteira: 'minha',
+  modulos: ['clientes', 'rotina'],
+  administrar: false,
+  setor: null,
+  funcao: null,
+  telefone: null,
+} as const
 
 let app: NestFastifyApplication
 let migrate: pg.Client
@@ -85,9 +96,23 @@ afterAll(async () => {
     await migrate.query('DELETE FROM sessoes_de_carteira WHERE usuario_gestao_id = ANY($1)', [
       criadosUsuarios,
     ])
+    // O checklist (G8 2C) distribui tarefas pela equipe inteira de escopo geral — e o banco
+    // de teste é compartilhado: outro arquivo, rodando junto, pode ter dado uma tarefa a um
+    // usuário DESTE arquivo. Solta a referência antes de apagar.
+    await migrate.query(
+      `UPDATE tarefas_internas
+          SET responsavel_usuario_gestao_id = CASE WHEN responsavel_usuario_gestao_id = ANY($1) THEN NULL ELSE responsavel_usuario_gestao_id END,
+              solicitante_usuario_gestao_id = CASE WHEN solicitante_usuario_gestao_id = ANY($1) THEN NULL ELSE solicitante_usuario_gestao_id END,
+              transferida_de_usuario_gestao_id = CASE WHEN transferida_de_usuario_gestao_id = ANY($1) THEN NULL ELSE transferida_de_usuario_gestao_id END
+        WHERE responsavel_usuario_gestao_id = ANY($1) OR solicitante_usuario_gestao_id = ANY($1) OR transferida_de_usuario_gestao_id = ANY($1)`,
+      [criadosUsuarios],
+    )
     await migrate.query('DELETE FROM usuarios_gestao WHERE id = ANY($1)', [criadosUsuarios])
   }
   await migrate.query('DELETE FROM clientes_carteira WHERE clinica_id = $1', [clinica])
+  // Vincular a clínica grava `historico_grupo_da_clinica` (A-8, 0047), que
+  // aponta para o grupo — sai antes dele.
+  await apagarHistoricoGrupoDeTeste(migrate, clinica)
   if (criadosGrupos.length > 0) {
     await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [criadosGrupos])
   }
@@ -211,7 +236,7 @@ describe('POST /v1/superadmin/usuarios-gestao', () => {
     const r = await http()
       .post('/v1/superadmin/usuarios-gestao')
       .set('Cookie', painel)
-      .send({ usuario, nome: 'Gestora Geral', escopo: 'geral', grupoId: null })
+      .send({ usuario, nome: 'Gestora Geral', escopo: 'geral', grupoId: null, ...PERFIL })
       .expect(201)
     criadosUsuarios.push(r.body.usuarioDeGestao.id)
 
@@ -230,7 +255,7 @@ describe('POST /v1/superadmin/usuarios-gestao', () => {
     await http()
       .post('/v1/superadmin/usuarios-gestao')
       .set('Cookie', painel)
-      .send({ usuario: `gestora.sem.grupo.${sufixo}`, nome: 'X', escopo: 'grupo', grupoId: null })
+      .send({ usuario: `gestora.sem.grupo.${sufixo}`, nome: 'X', escopo: 'grupo', grupoId: null, ...PERFIL })
       .expect(400)
   })
 
@@ -239,14 +264,14 @@ describe('POST /v1/superadmin/usuarios-gestao', () => {
     const r1 = await http()
       .post('/v1/superadmin/usuarios-gestao')
       .set('Cookie', painel)
-      .send({ usuario, nome: 'Primeira', escopo: 'geral', grupoId: null })
+      .send({ usuario, nome: 'Primeira', escopo: 'geral', grupoId: null, ...PERFIL })
       .expect(201)
     criadosUsuarios.push(r1.body.usuarioDeGestao.id)
 
     await http()
       .post('/v1/superadmin/usuarios-gestao')
       .set('Cookie', painel)
-      .send({ usuario, nome: 'Segunda', escopo: 'geral', grupoId: null })
+      .send({ usuario, nome: 'Segunda', escopo: 'geral', grupoId: null, ...PERFIL })
       .expect(409)
   })
 
@@ -254,7 +279,7 @@ describe('POST /v1/superadmin/usuarios-gestao', () => {
     const r = await http()
       .post('/v1/superadmin/usuarios-gestao')
       .set('Cookie', painel)
-      .send({ usuario: `gestora.trilha.${sufixo}`, nome: 'Trilha', escopo: 'geral', grupoId: null })
+      .send({ usuario: `gestora.trilha.${sufixo}`, nome: 'Trilha', escopo: 'geral', grupoId: null, ...PERFIL })
       .expect(201)
     criadosUsuarios.push(r.body.usuarioDeGestao.id)
     const prov = r.body.senhaProvisoria as string
@@ -270,7 +295,7 @@ describe('GET /v1/superadmin/usuarios-gestao', () => {
     const criado = await http()
       .post('/v1/superadmin/usuarios-gestao')
       .set('Cookie', painel)
-      .send({ usuario, nome: 'Gestora da Lista', escopo: 'geral', grupoId: null })
+      .send({ usuario, nome: 'Gestora da Lista', escopo: 'geral', grupoId: null, ...PERFIL })
       .expect(201)
     criadosUsuarios.push(criado.body.usuarioDeGestao.id)
 
@@ -295,7 +320,7 @@ describe('GET /v1/superadmin/usuarios-gestao', () => {
    * lista administra CONTAS, não mede atividade da carteira. Nenhuma contagem
    * de `Cliente Firmare`, de login nem de ação entra aqui.
    */
-  it('devolve o MÍNIMO: nenhuma chave além das seis, nenhum sinal de atividade', async () => {
+  it('devolve o MÍNIMO: nenhuma chave além das de conta e de perfil, nenhum sinal de atividade', async () => {
     const r = await http().get('/v1/superadmin/usuarios-gestao').set('Cookie', painel).expect(200)
     const itens = r.body.usuariosDeGestao as Record<string, unknown>[]
     expect(itens.length, 'lista vazia — o teste não verificou nada').toBeGreaterThan(0)
@@ -308,6 +333,14 @@ describe('GET /v1/superadmin/usuarios-gestao', () => {
       'grupoId',
       'ativo',
       'aguardandoPrimeiroAcesso',
+      // G8 0.5: o perfil — o que a pessoa PODE, nunca o que ela fez.
+      'valores',
+      'carteira',
+      'modulos',
+      'administrar',
+      'setor',
+      'funcao',
+      'telefone',
     ]
     const aMais = [...new Set(itens.flatMap((u) => Object.keys(u)))].filter(
       (k) => !CHAVES_PERMITIDAS.includes(k),
@@ -315,7 +348,11 @@ describe('GET /v1/superadmin/usuarios-gestao', () => {
     expect(aMais, `chave(s) a mais na lista de usuários de gestão: ${aMais.join(', ')}`).toEqual([])
 
     const SINAIS_DE_ATIVIDADE = /clientes|clinicas|logins?|ultimo|acesso.?em|criad[oa]/i
-    expect(JSON.stringify(itens)).not.toMatch(SINAIS_DE_ATIVIDADE)
+    // `modulos` lista NOMES de tela ("clientes"), não contagem: fora da busca. E os textos
+    // livres de identidade (usuario, nome, funcao, setor) também: o banco de teste é
+    // compartilhado, e um usuário chamado "login.3f2a" por outro arquivo não é sinal de atividade.
+    const semModulos = itens.map(({ modulos: _m, usuario: _u, nome: _n, funcao: _f, setor: _s, ...resto }) => resto)
+    expect(JSON.stringify(semModulos)).not.toMatch(SINAIS_DE_ATIVIDADE)
   })
 
   it('sem sessão de painel, 404', async () => {
@@ -393,14 +430,14 @@ describe('PATCH /v1/superadmin/usuarios-gestao/:id', () => {
     const criado = await http()
       .post('/v1/superadmin/usuarios-gestao')
       .set('Cookie', painel)
-      .send({ usuario, nome: 'Antes Da Edição', escopo: 'geral', grupoId: null })
+      .send({ usuario, nome: 'Antes Da Edição', escopo: 'geral', grupoId: null, ...PERFIL })
       .expect(201)
     criadosUsuarios.push(criado.body.usuarioDeGestao.id)
 
     const r = await http()
       .patch(`/v1/superadmin/usuarios-gestao/${criado.body.usuarioDeGestao.id}`)
       .set('Cookie', painel)
-      .send({ nome: 'Depois Da Edição', escopo: 'grupo', grupoId: g.body.grupo.id, ativo: false })
+      .send({ nome: 'Depois Da Edição', escopo: 'grupo', grupoId: g.body.grupo.id, ativo: false, ...PERFIL })
       .expect(200)
     expect(r.body.usuarioDeGestao).toMatchObject({
       usuario,
@@ -415,14 +452,14 @@ describe('PATCH /v1/superadmin/usuarios-gestao/:id', () => {
     const criado = await http()
       .post('/v1/superadmin/usuarios-gestao')
       .set('Cookie', painel)
-      .send({ usuario: `gestora.invariante.${sufixo}`, nome: 'X', escopo: 'geral', grupoId: null })
+      .send({ usuario: `gestora.invariante.${sufixo}`, nome: 'X', escopo: 'geral', grupoId: null, ...PERFIL })
       .expect(201)
     criadosUsuarios.push(criado.body.usuarioDeGestao.id)
 
     await http()
       .patch(`/v1/superadmin/usuarios-gestao/${criado.body.usuarioDeGestao.id}`)
       .set('Cookie', painel)
-      .send({ nome: 'X', escopo: 'grupo', grupoId: null, ativo: true })
+      .send({ nome: 'X', escopo: 'grupo', grupoId: null, ativo: true, ...PERFIL })
       .expect(400)
   })
 
@@ -430,7 +467,7 @@ describe('PATCH /v1/superadmin/usuarios-gestao/:id', () => {
     await http()
       .patch('/v1/superadmin/usuarios-gestao/00000000-0000-4000-8000-000000000000')
       .set('Cookie', painel)
-      .send({ nome: 'X', escopo: 'geral', grupoId: null, ativo: true })
+      .send({ nome: 'X', escopo: 'geral', grupoId: null, ativo: true, ...PERFIL })
       .expect(404)
   })
 
@@ -438,14 +475,96 @@ describe('PATCH /v1/superadmin/usuarios-gestao/:id', () => {
     const criado = await http()
       .post('/v1/superadmin/usuarios-gestao')
       .set('Cookie', painel)
-      .send({ usuario: `gestora.strict.${sufixo}`, nome: 'X', escopo: 'geral', grupoId: null })
+      .send({ usuario: `gestora.strict.${sufixo}`, nome: 'X', escopo: 'geral', grupoId: null, ...PERFIL })
       .expect(201)
     criadosUsuarios.push(criado.body.usuarioDeGestao.id)
 
     await http()
       .patch(`/v1/superadmin/usuarios-gestao/${criado.body.usuarioDeGestao.id}`)
       .set('Cookie', painel)
-      .send({ usuario: 'tentando-mudar', nome: 'X', escopo: 'geral', grupoId: null, ativo: true })
+      .send({ usuario: 'tentando-mudar', nome: 'X', escopo: 'geral', grupoId: null, ativo: true, ...PERFIL })
+      .expect(400)
+  })
+})
+
+describe('G8 0.5 — o perfil do Usuário de Gestão, só pelo Operador', () => {
+  it('cria com o perfil, a lista e a sessão o devolvem, e a edição fica na trilha de → para', async () => {
+    const usuario = `gestora.perfil.${sufixo}`
+    const criado = await http()
+      .post('/v1/superadmin/usuarios-gestao')
+      .set('Cookie', painel)
+      .send({
+        usuario,
+        nome: 'Gestora Do Perfil',
+        escopo: 'geral',
+        grupoId: null,
+        valores: true,
+        carteira: 'todos',
+        modulos: ['clientes', 'metas'],
+        administrar: true,
+        setor: 'financeiro',
+        funcao: 'Gestão financeira',
+        telefone: '(71) 99999-0000',
+      })
+      .expect(201)
+    const id = criado.body.usuarioDeGestao.id as string
+    criadosUsuarios.push(id)
+    expect(criado.body.usuarioDeGestao).toMatchObject({
+      valores: true,
+      carteira: 'todos',
+      modulos: ['clientes', 'metas'],
+      administrar: true,
+      setor: 'financeiro',
+      funcao: 'Gestão financeira',
+      telefone: '71999990000',
+    })
+
+    const lista = await http().get('/v1/superadmin/usuarios-gestao').set('Cookie', painel).expect(200)
+    expect(lista.body.usuariosDeGestao.find((u: { id: string }) => u.id === id)).toMatchObject({
+      valores: true,
+      modulos: ['clientes', 'metas'],
+    })
+
+    await http()
+      .patch(`/v1/superadmin/usuarios-gestao/${id}`)
+      .set('Cookie', painel)
+      .send({ nome: 'Gestora Do Perfil', escopo: 'geral', grupoId: null, ativo: true, ...PERFIL })
+      .expect(200)
+    const trilha = await migrate.query<{ de: Record<string, unknown>; para: Record<string, unknown> }>(
+      `SELECT de, para FROM auditoria_do_painel
+        WHERE entidade = 'usuarios_gestao' AND entidade_id = $1 AND acao = 'alterou'
+        ORDER BY em DESC LIMIT 1`,
+      [id],
+    )
+    expect(trilha.rows[0]!.de).toMatchObject({ valores: true, administrar: true, carteira: 'todos' })
+    expect(trilha.rows[0]!.para).toMatchObject({ valores: false, administrar: false, carteira: 'minha' })
+  })
+
+  it('`administrar` para escopo grupo é 400 (A-5), e telefone com `?text=` é 400 (A-14)', async () => {
+    const g = await http().post('/v1/superadmin/grupos').set('Cookie', painel).send({ nome: `Grupo Perfil ${sufixo}` }).expect(201)
+    criadosGrupos.push(g.body.grupo.id)
+    await http()
+      .post('/v1/superadmin/usuarios-gestao')
+      .set('Cookie', painel)
+      .send({ usuario: `gestora.adm.grupo.${sufixo}`, nome: 'X', escopo: 'grupo', grupoId: g.body.grupo.id, ...PERFIL, administrar: true })
+      .expect(400)
+    await http()
+      .post('/v1/superadmin/usuarios-gestao')
+      .set('Cookie', painel)
+      .send({ usuario: `gestora.tel.${sufixo}`, nome: 'X', escopo: 'geral', grupoId: null, ...PERFIL, telefone: '71999990000?text=oi' })
+      .expect(400)
+  })
+
+  it('módulo desconhecido ou perfil ausente é 400 — o servidor não adivinha o que o Operador quis conceder', async () => {
+    await http()
+      .post('/v1/superadmin/usuarios-gestao')
+      .set('Cookie', painel)
+      .send({ usuario: `gestora.mod.${sufixo}`, nome: 'X', escopo: 'geral', grupoId: null, ...PERFIL, modulos: ['tudo'] })
+      .expect(400)
+    await http()
+      .post('/v1/superadmin/usuarios-gestao')
+      .set('Cookie', painel)
+      .send({ usuario: `gestora.semperfil.${sufixo}`, nome: 'X', escopo: 'geral', grupoId: null })
       .expect(400)
   })
 })

@@ -48,8 +48,11 @@ describe('a varredura olhou a carteira inteira', () => {
     expect(nomes).toContain('faixa.tsx')
     expect(nomes).toContain('contexto.tsx')
     expect(nomes).toContain('pecas.tsx')
-    // entrar, trocar a senha, porta (/carteira), clientes, a ficha de um cliente, leads (G5) e rotina (G5).
-    expect(CARTEIRA.filter((f) => f.nome === 'page.tsx').length).toBe(7)
+    // O que se prova aqui é que a varredura ENXERGA a carteira inteira — um glob quebrado devolveria
+    // poucas telas e todos os testes abaixo passariam no vazio. Com o G8 são 26 telas (visão geral,
+    // clientes, ficha, cadastro, entrada, metas, campanhas, mensalidades, FIR Clinic, rotina, carga,
+    // leads, indicações, resumo, Método…). Piso, não igualdade: tela nova não deve quebrar este teste.
+    expect(CARTEIRA.filter((f) => f.nome === 'page.tsx').length).toBeGreaterThanOrEqual(26)
   })
 })
 

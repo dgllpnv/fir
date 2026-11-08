@@ -537,10 +537,46 @@ usa — regra do topo deste arquivo: nome no código = nome na UI = nome do dono
   mais. É requisito explícito do dono: evitar o superadmin confundir as duas
   audiências na mesma tela.
 
+**Perfil do `Usuário de Gestão`** (G8 0.5, migration 0050). Concedido só pelo
+`Operador`; decidido por `temPermCarteira` (`packages/domain/src/carteira.ts`),
+a mesma função no servidor e na tela:
+- **Telas** (`modulos`): as 9 do protótipo — Visão geral, Minhas tarefas,
+  Carteira de clientes, FIR Clinic, Metas, Campanhas, Resumo semanal,
+  Prospecção, Administração. Negação por padrão: rota sem tela concedida é 403.
+- **Clientes que vê** (`carteira`): `minha` (só onde é a responsável, filtrado
+  no servidor) · `todos`. Quem vê só a própria carteira não troca responsável.
+- **`valores`**: vê e escreve dinheiro. Sem ele, todo campo monetário sai `null`
+  e a escrita monetária é 403. **Mensalidades** exige `valores`.
+- **`carteira.administrar`**: a chave da Diretoria (D-22 item 2) — arquivar,
+  editar conteúdo e configuração, compartilhar todas as reuniões, redistribuir
+  tarefas, encerrar cliente. **Nunca identidade.** Só para escopo `geral`.
+- **Setor** (`setor`): diz quem recebe item de checklist. **Nunca autoriza.**
+- **Diretoria (acesso total)**: não é papel gravado; é o conjunto completo
+  dessas chaves, escrito por extenso.
+
 ### `Cliente Firmare`
 O registro comercial de quem contrata a consultoria. Existe **antes** de haver
-`Clinica` (funil de prospecção) e pode existir **sem nunca haver** uma. Ligado por
-`clinica_id` anulável e único — preenchido no dia do onboarding no FIR Clinic.
+`Clinica` (funil de prospecção) e pode existir **sem nunca haver** uma — inclusive
+`ativo` (D-22 item 4, migration 0047). Ligado por `clinica_id` anulável e único —
+preenchido no dia do onboarding no FIR Clinic, **só pelo `Operador`**, e sempre no
+grupo da clínica (o da linha mais recente de `historico_grupo_da_clinica`).
+
+**Cadastro (G8 0.4).** Os campos de `F.cliente` do protótipo: **Decisor** (quem decide
+do lado da cliente — não confundir com o **Responsável Firmare**, o `Usuário de
+Gestão` que cuida da conta, do mesmo grupo), aniversário da decisora (dia e mês, nunca
+o ano), telefone, e-mail, CNPJ, produto, área de foco, projeto ou turma, **pagador**
+(quem paga, se não for a cliente — dado de terceiro), **reunião fixa** (dia da semana
+ISO + hora, nunca o texto "terça 10h"), início e fim do ciclo, cliente desde, serviços
+recebidos e observações. A seção **Pagamento** (mensalidade, dia do vencimento, WhatsApp
+de cobrança) só existe para quem tem `valores`. **Saúde não é campo do cadastro** — é
+derivada (`Saúde do cliente`, abaixo).
+
+### `Parceiro do cliente`
+Quem atende uma **frente** do `Cliente Firmare` (financeiro, comercial, tráfego pago,
+marketing): nome, WhatsApp e link do formulário semanal daquela frente — só isso
+(LGPD A29). Um por frente por cliente (`parceiros_do_cliente`). Dado de **terceiro**:
+nunca entra na exportação da decisora, nunca é lido pelo portal, e sai quando é
+substituído. Não confundir com `Usuário do portal` nem com o decisor.
 
 ### `Concessão de consultoria`
 Acesso **individual e temporário** de um ator da Firmare ao dado **operacional**
@@ -861,6 +897,23 @@ O status qualitativo (`bom`\|`atencao`\|`critico`) de um `Cliente Firmare`,
 lido do `Checkin interno` mais recente — **nunca um campo mutável** em
 `clientes_carteira` que alguém edita direto na ficha (mesma forma de "derivado,
 nunca campo", regra 11/5, aplicada aqui por analogia).
+
+*Desde o G8 a saúde lê o registro mais recente entre o `Checkin interno` e a `Reunião comercial` (`saude_registrada`).*
+
+### Termos do G8 (paridade com o protótipo do Firmare Gestão)
+
+- **`Reunião comercial`** — a ata de uma reunião da Firmare com um `Cliente Firmare`: tipo, participantes, texto, saúde registrada, notas internas (nunca no portal). Nasce **não compartilhada**; compartilhar a põe no portal.
+- **`Encaminhamento de reunião`** — cada linha de encaminhamento da ata; vira uma `Tarefa interna` uma vez só (ligação idempotente).
+- **`Compartilhamento revertido`** — o evento, só de inserção, de tirar do portal uma ata que o cliente já leu; exige motivo.
+- **`Material da biblioteca`** — material de método da Firmare, global (sem grupo). Escrever exige escopo geral.
+- **`Envio de material`** — o fato, só de inserção, de ter mandado um material a um cliente.
+- **`Ação do plano`** — passo do plano de ação ou ação comercial de um `Cliente Firmare`: título, tipo (plano|comercial), meta opcional, quem executa (clínica|Firmare), acompanhamento, prazo e status. **Não é `Tarefa interna`** e não vai ao portal; "Atrasada" é derivada.
+- **Meta comercial — status:** `em_andamento`, `atingida`, `nao_atingida`, `cancelada` (`concluida` antigo lê-se `atingida`). Unidade nova do indicador: **`dias`** (menor é melhor).
+- **`Checklist do programa`** (modelo, global) e **`Item do checklist`** (título, responsável, D+N). Aplicado a um cliente, vira o **`Checklist do contrato`**, cujos itens geram `Tarefa interna` uma vez só.
+- **`Entrada de cliente`** — o fluxo de cadastrar um cliente novo, ou de trazer para a carteira quem já é da Firmare, e aplicar o checklist.
+- **`Modelo de mensagem`** e **`Roteiro comercial`** — textos globais com variáveis `{…}`, montados no servidor. **`Envio de mensagem`** guarda só o fato do envio, **nunca o texto**, e só depois que a pessoa confirma "Você enviou?" (abrir o WhatsApp não é enviar).
+- **`Não contatar`** — a oposição de um lead ou parceiro ao contato. Bloqueia montar a mensagem e o link do WhatsApp no servidor. A exclusão a pedido guarda só o HMAC do telefone (lista de supressão).
+- **`Mensalidade` — situação:** `paga`, `sem_valor`, `vence_hoje`, `vencida`, `a_vencer`. Derivada, nunca campo.
 
 ---
 

@@ -1,8 +1,10 @@
 import type {
   ClienteCarteiraNaLista,
+  ClienteCarteiraNoPainel,
   CriarClienteCarteiraEntrada,
   CriarGrupoEntrada,
   CriarUsuarioDeGestaoEntrada,
+  EditarClienteCarteiraNoPainelEntrada,
   EditarGrupoEntrada,
   EditarUsuarioDeGestaoEntrada,
   GrupoNaLista,
@@ -10,8 +12,19 @@ import type {
   UsuarioDeGestaoPublico,
 } from '@fir/contracts'
 import { Inject, Injectable } from '@nestjs/common'
+import type { PoolClient } from 'pg'
 import { SISTEMA, type OperadorId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
+import {
+  gravarCampos,
+  grupoDaClinica,
+  moverClienteDeGrupo,
+  registrarGrupoDaClinica,
+  reprogramarCobrancasAbertas,
+  responsavelServeAoCliente,
+} from '../carteira/cadastro-do-cliente'
+import { competenciaDoMes } from '../carteira/financeiro/gerar-cobrancas'
+import { type LinhaDoPerfil, colunasDoPerfil, perfilDaLinha } from '../carteira/perfil-do-usuario-de-gestao'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { gerarProvisoria } from '../pessoas/escrita-de-pessoa'
 import { registrarNoPainel } from './painel.service'
@@ -24,15 +37,67 @@ export class ClinicaOuGrupoNaoExiste extends Error {}
 export class UsuarioDeGestaoJaExiste extends Error {}
 export class GrupoNaoExiste extends Error {}
 export class UsuarioDeGestaoNaoExiste extends Error {}
+export class ClienteCarteiraNaoExiste extends Error {}
+/** A clínica já está, pela trilha de tenancy, em OUTRO grupo (A-8). */
+export class ClinicaDeOutroGrupo extends Error {}
+export class ClienteJaTemClinica extends Error {}
+export class GrupoDesativado extends Error {}
+
+type LinhaClienteNoPainel = {
+  id: string
+  grupo_id: string
+  clinica_id: string | null
+  nome: string
+  produto: string
+  status: 'onboarding' | 'ativo' | 'pausado' | 'encerrado'
+  mensalidade_centavos: string
+}
+
+const COLUNAS_NO_PAINEL = 'id, grupo_id, clinica_id, nome, produto, status, mensalidade_centavos::text AS mensalidade_centavos'
+
+const clienteNoPainel = (l: LinhaClienteNoPainel): ClienteCarteiraNoPainel => ({
+  id: l.id,
+  grupoId: l.grupo_id,
+  clinicaId: l.clinica_id,
+  nome: l.nome,
+  produto: l.produto,
+  status: l.status,
+  // Sempre preenchido aqui; quem apaga é o `RedacaoInterceptor` (regra 17).
+  mensalidade: l.mensalidade_centavos,
+})
 
 /**
  * As escritas da carteira que só o `Operador` faz (ADR 0011: nunca convite
- * interno). Todas passam por `banco.nasTabelasDaCarteira` — a mesma conexão
- * (`fir_carteira`) que o `Usuário de Gestão` usa para ler, porque é ela que
- * tem o GRANT nestas tabelas (0025-0026). O `Operador` chega por aqui com a
- * sessão do PAINEL (`__Host-fir-painel`); a tabela que ele escreve é da
- * carteira, não do painel — duas conexões, um ator.
+ * interno).
+ *
+ * Identidade (`grupos`, `usuarios_gestao`) vai pela conexão do PAINEL
+ * (`banco.nasTabelasDeIdentidadeDaCarteiraComoPainel`, `fir_painel`) — nunca
+ * pela `fir_carteira`, que é o papel da sessão do `Usuário de Gestão` e, desde
+ * a 0041, não escreve `escopo`/`grupo_id`/`ativo` nem cria grupo (gate G8,
+ * F-1/A-1: privilégio não é gravável pelo papel da sessão que ele protege).
+ * As listas também vão pelo painel: o Operador lê pela conexão dele.
+ *
+ * `Cliente Firmare` (`clientes_carteira`) continua em `fir_carteira`
+ * (`nasTabelasDaCarteiraComoOperador`): a tabela tem RLS por grupo com policy
+ * `TO fir_carteira` (0035), e nada nela eleva o acesso de uma sessão.
  */
+/**
+ * Os sete campos do perfil (G8 0.5), na ordem dos parâmetros do INSERT e do
+ * UPDATE. `administrar` só sobrevive em escopo geral (A-5): o contrato já
+ * recusa o par, e isto garante que trocar o escopo para "grupo" nunca deixe a
+ * chave gravada (o CHECK da 0050 recusaria a linha).
+ */
+const valoresDoPerfil = (d: CriarUsuarioDeGestaoEntrada | EditarUsuarioDeGestaoEntrada) =>
+  [
+    d.valores,
+    d.carteira,
+    d.modulos,
+    d.administrar && d.escopo === 'geral',
+    d.setor,
+    d.funcao,
+    d.telefone,
+  ] as const
+
 @Injectable()
 export class PainelCarteiraService {
   constructor(
@@ -41,7 +106,7 @@ export class PainelCarteiraService {
   ) {}
 
   async listarGrupos(): Promise<GrupoNaLista[]> {
-    const r = await this.banco.nasTabelasDaCarteira(SISTEMA, (c) =>
+    const r = await this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(SISTEMA, (c) =>
       c.query<{ id: string; nome: string; ativo: boolean }>(
         'SELECT id, nome, ativo FROM grupos ORDER BY nome',
       ),
@@ -55,7 +120,7 @@ export class PainelCarteiraService {
    * sobre OUTRA conta, nunca sobre a sessão de quem está lendo.
    */
   async listarUsuariosDeGestao(): Promise<UsuarioDeGestaoNaLista[]> {
-    const r = await this.banco.nasTabelasDaCarteira(SISTEMA, (c) =>
+    const r = await this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(SISTEMA, (c) =>
       c.query<{
         id: string
         usuario: string
@@ -64,8 +129,8 @@ export class PainelCarteiraService {
         grupo_id: string | null
         ativo: boolean
         senha_provisoria: boolean
-      }>(
-        `SELECT id, usuario, nome, escopo, grupo_id, ativo, senha_provisoria
+      } & LinhaDoPerfil>(
+        `SELECT id, usuario, nome, escopo, grupo_id, ativo, senha_provisoria, ${colunasDoPerfil()}
            FROM usuarios_gestao
           ORDER BY nome`,
       ),
@@ -78,6 +143,7 @@ export class PainelCarteiraService {
       grupoId: u.grupo_id,
       ativo: u.ativo,
       aguardandoPrimeiroAcesso: u.senha_provisoria,
+      ...perfilDaLinha(u),
     }))
   }
 
@@ -91,7 +157,7 @@ export class PainelCarteiraService {
     id: string,
     dados: EditarGrupoEntrada,
   ): Promise<GrupoNaLista> {
-    return this.banco.nasTabelasDaCarteira(ator, async (c) => {
+    return this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(ator, async (c) => {
       const antes = await c.query<{ nome: string; ativo: boolean }>(
         'SELECT nome, ativo FROM grupos WHERE id = $1',
         [id],
@@ -118,7 +184,7 @@ export class PainelCarteiraService {
   }
 
   async criarGrupo(ator: OperadorId, dados: CriarGrupoEntrada): Promise<GrupoNaLista> {
-    return this.banco.nasTabelasDaCarteira(ator, async (c) => {
+    return this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(ator, async (c) => {
       const r = await c.query<{ id: string; nome: string; ativo: boolean }>(
         'INSERT INTO grupos (nome) VALUES ($1) RETURNING id, nome, ativo',
         [dados.nome],
@@ -150,6 +216,10 @@ export class PainelCarteiraService {
     dados: CriarClienteCarteiraEntrada,
   ): Promise<ClienteCarteiraNaLista> {
     return this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
+      // A-8 (0047): a clínica fica no grupo dela. Se a trilha de tenancy já
+      // a pôs em outro grupo, recusa; se não há trilha ou ela muda agora,
+      // grava a linha do histórico ANTES do cliente (o trigger confere).
+      await this.prenderClinicaAoGrupo(c, ator, dados.clinicaId, dados.grupoId, null)
       let linha: {
         id: string
         grupo_id: string
@@ -190,6 +260,160 @@ export class PainelCarteiraService {
   }
 
   /**
+   * A-8 (0047): a clínica `clinicaId` passa a ser (ou continua) do grupo
+   * `grupoId`. O grupo de uma clínica, enquanto `clinicas.grupo_id` não
+   * existe (G1b), é a linha mais recente de `historico_grupo_da_clinica`:
+   *  - trilha aponta outro grupo e `podeMover` é falso → 409 (a clínica é de
+   *    outra rede; mudar isso é a operação "mudar de grupo", com motivo);
+   *  - sem trilha, ou a mudança é a pedida → grava a linha nova (append-only).
+   */
+  private async prenderClinicaAoGrupo(
+    c: PoolClient,
+    ator: OperadorId,
+    clinicaId: string,
+    grupoId: string,
+    motivo: string | null,
+    podeMover = false,
+  ): Promise<void> {
+    try {
+      const atual = await grupoDaClinica(c, clinicaId)
+      if (atual === grupoId) return
+      if (atual !== null && !podeMover) throw new ClinicaDeOutroGrupo()
+      await registrarGrupoDaClinica(c, { clinicaId, anterior: atual, novo: grupoId, operadorId: ator.id, motivo })
+    } catch (e) {
+      if ((e as { code?: string }).code === FK_VIOLADA) throw new ClinicaOuGrupoNaoExiste()
+      throw e
+    }
+  }
+
+  /**
+   * Os `Cliente Firmare` de todos os grupos, para a tela de grupos do
+   * superadmin: quem pertence a qual grupo, e se tem clínica. A mensalidade
+   * atravessa a redação de toda saída como qualquer outro campo de valor.
+   */
+  async listarClientesCarteira(ator: OperadorId): Promise<ClienteCarteiraNoPainel[]> {
+    return this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
+      const r = await c.query<LinhaClienteNoPainel>(
+        `SELECT ${COLUNAS_NO_PAINEL} FROM clientes_carteira WHERE excluido_em IS NULL ORDER BY nome`,
+      )
+      return r.rows.map(clienteNoPainel)
+    })
+  }
+
+  /**
+   * **EDITAR um `Cliente Firmare` pelo Operador** — status, mensalidade e
+   * pagamento, GRUPO e o vínculo com uma clínica, numa transação.
+   *
+   * Mudar de grupo (A-11 item 6): grava `historico_grupo_da_clinica` quando
+   * há clínica; solta o Responsável Firmare se ele não serve ao grupo novo;
+   * reescreve o `grupo_id` do cliente e de TODA filha numa instrução só
+   * (`moverClienteDeGrupo`); revoga as sessões do portal dos usuários de
+   * escopo `cliente` deste cliente; e deixa a contagem na trilha do painel.
+   */
+  async editarClienteCarteira(
+    ator: OperadorId,
+    id: string,
+    dados: EditarClienteCarteiraNoPainelEntrada,
+  ): Promise<ClienteCarteiraNoPainel> {
+    return this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
+      const antes = await c.query<
+        LinhaClienteNoPainel & { responsavel_usuario_gestao_id: string | null; dia_vencimento: number | null }
+      >(
+        `SELECT ${COLUNAS_NO_PAINEL}, responsavel_usuario_gestao_id, dia_vencimento
+           FROM clientes_carteira WHERE id = $1 AND excluido_em IS NULL FOR UPDATE`,
+        [id],
+      )
+      const cliente = antes.rows[0]
+      if (!cliente) throw new ClienteCarteiraNaoExiste()
+
+      const motivo = dados.motivo ?? null
+      const grupoFinal = dados.grupoId ?? cliente.grupo_id
+
+      if (dados.clinicaId !== undefined && dados.clinicaId !== cliente.clinica_id) {
+        if (cliente.clinica_id !== null) throw new ClienteJaTemClinica()
+      }
+
+      if (grupoFinal !== cliente.grupo_id) {
+        const g = await c.query<{ ativo: boolean }>('SELECT ativo FROM grupos WHERE id = $1', [grupoFinal])
+        if (!g.rows[0]) throw new GrupoNaoExiste()
+        if (!g.rows[0].ativo) throw new GrupoDesativado()
+
+        if (cliente.clinica_id !== null) {
+          await this.prenderClinicaAoGrupo(c, ator, cliente.clinica_id, grupoFinal, motivo, true)
+        }
+        if (
+          cliente.responsavel_usuario_gestao_id !== null &&
+          !(await responsavelServeAoCliente(c, cliente.responsavel_usuario_gestao_id, grupoFinal))
+        ) {
+          await c.query('UPDATE clientes_carteira SET responsavel_usuario_gestao_id = NULL WHERE id = $1', [id])
+        }
+
+        const movidas = await moverClienteDeGrupo(c, id, grupoFinal)
+        const revogadas = await c.query(
+          `UPDATE sessoes_do_portal SET revogada_em = now()
+            WHERE revogada_em IS NULL
+              AND usuario_portal_id IN (SELECT id FROM usuarios_do_portal WHERE cliente_carteira_id = $1)`,
+          [id],
+        )
+        await registrarNoPainel(c, {
+          atorTipo: 'operador',
+          atorId: ator.id,
+          acao: 'alterou',
+          entidade: 'clientes_carteira',
+          entidadeId: id,
+          de: { grupo_id: cliente.grupo_id },
+          para: { grupo_id: grupoFinal, linhas_movidas: movidas, sessoes_do_portal_revogadas: revogadas.rowCount ?? 0 },
+          ...(motivo === null ? {} : { motivo }),
+        })
+      }
+
+      if (dados.clinicaId !== undefined && dados.clinicaId !== cliente.clinica_id) {
+        await this.prenderClinicaAoGrupo(c, ator, dados.clinicaId, grupoFinal, motivo)
+        try {
+          await c.query('UPDATE clientes_carteira SET clinica_id = $2 WHERE id = $1', [id, dados.clinicaId])
+        } catch (e) {
+          const codigo = (e as { code?: string }).code
+          if (codigo === UNICIDADE_VIOLADA) throw new ClinicaJaTemClienteFirmare()
+          if (codigo === FK_VIOLADA) throw new ClinicaOuGrupoNaoExiste()
+          throw e
+        }
+      }
+
+      // Os campos simples — a trilha deles é o trigger de `clientes_carteira`
+      // (de → para, com o Operador como ator).
+      await gravarCampos(c, id, {
+        ...(dados.status === undefined ? {} : { status: dados.status }),
+        ...(dados.mensalidade === undefined ? {} : { mensalidade: dados.mensalidade }),
+        ...(dados.pagamentoDaMensalidade === undefined ? {} : { pagamentoDaMensalidade: dados.pagamentoDaMensalidade }),
+      })
+
+      // Gate de números, ajuste 6: o dia novo vale para as cobranças em
+      // aberto da competência corrente e das futuras, nesta transação.
+      const diaNovo = dados.pagamentoDaMensalidade?.diaVencimento ?? null
+      if (diaNovo !== null && diaNovo !== cliente.dia_vencimento) {
+        const mudadas = await reprogramarCobrancasAbertas(c, id, diaNovo, competenciaDoMes(this.relogio.agora()))
+        for (const m of mudadas) {
+          await registrarNoPainel(c, {
+            atorTipo: 'operador',
+            atorId: ator.id,
+            acao: 'alterou',
+            entidade: 'cobrancas_do_cliente_firmare',
+            entidadeId: m.id,
+            de: { vencimento: m.de },
+            para: { vencimento: m.para, motivo: 'dia de vencimento do cliente alterado' },
+          })
+        }
+      }
+
+      const depois = await c.query<LinhaClienteNoPainel>(
+        `SELECT ${COLUNAS_NO_PAINEL} FROM clientes_carteira WHERE id = $1`,
+        [id],
+      )
+      return clienteNoPainel(depois.rows[0]!)
+    })
+  }
+
+  /**
    * Cria o `Usuário de Gestão`, com provisória — mesma forma de
    * `PainelClinicasService.criar` para a administradora.
    */
@@ -203,15 +427,22 @@ export class PainelCarteiraService {
     id: string,
     dados: EditarUsuarioDeGestaoEntrada,
   ): Promise<UsuarioDeGestaoNaLista> {
-    return this.banco.nasTabelasDaCarteira(ator, async (c) => {
+    return this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(ator, async (c) => {
       const antes = await c.query<{
         nome: string
         escopo: 'geral' | 'grupo'
         grupo_id: string | null
         ativo: boolean
-      }>('SELECT nome, escopo, grupo_id, ativo FROM usuarios_gestao WHERE id = $1', [id])
-      const de = antes.rows[0]
-      if (de === undefined) throw new UsuarioDeGestaoNaoExiste()
+      } & LinhaDoPerfil>(`SELECT nome, escopo, grupo_id, ativo, ${colunasDoPerfil()} FROM usuarios_gestao WHERE id = $1 FOR UPDATE`, [id])
+      const linhaAntes = antes.rows[0]
+      if (linhaAntes === undefined) throw new UsuarioDeGestaoNaoExiste()
+      const de = {
+        nome: linhaAntes.nome,
+        escopo: linhaAntes.escopo,
+        grupoId: linhaAntes.grupo_id,
+        ativo: linhaAntes.ativo,
+        ...perfilDaLinha(linhaAntes),
+      }
 
       const r = await c.query<{
         id: string
@@ -221,11 +452,13 @@ export class PainelCarteiraService {
         grupo_id: string | null
         ativo: boolean
         senha_provisoria: boolean
-      }>(
-        `UPDATE usuarios_gestao SET nome = $2, escopo = $3, grupo_id = $4, ativo = $5
+      } & LinhaDoPerfil>(
+        `UPDATE usuarios_gestao SET nome = $2, escopo = $3, grupo_id = $4, ativo = $5,
+                valores = $6, carteira = $7, modulos = $8::text[], administrar = $9,
+                setor = $10, funcao = $11, telefone = $12
           WHERE id = $1
-        RETURNING id, usuario, nome, escopo, grupo_id, ativo, senha_provisoria`,
-        [id, dados.nome, dados.escopo, dados.grupoId, dados.ativo],
+        RETURNING id, usuario, nome, escopo, grupo_id, ativo, senha_provisoria, ${colunasDoPerfil()}`,
+        [id, dados.nome, dados.escopo, dados.grupoId, dados.ativo, ...valoresDoPerfil(dados)],
       )
       const linha = r.rows[0]!
       await registrarNoPainel(c, {
@@ -235,7 +468,13 @@ export class PainelCarteiraService {
         entidade: 'usuarios_gestao',
         entidadeId: linha.id,
         de,
-        para: { nome: linha.nome, escopo: linha.escopo, grupoId: linha.grupo_id, ativo: linha.ativo },
+        para: {
+          nome: linha.nome,
+          escopo: linha.escopo,
+          grupoId: linha.grupo_id,
+          ativo: linha.ativo,
+          ...perfilDaLinha(linha),
+        },
       })
       return {
         id: linha.id,
@@ -245,6 +484,7 @@ export class PainelCarteiraService {
         grupoId: linha.grupo_id,
         ativo: linha.ativo,
         aguardandoPrimeiroAcesso: linha.senha_provisoria,
+        ...perfilDaLinha(linha),
       }
     })
   }
@@ -255,21 +495,30 @@ export class PainelCarteiraService {
   ): Promise<{ usuarioDeGestao: UsuarioDeGestaoPublico; senhaProvisoria: string }> {
     const provisoria = await gerarProvisoria(this.relogio.agora())
 
-    return this.banco.nasTabelasDaCarteira(ator, async (c) => {
+    return this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(ator, async (c) => {
       let linha: {
         id: string
         usuario: string
         nome: string
         escopo: 'geral' | 'grupo'
         grupo_id: string | null
-      }
+      } & LinhaDoPerfil
       try {
         const r = await c.query<typeof linha>(
           `INSERT INTO usuarios_gestao
-             (usuario, nome, senha_hash, escopo, grupo_id, senha_provisoria, senha_provisoria_expira_em)
-           VALUES ($1, $2, $3, $4, $5, true, $6)
-           RETURNING id, usuario, nome, escopo, grupo_id`,
-          [dados.usuario, dados.nome, provisoria.hash, dados.escopo, dados.grupoId, provisoria.expiraEm],
+             (usuario, nome, senha_hash, escopo, grupo_id, senha_provisoria, senha_provisoria_expira_em,
+              valores, carteira, modulos, administrar, setor, funcao, telefone)
+           VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9::text[], $10, $11, $12, $13)
+           RETURNING id, usuario, nome, escopo, grupo_id, ${colunasDoPerfil()}`,
+          [
+            dados.usuario,
+            dados.nome,
+            provisoria.hash,
+            dados.escopo,
+            dados.grupoId,
+            provisoria.expiraEm,
+            ...valoresDoPerfil(dados),
+          ],
         )
         linha = r.rows[0]!
       } catch (e) {
@@ -282,7 +531,7 @@ export class PainelCarteiraService {
         acao: 'criou',
         entidade: 'usuarios_gestao',
         entidadeId: linha.id,
-        para: { usuario: linha.usuario, nome: linha.nome, escopo: linha.escopo },
+        para: { usuario: linha.usuario, nome: linha.nome, escopo: linha.escopo, ...perfilDaLinha(linha) },
       })
       return {
         usuarioDeGestao: {
@@ -292,6 +541,7 @@ export class PainelCarteiraService {
           escopo: linha.escopo,
           grupoId: linha.grupo_id,
           senhaProvisoria: true,
+          ...perfilDaLinha(linha),
         },
         senhaProvisoria: provisoria.senha,
       }

@@ -20,8 +20,10 @@ import { executarUsoDiarioCliente } from './uso-diario-cliente'
  *  4. Só `Cliente Firmare` com `status = 'ativo'` recebe linha.
  *  5. `receita_registrada` é center de centavos (`bigint`/string), nunca ponto
  *     flutuante.
- *  6. `faltas_recontatadas` nunca é tocada por este job (produto em aberto —
- *     ver o relatório do ticket).
+ *  6. `faltas_recontatadas` (G8 1D): reagendamento no dia de cartão cuja
+ *     etapa anterior era `faltou`/`desmarcou` — e só esses.
+ *  7. R13: uso crítico vira UMA tarefa interna por (cliente, dia), rodando três
+ *     vezes; a cancelada pela equipe não renasce.
  */
 const URL_MIG =
   process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'
@@ -39,6 +41,7 @@ const relogio: Relogio = { agora: () => new Date(`${DIA}T23:00:00.000Z`) }
 
 let clinicaA: string
 let pessoaA: string
+let pacienteA: string
 let grupoA: string
 let clienteA: string
 
@@ -48,6 +51,9 @@ let clienteB: string
 
 let clinicaC: string
 let clienteOnboarding: string
+
+let clinicaD: string
+let clienteD: string
 
 const novaClinica = async (nome: string, fuso = 'America/Bahia'): Promise<string> =>
   (
@@ -114,7 +120,7 @@ beforeAll(async () => {
     [clinicaA, pessoaA, EM, `hash-de-teste-${Date.now()}-${Math.random()}`],
   )
 
-  const pacienteA = (
+  pacienteA = (
     await migrate.query<{ id: string }>(
       `INSERT INTO pacientes (clinica_id, nome) VALUES ($1, 'Paciente de teste') RETURNING id`,
       [clinicaA],
@@ -215,6 +221,32 @@ beforeAll(async () => {
     [clinicaA, pessoaA, EM, pacienteA],
   )
 
+  // ---- Recontatos (G8 1D). Criadas em 05/11, prazo em dezembro: fora de
+  // "criadas", "no prazo" e "vencidas" do dia 10; as faltas originais são de
+  // dias ANTERIORES, então "faltas" do dia 10 continua 1.
+  const ANTES = '2026-11-06T15:00:00.000Z'
+  const DEPOIS = '2026-11-11T15:00:00.000Z'
+  const cartao = async (historico: object[]): Promise<void> => {
+    await migrate.query(
+      `INSERT INTO tarefas
+         (clinica_id, solicitante_id, responsavel_id, descricao, prazo, status, criada_em, paciente_id, tipo, historico)
+       VALUES ($1, $2, $2, 'fixture', '2026-12-01'::date, 'aberta', '2026-11-05T12:00:00Z', $3, 'Consulta agendada', $4::jsonb)`,
+      [clinicaA, pessoaA, pacienteA, JSON.stringify(historico)],
+    )
+  }
+  const ev = (acao: string, etapa: string, em: string) => ({ acao, etapa, em, porId: pessoaA })
+  // Conta: faltou em 06/11, reagendada em 10/11.
+  await cartao([ev('agendar', 'agendado', ANTES), ev('noshow', 'faltou', ANTES), ev('reagendar', 'agendado', EM)])
+  // Conta: desmarcou em 06/11, reagendada em 10/11.
+  await cartao([ev('agendar', 'agendado', ANTES), ev('desmarcar', 'desmarcou', ANTES), ev('reagendar', 'agendado', EM)])
+  // NÃO conta: remarcação de quem nunca faltou (etapa anterior `agendado`).
+  await cartao([ev('agendar', 'agendado', ANTES), ev('reagendar', 'agendado', EM)])
+  // NÃO conta: o recontato aconteceu em OUTRO dia.
+  await cartao([ev('agendar', 'agendado', ANTES), ev('noshow', 'faltou', ANTES), ev('reagendar', 'agendado', ANTES)])
+  // NÃO conta: `reagendar` é o PRIMEIRO evento. Sem a guarda `ev.i > 1`, o
+  // índice -1 do jsonb leria o ÚLTIMO evento (`faltou`) e contaria.
+  await cartao([ev('reagendar', 'agendado', EM), ev('noshow', 'faltou', DEPOIS)])
+
   grupoA = await novoGrupo(`Grupo A ${codigo}`)
   clienteA = await novoClienteCarteira(grupoA, clinicaA, 'ativo')
 
@@ -267,26 +299,39 @@ beforeAll(async () => {
   // Cliente Firmare por clínica).
   clinicaC = await novaClinica('C — Onboarding')
   clienteOnboarding = await novoClienteCarteira(grupoB, clinicaC, 'onboarding')
+
+  // ----------------------------------------------------------------- Clínica D
+  // R13: parada. Linhas de sexta 06/11 e segunda 09/11 sem uso; o job grava a
+  // de terça 10/11 (também sem uso, a clínica não tem dado nenhum). "Hoje"
+  // do alerta = 11/11, e os três últimos dias úteis (06, 09, 10) estão parados.
+  clinicaD = await novaClinica('D — Parada')
+  clienteD = await novoClienteCarteira(grupoB, clinicaD, 'ativo')
+  for (const dia of ['2026-11-06', '2026-11-09']) {
+    await migrate.query(
+      `INSERT INTO uso_diario_cliente (cliente_carteira_id, grupo_id, dia, usuarios_cadastrados, faltas_recontatadas)
+       VALUES ($1, $2, $3, 2, 0)`,
+      [clienteD, grupoB, dia],
+    )
+  }
 })
 
 afterAll(async () => {
   await declararAtorSistema(migrate)
-  await migrate.query('DELETE FROM uso_diario_cliente WHERE cliente_carteira_id = ANY($1)', [
-    [clienteA, clienteB, clienteOnboarding],
-  ])
+  const todos = [clienteA, clienteB, clienteOnboarding, clienteD]
+  await migrate.query('DELETE FROM tarefas_internas WHERE cliente_carteira_id = ANY($1)', [todos])
+  await migrate.query('DELETE FROM uso_diario_cliente WHERE cliente_carteira_id = ANY($1)', [todos])
   // O job do OUTRO arquivo (rodando em paralelo, D16) também escreve para
   // estes clientes; sem limpar as duas tabelas, a FK aborta a limpeza e o
   // resíduo contamina a próxima execução.
   for (const t of ['uso_diario_cliente', 'cobrancas_do_cliente_firmare']) {
-    await migrate.query(`DELETE FROM ${t} WHERE cliente_carteira_id = ANY($1)`, [ [clienteA, clienteB, clienteOnboarding], ])
+    await migrate.query(`DELETE FROM ${t} WHERE cliente_carteira_id = ANY($1)`, [todos])
   }
-  await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [
-    [clienteA, clienteB, clienteOnboarding],
-  ])
+  await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [todos])
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB]])
   await apagarClinicaDeTeste(migrate, clinicaA)
   await apagarClinicaDeTeste(migrate, clinicaB)
   await apagarClinicaDeTeste(migrate, clinicaC)
+  await apagarClinicaDeTeste(migrate, clinicaD)
   await migrate.end()
   await banco.onModuleDestroy()
 })
@@ -305,7 +350,7 @@ type LinhaUsoDiario = {
   orcamentos_enviados: number
   orcamentos_pagos: number
   faltas: number
-  faltas_recontatadas: number
+  faltas_recontatadas: number | null
   receita_registrada: string
 }
 
@@ -320,7 +365,10 @@ const linhaDe = async (clienteCarteiraId: string): Promise<LinhaUsoDiario | unde
 describe('executarUsoDiarioCliente — G4', () => {
   it('calcula a linha do dia para cada Cliente Firmare ATIVO, e só para eles', async () => {
     const resumo = await executarUsoDiarioCliente(banco, relogio, DIA)
-    expect(resumo.falhas).toEqual([])
+    // Só as falhas DOS clientes deste arquivo: o job varre o banco inteiro, e outro arquivo
+    // rodando junto pode apagar um cliente dele no meio da varredura (corrida de FK).
+    const meus = [clienteA, clienteB, clienteOnboarding, clienteD]
+    expect(resumo.falhas.filter((x) => meus.includes(x.clienteCarteiraId))).toEqual([])
     // Só os 'ativo' entram — o 'onboarding' não. A prova é POR CLIENTE, não
     // pelo `processados` global: o job varre todo `Cliente Firmare` ativo do
     // banco (D16), e o arquivo de cobranças, rodando em paralelo, tem os dele.
@@ -354,8 +402,8 @@ describe('executarUsoDiarioCliente — G4', () => {
     expect(a!.faltas).toBe(1)
     // Receita: 15000 (atendimento) + 32000 (orçamento) = 47000 centavos.
     expect(a!.receita_registrada).toBe('47000')
-    // Produto em aberto (plano §9, Q5/Q5b) — nunca escrito por este job.
-    expect(a!.faltas_recontatadas).toBe(0)
+    // G8 1D: a falta de 06/11 e o desmarque de 06/11, reagendados no dia 10.
+    expect(a!.faltas_recontatadas).toBe(2)
 
     const b = await linhaDe(clienteB)
     expect(b).toBeDefined()
@@ -364,6 +412,8 @@ describe('executarUsoDiarioCliente — G4', () => {
     expect(b!.receita_registrada).toBe('7000')
     expect(b!.tarefas_concluidas).toBe(1)
     expect(b!.contatos_pacientes).toBe(0)
+    // Calculado, e zero — não NULL ("não calculado").
+    expect(b!.faltas_recontatadas).toBe(0)
 
     const onboarding = await linhaDe(clienteOnboarding)
     expect(onboarding).toBeUndefined()
@@ -374,7 +424,7 @@ describe('executarUsoDiarioCliente — G4', () => {
     expect(antes).toBeDefined()
 
     const resumo = await executarUsoDiarioCliente(banco, relogio, DIA)
-    expect(resumo.falhas).toEqual([])
+    expect(resumo.falhas.filter((x) => [clienteA, clienteB, clienteOnboarding, clienteD].includes(x.clienteCarteiraId))).toEqual([])
 
     const contagem = await migrate.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM uso_diario_cliente WHERE cliente_carteira_id = $1 AND dia = $2`,
@@ -391,7 +441,7 @@ describe('executarUsoDiarioCliente — G4', () => {
     // `relogio` está fixado em 2026-11-10T23:00Z, e a clínica é America/Bahia
     // (UTC-3): "hoje" ali é 10/11 às 20h, então "ontem" é 09/11.
     const resumo = await executarUsoDiarioCliente(banco, relogio)
-    expect(resumo.falhas).toEqual([])
+    expect(resumo.falhas.filter((x) => [clienteA, clienteB, clienteOnboarding, clienteD].includes(x.clienteCarteiraId))).toEqual([])
     const r = await migrate.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM uso_diario_cliente
         WHERE cliente_carteira_id = $1 AND dia = '2026-11-09'`,
@@ -402,5 +452,41 @@ describe('executarUsoDiarioCliente — G4', () => {
       `DELETE FROM uso_diario_cliente WHERE cliente_carteira_id = ANY($1) AND dia = '2026-11-09'`,
       [[clienteA, clienteB]],
     )
+  })
+
+
+  it('R13: uso crítico vira UMA tarefa interna por (cliente, dia), mesmo rodando três vezes', async () => {
+    for (let i = 0; i < 3; i++) {
+      const r = await executarUsoDiarioCliente(banco, relogio, DIA)
+      expect(r.falhas).toEqual([])
+    }
+    const t = await migrate.query<{ titulo: string; descricao: string; prioridade: string; prazo: string; grupo_id: string }>(
+      `SELECT titulo, descricao, prioridade, prazo::text AS prazo, grupo_id FROM tarefas_internas
+        WHERE cliente_carteira_id = $1`,
+      [clienteD],
+    )
+    expect(t.rows).toHaveLength(1)
+    expect(t.rows[0]).toEqual({
+      titulo: 'FIR Clinic sem uso em Cliente de teste: ligar para a recepção',
+      descricao: 'Três dias sem uso',
+      prioridade: 'alta',
+      prazo: '2026-11-11',
+      grupo_id: grupoB,
+    })
+    // As clínicas com uso não ganham alerta.
+    const outras = await migrate.query(`SELECT 1 FROM tarefas_internas WHERE cliente_carteira_id = ANY($1)`, [
+      [clienteA, clienteB],
+    ])
+    expect(outras.rows).toHaveLength(0)
+  })
+
+  it('R13: a tarefa de alerta que a equipe cancelou não renasce (regra 27)', async () => {
+    await migrate.query(`UPDATE tarefas_internas SET status = 'cancelada' WHERE cliente_carteira_id = $1`, [clienteD])
+    await executarUsoDiarioCliente(banco, relogio, DIA)
+    const t = await migrate.query<{ status: string }>(
+      `SELECT status FROM tarefas_internas WHERE cliente_carteira_id = $1`,
+      [clienteD],
+    )
+    expect(t.rows.map((r) => r.status)).toEqual(['cancelada'])
   })
 })

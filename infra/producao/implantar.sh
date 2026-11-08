@@ -122,6 +122,24 @@ acrescentar_segredo SENHA_PAINEL
 acrescentar_segredo SENHA_CARTEIRA
 acrescentar_segredo SENHA_PORTAL
 
+# A chave de cifra dos ANEXOS da carteira (G8 4C, A-13). Mesma regra: uma vez,
+# nunca sobrescrita — trocá-la deixa ilegível todo arquivo já gravado no
+# volume `anexos-dados`. Guarde-a junto das senhas: sem ela, o backup do
+# volume é ruído cifrado.
+acrescentar_segredo CHAVE_ANEXOS
+
+# A chave do HMAC da lista de "não contatar" da prospecção (G8 1E). Também
+# nunca é sobrescrita: trocá-la faz a lista de supressão deixar de reconhecer
+# quem pediu para sair, e a pessoa volta a ser contatada.
+acrescentar_segredo FIR_CHAVE_SUPRESSAO_DE_CONTATO
+
+# A chave do SEGUNDO FATOR da carteira (G8 0.6, A-12): cifra o segredo TOTP de
+# cada Usuário de Gestão (AES-256-GCM) e é o pepper dos códigos de
+# recuperação. Uma vez, nunca sobrescrita — trocá-la deixa todo segredo
+# ilegível, e cada Usuário de Gestão precisaria de um reset pelo Operador.
+# Guarde-a junto das senhas.
+acrescentar_segredo FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA
+
 # A chave que nasce com **valor fechado**, e não vazia — é a terceira
 # categoria, e a diferença é de segurança, não de estilo.
 #
@@ -379,6 +397,17 @@ docker compose run --rm --no-deps \
 # código dele — não há segunda imagem para selar.
 # Os três da carteira (D13) entram pela mesma razão: estavam só em dev.
 WORKERS="worker-agenda worker-uso-diario worker-cobrancas worker-rotinas-internas"
+# Os anexos (G8 4C): o worker da varredura e o antivírus. O antivírus sobe
+# antes e o deploy NÃO espera por ele — a primeira subida baixa ~300 MB de
+# assinaturas; até lá os anexos ficam `pendente`, que é falha fechada.
+WORKERS="$WORKERS worker-anexos"
+# As planilhas de indicadores (G8 4A). Sem `GOOGLE_SA_JSON` ele sobe assim mesmo
+# e registra "não configurado" em cada leitura — não derruba o deploy.
+WORKERS="$WORKERS worker-planilhas"
+# As campanhas da FIR Clinic para a carteira (G8 1C/K4): rede `dados` só.
+WORKERS="$WORKERS worker-campanhas"
+echo "==> subindo o antivírus (clamav-atualizador, clamav)"
+docker compose up -d clamav-atualizador clamav
 echo "==> subindo API, web e workers ($WORKERS)"
 docker compose up -d api web $WORKERS
 
@@ -532,6 +561,18 @@ if docker compose exec -T worker-agenda node -e \
 else
   echo "  ATENÇÃO: o worker-agenda não resolve calendar.google.com." >&2
   echo "  A sincronização da agenda vai falhar. Confira a rede 'fir_saida'." >&2
+fi
+
+# 7.6e · o worker-planilhas alcança o Google Sheets (G8 4A). ATENÇÃO, não erro,
+# pela mesma razão do 7.6d. Com a regra de egress do README aplicada, este é o
+# teste de que ela deixou passar o que devia.
+if docker compose exec -T worker-planilhas node -e \
+  "require('node:dns').promises.lookup('sheets.googleapis.com').then(()=>process.exit(0),()=>process.exit(1))" \
+  2>/dev/null; then
+  echo "  ok  o worker-planilhas resolve sheets.googleapis.com"
+else
+  echo "  ATENÇÃO: o worker-planilhas não resolve sheets.googleapis.com." >&2
+  echo "  A leitura das planilhas vai falhar. Confira a rede 'fir_saida-planilhas'." >&2
 fi
 
 # 7.7 · o Traefik serve a página de entrada.

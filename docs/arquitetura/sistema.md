@@ -63,7 +63,15 @@ A lista curta e definitiva. O ponto de partida está em `CLAUDE.md` §5:
    item que não aproveita sobra gera **dois** movimentos e os dois são compensados) já têm teste
    contra uma implementação de referência. Em `apps/api/src/programas/baixa-de-insumos.ts`.
 
-Cada um com: o que observa, o que **não** observa, e por que não há um nono.
+9. `LeitorDePlanilha` — **implementado** no G8 4A. A planilha de indicadores do `Cliente Firmare`
+   entra por ele: recebe um id de planilha, devolve as células cruas por aba. **Não decide nada**
+   — aba→frente, coluna→pergunta, semana, validação e métricas são de
+   `packages/domain/src/planilhas-indicadores.ts`. Em `apps/api/src/carteira/planilhas/`, com
+   `LeitorGoogleSheets` (conta de serviço, JWT assinado com `node:crypto`, só
+   `*.googleapis.com`) e `LeitorDePlanilhaEmMemoria` (fixture). Roda só no `worker-planilhas`;
+   a API nunca fala com o Google nem recebe a credencial.
+
+Cada um com: o que observa, o que **não** observa, e por que não há um décimo.
 
 > **O painel do superadmin (2026-10-28) NÃO acrescentou seam nenhum**, e isso é
 > o resultado desejado, não uma coincidência. Ele cai inteiro nos que já

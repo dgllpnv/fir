@@ -68,6 +68,28 @@ services:
       timeout: 3s
       retries: 20
 
+  # O antivírus dos anexos da carteira (G8 4C, A-13). Local, clamd e
+  # freshclam no MESMO container (a imagem faz os dois por padrão); em
+  # produção eles são separados para o clamd não ter rota de saída — ver
+  # infra/producao/docker-compose.yml. A primeira subida baixa as assinaturas
+  # (~300 MB) e leva alguns minutos; até lá o worker deixa tudo `pendente`.
+  # Ocupa ~1,5 GB de RAM com as assinaturas carregadas.
+  clamav:
+    image: clamav/clamav:1.4.3
+    container_name: fir-clamav
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:4833:3310'
+    volumes:
+      - clamav-assinaturas:/var/lib/clamav
+    healthcheck:
+      test: ['CMD', 'clamdcheck.sh']
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+
 volumes:
   postgres-dados:
   redis-dados:
+  clamav-assinaturas:

@@ -305,4 +305,40 @@ export const CAMPOS_MONETARIOS = [
    * encontrado pelo teste de redação deste próprio ticket, não por revisão.
    */
   'somaValor',
+  /**
+   * G8 1C — campanhas da carteira (`campanhas-carteira.ts` dos contratos).
+   * `receita` e `resultadoEmDinheiro`/`metaEmDinheiro` já estavam acima.
+   * `retornoSobreInvestimento`, e NÃO `retorno`: `retorno` já nomeia a regra
+   * de retorno do procedimento e a tarefa de retorno do programa
+   * (`programas.ts`), e registrá-lo apagaria as duas de quem não tem
+   * `valores`. O retorno é redigido porque `retorno × investimento` devolve a
+   * receita.
+   */
+  'investimento',
+  'valorGerado',
+  'retornoSobreInvestimento',
+  /**
+   * G8 0.4 — a seção PAGAMENTO do cadastro do `Cliente Firmare` (dia do
+   * vencimento e WhatsApp de cobrança), num objeto aninhado que sai `null`
+   * INTEIRO (appsec A-2, LGPD A30). Nome próprio, e NÃO `pagamento`:
+   * `TarefaNaLista.pagamento` já existe e carrega a forma de pagamento do
+   * atendimento — registrá-lo apagaria o bloco inteiro da tarefa para a
+   * recepção sem `valores`. `mensalidade` já estava acima.
+   */
+  'pagamentoDaMensalidade',
+  /**
+   * G8 1E — prospecção (`prospeccao.ts` dos contratos). `valorEstimado` é o
+   * "Valor estimado por mês" do lead (L2557) e `potencial` é a soma deles no
+   * resumo das Oportunidades (L2477). Nenhum dos dois é receita (regra 4),
+   * mas os dois são dinheiro na tela — gate de números, ajuste 14, e T-19.
+   */
+  'valorEstimado',
+  'potencial',
+
+  /**
+   * G8 3B — Visão geral da carteira (P1). `mrr` é a "Receita recorrente
+   * mensal" (Σ mensalidade de contrato dos ativos, gate de números ajuste
+   * 11); o ticket médio viaja como `ticketMedio`, já registrado acima.
+   */
+  'mrr',
 ] as const

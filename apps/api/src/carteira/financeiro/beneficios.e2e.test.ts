@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { BancoService } from '../../banco/banco.service'
 import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
 import { BeneficiosDeIndicacaoService, ClienteCarteiraNaoEncontradoParaBeneficio } from './beneficios.service'
+import { perfilPadraoDoBanco } from '../perfil-do-usuario-de-gestao'
 
 /**
  * **G3 — `BeneficiosDeIndicacaoService`, contra Postgres real.**
@@ -83,6 +84,7 @@ beforeAll(async () => {
     escopo: 'grupo',
     grupoId: grupo,
     senhaProvisoria: false,
+    ...perfilPadraoDoBanco('grupo'),
   }
 })
 

@@ -1,7 +1,15 @@
-import { TIPOS_DE_CONTATO, TIPOS_DE_RECEITA, TIPOS_PAGAVEIS } from '@fir/domain'
+import {
+  type AcaoDeJornada,
+  ETAPAS_EM_RECONTATO,
+  TIPOS_DE_CONTATO,
+  TIPOS_DE_RECEITA,
+  TIPOS_PAGAVEIS,
+} from '@fir/domain'
 import type pg from 'pg'
 import { DINHEIRO_QUE_ENTROU } from '../../financeiro/dinheiro-que-entrou'
 import { TIPOS_DE_SESSAO } from '../../painel-geral/metricas-diarias'
+
+const ACAO_DE_REAGENDAR: AcaoDeJornada = 'reagendar'
 
 /**
  * **AS CONTAGENS DE `uso_diario_cliente` QUE NÃO TÊM FONTE JÁ EXTRAÍDA DO
@@ -136,9 +144,8 @@ export async function contarContatosDePacientes(
  * "as duas contam"). `perder` (o terceiro KPI) fica de fora: significa a
  * paciente desistir, não faltar.
  *
- * **Produto, em aberto:** `faltas_recontatadas` (a mesma pergunta, cruzada
- * com um reagendamento subsequente) não tem job ainda — ver o comentário da
- * coluna na migration 0028 e o relatório final deste ticket.
+ * A pergunta cruzada com o reagendamento subsequente é
+ * `contarFaltasRecontatadas`, logo abaixo.
  */
 export async function contarFaltas(
   c: pg.PoolClient,
@@ -155,6 +162,45 @@ export async function contarFaltas(
         AND (ev->>'em')::timestamptz >= $2
         AND (ev->>'em')::timestamptz <  $3`,
     [clinicaId, j.de, j.ate, ['noshow', 'desmarcar']],
+  )
+  return Number(r.rows[0]!.n)
+}
+
+/**
+ * **FALTAS RECONTATADAS NO DIA** (decisão do dono, plano §9 itens 5/5b):
+ * eventos `reagendar` do histórico da jornada que aconteceram na janela do
+ * dia (fuso da clínica, semiaberta) e cuja etapa ANTERIOR — a do evento
+ * imediatamente antes no histórico — era `faltou` ou `desmarcou`
+ * (`ETAPAS_EM_RECONTATO`, a mesma dupla da coluna "Recontatar" do funil e de
+ * `contarFaltas`). A data é a do REAGENDAMENTO, não a da falta: é o trabalho
+ * de recontato que aconteceu no dia.
+ *
+ * "Etapa anterior" pelo evento anterior, e não por "houve um `noshow` em
+ * algum momento": o cartão que faltou, foi reagendado, compareceu e depois
+ * foi reagendado de novo a partir de `agendado` não é um segundo recontato.
+ * Quem voltou a `faltou` por `reabrir` (de `encerrado`) também conta — o
+ * evento `reabrir` grava `etapa: 'faltou'`.
+ *
+ * `ev.i > 1` não é enfeite: o índice de `jsonb` aceita negativo e conta do
+ * FIM do array, então `historico -> -1` no primeiro evento leria o ÚLTIMO.
+ */
+export async function contarFaltasRecontatadas(
+  c: pg.PoolClient,
+  clinicaId: string,
+  j: { de: Date; ate: Date },
+): Promise<number> {
+  const r = await c.query<{ n: string }>(
+    `SELECT count(*)::text AS n
+       FROM tarefas t
+       CROSS JOIN LATERAL jsonb_array_elements(t.historico) WITH ORDINALITY AS ev(e, i)
+      WHERE t.clinica_id = $1
+        AND t.excluida_em IS NULL
+        AND ev.e->>'acao' = $4
+        AND (ev.e->>'em')::timestamptz >= $2
+        AND (ev.e->>'em')::timestamptz <  $3
+        AND ev.i > 1
+        AND t.historico -> (ev.i - 2)::int ->> 'etapa' = ANY($5::text[])`,
+    [clinicaId, j.de, j.ate, ACAO_DE_REAGENDAR, [...ETAPAS_EM_RECONTATO]],
   )
   return Number(r.rows[0]!.n)
 }

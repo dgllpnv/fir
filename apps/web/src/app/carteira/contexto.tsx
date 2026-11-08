@@ -1,6 +1,6 @@
 'use client'
 
-import type { CarteiraEuSaida, UsuarioDeGestaoPublico } from '@fir/contracts'
+import type { CarteiraEuComSegundoFatorSaida, UsuarioDeGestaoPublico } from '@fir/contracts'
 import { usePathname, useRouter } from 'next/navigation'
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
@@ -44,7 +44,7 @@ export function ProvedorDaCarteira({ children }: { children: ReactNode }) {
     setSessao({ tag: 'carregando' })
     void (async () => {
       try {
-        const eu = await chamar<CarteiraEuSaida>('v1/carteira/eu')
+        const eu = await chamar<CarteiraEuComSegundoFatorSaida>('v1/carteira/eu')
         if (!valeu) return
         // Senha provisória ⇒ a única coisa que a sessão pode fazer é trocá-la
         // (`CarteiraGuard`). Sem este desvio, o usuário recém-criado cairia
@@ -52,6 +52,13 @@ export function ProvedorDaCarteira({ children }: { children: ReactNode }) {
         if (eu.usuarioDeGestao.senhaProvisoria) {
           setSessao({ tag: 'saindo' })
           router.replace('/carteira/trocar-senha')
+          return
+        }
+        // Sem o app autenticador cadastrado ⇒ a única coisa que a sessão pode
+        // fazer é cadastrá-lo (G8 0.6, `SegundoFatorDaCarteiraGuard`).
+        if (!eu.segundoFator.ativo) {
+          setSessao({ tag: 'saindo' })
+          router.replace('/carteira/segundo-fator')
           return
         }
         setSessao({ tag: 'pronta', usuarioDeGestao: eu.usuarioDeGestao })

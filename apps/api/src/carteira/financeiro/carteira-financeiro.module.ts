@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common'
+import { provedorDeRelogio } from '../../comum/relogio'
+import { RegraDoBeneficioController } from './beneficios-regra.controller'
 import { BeneficiosDeIndicacaoController } from './beneficios.controller'
 import { BeneficiosDeIndicacaoService } from './beneficios.service'
 import { CobrancasCarteiraController } from './cobrancas.controller'
@@ -25,12 +27,16 @@ import { MetasComerciaisService } from './metas.service'
     MetasComerciaisController,
     CobrancasCarteiraController,
     BeneficiosDeIndicacaoController,
+    // G8 3D: "Alterar regra" do benefício (T5, L12).
+    RegraDoBeneficioController,
   ],
   providers: [
     IndicadoresCarteiraService,
     MetasComerciaisService,
     CobrancasCarteiraService,
     BeneficiosDeIndicacaoService,
+    // O painel de Mensalidades calcula o "hoje" no fuso da carteira (1F).
+    provedorDeRelogio,
   ],
 })
 export class CarteiraFinanceiroModule {}

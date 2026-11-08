@@ -66,7 +66,10 @@ const externos = [
   // esse `import()` dinâmico em tempo de build mesmo dentro de um carregador
   // condicional. Não está na lista equivalente do Mavia porque lá a versão do
   // adaptador não o referenciava — é a diferença que "adaptar, não copiar
-  // cego" significa na prática. Esta API não recebe upload.
+  // cego" significa na prática. Desde os anexos da carteira (G8 4C) a API
+  // RECEBE upload: o pacote é dependência de produção de `@fir/api`, e o
+  // `pnpm deploy` do Dockerfile o leva para o `node_modules` da imagem —
+  // externo continua certo, só o motivo mudou.
   '@fastify/multipart',
 ]
 
@@ -253,6 +256,13 @@ for (const [entrada, saida] of [
   ['src/carteira/jobs/worker-uso-diario.ts', 'dist/worker-uso-diario.js'],
   ['src/carteira/financeiro/worker-cobrancas.ts', 'dist/worker-cobrancas.js'],
   ['src/carteira/prospeccao/worker-rotinas-internas.ts', 'dist/worker-rotinas-internas.js'],
+  // A varredura antivírus dos anexos (G8 4C). Rede `dados` só (clamd ali).
+  ['src/carteira/anexos/worker-anexos.ts', 'dist/worker-anexos.js'],
+  // A sincronização das campanhas da FIR Clinic (G8 1C/K4). Rede `dados` só.
+  ['src/carteira/campanhas/worker-campanhas.ts', 'dist/worker-campanhas.js'],
+  // A leitura das planilhas de indicadores (G8 4A). ESTE precisa de saída —
+  // só para *.googleapis.com, rede `saida-planilhas` no compose.
+  ['src/carteira/planilhas/worker-planilhas.ts', 'dist/worker-planilhas.js'],
 ]) {
   await build({ ...comum, entryPoints: [entrada], outfile: saida })
 }
@@ -267,4 +277,4 @@ for (const [entrada, saida] of [
  *   exercitar de verdade.
  */
 
-console.log('\nAPI construída em dist/ (api.js, migrar.js, credencial.js, migrar-clinica.js, worker-agenda.js, worker-uso-diario.js, worker-cobrancas.js, worker-rotinas-internas.js).')
+console.log('\nAPI construída em dist/ (api.js, migrar.js, credencial.js, migrar-clinica.js, worker-agenda.js, worker-uso-diario.js, worker-cobrancas.js, worker-rotinas-internas.js, worker-anexos.js, worker-campanhas.js, worker-planilhas.js).')

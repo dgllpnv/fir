@@ -1,11 +1,21 @@
-import { Dinheiro, type Relogio, aplicarDesconto } from '@fir/domain'
+import { Dinheiro, type Relogio, aplicarDesconto, diaCivil, vencimentoDaCompetencia } from '@fir/domain'
 import { BancoService } from '../../banco/banco.service'
+import { FUSO_DA_CARTEIRA } from '../fuso-da-carteira'
 
 /**
  * **G3 — O JOB QUE GERA `cobrancas_do_cliente_firmare`.** Spec
  * `docs/superpowers/plans/g3-spec-metas-e-lancamentos.md` §2.2; ADR 0015.
  *
- * Uma linha por `Cliente Firmare` `status = 'ativo'`, por competência (mês).
+ * Uma linha por `Cliente Firmare` `ativo` ou `onboarding`, com
+ * `mensalidade_centavos > 0` e `dia_vencimento` informado (PP-4 e ajuste 1
+ * do gate de números G8 — o mesmo filtro do protótipo, `aplica`, L880), por
+ * competência (mês, no fuso da carteira). Vence no dia de CADA cliente, com a
+ * regra 25 (`vencimentoDaCompetencia`, ajuste 4).
+ *
+ * **Roda TODO DIA** (D-22 item 10, ajuste 5): gera a competência do mês
+ * corrente para quem ainda não tem. Assim a primeira cobrança é a do mês de
+ * entrada, cheia (ADR 0015 §2, confirmada pela D-22 item 8) — o cliente que
+ * entra no dia 12 é cobrado naquele mês, como o protótipo mostra.
  * **IDEMPOTENTE** (regra 26): `INSERT ... ON CONFLICT (cliente_carteira_id,
  * competencia) DO NOTHING`, NUNCA `DO UPDATE` — achado 2 do ADR 0015. Rodar o
  * job três vezes no mesmo dia produz a MESMA linha, com o MESMO valor, mesmo
@@ -31,27 +41,16 @@ export type ResumoDaGeracaoDeCobrancas = {
   readonly falhas: readonly FalhaDaGeracaoDeCobranca[]
 }
 
-type ClienteAtivo = { id: string; grupo_id: string; mensalidade_centavos: string }
+type ClienteAtivo = { id: string; grupo_id: string; mensalidade_centavos: string; dia_vencimento: number }
 type BeneficioCandidato = { id: string; percentual_centesimos: string }
 
-/** `yyyy-MM-01` do mês em que o instante cai, em UTC — a competência é um rótulo de calendário da Firmare, não um conceito por-fuso-de-clínica (regra 22/23 não se aplica: isto não é janela de atendimento de uma clínica). */
-function competenciaDoMes(instante: Date): string {
-  const ano = instante.getUTCFullYear()
-  const mes = String(instante.getUTCMonth() + 1).padStart(2, '0')
-  return `${ano}-${mes}-01`
-}
-
 /**
- * O vencimento da competência — dia 10 do mesmo mês. Decisão do engenheiro
- * (não há regra no spec/ADR 0015 sobre o DIA do vencimento, só sobre o VALOR):
- * escolhido por ser o prazo mais comum de boleto B2B recorrente; ajustável
- * sem quebrar idempotência, porque `vencimento` não faz parte da chave
- * `UNIQUE (cliente_carteira_id, competencia)`.
+ * `yyyy-MM-01` do mês em que o instante cai NO FUSO DA CARTEIRA (gate de
+ * números G8, ajuste 3 e T-14). Antes era UTC, e às 21h do último dia do mês
+ * em Salvador já era o mês seguinte: o job gerava a competência errada.
  */
-function vencimentoDaCompetencia(competencia: string): string {
-  const [ano, mes] = competencia.split('-').map(Number)
-  const d = new Date(Date.UTC(ano ?? 1970, (mes ?? 1) - 1, 10))
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+export function competenciaDoMes(instante: Date, fuso: string = FUSO_DA_CARTEIRA): string {
+  return `${diaCivil(instante, fuso).slice(0, 7)}-01`
 }
 
 /**
@@ -59,20 +58,34 @@ function vencimentoDaCompetencia(competencia: string): string {
  * relógio — existe para reprocessar um mês específico e para o teste, que não
  * pode esperar a virada real do mês para provar idempotência. Em produção, o
  * agendador nunca o informa.
+ *
+ * `soDosGrupos`, se informado, restringe a varredura a esses grupos. Existe
+ * SÓ para o teste: a varredura de produção é global, e um teste que a roda
+ * global escreve cobranças nos clientes de outro arquivo rodando em paralelo
+ * (D16) — desde que `onboarding` também é cobrado, isso alcança quase todo
+ * arquivo da carteira. O agendador nunca o informa.
  */
 export async function executarGeracaoDeCobrancas(
   banco: BancoService,
   relogio: Relogio,
   competenciaAlvo?: string,
+  soDosGrupos?: readonly string[],
 ): Promise<ResumoDaGeracaoDeCobrancas> {
   const competencia = competenciaAlvo ?? competenciaDoMes(relogio.agora())
-  const vencimento = vencimentoDaCompetencia(competencia)
 
   const clientes = await banco.nasTabelasDaCarteiraComEscopo('geral', null, (c) =>
     c.query<ClienteAtivo>(
-      `SELECT id, grupo_id, mensalidade_centavos::text AS mensalidade_centavos
+      `SELECT id, grupo_id, mensalidade_centavos::text AS mensalidade_centavos, dia_vencimento
          FROM clientes_carteira
-        WHERE status = 'ativo' AND excluido_em IS NULL`,
+        WHERE status IN ('ativo', 'onboarding') AND excluido_em IS NULL
+          -- CE-1 (gate de números G8): mensalidade 0 não gera cobrança — e,
+          -- portanto, não queima o benefício numa cobrança de R$ 0.
+          AND mensalidade_centavos > 0
+          -- Sem dia de vencimento não há quando cobrar (PP-4, L880).
+          AND dia_vencimento IS NOT NULL
+          AND ($1::uuid[] IS NULL OR grupo_id = ANY($1::uuid[]))
+        ORDER BY id`,
+      [soDosGrupos ? [...soDosGrupos] : null],
     ),
   )
 
@@ -81,6 +94,7 @@ export async function executarGeracaoDeCobrancas(
 
   for (const cliente of clientes.rows) {
     try {
+      const vencimento = vencimentoDaCompetencia(competencia, cliente.dia_vencimento)
       const gerou = await banco.nasTabelasDaCarteiraComEscopo('geral', null, async (c) => {
         // (1) Reivindica — SKIP LOCKED: uma execução concorrente que já tenha
         // a linha travada é simplesmente ignorada, nunca esperada.
@@ -100,6 +114,10 @@ export async function executarGeracaoDeCobrancas(
         const { desconto, cobranca } = candidato
           ? aplicarDesconto(mensalidade, BigInt(candidato.percentual_centesimos))
           : { desconto: Dinheiro.zero(), cobranca: mensalidade }
+        // Defesa em profundidade do CE-1 (ajuste 2 do gate de números G8): o
+        // benefício só é APLICADO — gravado na cobrança e consumido — quando
+        // o desconto existiu de fato. Um benefício nunca é gasto num desconto 0.
+        const aplicado = candidato !== null && desconto.centavos > 0n ? candidato : null
 
         // (3) Insere — a chave de idempotência é o UNIQUE da migration 0031.
         const inserida = await c.query<{ id: string }>(
@@ -116,7 +134,7 @@ export async function executarGeracaoDeCobrancas(
             mensalidade.centavos.toString(),
             desconto.centavos.toString(),
             cobranca.centavos.toString(),
-            candidato?.id ?? null,
+            aplicado?.id ?? null,
             vencimento,
           ],
         )
@@ -129,12 +147,12 @@ export async function executarGeracaoDeCobrancas(
         if (!nova) return false
 
         // (4) Consome — só agora, e só porque a cobrança É NOVA.
-        if (candidato) {
+        if (aplicado) {
           await c.query(
             `UPDATE beneficios_de_indicacao
                 SET consumido_em = now(), cobranca_id = $2
               WHERE id = $1 AND consumido_em IS NULL`,
-            [candidato.id, nova.id],
+            [aplicado.id, nova.id],
           )
         }
         return true

@@ -12,7 +12,7 @@ import { declararAtorSistema } from '../../banco/limpeza-de-teste'
 import { registrarCookie } from '../../main'
 import { CarteiraGuard } from '../carteira.guard'
 import { ProspeccaoCarteiraModule } from './prospeccao-carteira.module'
-import { ProspeccaoCarteiraService } from './prospeccao-carteira.service'
+import { RotinaInternaService } from './rotina-interna.service'
 
 /**
  * G5 — funil de prospecção e rotina interna. ADR 0016.
@@ -423,11 +423,10 @@ describe('checkin interno — semana corrente edita, anterior recusa (spec §7, 
 
 describe('Marcador de rotina interna — critério de aceite 5 do spec G5 (§9)', () => {
   it('rodar o job duas vezes no mesmo dia não duplica a tarefa gerada (ON CONFLICT precisa funcionar de verdade)', async () => {
-    const servico = app.get(ProspeccaoCarteiraService)
+    const servico = app.get(RotinaInternaService)
 
-    // `inicio = hoje` (UTC, mesmo cálculo que o job usa internamente) para
-    // que a rotina já tenha prazo vencendo HOJE, sem precisar avançar dias.
-    const hoje = new Date().toISOString().slice(0, 10)
+    // G8 2A: o início da rotina é HOJE, do servidor (regra 24), e salvar já
+    // gera as tarefas dos próximos 7 dias (o protótipo também, L2984).
     const rotina = await http()
       .post('/v1/carteira/rotinas-internas')
       .set('Cookie', cookieA)
@@ -435,24 +434,26 @@ describe('Marcador de rotina interna — critério de aceite 5 do spec G5 (§9)'
         titulo: `Rotina Idempotente ${sufixo}`,
         frequencia: 'diaria',
         escopoAplicacao: 'global',
-        inicio: hoje,
       })
       .expect(201)
     const rotinaId = rotina.body.rotina.id as string
+    const contar = async (): Promise<number> =>
+      (
+        await migrate.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM tarefas_internas WHERE rotina_interna_id = $1`,
+          [rotinaId],
+        )
+      ).rows[0]!.n
+    const depoisDeSalvar = await contar()
+    expect(depoisDeSalvar).toBeGreaterThanOrEqual(1)
+    expect(depoisDeSalvar).toBe(rotina.body.geradas)
 
     // Chama a função do JOB de verdade — não um mock, não uma simulação do
     // `ON CONFLICT` — a mesma que `worker-rotinas-internas.ts` chama.
-    const primeira = await servico.gerarTarefasDeRotinasInternas()
-    expect(primeira).toBeGreaterThanOrEqual(1)
-
-    const segunda = await servico.gerarTarefasDeRotinasInternas()
-    expect(segunda).toBe(0)
+    await servico.gerarTarefasDeRotinasInternas()
+    await servico.gerarTarefasDeRotinasInternas()
 
     // A prova real: contagem de linhas no banco, não "não deu erro".
-    const linhas = await migrate.query(
-      `SELECT id FROM tarefas_internas WHERE rotina_interna_id = $1`,
-      [rotinaId],
-    )
-    expect(linhas.rows.length).toBe(1)
+    expect(await contar()).toBe(depoisDeSalvar)
   })
 })

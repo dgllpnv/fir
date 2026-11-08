@@ -603,6 +603,28 @@ Spec: [avisos-de-caixa-duplicidade-e-desfazer-pagamento](specs/avisos-de-caixa-d
 
 ---
 
+## D-22 · Paridade total com o protótipo do Firmare Gestão (G8) — as decisões do dono
+
+**Data:** 2026-11-08 · **Origem:** "tudo o que tem no protótipo e não tem no nosso deve ser construído"; inventário `docs/specs/g8-paridade-gestao-inventario.md` e gates `g8-gate-{appsec,lgpd,numeros}.md` · **Estado:** decidida — "siga o recomendado, priorizando fidelidade ao protótipo"
+
+| # | Pergunta | Decisão |
+|---|---|---|
+| 1 | Ritmo frente ao épico 9 | Todas as ondas agora (qualifica a D-2, como a D-19) |
+| 2 | Quem administra a equipe Firmare | **Superadmin cria pessoas e dá acesso** (ADR 0011 mantida — o gate de segurança reprovou "Diretoria" administrando identidade). A diretoria recebe do superadmin a chave **`carteira.administrar`**: arquivar, editar conteúdo e configuração, compartilhar todas as reuniões, redistribuir tarefas. As telas seguem o protótipo |
+| 3 | Valores e "só a minha carteira" | Como o protótipo, com filtro e redação no servidor, num ponto único (`temPermCarteira`) |
+| 4 | Cliente sem clínica / sem grupo | Pode ficar ativo; o Usuário de Gestão cria cliente do zero; lead convertido sem grupo ganha grupo próprio na mesma transação (função estreita, auditada) |
+| 5 | Briefing, Mapa de Maturidade, transcrição, IA | **Em etapas (gate LGPD):** roteiro e ensaio sem gravar já; respostas gravadas e Mapa depois da ADR da Etapa 1 e do texto do jurídico; transcrição e IA depois do contrato com o provedor (sem treino, retenção zero, transferência internacional). Itens do checklist que pedem a base de pacientes ou guardam transcrição fora do sistema saem |
+| 6 | Anexos | Arquivos na VPS, com as condições do gate de segurança (tipo pelos bytes, sem SVG/HTML, 20 MB, antivírus, download autenticado, acesso registrado) |
+| 7 | Planilhas Google | Leitura pela **conta de serviço** do Google; contrato da função reconstruído do `fg-supabase.js` (formulários por frente) |
+| 8 | ADR 0015 (4 decisões provisórias de cobrança) | Confirmadas como estão |
+| 9 | Retorno de campanha | Investimento lançado à mão; retorno = total ÷ investimento (como o protótipo, "N,Nx") |
+| 10 | Primeira cobrança | No mês de entrada (como o protótipo); job diário |
+| 11 | Benefício de quem indicou sem ser cliente | Fica guardado até a pessoa virar cliente |
+| 12 | Ticket médio | Só clientes com mensalidade |
+| 13 | 2FA do Usuário de Gestão | Construir (TOTP, desenho mínimo do gate A-12); revoga a decisão 1 da §9 do plano de 05/11 e fecha a dívida D3b |
+
+---
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

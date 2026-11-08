@@ -7,7 +7,7 @@ import {
   novaConexaoRedis,
   novaFilaDeRotinasInternas,
 } from './fila-rotinas-internas'
-import { ProspeccaoCarteiraService } from './prospeccao-carteira.service'
+import { RotinaInternaService } from './rotina-interna.service'
 
 /**
  * **O PROCESSO DO WORKER DO MARCADOR DE ROTINA INTERNA** (G5) — entrypoint
@@ -16,7 +16,7 @@ import { ProspeccaoCarteiraService } from './prospeccao-carteira.service'
  * financeiro/worker-cobrancas.ts` (G3): processo irmão, nunca importado por
  * `app.module.ts`.
  *
- * `ProspeccaoCarteiraService` é instanciado direto (sem container Nest) —
+ * `RotinaInternaService` é instanciado direto (sem container Nest) —
  * é uma classe `@Injectable()` com DOIS parâmetros de construtor
  * (`BancoService`, `Relogio`), nenhum deles exigindo o DI do Nest para
  * existir; o mesmo padrão que os outros dois workers já usam para
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
 
   const banco = new BancoService()
   const relogio = new RelogioDoSistema()
-  const servico = new ProspeccaoCarteiraService(banco, relogio)
+  const servico = new RotinaInternaService(banco, relogio)
 
   const worker = new Worker(
     NOME_DA_FILA_ROTINAS_INTERNAS,

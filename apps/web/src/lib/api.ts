@@ -97,6 +97,11 @@ export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Prom
     if (corpo.codigo === 'SENHA_PROVISORIA_CARTEIRA' && typeof window !== 'undefined') {
       window.location.assign(CAMINHO_TROCAR_SENHA_DA_CARTEIRA)
     }
+    // G8 0.6 (A-12): sessão da carteira sem segundo fator — a etapa seguinte
+    // à provisória, com o seu próprio código e o seu próprio destino.
+    if (corpo.codigo === 'SEGUNDO_FATOR_CARTEIRA' && typeof window !== 'undefined') {
+      window.location.assign('/carteira/segundo-fator')
+    }
     if (corpo.codigo === 'SENHA_PROVISORIA_PORTAL' && typeof window !== 'undefined') {
       window.location.assign(CAMINHO_TROCAR_SENHA_DO_PORTAL)
     }

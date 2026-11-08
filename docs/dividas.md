@@ -97,7 +97,10 @@ O painel cria clínica e administradora **em qualquer clínica** — é a creden
 
 **Gatilho:** o primeiro operador que precisar entrar de fora dos endereços conhecidos, ou a entrada de CDN/domínio próprio (P-8). O que cabe é WebAuthn no painel, não TOTP: com dois usuários, uma chave física é mais barata de operar que um segredo compartilhado.
 
-### D3b · O `Usuário de Gestão` (carteira comercial) não tem MFA nem allowlist de rede
+### ~~D3b · O `Usuário de Gestão` (carteira comercial) não tem MFA nem allowlist de rede~~ — **RESOLVIDA (2026-11-08)**
+
+**Resolução:** D-22 item 13 e ADR 0022. TOTP obrigatório para todo Usuário de Gestão (G8 0.6, gate A-12). Continua sem allowlist de rede. A assimetria com o painel (D3a) fica registrada na ADR. O texto abaixo fica como registro.
+
 
 Decisão do dono (2026-11-05, ver ADR 0012, emenda): manter o mesmo padrão de segurança do resto do produto — senha + Argon2 + limite de tentativas — sem segundo fator. Diferente do painel do superadmin (D3a), este ator **nunca teve nem terá allowlist de IP como contrapartida**: a equipe comercial não trabalha de endereços fixos.
 

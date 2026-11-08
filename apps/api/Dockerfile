@@ -65,7 +65,7 @@ RUN node apps/api/construir.mjs
 # alguma.
 RUN set -eu; \
     for proibido in console-ninja wallabyjs .vscode; do \
-      if grep -qF "$proibido" apps/api/dist/api.js apps/api/dist/migrar.js apps/api/dist/credencial.js apps/api/dist/migrar-clinica.js apps/api/dist/worker-agenda.js apps/api/dist/worker-uso-diario.js apps/api/dist/worker-cobrancas.js apps/api/dist/worker-rotinas-internas.js; then \
+      if grep -qF "$proibido" apps/api/dist/api.js apps/api/dist/migrar.js apps/api/dist/credencial.js apps/api/dist/migrar-clinica.js apps/api/dist/worker-agenda.js apps/api/dist/worker-uso-diario.js apps/api/dist/worker-cobrancas.js apps/api/dist/worker-rotinas-internas.js apps/api/dist/worker-anexos.js apps/api/dist/worker-campanhas.js apps/api/dist/worker-planilhas.js; then \
         echo "ERRO: '$proibido' entrou no artefato de producao." >&2; exit 1; \
       fi; \
     done; \
@@ -118,6 +118,11 @@ COPY --from=build /repo/apps/api/dist/ ./
 # e `dist/` foi copiado para a raiz de `/app` acima — então é aqui que elas
 # precisam ficar.
 COPY --from=build /repo/apps/api/migrations/ ./migrations/
+
+# O ponto de montagem do volume dos anexos (G8 4C), criado AQUI e do usuário
+# `node`: um volume nomeado novo herda dono e modo do diretório da imagem.
+# Sem isto ele nasce do root, e a API (que não roda como root) não grava.
+RUN mkdir -p /dados/anexos && chown node:node /dados/anexos && chmod 700 /dados/anexos
 
 # **Não roda como root.** O `node` da imagem oficial já tem um usuário `node`
 # sem privilégio; usá-lo é gratuito, e é o que limita o dano de um RCE num

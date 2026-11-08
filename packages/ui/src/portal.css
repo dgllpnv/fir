@@ -280,3 +280,111 @@
 
 /* Os links de acesso (migration 0036) — mesma forma de `.portal-erro-acoes`. */
 .portal-links-de-acesso { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/*
+ * G8 3D — O ESPAÇO DA CLIENTE (`fg-portal.js` L28–67, L148–163): cabeçalho
+ * com a saudação e o ciclo, cartões de acesso, metas e materiais, listas de
+ * documentos e reuniões, e a consultora. A mesma peça serve o portal e a
+ * prévia "ver como a cliente". Sem gradiente, sem sombra de profundidade
+ * (design.md §3); 390 px é o caso principal: toda grade cai para uma coluna.
+ */
+.portal-espaco { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+.portal-heroi { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; align-items: end; }
+.portal-sobrelinha {
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; color: var(--gold-ink);
+}
+.portal-ola { font-family: var(--display); font-size: clamp(30px, 5vw, 48px); font-weight: 500; line-height: 1.08; margin: 6px 0 8px; }
+.portal-boas-vindas { margin: 0; color: var(--muted); font-size: 15px; max-width: 52ch; }
+.portal-ciclo-cartao {
+  background: var(--gold-soft); border: 1px solid var(--gold); border-radius: 16px; padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+}
+.portal-ciclo-rotulo { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--on-gold-soft); font-weight: 700; }
+.portal-ciclo-numero { font-family: var(--display); font-size: 28px; font-weight: 500; line-height: 1; color: var(--ink); }
+.portal-ciclo-legenda { color: var(--on-gold-soft); font-size: 12.5px; }
+.portal-trilho { display: block; width: 100%; height: 7px; }
+.portal-trilho-fundo { fill: var(--line); }
+.portal-trilho-cheio { fill: var(--gold); }
+.portal-trilho-ok { fill: var(--ok); }
+.portal-secao-da-cliente { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.portal-secao-titulo {
+  font-family: var(--display); font-size: 24px; font-weight: 500; margin: 0;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+}
+.portal-secao-titulo small { font-family: var(--body); font-size: 13px; color: var(--muted); font-weight: 400; }
+.portal-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.portal-cartao-link, .portal-meta-cartao, .portal-material {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px;
+  display: flex; flex-direction: column; gap: 8px; min-width: 0; color: inherit; text-decoration: none;
+}
+a.portal-cartao-link:hover, a.portal-cartao-link:focus-visible { border-color: var(--gold); }
+.portal-cartao-titulo { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
+.portal-cartao-texto { color: var(--muted); font-size: 13px; }
+.portal-abrir { margin-top: auto; font-size: 13px; color: var(--gold-ink); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.portal-meta-valor { font-family: var(--display); font-size: 28px; font-weight: 500; line-height: 1; }
+.portal-meta-linha { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.portal-barras { display: block; width: 100%; height: 40px; }
+.portal-barra-semana { fill: var(--gold); opacity: 0.55; }
+.portal-barra-ultima { fill: var(--gold); }
+.portal-mini { display: block; font-size: 11.5px; color: var(--muted); }
+.portal-feito-para-voce {
+  align-self: flex-start; font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
+  background: var(--gold-soft); color: var(--on-gold-soft); font-weight: 600;
+}
+.portal-material-acoes { margin-top: auto; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.portal-material-acoes .portal-abrir { margin-top: 0; }
+.portal-ver-texto {
+  all: unset; cursor: pointer; font-size: 13px; color: var(--gold-ink); font-weight: 600; min-height: 32px;
+}
+.portal-ver-texto:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.portal-texto-do-material {
+  white-space: pre-wrap; font: inherit; font-size: 14px; line-height: 1.55; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin: 0; max-height: 50vh; overflow: auto;
+}
+.portal-modal-acoes { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+.portal-lista-papel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.portal-linha-papel {
+  display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); flex-wrap: wrap;
+}
+.portal-linha-papel:first-child, .portal-ata:first-child { border-top: 0; }
+.portal-linha-texto { font-weight: 500; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.portal-linha-detalhe { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+.portal-total { background: var(--bg); font-weight: 600; }
+.portal-ata { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 16px; padding: 16px; border-top: 1px solid var(--line); }
+.portal-ata-data { font-family: var(--display); font-size: 19px; line-height: 1.1; }
+.portal-ata-resumo { margin: 0 0 6px; white-space: pre-line; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+.portal-ata-passos { font-size: 13px; color: var(--muted); }
+.portal-ata-passos b { color: var(--ink); font-weight: 600; }
+.portal-quebra { white-space: pre-line; }
+.portal-anexos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.portal-anexo {
+  font-size: 12.5px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink);
+  text-decoration: none; overflow-wrap: anywhere;
+}
+.portal-anexo:hover, .portal-anexo:focus-visible { border-color: var(--gold); }
+.portal-vazio-tracejado {
+  color: var(--muted); font-size: 14px; padding: 16px; margin: 0; background: var(--surface);
+  border: 1px dashed var(--line); border-radius: 14px;
+}
+.portal-consultora {
+  display: flex; gap: 14px; align-items: center; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; padding: 16px;
+}
+.portal-avatar {
+  width: 44px; height: 44px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: var(--gold-soft); color: var(--on-gold-soft); font-family: var(--display); font-size: 20px; font-weight: 600;
+}
+.portal-consultora-nome { font-weight: 600; font-size: 16px; }
+.portal-rodape { text-align: center; color: var(--muted); font-size: 12px; padding-top: 4px; margin: 0; }
+.portal-dentro-do-cartao { padding: 4px 16px 18px; }
+.portal-faixa-previa {
+  background: var(--gold-soft); color: var(--on-gold-soft); font-size: 13px; padding: 10px 16px; text-align: center;
+  border-bottom: 2px solid var(--gold);
+}
+.portal-faixa-previa a { color: inherit; font-weight: 700; }
+.portal-espaco .num, .portal-ciclo-numero, .portal-meta-valor { font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  .portal-heroi { grid-template-columns: minmax(0, 1fr); }
+  .portal-ata { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .portal-grade { grid-template-columns: minmax(0, 1fr); }
+}

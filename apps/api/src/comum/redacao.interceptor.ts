@@ -1,8 +1,13 @@
-import { CAMPOS_MONETARIOS, type ChaveDePermissao } from '@fir/domain'
-import { type CallHandler, type ExecutionContext, Injectable, type NestInterceptor } from '@nestjs/common'
+import { CAMPOS_MONETARIOS, type ChaveDePermissao, temPermCarteira } from '@fir/domain'
+import { type CallHandler, type ExecutionContext, Inject, Injectable, type NestInterceptor, Optional } from '@nestjs/common'
+import { Reflector } from '@nestjs/core'
 import type { Observable } from 'rxjs'
 import { map } from 'rxjs/operators'
+import type { RequisicaoComCarteira } from '../carteira/contexto-da-carteira'
 import type { RequisicaoComPortal } from '../carteira/portal/contexto-do-portal'
+import { SO_USUARIO_DO_PORTAL } from '../carteira/portal/so-usuario-do-portal.decorator'
+import { SO_USUARIO_DE_GESTAO } from '../carteira/so-usuario-de-gestao.decorator'
+import { SO_OPERADOR } from '../painel/so-operador.decorator'
 import type { RequisicaoComContexto } from './contexto'
 
 /**
@@ -72,25 +77,79 @@ export function redigir(dado: unknown, pode: (chave: ChaveDePermissao) => boolea
   return saida
 }
 
+/** O espaço de identidade da rota, lido da METADATA dela (appsec A-2). */
+export type EspacoDaRota = 'carteira' | 'portal' | 'operador' | 'clinica'
+
+type Requisicao = RequisicaoComContexto & RequisicaoComPortal & RequisicaoComCarteira
+
+/**
+ * Quem decide o que a resposta mostra, escolhido pelo ESPAÇO DA ROTA e nunca
+ * pela propriedade que por acaso existe na requisição (gate G8, achado F-2,
+ * ajuste A-2). A cadeia antiga de `??` sobre `req.contexto`/`req.portal`
+ * tinha precedência implícita: um guard que populasse duas propriedades, ou
+ * uma prévia do portal servida por rota de carteira, faria a regra
+ * "o portal sempre vê" vazar dinheiro para quem não tem `valores`.
+ *
+ * Em cada espaço, a ausência da identidade daquele espaço é falha FECHADA:
+ *  - **carteira** (`@SoUsuarioDeGestao`): `temPermCarteira(perfil, 'valores')`,
+ *    o perfil relido do banco a cada requisição pelo `CarteiraGuard`. Um cookie
+ *    de clínica com `valores` na mesma requisição não conta: a rota é de
+ *    carteira. `salario` (`pessoas.gerir`) não existe na carteira: nega.
+ *  - **portal** (`@SoUsuarioDoPortal`): o titular vê o próprio dinheiro
+ *    (ADR 0017 §3, ADR 0018), só se `PortalGuard` provou a sessão — e só a
+ *    conta com `ve_valores` (LGPD A52: a segunda conta não é o titular).
+ *  - **operador** (`@SoOperador`): o painel trata identidade e tenancy, nunca
+ *    negócio — nenhum dinheiro atravessa (`superadmin/identidade.test.ts`).
+ *  - **clínica**: a permissão da `Pessoa` (`req.contexto.pode`).
+ */
+export function decisorDaRota(espaco: EspacoDaRota, req: Requisicao): (chave: ChaveDePermissao) => boolean {
+  switch (espaco) {
+    case 'carteira': {
+      const perfil = req.carteira?.usuarioDeGestao
+      if (!perfil) return () => false
+      return (chave) => chave === 'valores' && temPermCarteira(perfil, 'valores')
+    }
+    case 'portal': {
+      // LGPD A52 (G8 3D): com várias contas por cliente, só a que tem
+      // `ve_valores` (o titular) vê o próprio dinheiro.
+      const usuario = req.portal?.usuarioDoPortal
+      if (!usuario) return () => false
+      return (chave) => chave === 'valores' && usuario.veValores
+    }
+    case 'operador':
+      return () => false
+    case 'clinica':
+      return req.contexto?.pode ?? (() => false)
+  }
+}
+
 @Injectable()
 export class RedacaoInterceptor implements NestInterceptor {
+  private readonly reflector: Reflector
+
+  constructor(@Optional() @Inject(Reflector) reflector?: Reflector) {
+    this.reflector = reflector ?? new Reflector()
+  }
+
+  /** A carteira vence: é o espaço mais restrito e o único com perfil próprio. */
+  espacoDaRota(ctx: ExecutionContext): EspacoDaRota {
+    const alvos = [ctx.getHandler?.(), ctx.getClass?.()].filter((x): x is NonNullable<typeof x> => x !== undefined)
+    if (alvos.length === 0) return 'clinica'
+    const marcada = (chave: string) => this.reflector.getAllAndOverride<boolean | undefined>(chave, alvos) === true
+    if (marcada(SO_USUARIO_DE_GESTAO)) return 'carteira'
+    if (marcada(SO_USUARIO_DO_PORTAL)) return 'portal'
+    if (marcada(SO_OPERADOR)) return 'operador'
+    return 'clinica'
+  }
+
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const req = ctx.switchToHttp().getRequest<RequisicaoComContexto & RequisicaoComPortal>()
+    const req = ctx.switchToHttp().getRequest<Requisicao>()
     // Sem contexto, não há como decidir — e numa ferramenta que guarda o
     // caixa e o salário de uma clínica, a resposta certa para "não sei" é
-    // esconder, não mostrar. Falha fechada: nenhuma rota pública hoje (ou no
-    // desenho do Plano 1) devolve campo monetário, então isto redige campos
-    // que de qualquer forma seriam `undefined` — e se um dia uma rota
-    // pública precisar de um valor, o `null` aparece em minutos de depuração;
-    // um vazamento silencioso por falta de guard, ninguém acha.
-    //
-    // `req.portal` é a ÚNICA segunda exceção (ADR 0017 §3, confirmada pela
-    // ADR 0018): o `Usuário do portal` sempre vê o próprio dinheiro — ele é o
-    // titular da cobrança, não um colega de quem esconder salário, e por
-    // isso não existe (nem precisa existir) uma permissão `valores` para
-    // este ator. `req.portal` só existe quando `PortalGuard` já provou a
-    // sessão, então isto nunca libera dado para quem não entrou.
-    const pode = req.contexto?.pode ?? (req.portal ? () => true : () => false)
+    // esconder, não mostrar. Falha fechada: nenhuma rota pública hoje
+    // devolve campo monetário, então isto redige campos que de qualquer forma
+    // seriam `undefined`.
+    const pode = decisorDaRota(this.espacoDaRota(ctx), req)
     return next.handle().pipe(map((dado) => redigir(dado, pode)))
   }
 }

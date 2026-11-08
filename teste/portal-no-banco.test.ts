@@ -41,6 +41,8 @@ let clienteY: string // grupo A, MESMO grupo de X — isolamento cliente↔clien
 let clienteZ: string // grupo B — isolamento cruzando grupos
 
 const sufixo = Date.now()
+// Único por execução: uma rodada interrompida deixava a linha, e a seguinte batia na UNIQUE.
+const usuarioValido = `portal.valido.${String(sufixo).slice(-9)}`
 
 async function conectarComoPortal(): Promise<pg.Client> {
   const c = new pg.Client({ connectionString: URL_PORTAL })
@@ -157,16 +159,39 @@ describe('privilégio: fir_app não enxerga a identidade do portal', () => {
 
 describe('ADR 0018 critério 11: fir_portal NUNCA tem GRANT de escrita', () => {
   it('fir_portal só tem SELECT nas tabelas comerciais — INSERT/UPDATE/DELETE falham por privilégio, não por RLS', async () => {
+    // `reunioes_comerciais` é a exceção DESDE A 0042 (G8 0.1): SELECT por
+    // coluna, só na lista branca, nunca de tabela — a prova da lista branca
+    // está no describe de G8 0.1, ao fim deste arquivo. As outras oito
+    // continuam exigindo SELECT de tabela, sem afrouxar nada.
     for (const t of TABELAS_COMERCIAIS_DO_PORTAL) {
-      const p = await migrate.query<{ sel: boolean; ins: boolean; upd: boolean; del: boolean }>(
+      const p = await migrate.query<{ sel: boolean; colunas: boolean; ins: boolean; upd: boolean; del: boolean }>(
         `SELECT has_table_privilege('fir_portal', $1, 'SELECT') AS sel,
+                has_any_column_privilege('fir_portal', $1, 'SELECT') AS colunas,
                 has_table_privilege('fir_portal', $1, 'INSERT') AS ins,
                 has_table_privilege('fir_portal', $1, 'UPDATE') AS upd,
                 has_table_privilege('fir_portal', $1, 'DELETE') AS del`,
         [t],
       )
-      expect(p.rows[0], t).toEqual({ sel: true, ins: false, upd: false, del: false })
+      // `clientes_carteira` também é por coluna DESDE A 0047 (G8 0.4): o
+      // cadastro interno (observações, decisor, pagador, telefone de
+      // cobrança) não atravessa para o portal — a lista branca está provada
+      // em `apps/api/src/carteira/cadastro-do-cliente.e2e.test.ts`.
+      const esperado = t === 'reunioes_comerciais' || t === 'clientes_carteira'
+        ? { sel: false, colunas: true, ins: false, upd: false, del: false }
+        : { sel: true, colunas: true, ins: false, upd: false, del: false }
+      expect(p.rows[0], t).toEqual(esperado)
     }
+
+    // A lista branca exata de reunioes_comerciais (LGPD A7) — nenhuma coluna a mais.
+    const cols = await migrate.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.column_privileges
+        WHERE table_name = 'reunioes_comerciais' AND grantee = 'fir_portal' AND privilege_type = 'SELECT'
+        ORDER BY column_name`,
+    )
+    expect(cols.rows.map((r) => r.column_name)).toEqual([
+      'anexos', 'arquivada_em', 'cliente_carteira_id', 'compartilhada', 'data',
+      'encaminhamentos', 'grupo_id', 'id', 'resumo',
+    ])
   })
 
   it('uma tentativa de INSERT em documentos_carteira como fir_portal falha por permission denied, não por RLS (critério 11)', async () => {
@@ -368,16 +393,16 @@ describe('usuarios_do_portal: o invariante de Escopo (CHECK)', () => {
   it('escopo=cliente só com cliente_carteira_id é aceito', async () => {
     const r = await migrate.query<{ id: string }>(
       `INSERT INTO usuarios_do_portal (usuario, nome, senha_hash, escopo, cliente_carteira_id)
-       VALUES ('teste.portal.valido', 'Teste Válido', 'x', 'cliente', $1) RETURNING id`,
+       VALUES ('${usuarioValido}', 'Teste Válido', 'x', 'cliente', $1) RETURNING id`,
       [clienteX],
     )
     expect(r.rows[0]!.id).toBeDefined()
   })
 
   it('P-12: desativar não apaga a linha — estado, nunca exclusão (regra 20)', async () => {
-    await migrate.query(`UPDATE usuarios_do_portal SET ativo = false WHERE usuario = 'teste.portal.valido'`)
+    await migrate.query(`UPDATE usuarios_do_portal SET ativo = false WHERE usuario = '${usuarioValido}'`)
     const r = await migrate.query<{ ativo: boolean }>(
-      `SELECT ativo FROM usuarios_do_portal WHERE usuario = 'teste.portal.valido'`,
+      `SELECT ativo FROM usuarios_do_portal WHERE usuario = '${usuarioValido}'`,
     )
     expect(r.rows[0]!.ativo).toBe(false)
   })
@@ -395,7 +420,7 @@ describe('o ator "usuario_portal" é emitido de verdade na trilha DA CLÍNICA', 
       [clinicaA, perfil.rows[0]!.id],
     )
     const usuarioPortal = await migrate.query<{ id: string }>(
-      `SELECT id FROM usuarios_do_portal WHERE usuario = 'teste.portal.valido'`,
+      `SELECT id FROM usuarios_do_portal WHERE usuario = '${usuarioValido}'`,
     )
     const id = usuarioPortal.rows[0]!.id
     await migrate.query(`SELECT set_config('app.pessoa_id', 'usuario_portal:' || $1, false)`, [id])
@@ -623,5 +648,144 @@ describe('documentos_carteira/materiais_carteira: visivel_portal filtra a LEITUR
     expect(viaCarteira.rows).toHaveLength(1)
 
     await migrate.query(`DELETE FROM documentos_carteira WHERE id = $1`, [doc.rows[0]!.id])
+  })
+})
+
+/**
+ * G8 ticket 0.1 (D-P1, appsec A-7, LGPD A6/A7) — migration 0042.
+ *
+ * A reunião só chega ao portal compartilhada E não arquivada. Antes da 0042
+ * a policy do portal mostrava TODA ata registrada, inclusive as que levam
+ * impressões internas. E o portal lê só as colunas da lista branca, por
+ * privilégio de coluna: quem registrou (`por_usuario_gestao_id`) e qualquer
+ * coluna interna futura nunca atravessam.
+ */
+describe('reunioes_comerciais: só a ata compartilhada e não arquivada chega ao portal (G8 0.1)', () => {
+  let ugId: string
+  let naoCompartilhada: string
+  let compartilhada: string
+  let arquivada: string
+  let deOutroCliente: string
+
+  const inserirReuniao = async (
+    cliente: string,
+    grupo: string,
+    resumo: string,
+    estado: { compartilhada?: boolean; arquivada?: boolean } = {},
+  ): Promise<string> => {
+    // `compartilhada` só entra no INSERT quando o teste diz — omitida, vale o DEFAULT.
+    const colunas = ['cliente_carteira_id', 'grupo_id', 'data', 'resumo', 'por_usuario_gestao_id']
+    const valores = ['$1', '$2', 'current_date', '$3', '$4']
+    if (estado.compartilhada !== undefined) {
+      colunas.push('compartilhada')
+      valores.push(estado.compartilhada ? 'true' : 'false')
+    }
+    if (estado.arquivada) {
+      colunas.push('arquivada_em')
+      valores.push('now()')
+    }
+    const r = await migrate.query<{ id: string }>(
+      `INSERT INTO reunioes_comerciais (${colunas.join(', ')}) VALUES (${valores.join(', ')}) RETURNING id`,
+      [cliente, grupo, resumo, ugId],
+    )
+    return r.rows[0]!.id
+  }
+
+  beforeAll(async () => {
+    await declararAtorSistema(migrate)
+    ugId = (
+      await migrate.query<{ id: string }>(
+        `INSERT INTO usuarios_gestao (usuario, nome, senha_hash, escopo, grupo_id)
+         VALUES ($1, 'Ata G8', 'x', 'grupo', $2) RETURNING id`,
+        [`ata.g8.${sufixo}`, grupoA],
+      )
+    ).rows[0]!.id
+    // Sem dizer nada: o padrão tem que ser "não compartilhada" (protótipo L1671).
+    naoCompartilhada = await inserirReuniao(clienteX, grupoA, 'Impressões internas da reunião')
+    compartilhada = await inserirReuniao(clienteX, grupoA, 'Ata compartilhada', { compartilhada: true })
+    arquivada = await inserirReuniao(clienteX, grupoA, 'Ata compartilhada e arquivada', { compartilhada: true, arquivada: true })
+    deOutroCliente = await inserirReuniao(clienteY, grupoA, 'Ata de Y compartilhada', { compartilhada: true })
+  })
+
+  afterAll(async () => {
+    await declararAtorSistema(migrate)
+    await migrate.query('DELETE FROM reunioes_comerciais WHERE id = ANY($1)', [
+      [naoCompartilhada, compartilhada, arquivada, deOutroCliente],
+    ])
+    await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [ugId])
+  })
+
+  const idsVistos = (escopo: { clienteCarteiraId: string | null; grupoId: string | null }) =>
+    comoSessaoDoPortal(escopo, (c) =>
+      c
+        .query<{ id: string }>('SELECT id FROM reunioes_comerciais WHERE id = ANY($1)', [
+          [naoCompartilhada, compartilhada, arquivada, deOutroCliente],
+        ])
+        .then((r) => r.rows.map((x) => x.id).sort()),
+    )
+
+  it('a coluna nasce false: ata registrada sem escolha não é compartilhada', async () => {
+    const r = await migrate.query<{ compartilhada: boolean }>(
+      'SELECT compartilhada FROM reunioes_comerciais WHERE id = $1',
+      [naoCompartilhada],
+    )
+    expect(r.rows[0]!.compartilhada).toBe(false)
+  })
+
+  it('escopo=cliente: vê só a compartilhada e não arquivada do próprio cliente', async () => {
+    expect(await idsVistos({ clienteCarteiraId: clienteX, grupoId: null })).toEqual([compartilhada])
+  })
+
+  it('escopo=grupo: vê as compartilhadas e não arquivadas do grupo — nunca a não compartilhada nem a arquivada', async () => {
+    expect(await idsVistos({ clienteCarteiraId: null, grupoId: grupoA })).toEqual(
+      [compartilhada, deOutroCliente].sort(),
+    )
+  })
+
+  it('a equipe (fir_carteira) continua vendo todas', async () => {
+    const r = await migrate.query('SELECT id FROM reunioes_comerciais WHERE id = ANY($1)', [
+      [naoCompartilhada, compartilhada, arquivada, deOutroCliente],
+    ])
+    expect(r.rows.length).toBe(4)
+  })
+
+  it('lista branca por privilégio de coluna: fir_portal não lê quem registrou nem quando, e não tem SELECT de tabela', async () => {
+    const r = await migrate.query<{ tabela: boolean; resumo: boolean; quem: boolean; criado: boolean }>(
+      `SELECT has_table_privilege('fir_portal', 'reunioes_comerciais', 'SELECT') AS tabela,
+              has_column_privilege('fir_portal', 'reunioes_comerciais', 'resumo', 'SELECT') AS resumo,
+              has_column_privilege('fir_portal', 'reunioes_comerciais', 'por_usuario_gestao_id', 'SELECT') AS quem,
+              has_column_privilege('fir_portal', 'reunioes_comerciais', 'criado_em', 'SELECT') AS criado`,
+    )
+    expect(r.rows[0]).toEqual({ tabela: false, resumo: true, quem: false, criado: false })
+
+    await expect(
+      comoSessaoDoPortal({ clienteCarteiraId: clienteX, grupoId: null }, (c) =>
+        c.query('SELECT por_usuario_gestao_id FROM reunioes_comerciais'),
+      ),
+    ).rejects.toThrow(/permission denied/)
+  })
+
+  it('a policy do portal tem TO fir_portal e as condições por AND (lição da 0035)', async () => {
+    const r = await migrate.query<{ roles: string[]; qual: string }>(
+      `SELECT roles::text[] AS roles, qual FROM pg_policies
+        WHERE tablename = 'reunioes_comerciais' AND policyname = 'reunioes_comerciais_portal'`,
+    )
+    expect(r.rows[0]!.roles).toEqual(['fir_portal'])
+    expect(r.rows[0]!.qual).toMatch(/compartilhada AND \(arquivada_em IS NULL\) AND app_portal_pode_ver/)
+    expect(r.rows[0]!.qual).not.toMatch(/\bOR\b/)
+  })
+
+  it('mudar compartilhada deixa trilha de → para (LGPD A8)', async () => {
+    await migrate.query('UPDATE reunioes_comerciais SET compartilhada = true WHERE id = $1', [naoCompartilhada])
+    await migrate.query('UPDATE reunioes_comerciais SET compartilhada = false WHERE id = $1', [naoCompartilhada])
+    const t = await migrate.query<{ de: { compartilhada: boolean }; para: { compartilhada: boolean } }>(
+      `SELECT de, para FROM auditoria_do_painel
+        WHERE entidade = 'reunioes_comerciais' AND entidade_id = $1 AND acao = 'alterou' ORDER BY id`,
+      [naoCompartilhada],
+    )
+    expect(t.rows.map((x) => [x.de.compartilhada, x.para.compartilhada])).toEqual([
+      [false, true],
+      [true, false],
+    ])
   })
 })

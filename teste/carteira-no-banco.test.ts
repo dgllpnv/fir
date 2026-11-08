@@ -108,7 +108,7 @@ describe('fir_carteira é um papel comum, sujeito à RLS', () => {
     expect(r.rows[0]).toEqual({ rolbypassrls: false, rolsuper: false, rolcreaterole: false })
   })
 
-  it('fir_carteira lê e escreve grupos e usuarios_gestao', async () => {
+  it('fir_carteira LÊ grupos e usuarios_gestao (a escrita é só do painel — 0041, ver carteira-identidade-so-pelo-painel.test.ts)', async () => {
     const c = await conectarComo('fir_carteira')
     try {
       const r = await c.query<{ n: number }>('SELECT count(*)::int AS n FROM grupos')

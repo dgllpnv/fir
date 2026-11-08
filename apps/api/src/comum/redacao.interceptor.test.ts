@@ -113,3 +113,85 @@ describe('redacao', () => {
     })
   })
 })
+
+describe('G8 0.5 — o espaço da rota decide, não a propriedade presente (appsec A-2, F-2)', () => {
+  const perfil = (valores: boolean) => ({
+    id: 'u1',
+    usuario: 'u',
+    nome: 'U',
+    escopo: 'geral' as const,
+    grupoId: null,
+    senhaProvisoria: false,
+    valores,
+    carteira: 'todos' as const,
+    modulos: [],
+    administrar: false,
+    setor: null,
+    funcao: null,
+    telefone: null,
+  })
+
+  class RotaDeCarteira {
+    handler() {}
+  }
+  Reflect.defineMetadata('fir:so-usuario-de-gestao', true, RotaDeCarteira)
+  class RotaDoPortal {
+    handler() {}
+  }
+  Reflect.defineMetadata('fir:so-usuario-do-portal', true, RotaDoPortal)
+  class RotaDoOperador {
+    handler() {}
+  }
+  Reflect.defineMetadata('fir:so-operador', true, RotaDoOperador)
+  class RotaDeClinica {
+    handler() {}
+  }
+
+  const rodar = (classe: new () => { handler: () => void }, req: object): Promise<Record<string, unknown>> => {
+    const ctx = {
+      switchToHttp: () => ({ getRequest: () => req }),
+      getHandler: () => classe.prototype.handler,
+      getClass: () => classe,
+    } as unknown as ExecutionContext
+    const handler: CallHandler = { handle: () => of({ mensalidade: '250000', salario: '500000', nome: 'X' }) }
+    return new Promise((resolve) => {
+      new RedacaoInterceptor().intercept(ctx, handler).subscribe((d) => resolve(d as Record<string, unknown>))
+    })
+  }
+
+  it('rota de carteira com `valores`: o dinheiro atravessa (o salário, que é de RH, nunca)', async () => {
+    const r = await rodar(RotaDeCarteira, { carteira: { usuarioDeGestao: perfil(true) } })
+    expect(r['mensalidade']).toBe('250000')
+    expect(r['salario']).toBeNull()
+  })
+
+  it('rota de carteira sem `valores`: null', async () => {
+    const r = await rodar(RotaDeCarteira, { carteira: { usuarioDeGestao: perfil(false) } })
+    expect(r['mensalidade']).toBeNull()
+  })
+
+  it('rota de carteira sem `req.carteira`: falha fechada, mesmo com `req.portal` presente', async () => {
+    const r = await rodar(RotaDeCarteira, { portal: { usuarioDoPortal: { veValores: true } } })
+    expect(r['mensalidade']).toBeNull()
+  })
+
+  it('cookie de clínica com `valores` numa rota de carteira sem `valores` não libera (caso de abuso 3)', async () => {
+    const r = await rodar(RotaDeCarteira, { contexto: { pode: () => true }, carteira: { usuarioDeGestao: perfil(false) } })
+    expect(r['mensalidade']).toBeNull()
+  })
+
+  it('rota do portal: o titular (`veValores`, LGPD A52) vê o próprio dinheiro; sem sessão do portal, não', async () => {
+    expect((await rodar(RotaDoPortal, { portal: { usuarioDoPortal: { veValores: true } } }))['mensalidade']).toBe('250000')
+    expect((await rodar(RotaDoPortal, { portal: { usuarioDoPortal: { veValores: false } } }))['mensalidade']).toBeNull()
+    expect((await rodar(RotaDoPortal, {}))['mensalidade']).toBeNull()
+  })
+
+  it('rota do Operador nunca recebe dinheiro', async () => {
+    expect((await rodar(RotaDoOperador, { contexto: { pode: () => true } }))['mensalidade']).toBeNull()
+  })
+
+  it('rota de clínica usa a permissão da Pessoa', async () => {
+    expect((await rodar(RotaDeClinica, { contexto: { pode: () => true } }))['mensalidade']).toBe('250000')
+    expect((await rodar(RotaDeClinica, { carteira: { usuarioDeGestao: perfil(true) } }))['mensalidade']).toBeNull()
+  })
+})

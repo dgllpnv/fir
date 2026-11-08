@@ -20,5 +20,8 @@ export default defineConfig({
     //
     // Só o pacote `teste` paga isto. Os pacotes sem banco seguem paralelos.
     fileParallelism: false,
+    // Mesma razão de `apps/api/vitest.config.ts`: o segundo fator da carteira
+    // (G8 0.6) relaxado só para conta sem TOTP, nunca em produção.
+    env: { SEGUNDO_FATOR_CARTEIRA_OPCIONAL_FORA_DE_PRODUCAO: '1' },
   },
 })

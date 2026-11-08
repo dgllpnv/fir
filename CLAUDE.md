@@ -145,7 +145,7 @@ docs/         ADRs, pipeline, time, specs, arquitetura, compliance
 
 **A herança que esta arquitetura paga:** o legado tem a mesma regra escrita três vezes — front, `demoApiBase` e `Code.gs` — e elas já divergiram. Aqui cada regra existe **uma vez**, em `packages/domain`, e **o front não calcula nada que o servidor também calcule**. Formatar é do front; calcular não é.
 
-**Seams declarados** (mantenha a lista curta, em `docs/arquitetura/sistema.md`): HTTP da API · `packages/domain` puro · repositórios sobre Postgres real · `AgendaProvider` · `LeitorDeNota` · `Migrador`.
+**Seams declarados** (mantenha a lista curta, em `docs/arquitetura/sistema.md`): HTTP da API · `packages/domain` puro · repositórios sobre Postgres real · `AgendaProvider` · `LeitorDeNota` · `Migrador` · `LeitorDePlanilha` · `Antivirus`.
 
 ---
 

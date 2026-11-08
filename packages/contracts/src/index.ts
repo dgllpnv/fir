@@ -22,10 +22,14 @@ export * from './superadmin'
 // identidade, ao lado de `pessoas` (produto) e `operadores` (superadmin).
 export * from './carteira'
 export * from './cobranca-carteira'
+export * from './metas-carteira'
 export * from './prospeccao'
 // O Portal do Grupo (G6, ADRs 0017/0018): QUARTO espaço de identidade, do
 // lado do Cliente Firmare — nunca da Firmare.
 export * from './portal-grupo'
+export * from './campanhas-carteira'
+export * from './anexos-carteira'
+export * from './conteudo-carteira'
 export * from './estoque'
 // `./metas` é exportado, e a rota que o entrega AINDA NÃO EXISTE.
 //
@@ -42,3 +46,16 @@ export * from './campanhas'
 export * from './painel'
 // A agenda do sistema da clínica (ADR 0019).
 export * from './agenda'
+export * from './planilhas-carteira'
+export * from './uso-carteira'
+export * from './rotina-carteira'
+export * from './mensagens-carteira'
+export * from './checklists-carteira'
+export * from './asana-carteira'
+export * from './segundo-fator-carteira'
+// G8 3C — resumo semanal da carteira.
+export * from './resumo-semanal-carteira'
+// G8 3B — visão geral da carteira e os contadores do menu.
+export * from './visao-geral-carteira'
+// G8 3D — biblioteca geral (personalizados) e a regra do benefício de indicação.
+export * from './biblioteca-e-beneficio-carteira'

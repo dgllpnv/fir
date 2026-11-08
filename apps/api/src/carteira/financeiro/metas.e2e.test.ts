@@ -57,7 +57,7 @@ beforeAll(async () => {
       [`meta.${codigo}`, grupo],
     )
   ).rows[0]!.id
-  usuario = { id: usuarioGestaoId, usuario: `meta.${codigo}`, nome: 'Teste', escopo: 'grupo', grupoId: grupo, senhaProvisoria: false }
+  usuario = { id: usuarioGestaoId, usuario: `meta.${codigo}`, nome: 'Teste', escopo: 'grupo', grupoId: grupo, senhaProvisoria: false, valores: false, carteira: 'todos', modulos: [], administrar: false, setor: null, funcao: null, telefone: null }
 })
 
 afterAll(async () => {
@@ -78,8 +78,8 @@ describe('MetasComerciaisService — progresso SEMPRE derivado (critério 2.1.4)
   it('sem nenhum lançamento, ultimoLancamento é null (critério 2.1.5)', async () => {
     const indicador = await indicadores.criar(usuario, {
       clienteCarteiraId: cliente,
-      nome: 'Faturamento semanal',
-      unidade: 'R$',
+      nome: 'Pacientes novos na semana',
+      unidade: 'un',
       sentido: 'maior_melhor',
     })
     const meta = await metas.criar(usuario, {
@@ -87,7 +87,7 @@ describe('MetasComerciaisService — progresso SEMPRE derivado (critério 2.1.4)
       indicadorId: indicador.id,
       titulo: 'Crescer 20% em 3 meses',
       sentido: 'maior_melhor',
-      valorMeta: 5000000n,
+      valorMetaInteiro: 50n,
       inicio: '2026-11-01',
       prazo: '2027-01-31',
     })
@@ -98,18 +98,18 @@ describe('MetasComerciaisService — progresso SEMPRE derivado (critério 2.1.4)
 
     // Lança DIRETO no indicador (fora da API de meta — não existe "atualizar
     // a meta"), e relê a meta: o progresso muda SOZINHO.
-    await indicadores.lancar(usuario, indicador.id, { referencia: '2026-11-10', valor: 3800000n })
+    await indicadores.lancar(usuario, indicador.id, { referencia: '2026-11-09', valorInteiro: 38n })
 
     const depois = await metas.listarPorCliente(usuario, cliente)
     const metaDepois = depois.find((m) => m.id === meta.id)!
     expect(metaDepois.ultimoLancamento).not.toBeNull()
-    expect(metaDepois.ultimoLancamento!.valor).toBe('3800000')
-    expect(metaDepois.valorMeta).toBe('5000000') // a META em si não mudou
+    expect(metaDepois.ultimoLancamento!.valorInteiro).toBe('38')
+    expect(metaDepois.valorMetaInteiro).toBe('50') // a META em si não mudou
 
     // Um segundo lançamento, referência mais recente: o ÚLTIMO muda de novo,
     // sem nenhuma chamada que "atualize" a meta.
-    await indicadores.lancar(usuario, indicador.id, { referencia: '2026-11-17', valor: 4200000n })
+    await indicadores.lancar(usuario, indicador.id, { referencia: '2026-11-16', valorInteiro: 42n })
     const terceiraLeitura = await metas.listarPorCliente(usuario, cliente)
-    expect(terceiraLeitura.find((m) => m.id === meta.id)!.ultimoLancamento!.valor).toBe('4200000')
+    expect(terceiraLeitura.find((m) => m.id === meta.id)!.ultimoLancamento!.valorInteiro).toBe('42')
   })
 })

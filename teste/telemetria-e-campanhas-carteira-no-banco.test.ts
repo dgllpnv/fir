@@ -149,7 +149,12 @@ describe('RLS por grupo é real nas duas tabelas', () => {
     const c = await conectarCarteira()
     try {
       await c.query(`SELECT set_config('app.escopo', 'geral', false)`)
-      const r = await c.query<{ n: number }>('SELECT count(*)::int AS n FROM campanhas_carteira')
+      // Só os grupos DESTE arquivo: outros testes gravam campanhas no mesmo banco, e a
+      // contagem global dependia de quem rodou antes.
+      const r = await c.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM campanhas_carteira WHERE grupo_id = ANY($1)',
+        [[grupoA, grupoB]],
+      )
       expect(r.rows[0]!.n).toBe(2)
     } finally {
       await c.end()

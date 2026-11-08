@@ -1,6 +1,15 @@
-import type { DesfazerCobrancaPagaSaida, ListaDeCobrancasCarteiraSaida, MarcarCobrancaPagaSaida } from '@fir/contracts'
+import {
+  type BaixarMensalidadesPagasSaida,
+  type DesfazerCobrancaPagaSaida,
+  type ListaDeCobrancasCarteiraSaida,
+  type MarcarCobrancaPagaSaida,
+  type PainelDeMensalidadesSaida,
+  BaixarMensalidadesPagasEntrada,
+  MesDoPainel,
+} from '@fir/contracts'
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Inject,
@@ -26,6 +35,38 @@ export class CobrancasCarteiraController {
   ): Promise<ListaDeCobrancasCarteiraSaida> {
     if (!clienteId) throw new BadRequestException('Informe clienteId.')
     return this.cobrancas.listarPorCliente(req.carteira!.usuarioDeGestao, clienteId)
+  }
+
+  /**
+   * O painel de Mensalidades do mês (G8 1F). `mes` = `aaaa-mm`; ausente, o
+   * mês corrente no fuso da carteira (o servidor decide, regra 24). Os campos
+   * monetários saem `null` sem `valores`, pelo tradutor único.
+   */
+  @Get('painel')
+  async painel(
+    @Query('mes') mes: string | undefined,
+    @Req() req: RequisicaoComCarteira,
+  ): Promise<PainelDeMensalidadesSaida> {
+    let mesValido: string | undefined
+    if (mes !== undefined) {
+      const r = MesDoPainel.safeParse(mes)
+      if (!r.success) throw new BadRequestException('Mês inválido: use aaaa-mm.')
+      mesValido = r.data
+    }
+    return this.cobrancas.painel(req.carteira!.usuarioDeGestao, mesValido)
+  }
+
+  /** "Baixar pagos": marcar várias mensalidades como pagas, idempotente. */
+  @Post('baixar-pagos')
+  async baixarPagos(@Body() corpo: unknown, @Req() req: RequisicaoComCarteira): Promise<BaixarMensalidadesPagasSaida> {
+    const dados = BaixarMensalidadesPagasEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException('Escolha ao menos uma mensalidade.')
+    try {
+      return await this.cobrancas.baixarPagos(req.carteira!.usuarioDeGestao, dados.data.cobrancaIds)
+    } catch (e) {
+      if (e instanceof CobrancaCarteiraNaoEncontrada) throw new NotFoundException('Cobrança não encontrada.')
+      throw e
+    }
   }
 
   @Post(':id/marcar-pago')

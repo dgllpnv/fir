@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { BancoService } from '../banco/banco.service'
 import { apagarClinicaDeTeste, declararAtorSistema } from '../banco/limpeza-de-teste'
 import { ClienteCarteiraNaoEncontradoParaLinks, LinksDeAcessoClienteService } from './links-de-acesso-cliente.service'
+import { perfilPadraoDoBanco } from './perfil-do-usuario-de-gestao'
 
 /**
  * **OS 4 LINKS DE ACESSO, contra Postgres real** (migration 0036).
@@ -65,6 +66,7 @@ beforeAll(async () => {
     escopo: 'grupo',
     grupoId: grupo,
     senhaProvisoria: false,
+    ...perfilPadraoDoBanco('grupo'),
   }
 })
 

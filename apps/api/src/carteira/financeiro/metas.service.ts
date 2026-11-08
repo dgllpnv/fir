@@ -2,6 +2,7 @@ import type { CriarMetaComercialEntrada, MetaComercialNaLista, UsuarioDeGestaoPu
 import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../../banco/banco.service'
 import { lancamentoNaLista } from './indicadores.service'
+import { exigirValores } from './metas-comum'
 
 export class IndicadorCarteiraNaoEncontradoParaMeta extends Error {}
 
@@ -85,6 +86,7 @@ export class MetasComerciaisService {
   constructor(@Inject(BancoService) private readonly banco: BancoService) {}
 
   async criar(usuario: UsuarioDeGestaoPublico, dto: CriarMetaComercialEntrada): Promise<MetaComercialNaLista> {
+    exigirValores(usuario, dto.valorMeta != null || dto.valorInicial != null) // A-6
     return this.banco.nasTabelasDaCarteiraComEscopo(usuario.escopo, usuario.grupoId, async (c) => {
       const indicador = await c.query<{ grupo_id: string }>(
         `SELECT grupo_id FROM indicadores_carteira WHERE id = $1 AND excluido_em IS NULL`,

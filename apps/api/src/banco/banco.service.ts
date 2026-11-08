@@ -252,16 +252,41 @@ export class BancoService implements OnModuleDestroy {
   }
 
   /**
-   * As tabelas da CARTEIRA — `grupos`, `usuarios_gestao`,
-   * `sessoes_de_carteira`, e (quando lidas) `clientes_carteira`/
-   * `campanhas_carteira`/`uso_diario_cliente`.
+   * A ESCRITA de identidade da carteira — `grupos` e `usuarios_gestao` —
+   * pelo `Operador`, na conexão do PAINEL (`fir_painel`).
+   *
+   * Por que não `nasTabelasDaCarteira`: `fir_carteira` é o papel da sessão do
+   * `Usuário de Gestão`, e privilégio não pode ser gravável pelo papel da
+   * sessão que ele protege (gate G8, F-1/A-1). Desde a 0041 `fir_carteira`
+   * não tem INSERT/UPDATE nessas tabelas — só `UPDATE` nas três colunas de
+   * senha, para a troca da própria senha. Quem cria grupo, cria usuário de
+   * gestão e muda `escopo`/`grupo_id`/`ativo` é só `fir_painel`, papel
+   * autenticado à parte, nunca `SET ROLE` (D-5).
+   *
+   * Não fixa clínica nem escopo: nenhuma das duas tabelas tem RLS (são o
+   * ator e o tenancy, não dado de grupo). Sem `app.clinica_id`, toda tabela
+   * de negócio continua respondendo zero linhas a esta transação.
+   *
+   * `clientes_carteira` NÃO passa por aqui: tem RLS por grupo com policy
+   * `TO fir_carteira` (0035) e segue em `nasTabelasDaCarteiraComoOperador`.
+   */
+  async nasTabelasDeIdentidadeDaCarteiraComoPainel<T>(
+    ator: AtorDoPainel,
+    fn: (c: pg.PoolClient) => Promise<T>,
+  ): Promise<T> {
+    return this.emTransacao(this.poolDoPainel, ator, fn)
+  }
+
+  /**
+   * As tabelas da CARTEIRA pela conexão `fir_carteira` — `usuarios_gestao`
+   * e `grupos` (só LEITURA, mais as três colunas de senha na troca da
+   * própria senha — 0041), `sessoes_de_carteira`, e (quando lidas)
+   * `clientes_carteira`/`campanhas_carteira`/`uso_diario_cliente`.
    *
    * `ator` é `Sistema` para o login (ninguém provou identidade ainda, mesmo
-   * raciocínio de `PainelService.entrarSemPiso`) ou `OperadorId` quando o
-   * superadmin cria grupo/cliente/usuário de gestão (ADR 0011: só ele cria).
-   * `UsuarioDeGestaoId` ainda não existe como ator — a leitura de dado
-   * agregado por um Usuário de Gestão não ESCREVE em tabela com trigger de
-   * auditoria (G4 é quem introduz isso, com `auditoria_da_carteira`).
+   * raciocínio de `PainelService.entrarSemPiso`). A escrita de identidade
+   * pelo `Operador` NÃO passa por aqui: é
+   * `nasTabelasDeIdentidadeDaCarteiraComoPainel`.
    */
   async nasTabelasDaCarteira<T>(
     ator: AtorDoPainel,

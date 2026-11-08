@@ -5,6 +5,7 @@ import {
 } from '@fir/contracts'
 import {
   BadRequestException,
+  ForbiddenException,
   Body,
   Controller,
   Get,
@@ -16,6 +17,7 @@ import {
 } from '@nestjs/common'
 import type { RequisicaoComCarteira } from '../contexto-da-carteira'
 import { SoUsuarioDeGestao } from '../so-usuario-de-gestao.decorator'
+import { SemPermissaoDeValoresNaMeta } from './metas-comum'
 import { IndicadorCarteiraNaoEncontradoParaMeta, MetasComerciaisService } from './metas.service'
 
 @SoUsuarioDeGestao()
@@ -29,9 +31,10 @@ export class MetasComerciaisController {
     if (!dados.success) throw new BadRequestException(dados.error.issues)
     try {
       const meta = await this.metas.criar(req.carteira!.usuarioDeGestao, dados.data)
-      return { meta }
+      return { metaSalva: meta }
     } catch (e) {
       if (e instanceof IndicadorCarteiraNaoEncontradoParaMeta) throw new NotFoundException('Indicador não encontrado.')
+      if (e instanceof SemPermissaoDeValoresNaMeta) throw new ForbiddenException('Meta em R$ exige a permissão de ver valores.')
       throw e
     }
   }

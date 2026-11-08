@@ -80,18 +80,32 @@ export type OutrasCampanhas = {
   readonly tipo: 'outras'
   /** Quantas campanhas pequenas foram agrupadas — nunca os nomes delas. */
   readonly quantidade: number
-  /** Soma EXATA das campanhas agrupadas — nunca um total arredondado. */
-  readonly resultado: Dinheiro
+  /**
+   * Soma EXATA das campanhas agrupadas — ou `null`, "valor não exibido",
+   * quando o próprio balde ainda reidentifica (CE-3, gate de números G8):
+   * a soma dos orçamentos pagos agrupados não chega a `k`. O caso que
+   * motivou a regra: uma campanha pequena sozinha virava "Outras campanhas
+   * (1)" com o valor exato dela — esconder o nome não protegia nada.
+   */
+  readonly resultado: Dinheiro | null
 }
 
 export type CampanhaNoPortal = CampanhaIndividualizada | OutrasCampanhas
 
 /**
  * Agrupa as campanhas pequenas numa única "Outras campanhas" — nunca
- * individualizadas, nunca com nome. A soma da seção inteira (individuais +
- * "Outras") é sempre igual à soma de todas as campanhas de entrada: nenhum
- * centavo de receita desaparece, só o DETALHE de qual campanha pequena o
- * gerou (regra 6 do CLAUDE.md aplicada à reidentificação, não ao caixa).
+ * individualizadas, nunca com nome.
+ *
+ * SUPRESSÃO COMPLEMENTAR (CE-3, ajuste 26 do gate de números G8): o balde
+ * só leva valor quando a SOMA dos orçamentos pagos das campanhas agrupadas
+ * chega a `k` (contagem desconhecida conta zero — a leitura segura esconde).
+ * Uma campanha só no balde nunca chega lá, porque ela mesma está abaixo de
+ * `k`: o agregado de uma célula suprimida é a célula, e também é suprimido.
+ *
+ * Com o balde exibido, a soma da seção (individuais + "Outras") é igual à
+ * soma de todas as campanhas de entrada. Com o balde sem valor, nenhum total
+ * pode incluí-lo — senão "total − linhas visíveis" devolve a célula
+ * suprimida. Por isso o único total permitido é `totalDasCampanhasExibidas`.
  */
 export function agruparCampanhasComSupressao(
   campanhas: readonly CampanhaParaSupressao[],
@@ -107,8 +121,98 @@ export function agruparCampanhasComSupressao(
 
   const saida: CampanhaNoPortal[] = [...individuais]
   if (pequenas.length > 0) {
-    const soma = pequenas.reduce((acc, c) => acc.mais(c.resultado), Dinheiro.zero())
-    saida.push({ tipo: 'outras', quantidade: pequenas.length, resultado: soma })
+    const contagemDoBalde = pequenas.reduce((acc, c) => acc + (c.orcamentosPagos ?? 0), 0)
+    const resultado =
+      contagemDoBalde >= limiar ? pequenas.reduce((acc, c) => acc.mais(c.resultado), Dinheiro.zero()) : null
+    saida.push({ tipo: 'outras', quantidade: pequenas.length, resultado })
   }
   return saida
+}
+
+/**
+ * O ÚNICO total de campanhas que pode ir para a tela: a soma das linhas com
+ * valor exibido. `soDasExibidas = true` quando há um balde sem valor — a tela
+ * rotula "das campanhas exibidas", porque esse total é menor que a receita
+ * real das campanhas, e de propósito (CE-3: incluir o balde suprimido aqui
+ * deixaria recuperar a célula por subtração).
+ */
+export function totalDasCampanhasExibidas(saida: readonly CampanhaNoPortal[]): {
+  readonly total: Dinheiro
+  readonly soDasExibidas: boolean
+} {
+  let total = Dinheiro.zero()
+  let soDasExibidas = false
+  for (const c of saida) {
+    if (c.resultado === null) soDasExibidas = true
+    else total = total.mais(c.resultado)
+  }
+  return { total, soDasExibidas }
+}
+
+// ---------------------------------------------------------------------------
+// O2 — o cartão do ciclo e a saudação (`fg-portal.js` L101–113, G8 3D).
+// O G6 só tinha o "Nº mês juntos" a partir de `criado_em`; com o cadastro
+// completo (0047, C3) o ciclo usa `data_inicio`/`data_fim`, como o protótipo.
+// Tudo em DIA CIVIL (`aaaa-mm-dd`): o "hoje" é o do servidor, no fuso da
+// carteira (regra 24), e quem chama o passa.
+// ---------------------------------------------------------------------------
+
+export type CicloDoContrato =
+  | { readonly tipo: 'programa' }
+  | { readonly tipo: 'recorrente'; readonly mes: number; readonly inicio: string }
+  | {
+      readonly tipo: 'com_fim'
+      readonly mes: number
+      readonly total: number
+      /** A barra: quanto do caminho entre início e fim já passou, 0–100, inteiro. */
+      readonly percentual: number
+      readonly inicio: string
+      readonly fim: string
+    }
+
+const DIA_MS = 86_400_000
+const diaUtc = (dia: string): number => {
+  const [a = 1970, m = 1, d = 1] = dia.slice(0, 10).split('-').map(Number)
+  return Date.UTC(a, m - 1, d) / DIA_MS
+}
+const partes = (dia: string): [number, number, number] => {
+  const [a = 1970, m = 1, d = 1] = dia.slice(0, 10).split('-').map(Number)
+  return [a, m, d]
+}
+
+/** O mês médio do protótipo: `2629800000` ms = 30,4375 dias (portal:L108). Exato em binário (30 + 7/16). */
+const DIAS_DO_MES_MEDIO = 30.4375
+
+/**
+ * `fg-portal.js` L104–113. O "Mês N" conta como o protótipo: meses de
+ * calendário desde o início, mais um quando o dia de hoje já alcançou o dia
+ * do início — o mesmo de `mesesJuntos`, sem lançar erro para início futuro
+ * (`Math.max(1, …)` do protótipo). Com fim: "Mês min(N, M) de M", M pelo
+ * número de meses médios entre as datas, nunca menos que 1.
+ */
+export function cicloDoContrato(inicio: string | null, fim: string | null, hoje: string): CicloDoContrato {
+  if (inicio === null) return { tipo: 'programa' }
+  const [ai, mi, di] = partes(inicio)
+  const [ah, mh, dh] = partes(hoje)
+  const mesN = Math.max(1, (ah - ai) * 12 + (mh - mi) + (dh >= di ? 1 : 0))
+  if (fim === null) return { tipo: 'recorrente', mes: mesN, inicio }
+
+  const a = diaUtc(inicio)
+  const f = diaUtc(fim)
+  const h = diaUtc(hoje)
+  const total = Math.max(1, Math.round((f - a) / DIAS_DO_MES_MEDIO))
+  const percentual =
+    f <= a ? (h >= f ? 100 : 0) : Math.max(0, Math.min(100, Math.round(((h - a) * 100) / (f - a))))
+  return { tipo: 'com_fim', mes: Math.min(mesN, total), total, percentual, inicio, fim }
+}
+
+/**
+ * "Olá, [primeiro nome da decisora]" (portal:L101): as duas primeiras
+ * palavras do decisor ou, sem ele, do nome do cliente — "Dra. Cristina",
+ * "Ana Paula". `null` quando não há nada a dizer (a tela usa "seja bem vinda").
+ */
+export function nomeDaSaudacao(decisor: string | null, nomeDoCliente: string): string | null {
+  const fonte = decisor !== null && decisor.trim() !== '' ? decisor : nomeDoCliente
+  const palavras = fonte.trim().split(/\s+/).filter((p) => p.length > 0)
+  return palavras.length === 0 ? null : palavras.slice(0, 2).join(' ')
 }

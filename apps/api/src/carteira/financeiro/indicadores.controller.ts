@@ -8,6 +8,7 @@ import {
 } from '@fir/contracts'
 import {
   BadRequestException,
+  ForbiddenException,
   Body,
   Controller,
   Get,
@@ -25,6 +26,7 @@ import {
   IndicadorCarteiraNaoEncontrado,
   IndicadoresCarteiraService,
 } from './indicadores.service'
+import { EntradaInvalidaNaMeta, SemPermissaoDeValoresNaMeta } from './metas-comum'
 
 @SoUsuarioDeGestao()
 @Controller('v1/carteira/indicadores')
@@ -70,6 +72,8 @@ export class IndicadoresCarteiraController {
       return { lancamento }
     } catch (e) {
       if (e instanceof IndicadorCarteiraNaoEncontrado) throw new NotFoundException('Indicador não encontrado.')
+      if (e instanceof EntradaInvalidaNaMeta) throw new BadRequestException({ codigo: e.codigo, message: e.message })
+      if (e instanceof SemPermissaoDeValoresNaMeta) throw new ForbiddenException('Lançar valor em R$ exige a permissão de ver valores.')
       throw e
     }
   }

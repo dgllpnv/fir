@@ -17,7 +17,8 @@
     "./modal.css": "./src/modal.css",
     "./superadmin.css": "./src/superadmin.css",
     "./carteira.css": "./src/carteira.css",
-    "./portal.css": "./src/portal.css"
+    "./portal.css": "./src/portal.css",
+    "./asana.css": "./src/asana.css"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

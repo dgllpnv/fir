@@ -1,5 +1,9 @@
 import {
   type ClienteCarteiraCriadoSaida,
+  type ClienteCarteiraNoPainelSaida,
+  type ListaDeClientesCarteiraNoPainelSaida,
+  EditarClienteCarteiraNoPainelEntrada,
+  Uuid,
   type GrupoCriadoSaida,
   type GrupoNaLista,
   type ListaDeGruposSaida,
@@ -18,6 +22,8 @@ import {
   ConflictException,
   Controller,
   Get,
+  HttpException,
+  HttpStatus,
   Inject,
   NotFoundException,
   Param,
@@ -26,9 +32,14 @@ import {
   Req,
 } from '@nestjs/common'
 import type { RequisicaoComPainel } from './contexto-do-painel'
+import { mensagemDeValidacao, traduzirErroDoBanco } from '../carteira/cadastro-do-cliente'
 import {
+  ClienteCarteiraNaoExiste,
+  ClienteJaTemClinica,
+  ClinicaDeOutroGrupo,
   ClinicaJaTemClienteFirmare,
   ClinicaOuGrupoNaoExiste,
+  GrupoDesativado,
   GrupoNaoExiste,
   PainelCarteiraService,
   UsuarioDeGestaoJaExiste,
@@ -124,6 +135,51 @@ export class PainelCarteiraController {
       if (e instanceof ClinicaOuGrupoNaoExiste) {
         throw new NotFoundException('Clínica ou grupo não encontrado.')
       }
+      if (e instanceof ClinicaDeOutroGrupo) {
+        throw new ConflictException('Esta clínica pertence a outro grupo. Mude o grupo dela antes.')
+      }
+      throw e
+    }
+  }
+
+  /** Todos os `Cliente Firmare`, para mostrar quem pertence a cada grupo. */
+  @Get('clientes-carteira')
+  async listarClientesCarteira(@Req() req: RequisicaoComPainel): Promise<ListaDeClientesCarteiraNoPainelSaida> {
+    return { clientes: await this.servico.listarClientesCarteira(req.painel!.ator) }
+  }
+
+  /**
+   * Status, mensalidade e pagamento, grupo e vínculo com clínica — só o
+   * Operador (A-11 itens 5 e 6). Mudar o grupo reescreve as filhas, revoga o
+   * portal do cliente e grava o histórico do grupo da clínica.
+   */
+  @Patch('clientes-carteira/:id')
+  async editarClienteCarteira(
+    @Param('id') id: string,
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComPainel,
+  ): Promise<ClienteCarteiraNoPainelSaida> {
+    if (!Uuid.safeParse(id).success) throw new NotFoundException('Cliente não encontrado.')
+    const dados = EditarClienteCarteiraNoPainelEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(mensagemDeValidacao(dados.error.issues))
+    try {
+      return { cliente: await this.servico.editarClienteCarteira(req.painel!.ator, id, dados.data) }
+    } catch (e) {
+      if (e instanceof ClienteCarteiraNaoExiste) throw new NotFoundException('Cliente não encontrado.')
+      if (e instanceof GrupoNaoExiste) throw new NotFoundException('Grupo não encontrado.')
+      if (e instanceof ClinicaOuGrupoNaoExiste) throw new NotFoundException('Clínica ou grupo não encontrado.')
+      if (e instanceof GrupoDesativado) {
+        throw new HttpException('Este grupo está desativado.', HttpStatus.UNPROCESSABLE_ENTITY)
+      }
+      if (e instanceof ClienteJaTemClinica) throw new ConflictException('Este cliente já tem uma clínica.')
+      if (e instanceof ClinicaJaTemClienteFirmare) {
+        throw new ConflictException('Esta clínica já tem um Cliente Firmare.')
+      }
+      if (e instanceof ClinicaDeOutroGrupo) {
+        throw new ConflictException('Esta clínica pertence a outro grupo. Mude o grupo dela antes.')
+      }
+      const traduzido = traduzirErroDoBanco(e)
+      if (traduzido) throw new HttpException(traduzido.mensagem, traduzido.status)
       throw e
     }
   }

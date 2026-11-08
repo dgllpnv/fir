@@ -98,6 +98,9 @@ services:
       # `fir_portal` (ADR 0018). Escrita no `.env` por
       # `provisionar-portal.sh`. Mesma razão da linha acima.
       DATABASE_URL_PORTAL: ${DATABASE_URL_PORTAL:?rode ./provisionar-portal.sh}
+      # O e-mail da conta de serviço do Google (ticket 4A), para a tela dizer com
+      # quem compartilhar a planilha. Só o endereço: a chave fica no worker-planilhas.
+      GOOGLE_SA_EMAIL: ${GOOGLE_SA_EMAIL:-}
       REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
       # Um salto confiável: o Traefik, e mais nada. Sem isto `req.ip` é o
       # endereço do proxy, todas as clínicas viram um IP só, e o limite por
@@ -133,8 +136,23 @@ services:
       # fila a espera já passa do piso e nenhuma espera é somada.
       PISO_RESPOSTA_ENTRAR_MS: ${PISO_RESPOSTA_ENTRAR_MS:-150}
 
+      # Anexos da carteira (G8 4C, A-13): a chave de cifra POR ARQUIVO, gerada
+      # por `implantar.sh` e nunca no banco — quem tem o dump e o volume, sem
+      # o `.env`, não lê nada. `:?` para a API não subir sem ela.
+      CHAVE_ANEXOS: ${CHAVE_ANEXOS:?rode ./implantar.sh}
+      DIRETORIO_ANEXOS: /dados/anexos
+      # Lista de "não contatar" da prospecção (G8 1E): HMAC, a chave fora do banco.
+      FIR_CHAVE_SUPRESSAO_DE_CONTATO: ${FIR_CHAVE_SUPRESSAO_DE_CONTATO:?rode ./implantar.sh}
+      # Segundo fator da carteira (G8 0.6, A-12): cifra do segredo TOTP e
+      # pepper dos códigos de recuperação. `:?` para a API não subir sem ela.
+      FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA: ${FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA:?rode ./implantar.sh}
+
       TZ: UTC
       HOST: '0.0.0.0'
+    # O volume dos anexos, fora de qualquer diretório servido. O web não o
+    # monta: o arquivo só sai pela rota autenticada da API.
+    volumes:
+      - anexos-dados:/dados/anexos
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -198,6 +216,48 @@ services:
     # `dados` para Postgres e Redis; `saida` para a internet. Nenhuma porta
     # publicada, nenhuma label do Traefik: nada de fora chega até ele.
     networks: [dados, saida]
+
+  # -------------------------------------------------------------------------
+  # worker-planilhas — a leitura das planilhas de indicadores (ticket 4A)
+  # -------------------------------------------------------------------------
+  # Mesma imagem, outro processo: a cada 30 min (repetível) e sob demanda
+  # ("Ler planilha agora" enfileira em `carteira-planilhas`), lê pela API do
+  # Google Sheets, com a conta de serviço, a planilha de cada cliente.
+  #
+  # A CREDENCIAL DO GOOGLE MORA SÓ AQUI. `GOOGLE_SA_JSON` é o JSON da chave da
+  # conta de serviço, numa linha, entre aspas simples no `.env` da VPS (nunca
+  # no repositório, nunca na imagem, nunca no banco). Ausente, o worker sobe e
+  # cada leitura registra "não configurado". A API nunca a recebe: ela só
+  # recebe `GOOGLE_SA_EMAIL`, o endereço com que compartilhar a planilha.
+  #
+  # REDE PRÓPRIA (`saida-planilhas`), e não a `saida` do worker-agenda: o
+  # worker-agenda precisa falar com qualquer host de iCal; este, só com
+  # `oauth2.googleapis.com` e `sheets.googleapis.com` (gate A-16). Uma bridge
+  # só dele, com sub-rede fixa, é o que permite a regra de egress descrita em
+  # `infra/producao/README.md` sem cortar a agenda. O código já só fala com
+  # esses dois hosts (URLs fixas, `redirect: error`); a regra é a segunda
+  # camada, para o dia em que o processo for comprometido.
+  worker-planilhas:
+    image: fir/api:${VERSAO:-mais-recente}
+    command: ['node', 'worker-planilhas.js']
+    restart: unless-stopped
+    environment:
+      # `fir_app` só para ler o fuso da clínica; a escrita é em `fir_carteira`.
+      DATABASE_URL: postgresql://fir_app:${SENHA_APP:?}@postgres:5432/fir
+      DATABASE_URL_CARTEIRA: ${DATABASE_URL_CARTEIRA:?rode ./provisionar-carteira.sh}
+      REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
+      GOOGLE_SA_JSON: ${GOOGLE_SA_JSON:-}
+      TZ: UTC
+      NODE_OPTIONS: --max-old-space-size=192
+    mem_limit: 256m
+    cpus: 0.5
+    # Mesmo motivo do worker-agenda: o HEALTHCHECK HTTP herdado nunca responde aqui.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [dados, saida-planilhas]
 
   # Telemetria diária do FIR Clinic para a carteira (G4), 06:00 UTC.
   # Worker da carteira (D13): mesma imagem, sem porta, sem Traefik, SÓ na rede
@@ -272,6 +332,118 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+    networks: [dados]
+
+  # Campanhas da FIR Clinic para a carteira (G8 1C/K4), 07:30 UTC.
+  # Worker da carteira (D13): mesma imagem, sem porta, sem Traefik, SÓ na rede
+  # `dados`. Duas conexões: `fir_app` (lê as campanhas dentro de cada clínica,
+  # com a RLS dela) e `fir_carteira` (grava `campanhas_carteira`).
+  worker-campanhas:
+    image: fir/api:${VERSAO:-mais-recente}
+    command: ["node", "worker-campanhas.js"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://fir_app:${SENHA_APP:?}@postgres:5432/fir
+      DATABASE_URL_CARTEIRA: ${DATABASE_URL_CARTEIRA:?rode ./provisionar-carteira.sh}
+      REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
+      TZ: UTC
+      NODE_OPTIONS: --max-old-space-size=192
+    mem_limit: 256m
+    cpus: 0.5
+    # Mesmo motivo do worker-agenda: o HEALTHCHECK HTTP herdado nunca responde aqui.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [dados]
+
+  # Varredura antivírus dos anexos da carteira (G8 4C, A-13), a cada 30 s.
+  # Lê o arquivo cifrado do volume, decifra, manda ao clamd, e marca
+  # `limpo`/`infectado` (infectado: apaga o arquivo, mantém a linha). Sem
+  # clamd, tudo fica `pendente` — e `pendente` não é servido a ninguém.
+  worker-anexos:
+    image: fir/api:${VERSAO:-mais-recente}
+    command: ["node", "worker-anexos.js"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL_CARTEIRA: ${DATABASE_URL_CARTEIRA:?rode ./provisionar-carteira.sh}
+      REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
+      CHAVE_ANEXOS: ${CHAVE_ANEXOS:?rode ./implantar.sh}
+      DIRETORIO_ANEXOS: /dados/anexos
+      CLAMD_HOST: clamav
+      CLAMD_PORTA: '3310'
+      TZ: UTC
+      # Um anexo de 20 MB vira ~60 MB em memória no pico (cifrado + decifrado
+      # + a cópia enviada ao clamd).
+      NODE_OPTIONS: --max-old-space-size=192
+    volumes:
+      - anexos-dados:/dados/anexos
+    mem_limit: 256m
+    cpus: 0.5
+    # Mesmo motivo do worker-agenda: o HEALTHCHECK HTTP herdado nunca responde aqui.
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [dados]
+
+  # O ANTIVÍRUS, em dois containers, e a divisão é a razão de existir:
+  #
+  # - `clamav` (clamd) recebe o conteúdo hostil e fica SÓ na `dados`
+  #   (`internal: true`): um clamd comprometido por um arquivo malicioso não
+  #   tem rota de saída para exfiltrar o que viu.
+  # - `clamav-atualizador` (freshclam) precisa da internet para baixar as
+  #   assinaturas, e por isso fica numa rede PRÓPRIA de saída — não na
+  #   `dados` (não alcança Postgres nem Redis) e não na `saida` do
+  #   worker-agenda (não alcança outro serviço pelo nome).
+  #
+  # Os dois dividem o volume das assinaturas; o clamd o monta só leitura e
+  # recarrega sozinho quando ele muda (`SelfCheck`, 600 s).
+  #
+  # CUSTO: o clamd ocupa ~1,2–1,5 GB de RAM com as assinaturas carregadas, e
+  # a primeira subida baixa ~300 MB. Até o clamd ficar saudável, os anexos
+  # ficam `pendente` (falha fechada) — o deploy não espera por ele.
+  clamav-atualizador:
+    image: clamav/clamav:1.4.3
+    restart: unless-stopped
+    # Com um comando, o `/init` da imagem roda só ele (sem clamd).
+    command: ["freshclam", "--daemon", "--foreground", "--stdout", "--checks=12", "--user=clamav"]
+    volumes:
+      - clamav-assinaturas:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /var/lib/clamav/main.cvd || test -s /var/lib/clamav/main.cld"]
+      interval: 30s
+      timeout: 5s
+      retries: 60
+      start_period: 600s
+    mem_limit: 256m
+    cpus: 0.25
+    networks: [saida-antivirus]
+
+  clamav:
+    image: clamav/clamav:1.4.3
+    restart: unless-stopped
+    environment:
+      # Quem atualiza é o container acima; este só varre.
+      CLAMAV_NO_FRESHCLAMD: 'true'
+      # Acima do teto de 20 MB do anexo. Um stream maior que isto volta
+      # `size limit exceeded`, que o worker trata como indisponível — nunca
+      # como limpo.
+      CLAMD_CONF_StreamMaxLength: 25M
+    volumes:
+      - clamav-assinaturas:/var/lib/clamav:ro
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+    mem_limit: 2g
+    cpus: 1.0
+    depends_on:
+      clamav-atualizador: { condition: service_healthy }
     networks: [dados]
 
   web:
@@ -455,6 +627,24 @@ networks:
   easypanel:
     external: true
 
+  # A saída do `clamav-atualizador`, e só dele (ver o serviço). Bridge comum,
+  # separada da `saida`, para que o freshclam não enxergue o worker-agenda.
+  saida-antivirus:
+    driver: bridge
+
+  # A saída do `worker-planilhas`, e só dele: Google Sheets por conta de
+  # serviço. Sub-rede FIXA para a regra de egress (só *.googleapis.com:443)
+  # poder ser escrita contra ela — ver infra/producao/README.md.
+  saida-planilhas:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.248.0/24
+
 volumes:
   postgres-dados:
   redis-dados:
+  # Os anexos da carteira, cifrados por arquivo (A-13). Entra no backup com a
+  # retenção da reunião — ver infra/producao/backup.sh (pendência registrada).
+  anexos-dados:
+  clamav-assinaturas:

@@ -12,6 +12,14 @@ import { Modal } from '@/components/modal'
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { ErroDoPainel, NavDoPainel } from '../pecas'
+import {
+  CamposDoPerfil,
+  ChipsDoPerfil,
+  type PerfilNoFormulario,
+  perfilDoUsuario,
+  perfilNovo,
+  perfilParaEnviar,
+} from './campos-do-perfil'
 
 /**
  * **USUÁRIOS DE GESTÃO** — o ator da carteira (ADR 0011). Só o `Operador` cria
@@ -125,6 +133,7 @@ export default function UsuariosDeGestao() {
               <th>Nome</th>
               <th>Usuário</th>
               <th>Escopo</th>
+              <th>Perfil</th>
               <th>Estado</th>
               <th>Acesso</th>
               <th>
@@ -139,6 +148,9 @@ export default function UsuariosDeGestao() {
                 <td data-rotulo="Usuário">{u.usuario}</td>
                 <td data-rotulo="Escopo">
                   {u.escopo === 'geral' ? 'Geral' : (nomeDoGrupo(u.grupoId) ?? 'Grupo')}
+                </td>
+                <td data-rotulo="Perfil">
+                  <ChipsDoPerfil perfil={u} escopo={u.escopo} />
                 </td>
                 <td data-rotulo="Estado">
                   {u.ativo ? (
@@ -219,6 +231,7 @@ function FormularioDeUsuarioDeGestao({
     escopo: 'geral' | 'grupo'
     grupoId: string
   }>({ usuario: '', nome: '', escopo: 'geral', grupoId: '' })
+  const [perfil, setPerfil] = useState<PerfilNoFormulario>(perfilNovo)
 
   async function criar(e: React.FormEvent) {
     e.preventDefault()
@@ -232,10 +245,12 @@ function FormularioDeUsuarioDeGestao({
           nome: form.nome,
           escopo: form.escopo,
           grupoId: form.escopo === 'grupo' ? form.grupoId : null,
+          ...perfilParaEnviar(perfil, form.escopo),
         }),
       })
       aoCriar(r)
       setForm({ usuario: '', nome: '', escopo: 'geral', grupoId: '' })
+      setPerfil(perfilNovo())
       if (dobra.current !== null) dobra.current.open = false
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
@@ -334,6 +349,8 @@ function FormularioDeUsuarioDeGestao({
           </label>
         )}
 
+        <CamposDoPerfil perfil={perfil} escopo={form.escopo} aoMudar={setPerfil} prefixo="criar" />
+
         <p role="alert" aria-live="polite" className="erro-do-painel">
           {erro}
         </p>
@@ -351,8 +368,8 @@ function FormularioDeUsuarioDeGestao({
 }
 
 /**
- * Edita um `Usuário de Gestão` já existente — nome, escopo, grupo e estado,
- * por completo. `usuario` (login) não aparece aqui, de propósito: mesma
+ * Edita um `Usuário de Gestão` já existente — nome, escopo, grupo, estado e
+ * o perfil (G8 0.5), por completo. `usuario` (login) não aparece aqui, de propósito: mesma
  * decisão de `EditarPessoaNoPainelEntrada` no servidor.
  */
 function PainelDeEdicaoDeUsuarioDeGestao({
@@ -381,6 +398,7 @@ function PainelDeEdicaoDeUsuarioDeGestao({
     grupoId: usuario.grupoId ?? '',
     ativo: usuario.ativo,
   })
+  const [perfil, setPerfil] = useState<PerfilNoFormulario>(() => perfilDoUsuario(usuario))
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
@@ -396,6 +414,7 @@ function PainelDeEdicaoDeUsuarioDeGestao({
             escopo: form.escopo,
             grupoId: form.escopo === 'grupo' ? form.grupoId : null,
             ativo: form.ativo,
+            ...perfilParaEnviar(perfil, form.escopo),
           }),
         },
       )
@@ -478,6 +497,8 @@ function PainelDeEdicaoDeUsuarioDeGestao({
           <span>Ativo</span>
         </label>
 
+        <CamposDoPerfil perfil={perfil} escopo={form.escopo} aoMudar={setPerfil} prefixo="editar" />
+
         <p role="alert" aria-live="polite" className="erro-do-painel">
           {erro}
         </p>
@@ -495,7 +516,68 @@ function PainelDeEdicaoDeUsuarioDeGestao({
           </button>
         </div>
       </form>
+      <RedefinirSegundoFator usuarioId={usuario.id} nome={usuario.nome} />
     </Modal>
+  )
+}
+
+/**
+ * "Perdi o celular": apaga o segundo fator da pessoa, invalida os códigos de
+ * recuperação e derruba todas as sessões; o próximo login cai no cadastro de
+ * novo (ADR 0022). Recolhido porque é raro, e com motivo obrigatório: o runbook
+ * (`infra/producao/README.md`) exige confirmar a identidade FORA do canal do
+ * pedido antes — reset pedido por WhatsApp é o ataque.
+ */
+function RedefinirSegundoFator({ usuarioId, nome }: { usuarioId: string; nome: string }) {
+  const [motivo, setMotivo] = useState('')
+  const [recado, setRecado] = useState('')
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+
+  async function redefinir(e: React.FormEvent) {
+    e.preventDefault()
+    setErro('')
+    setRecado('')
+    setEnviando(true)
+    try {
+      await chamar<null>(`v1/superadmin/usuarios-gestao/${usuarioId}/segundo-fator/resetar`, {
+        method: 'POST',
+        body: JSON.stringify({ motivo }),
+      })
+      setMotivo('')
+      setRecado(`Verificação em duas etapas de ${nome} redefinida. No próximo acesso, ela cadastra o celular de novo.`)
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <details>
+      <summary>Perdeu o celular? Redefinir a verificação em duas etapas</summary>
+      <form onSubmit={redefinir} className="superadmin-form-largo">
+        <p className="nota">
+          Antes, confirme que é mesmo {nome}, por um canal diferente do pedido (ligue para o número que já
+          está no cadastro). Isso derruba todas as sessões dela.
+        </p>
+        <label className="campo">
+          Motivo e como a identidade foi confirmada
+          <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} minLength={10} required />
+        </label>
+        <p role="alert" aria-live="polite" className="erro-do-painel">
+          {erro}
+        </p>
+        <p aria-live="polite" className="nota">
+          {recado}
+        </p>
+        <div className="botoes">
+          <button type="submit" className="btn ghost" disabled={enviando || motivo.trim().length < 10}>
+            {enviando ? 'Redefinindo…' : 'Redefinir duas etapas'}
+          </button>
+        </div>
+      </form>
+    </details>
   )
 }
 

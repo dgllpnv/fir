@@ -614,3 +614,8 @@ details.superadmin-dobra[open] > summary::after { transform: rotate(-135deg) tra
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
+
+/* G8 0.5 — o perfil do Usuário de Gestão: chips na lista e as 9 telas no formulário. */
+.superadmin-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.superadmin-telas { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); column-gap: 12px; }
+.superadmin-telas > legend { grid-column: 1 / -1; }

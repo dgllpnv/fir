@@ -503,6 +503,19 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     caminho: '/v1/carteira/metas',
     camposDeDinheiro: ['valorMeta', 'valorInicial', 'valor'],
   },
+  /**
+   * G8 2B — metas completas (M1–M4), indicadores manuais (V10). Todo número
+   * absoluto de meta/indicador em R$ mora em `valor` (atual, cada semana,
+   * cada ponto da série), `valorMeta` (alvo; meta semanal do indicador) ou
+   * `valorInicial` — nomes já registrados (appsec caso 12: nunca `atual`/
+   * `alvo` genéricos, que escapariam da redação por nome).
+   */
+  { metodo: 'GET', caminho: '/v1/carteira/metas/painel', camposDeDinheiro: ['valorMeta', 'valorInicial', 'valor'] },
+  { metodo: 'GET', caminho: '/v1/carteira/clientes/:id/metas', camposDeDinheiro: ['valorMeta', 'valorInicial', 'valor'] },
+  { metodo: 'POST', caminho: '/v1/carteira/clientes/:id/metas', camposDeDinheiro: ['valorMeta', 'valorInicial', 'valor'] },
+  { metodo: 'PATCH', caminho: '/v1/carteira/clientes/:id/metas/:metaId', camposDeDinheiro: ['valorMeta', 'valorInicial', 'valor'] },
+  { metodo: 'GET', caminho: '/v1/carteira/clientes/:id/indicadores', camposDeDinheiro: ['valorMeta', 'valor'] },
+  { metodo: 'POST', caminho: '/v1/carteira/clientes/:id/indicadores', camposDeDinheiro: ['valorMeta', 'valor'] },
   {
     metodo: 'GET',
     caminho: '/v1/carteira/cobrancas',
@@ -522,6 +535,81 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     caminho: '/v1/carteira/cobrancas/:id/desfazer-pago',
     camposDeDinheiro: ['mensalidade', 'desconto', 'valor'],
   },
+  /**
+   * G8 1F — o painel de Mensalidades do mês: cada linha é uma
+   * `CobrancaCarteiraNaLista` (mensalidade, desconto, valor), os totais do
+   * mês (somaValor, recebido, aReceber), `valor` por situação e a receita
+   * recorrente com o ticket médio.
+   */
+  {
+    metodo: 'GET',
+    caminho: '/v1/carteira/cobrancas/painel',
+    camposDeDinheiro: ['mensalidade', 'desconto', 'valor', 'somaValor', 'recebido', 'aReceber', 'receita', 'ticketMedio'],
+  },
+  /** G8 1F — "baixar pagos": devolve as mesmas `CobrancaCarteiraNaLista`. */
+  {
+    metodo: 'POST',
+    caminho: '/v1/carteira/cobrancas/baixar-pagos',
+    camposDeDinheiro: ['mensalidade', 'desconto', 'valor'],
+  },
+  /**
+   * G8 0.4 — o CADASTRO do `Cliente Firmare` (`CadastroDoClienteNaSaida`).
+   * `pagamentoDaMensalidade` é o objeto da seção Pagamento (dia do
+   * vencimento e WhatsApp de cobrança), registrado INTEIRO para sair `null`
+   * de uma vez (appsec A-2, LGPD A30). As três rotas devolvem a mesma forma.
+   */
+  {
+    metodo: 'GET',
+    caminho: '/v1/carteira/clientes/:id',
+    camposDeDinheiro: ['mensalidade', 'pagamentoDaMensalidade'],
+  },
+  {
+    metodo: 'PATCH',
+    caminho: '/v1/carteira/clientes/:id',
+    camposDeDinheiro: ['mensalidade', 'pagamentoDaMensalidade'],
+  },
+  {
+    metodo: 'POST',
+    caminho: '/v1/carteira/clientes',
+    camposDeDinheiro: ['mensalidade', 'pagamentoDaMensalidade'],
+  },
+  /** O lado do Operador: a lista por grupo e a edição (`ClienteCarteiraNoPainel`). */
+  {
+    metodo: 'GET',
+    caminho: '/v1/superadmin/clientes-carteira',
+    camposDeDinheiro: ['mensalidade'],
+  },
+  {
+    metodo: 'PATCH',
+    caminho: '/v1/superadmin/clientes-carteira/:id',
+    camposDeDinheiro: ['mensalidade'],
+  },
+  /**
+   * G8 1C — campanhas da carteira (K1, V9, K3). `retornoSobreInvestimento` é
+   * texto ("3,2x"), mas é redigido: `retorno × investimento` devolve a receita.
+   */
+  {
+    metodo: 'GET',
+    caminho: '/v1/carteira/campanhas',
+    camposDeDinheiro: ['valorGerado', 'investimento', 'retornoSobreInvestimento', 'resultadoEmDinheiro'],
+  },
+  {
+    metodo: 'GET',
+    caminho: '/v1/carteira/clientes/:id/campanhas',
+    camposDeDinheiro: ['receita', 'investimento', 'retornoSobreInvestimento', 'resultadoEmDinheiro', 'metaEmDinheiro', 'valorGerado'],
+  },
+  {
+    metodo: 'POST',
+    caminho: '/v1/carteira/campanhas',
+    camposDeDinheiro: ['receita', 'investimento', 'retornoSobreInvestimento', 'resultadoEmDinheiro', 'metaEmDinheiro'],
+  },
+  {
+    metodo: 'PATCH',
+    caminho: '/v1/carteira/campanhas/:id',
+    camposDeDinheiro: ['receita', 'investimento', 'retornoSobreInvestimento', 'resultadoEmDinheiro', 'metaEmDinheiro'],
+  },
+  /** Ticket 4A: as métricas da planilha em R$ (faturamento, recebido, despesas) saem em `valor` (centavos). */
+  { metodo: 'GET', caminho: '/v1/carteira/clientes/:id/planilha', camposDeDinheiro: ['valor'] },
   /**
    * `POST /v1/carteira/beneficios` cria um `Benefício de indicação`
    * (`BeneficioDeIndicacaoNaLista`): `percentualCentesimos` NÃO é dinheiro —
@@ -552,6 +640,36 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     caminho: '/v1/portal/clientes',
     camposDeDinheiro: ['valorMeta', 'valorInicial', 'valor', 'mensalidade', 'desconto', 'resultadoEmDinheiro'],
   },
+
+  /**
+   * G8 1E — prospecção. TODA rota que devolve `LeadComercialNaLista` carrega
+   * `valorEstimado` (o "Valor estimado por mês", L2557), e a lista carrega
+   * também `potencial` (a soma, L2477). Nenhum dos dois é receita (regra 4),
+   * e os dois saem `null` sem `valores` — provado contra o interceptor real
+   * em `leads-prospeccao-completa.e2e.test.ts`. As rotas de benefício e de
+   * indicações não têm R$: `percentualCentesimos` é percentual.
+   */
+  ...(
+    [
+      ['GET', '/v1/carteira/leads', ['valorEstimado', 'potencial']],
+      ['GET', '/v1/carteira/leads/:id', ['valorEstimado']],
+      ['POST', '/v1/carteira/leads', ['valorEstimado']],
+      ['PATCH', '/v1/carteira/leads/:id', ['valorEstimado']],
+      ['POST', '/v1/carteira/leads/:id/etapa', ['valorEstimado']],
+      ['POST', '/v1/carteira/leads/:id/perder', ['valorEstimado']],
+      ['POST', '/v1/carteira/leads/:id/contato', ['valorEstimado']],
+      ['POST', '/v1/carteira/leads/:id/arquivar', ['valorEstimado']],
+      ['POST', '/v1/carteira/leads/:id/excluir-a-pedido', ['valorEstimado']],
+    ] as const
+  ).map(([metodo, caminho, camposDeDinheiro]) => ({ metodo, caminho, camposDeDinheiro })),
+
+  /**
+   * G8 3B — Visão geral da carteira. `mrr` e `ticketMedio` (P1) e, dentro
+   * dos contatos recomendados (P9), o `valorEstimado` de cada
+   * `LeadComercialNaLista`. Provado `null` sem `valores` contra o interceptor
+   * real em `visao-geral.e2e.test.ts`.
+   */
+  { metodo: 'GET', caminho: '/v1/carteira/painel', camposDeDinheiro: ['mrr', 'ticketMedio', 'valorEstimado'] },
 ]
 
 /**
@@ -677,6 +795,32 @@ export const ENTIDADES_DA_CARTEIRA_SEM_CLINICA: readonly string[] = [
   'rotinas_internas',
   'tarefas_internas',
   'checkins_internos',
+  // G8 1B (migration 0048): só policy por grupo, com trigger de auditoria.
+  // As três tabelas antigas de conteúdo (reunioes_comerciais,
+  // documentos_carteira, materiais_carteira) NÃO entram aqui: cada uma tem
+  // também a policy TO fir_portal, que não é por app_pode_ver_grupo — elas são
+  // cobertas por teste/portal-no-banco.test.ts.
+  'encaminhamentos_de_reuniao',
+  'compartilhamentos_revertidos',
+  'envios_de_material',
+  // G8 0.4 (0047): o parceiro de cada frente do cliente — dado de TERCEIRO
+  // (LGPD A29). RLS por grupo `TO fir_carteira`, sem policy nem GRANT para o
+  // portal; trilha pelo `registrar_auditoria_do_painel`, como as de G5.
+  'parceiros_do_cliente',
+  // G8 2C (0053): o checklist aplicado ao cliente e a entrada de quem já era
+  // cliente. RLS por grupo `TO fir_carteira`, trilha pelo trigger.
+  'checklist_do_cliente',
+  'entradas_de_cliente_existente',
+  // G8 3A (0054): o FATO do envio de mensagem (sem o texto, LGPD A36). RLS
+  // por grupo `TO fir_carteira`, append-only, trigger do painel.
+  'envios_de_mensagem',
+  // G8 2B (0052): a `Ação do plano`. RLS por grupo `TO fir_carteira`, sem
+  // portal, trilha pelo `registrar_auditoria_do_painel`.
+  'acoes_do_plano',
+  // G8 2A (0051): o subitem da tarefa interna (cliente da lista, frente do
+  // relatório). `grupo_id` derivado da tarefa por trigger; RLS por grupo
+  // `TO fir_carteira`, trilha pelo `registrar_auditoria_do_painel`.
+  'itens_de_tarefa_interna',
 ]
 
 /**
@@ -720,6 +864,30 @@ export const ENTIDADES_DO_FINANCEIRO_DA_CARTEIRA_SEM_CLINICA: readonly string[] 
   'beneficios_de_indicacao',
   'cobrancas_do_cliente_firmare',
   'auditoria_da_carteira',
+  // Ticket 4A (0045): a planilha de indicadores. Mesma trilha por código (`gravarAuditoriaDaCarteira` no PUT do link).
+  'planilhas_do_cliente',
+]
+
+/**
+ * G8 1B (appsec A-19): tabelas GLOBAIS da Firmare — sem `clinica_id` e sem
+ * `grupo_id`, conteúdo da Firmare para toda a carteira. Escapam das
+ * varreduras acima (que buscam a coluna de tenant), então cada uma tem o exame
+ * próprio em `teste/conteudo-carteira-no-banco.test.ts`: RLS habilitada e
+ * forçada, toda policy com `TO` explícito, escrita só por
+ * `app_escopo() = 'geral'`, nada para `fir_app` e trigger de auditoria.
+ *
+ * Quando nascerem as outras de A-19 (`configuracao_da_carteira`,
+ * `modelos_de_checklist`, `mensagens_comerciais`...), entram AQUI.
+ */
+export const ENTIDADES_GLOBAIS_DA_CARTEIRA: readonly string[] = [
+  'materiais_da_biblioteca',
+  // G8 2C (0053): os checklists dos programas e os itens deles.
+  'modelos_de_checklist',
+  'itens_de_modelo',
+  // G8 3A (0054): modelos de mensagem, roteiros de abordagem e a linha de configuração (Pix, favorecido).
+  'mensagens_comerciais',
+  'roteiros_comerciais',
+  'configuracao_da_carteira',
 ]
 
 /**

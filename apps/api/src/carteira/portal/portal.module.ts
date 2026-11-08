@@ -4,7 +4,7 @@ import { LimitePorOrigem } from '../../autenticacao/limite-por-origem'
 import { provedorDeRelogio } from '../../comum/relogio'
 import { LeituraDoPortalService } from './leitura-do-portal.service'
 import { JANELA_PORTAL_POR_ORIGEM_MS, LIMITE_DO_PORTAL, MAX_PORTAL_POR_ORIGEM } from './limite-do-portal'
-import { PortalAdminClienteController, PortalAdminGrupoController } from './portal-admin.controller'
+import { EspacoDaClienteController, PortalAdminClienteController, PortalAdminGrupoController } from './portal-admin.controller'
 import { PortalAdminService } from './portal-admin.service'
 import { PortalController } from './portal.controller'
 import { PortalGuard } from './portal.guard'
@@ -24,7 +24,7 @@ import { PortalService } from './portal.service'
  */
 @Module({
   imports: [AuditoriaModule],
-  controllers: [PortalController, PortalAdminClienteController, PortalAdminGrupoController],
+  controllers: [PortalController, PortalAdminClienteController, EspacoDaClienteController, PortalAdminGrupoController],
   providers: [
     PortalService,
     PortalAdminService,

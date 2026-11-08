@@ -146,7 +146,8 @@ export type MetaComercialNaLista = z.infer<typeof MetaComercialNaLista>
 export const ListaDeMetasComerciaisSaida = z.object({ metas: z.array(MetaComercialNaLista) })
 export type ListaDeMetasComerciaisSaida = z.infer<typeof ListaDeMetasComerciaisSaida>
 
-export const MetaComercialCriadaSaida = z.object({ meta: MetaComercialNaLista })
+// `metaSalva`, não `meta`: `meta` está em CAMPOS_MONETARIOS e a redação apagava o objeto inteiro.
+export const MetaComercialCriadaSaida = z.object({ metaSalva: MetaComercialNaLista })
 export type MetaComercialCriadaSaida = z.infer<typeof MetaComercialCriadaSaida>
 
 // ---------------------------------------------------------------------------
@@ -191,6 +192,78 @@ export type MarcarCobrancaPagaSaida = z.infer<typeof MarcarCobrancaPagaSaida>
  */
 export const DesfazerCobrancaPagaSaida = z.object({ cobranca: CobrancaCarteiraNaLista })
 export type DesfazerCobrancaPagaSaida = z.infer<typeof DesfazerCobrancaPagaSaida>
+
+// ---------------------------------------------------------------------------
+// Mensalidades — o painel do mês (G8 1F; `painelMensalidades`, L719-729)
+// ---------------------------------------------------------------------------
+
+/** `yyyy-MM`: o mês do painel. Ausente = o mês corrente no fuso da carteira (servidor). */
+export const MesDoPainel = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'use o formato aaaa-mm')
+
+/** Mesmas cinco de `SITUACOES_DA_MENSALIDADE` (`@fir/domain`), na mesma ordem. */
+export const SituacaoDaMensalidade = z.enum(['vencida', 'vence_hoje', 'a_vencer', 'paga', 'sem_valor'])
+export type SituacaoDaMensalidade = z.infer<typeof SituacaoDaMensalidade>
+
+export const MensalidadeNoPainel = CobrancaCarteiraNaLista.extend({
+  clienteNome: z.string(),
+  situacao: SituacaoDaMensalidade,
+  /** `vencimento − hoje`, em dias civis do fuso da carteira. Negativo = "vencida há −dias". */
+  dias: z.number().int(),
+  /** O dia civil do pagamento no fuso da carteira ("Pago em dd/mm"), calculado no servidor. */
+  pagoNoDia: DiaCivil.nullable(),
+})
+export type MensalidadeNoPainel = z.infer<typeof MensalidadeNoPainel>
+
+/**
+ * **O painel do mês.** Os totais saem do MESMO array `mensalidades` (ajuste 7
+ * do gate de números G8, ADR 0015 achado 1): `valor` de cada balde de
+ * `porSituacao` soma ao total, e `recebido` + `aReceber` = total.
+ *
+ * Os nomes monetários são os de `CAMPOS_MONETARIOS` — sem `valores`, saem
+ * `null` pelo tradutor único. `receita` é a receita recorrente (MRR) dos
+ * contratos ATUAIS (mensalidade antes do desconto, §3.2), um número diferente
+ * do total cobrado da competência — por isso nome próprio, nunca "total".
+ */
+export const PainelDeMensalidadesSaida = z.object({
+  /** `yyyy-MM-01`. */
+  competencia: DiaCivil,
+  /** O hoje do servidor, no fuso da carteira (regra 24). */
+  hoje: DiaCivil,
+  mensalidades: z.array(MensalidadeNoPainel),
+  totais: z.object({
+    somaValor: centavosNaSaida,
+    recebido: centavosNaSaida,
+    aReceber: centavosNaSaida,
+  }),
+  porSituacao: z.array(
+    z.object({ situacao: SituacaoDaMensalidade, quantidade: z.number().int(), valor: centavosNaSaida }),
+  ),
+  recorrente: z.object({
+    receita: centavosNaSaida,
+    /** `null` também quando ninguém tem mensalidade (a média de nada não é R$ 0,00). */
+    ticketMedio: centavosNaSaida,
+    clientesComMensalidade: z.number().int(),
+  }),
+  /** Meses com alguma cobrança, do mais recente ao mais antigo — o filtro de mês. */
+  mesesComCobranca: z.array(MesDoPainel),
+})
+export type PainelDeMensalidadesSaida = z.infer<typeof PainelDeMensalidadesSaida>
+
+/**
+ * "Baixar pagos": marcar várias como pagas de uma vez. Idempotente — a que já
+ * está paga não muda (nem o `pago_em`), a cancelada não é tocada.
+ */
+export const BaixarMensalidadesPagasEntrada = z
+  .object({ cobrancaIds: z.array(Uuid).min(1, 'escolha ao menos uma mensalidade').max(500) })
+  .strict()
+export type BaixarMensalidadesPagasEntrada = z.infer<typeof BaixarMensalidadesPagasEntrada>
+
+export const BaixarMensalidadesPagasSaida = z.object({
+  /** Quantas mudaram de aberto para pago NESTA chamada (as já pagas não contam). */
+  marcadasAgora: z.number().int(),
+  cobrancas: z.array(CobrancaCarteiraNaLista),
+})
+export type BaixarMensalidadesPagasSaida = z.infer<typeof BaixarMensalidadesPagasSaida>
 
 // ---------------------------------------------------------------------------
 // Benefício de indicação — cadastro simples; consumo é só pelo job (interno)

@@ -33,6 +33,7 @@ type LinhaUsuarioDoPortal = {
   ativo: boolean
   senha_provisoria: boolean
   senha_provisoria_expira_em: Date | null
+  ve_valores: boolean
 }
 
 const colunas = (prefixo = ''): string =>
@@ -47,6 +48,7 @@ const colunas = (prefixo = ''): string =>
     'ativo',
     'senha_provisoria',
     'senha_provisoria_expira_em',
+    've_valores',
   ]
     .map((c) => `${prefixo}${c}`)
     .join(', ')
@@ -59,6 +61,7 @@ const usuarioDoPortalPublico = (u: LinhaUsuarioDoPortal): UsuarioDoPortalPublico
   clienteCarteiraId: u.cliente_carteira_id,
   grupoId: u.grupo_id,
   senhaProvisoria: u.senha_provisoria,
+  veValores: u.ve_valores,
 })
 
 /**

@@ -7,6 +7,8 @@ import { CarteiraService } from './carteira.service'
 import { LinksDeAcessoClienteController } from './links-de-acesso-cliente.controller'
 import { LinksDeAcessoClienteService } from './links-de-acesso-cliente.service'
 import { ProspeccaoCarteiraModule } from './prospeccao/prospeccao-carteira.module'
+import { CampanhasCarteiraModule } from './campanhas/campanhas-carteira.module'
+import { SegundoFatorDaCarteiraModule } from './segundo-fator/segundo-fator.module'
 import {
   JANELA_CARTEIRA_POR_ORIGEM_MS,
   LIMITE_DA_CARTEIRA,
@@ -23,7 +25,7 @@ import {
  * entrega um grupo, entrega todos.
  */
 @Module({
-  imports: [ProspeccaoCarteiraModule],
+  imports: [ProspeccaoCarteiraModule, CampanhasCarteiraModule, SegundoFatorDaCarteiraModule],
   controllers: [CarteiraController, LinksDeAcessoClienteController],
   providers: [
     CarteiraService,

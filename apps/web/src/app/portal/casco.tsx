@@ -16,6 +16,10 @@ import { FaixaDoPortal } from './faixa'
 export function Casco({ children }: { children: ReactNode }) {
   const caminho = usePathname()
 
+  // A prévia "ver como a cliente" (O9) é da sessão da CARTEIRA: sem o
+  // provedor do portal, que mandaria quem não tem cookie de portal à porta.
+  if (caminho.startsWith('/portal/previa/')) return <>{children}</>
+
   if (ehPortaDoPortal(caminho)) {
     return <ProvedorDoPortal>{children}</ProvedorDoPortal>
   }

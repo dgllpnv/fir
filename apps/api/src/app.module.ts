@@ -20,9 +20,21 @@ import { PainelGuard } from './painel/painel.guard'
 import { PainelModule } from './painel/painel.module'
 import { CarteiraGuard } from './carteira/carteira.guard'
 import { CarteiraModule } from './carteira/carteira.module'
+import { SegundoFatorDaCarteiraGuard } from './carteira/segundo-fator/segundo-fator.guard'
+import { SegundoFatorDaCarteiraModule } from './carteira/segundo-fator/segundo-fator.module'
 import { CarteiraFinanceiroModule } from './carteira/financeiro/carteira-financeiro.module'
+import { CarteiraMetasModule } from './carteira/financeiro/metas.module'
+import { CarteiraAcoesDoPlanoModule } from './carteira/acoes-do-plano/acoes-do-plano.module'
 import { PortalGuard } from './carteira/portal/portal.guard'
 import { CarteiraPortalModule } from './carteira/portal/portal.module'
+import { CarteiraAnexosModule } from './carteira/anexos/anexos.module'
+import { CarteiraUsoModule } from './carteira/uso/uso-carteira.module'
+import { CarteiraPlanilhasModule } from './carteira/planilhas/planilhas-carteira.module'
+import { CarteiraConteudoModule } from './carteira/conteudo/conteudo.module'
+import { CarteiraMensagensModule } from './carteira/mensagens/mensagens.module'
+import { CarteiraChecklistsModule } from './carteira/checklists/checklists.module'
+import { CarteiraResumoModule } from './carteira/resumo/resumo-semanal.module'
+import { CarteiraVisaoGeralModule } from './carteira/painel/visao-geral.module'
 import { CampanhasModule } from './campanhas/campanhas.module'
 import { PainelGeralModule } from './painel-geral/painel.module'
 import { PessoasModule } from './pessoas/pessoas.module'
@@ -39,8 +51,19 @@ import { TarefasModule } from './tarefas/tarefas.module'
     PessoasModule,
     PainelModule,
     CarteiraModule,
+    SegundoFatorDaCarteiraModule,
     CarteiraFinanceiroModule,
+    CarteiraMetasModule,
+    CarteiraAcoesDoPlanoModule,
     CarteiraPortalModule,
+    CarteiraAnexosModule,
+    CarteiraUsoModule,
+    CarteiraPlanilhasModule,
+    CarteiraConteudoModule,
+    CarteiraMensagensModule,
+    CarteiraChecklistsModule,
+    CarteiraResumoModule,
+    CarteiraVisaoGeralModule,
     // O épico 8: as campanhas e o Painel geral da CLÍNICA.
     // `PainelGeralModule` não tem relação com `PainelModule`, que é o do
     // SUPERADMIN — ver a nota em `painel-geral/painel.module.ts`.
@@ -82,6 +105,10 @@ import { TarefasModule } from './tarefas/tarefas.module'
     // Global pela mesma razão — uma rota de carteira sem guard não entrega
     // um grupo, entrega todos.
     { provide: APP_GUARD, useClass: CarteiraGuard },
+    // LOGO DEPOIS do `CarteiraGuard` (G8 0.6, A-12): lê `req.carteira`, que
+    // ele acabou de anexar. Sessão sem segundo fator só alcança o cadastro,
+    // `eu` e `sair`.
+    { provide: APP_GUARD, useClass: SegundoFatorDaCarteiraGuard },
     // MESMO NÍVEL, quarto ator: rota do Portal do Grupo também não tem
     // `req.contexto` (G6, ADR 0018) — uma rota do portal sem guard não
     // entrega um grupo, entrega todos.

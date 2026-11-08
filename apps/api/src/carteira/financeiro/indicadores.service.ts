@@ -8,6 +8,7 @@ import type {
 import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../../banco/banco.service'
 import { gravarAuditoriaDaCarteira } from './auditoria-da-carteira'
+import { exigirSegunda, exigirValores } from './metas-comum'
 
 export class ClienteCarteiraNaoEncontrado extends Error {}
 export class IndicadorCarteiraNaoEncontrado extends Error {}
@@ -17,7 +18,7 @@ type LinhaIndicador = {
   cliente_carteira_id: string
   grupo_id: string
   nome: string
-  unidade: 'R$' | 'un' | '%'
+  unidade: 'R$' | 'un' | '%' | 'dias'
   sentido: 'maior_melhor' | 'menor_melhor'
   ativo: boolean
 }
@@ -37,7 +38,9 @@ const indicadorNaLista = (l: LinhaIndicador): IndicadorCarteiraNaLista => ({
   clienteCarteiraId: l.cliente_carteira_id,
   grupoId: l.grupo_id,
   nome: l.nome,
-  unidade: l.unidade,
+  // O contrato de G3 conhece só R$/un/%. "dias" (G8 2B) é inteiro como "un":
+  // a ficha antiga o mostra como contagem; a tela nova lê o contrato novo.
+  unidade: l.unidade === 'dias' ? 'un' : l.unidade,
   sentido: l.sentido,
   ativo: l.ativo,
 })
@@ -113,6 +116,9 @@ export class IndicadoresCarteiraService {
     indicadorId: string,
     dto: LancarIndicadorEntrada,
   ): Promise<LancamentoDeIndicadorNaLista> {
+    // G8 2B: a referência é a segunda-feira (CE-4) e lançar R$ exige `valores` (A-6).
+    exigirSegunda(dto.referencia)
+    exigirValores(usuario, dto.valor != null)
     return this.banco.nasTabelasDaCarteiraComEscopo(usuario.escopo, usuario.grupoId, async (c) => {
       const indicador = await c.query<{ grupo_id: string }>(
         `SELECT grupo_id FROM indicadores_carteira WHERE id = $1 AND excluido_em IS NULL`,

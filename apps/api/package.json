@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.3",
+    "@fastify/multipart": "^9.4.0",
     "@fir/contracts": "workspace:*",
     "@fir/domain": "workspace:*",
     "@nestjs/common": "^12.2.0",

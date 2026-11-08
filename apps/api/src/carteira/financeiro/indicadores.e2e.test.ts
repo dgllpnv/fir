@@ -4,6 +4,7 @@ import type { UsuarioDeGestaoPublico } from '@fir/contracts'
 import { BancoService } from '../../banco/banco.service'
 import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
 import { IndicadorCarteiraNaoEncontrado, IndicadoresCarteiraService } from './indicadores.service'
+import { EntradaInvalidaNaMeta, SemPermissaoDeValoresNaMeta } from './metas-comum'
 
 /**
  * **G3 — `IndicadoresCarteiraService`, contra Postgres real.**
@@ -56,7 +57,7 @@ beforeAll(async () => {
       [`ind.${codigo}`, grupo],
     )
   ).rows[0]!.id
-  usuario = { id: usuarioGestaoId, usuario: `ind.${codigo}`, nome: 'Teste', escopo: 'grupo', grupoId: grupo, senhaProvisoria: false }
+  usuario = { id: usuarioGestaoId, usuario: `ind.${codigo}`, nome: 'Teste', escopo: 'grupo', grupoId: grupo, senhaProvisoria: false, valores: false, carteira: 'todos', modulos: [], administrar: false, setor: null, funcao: null, telefone: null }
 })
 
 afterAll(async () => {
@@ -103,7 +104,7 @@ describe('IndicadoresCarteiraService.lancar — critério 2.1.2 (CHECK de coerê
 
   it('indicador inexistente lança IndicadorCarteiraNaoEncontrado', async () => {
     await expect(
-      servico.lancar(usuario, '00000000-0000-0000-0000-000000000000', { referencia: '2026-11-01', valor: 100n }),
+      servico.lancar(usuario, '00000000-0000-0000-0000-000000000000', { referencia: '2026-11-02', valorInteiro: 100n }),
     ).rejects.toThrow(IndicadorCarteiraNaoEncontrado)
   })
 })
@@ -112,19 +113,19 @@ describe('IndicadoresCarteiraService.lancar — upsert idempotente com DUAS entr
   it('lançar a MESMA referência duas vezes com valores diferentes atualiza a MESMA linha e audita as duas', async () => {
     const indicador = await servico.criar(usuario, {
       clienteCarteiraId: cliente,
-      nome: 'Faturamento semanal',
-      unidade: 'R$',
+      nome: 'Pacientes novos na semana',
+      unidade: 'un',
       sentido: 'maior_melhor',
     })
 
-    const primeiro = await servico.lancar(usuario, indicador.id, { referencia: '2026-11-10', valor: 3800000n })
-    const segundo = await servico.lancar(usuario, indicador.id, { referencia: '2026-11-10', valor: 3650000n })
+    const primeiro = await servico.lancar(usuario, indicador.id, { referencia: '2026-11-09', valorInteiro: 38n })
+    const segundo = await servico.lancar(usuario, indicador.id, { referencia: '2026-11-09', valorInteiro: 36n })
 
     expect(primeiro.id).toBe(segundo.id) // MESMA linha
-    expect(segundo.valor).toBe('3650000')
+    expect(segundo.valorInteiro).toBe('36')
 
     const linhas = await migrate.query(
-      `SELECT * FROM lancamentos_de_indicador WHERE indicador_id = $1 AND referencia = '2026-11-10'`,
+      `SELECT * FROM lancamentos_de_indicador WHERE indicador_id = $1 AND referencia = '2026-11-09'`,
       [indicador.id],
     )
     expect(linhas.rows.length).toBe(1) // nunca duplica a linha
@@ -134,5 +135,16 @@ describe('IndicadoresCarteiraService.lancar — upsert idempotente com DUAS entr
       [primeiro.id],
     )
     expect(auditoria.rows.map((r: { acao: string }) => r.acao)).toEqual(['criar', 'atualizar'])
+  })
+})
+
+describe('IndicadoresCarteiraService.lancar — G8 2B: segunda-feira (CE-4) e A-6', () => {
+  it('referência fora da segunda é recusada na entrada; R$ sem a permissão valores também', async () => {
+    const un = await servico.criar(usuario, { clienteCarteiraId: cliente, nome: 'Contagem', unidade: 'un', sentido: 'maior_melhor' })
+    await expect(servico.lancar(usuario, un.id, { referencia: '2026-11-10', valorInteiro: 1n })).rejects.toThrow(EntradaInvalidaNaMeta)
+    const rs = await servico.criar(usuario, { clienteCarteiraId: cliente, nome: 'Receita', unidade: 'R$', sentido: 'maior_melhor' })
+    await expect(servico.lancar(usuario, rs.id, { referencia: '2026-11-09', valor: 100n })).rejects.toThrow(SemPermissaoDeValoresNaMeta)
+    const n = await migrate.query('SELECT 1 FROM lancamentos_de_indicador WHERE indicador_id = ANY($1)', [[un.id, rs.id]])
+    expect(n.rowCount).toBe(0)
   })
 })

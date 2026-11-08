@@ -115,6 +115,36 @@ mv "$PARCIAL" "$ARQUIVO"
 chmod 600 "$ARQUIVO"
 trap - EXIT
 
+# ---------------------------------------------------------------------------
+# OS ANEXOS DA CARTEIRA (G8, ticket 4C). Um banco restaurado sem os arquivos
+# aponta para anexos que não existem — o backup só é backup com os dois.
+#
+# Os arquivos já são cifrados um a um no disco (AES-256-GCM, chave derivada de
+# CHAVE_ANEXOS do .env); o tar vai pelo gpg com a MESMA chave do backup para
+# que o pacote inteiro também fique ilegível sem ela. Atenção: restaurar exige
+# as DUAS chaves — a do backup (esta) e a CHAVE_ANEXOS. Guarde as duas onde a
+# equipe guarda senhas.
+#
+# Pelo container da API, que monta o volume: não depende do nome do volume
+# (que muda com o nome do projeto compose) nem de o host ter o caminho.
+# ---------------------------------------------------------------------------
+if docker compose exec -T api test -d /dados/anexos 2>/dev/null; then
+  ARQ_ANEXOS="$DESTINO/fir-anexos-$AGORA.tar.gpg"
+  echo "==> anexos: tar | gpg  →  $(basename "$ARQ_ANEXOS")"
+  docker compose exec -T api tar -C /dados/anexos -cf - . \
+    | gpg --batch --quiet --yes --symmetric --cipher-algo AES256 \
+          --passphrase-file "$CHAVE" --output "$ARQ_ANEXOS.parcial"
+  # Conferência: o pacote decifra e o tar lista sem erro.
+  if gpg --batch --quiet --decrypt --passphrase-file "$CHAVE" "$ARQ_ANEXOS.parcial" | tar -tf - >/dev/null; then
+    mv "$ARQ_ANEXOS.parcial" "$ARQ_ANEXOS"; chmod 600 "$ARQ_ANEXOS"
+    [ "$HOJE" = "01" ] && cp -l "$ARQ_ANEXOS" "$DESTINO/mensal/$(basename "$ARQ_ANEXOS")"
+  else
+    rm -f "$ARQ_ANEXOS.parcial"
+    echo "ERRO: o pacote de anexos não decifrou/listou — backup de anexos RECUSADO." >&2
+    exit 1
+  fi
+fi
+
 # Cópia mensal no dia 01. `cp -l` (hard link) e não `cp`: o conteúdo é o mesmo
 # arquivo, então a retenção mensal custa um inode, não mais um dump.
 if [ "$HOJE" = "01" ]; then
@@ -132,10 +162,10 @@ fi
 # script saiu com codigo 2, sem imprimir o resumo. Um backup bom relatado como
 # falha treina quem opera a ignorar o alarme.
 podar() {
-  local pasta=$1 manter=$2
+  local pasta=$1 manter=$2 padrao=${3:-fir-*.dump.gpg}
   local arquivos=() total i
   while IFS= read -r linha; do arquivos+=("$linha"); done < <(
-    find "$pasta" -maxdepth 1 -type f -name 'fir-*.dump.gpg' -printf '%T@	%p
+    find "$pasta" -maxdepth 1 -type f -name "$padrao" -printf '%T@	%p
 ' 2>/dev/null       | sort -rn | cut -f2-
   )
   total=${#arquivos[@]}
@@ -147,9 +177,13 @@ podar() {
 }
 
 # Mesma razao: contar com `find`, nunca com glob que pode nao casar.
-quantos() { find "$1" -maxdepth 1 -type f -name 'fir-*.dump.gpg' 2>/dev/null | wc -l; }
+quantos() { local padrao=${2:-fir-*.dump.gpg}; find "$1" -maxdepth 1 -type f -name "$padrao" 2>/dev/null | wc -l; }
 podar "$DESTINO" "$MANTER_DIARIOS"
 podar "$DESTINO/mensal" "$MANTER_MENSAIS"
+# Os anexos podam à parte: na mesma lista, dois arquivos por dia cortariam a
+# retenção pela metade.
+podar "$DESTINO" "$MANTER_DIARIOS" "fir-anexos-*.tar.gpg"
+podar "$DESTINO/mensal" "$MANTER_MENSAIS" "fir-anexos-*.tar.gpg"
 
 printf '%s  %s  %s bytes  %s objetos\n' "$AGORA" "$(basename "$ARQUIVO")" "$TAMANHO" "$OBJETOS" \
   >> "$DESTINO/manifesto.txt"

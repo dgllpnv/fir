@@ -306,6 +306,24 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   },
   { caminho: '/v1/clinica', razao: 'Nome, código e fuso da clínica.' },
   { caminho: '/v1/equipe', razao: 'As pessoas ativas, para os seletores. Nenhum valor.' },
+  { caminho: '/v1/carteira/resumo/semanal', razao: 'Resumo semanal da carteira (G8 3C, S1): texto com contagens de clientes, ações, campanhas e tarefas internas, e o MRR (soma de mensalidades de contrato) só com valores. Nenhum dado de caixa de clínica, nenhum esperado.' },
+  { caminho: '/v1/carteira/uso', razao:'Uso diário da FIR Clinic na carteira (G8 1D): lê só dias ANTERIORES a hoje no fuso de cada clínica; a receita é o dinheiro que entrou (painel), nunca o esperado do caixa por forma, e sai redigida.' },
+  // G8 0.4 — o cadastro do Cliente Firmare.
+  { caminho: '/v1/carteira/clientes/:id', razao: 'O cadastro de UM Cliente Firmare (G8 0.4): campos comerciais e de contato; mensalidade e pagamento redigidos sem valores. Nenhum agregado de caixa.' },
+  { caminho: '/v1/carteira/cadastro/opcoes', razao: 'As opções dos selects do cadastro (G8 0.4): responsáveis ativos e grupos. Nenhum valor, nenhum caixa.' },
+  { caminho: '/v1/superadmin/clientes-carteira', razao: 'Os Cliente Firmare por grupo, para o Operador (G8 0.4): tenancy e status; mensalidade redigida. Nenhum agregado de caixa.' },
+  { caminho: '/v1/carteira/clientes/:id/uso', razao: 'Série de uso de um cliente (G8 1D): dias anteriores a hoje, mesmo agregado do painel, redigido. Não é agregado de caixa aberto.' },
+  { caminho: '/v1/carteira/campanhas', razao: 'Campanhas da carteira (G8 1C): agregado MENSAL de receita de campanha, com supressão k=5 — não é agregado de um dia de caixa aberto.' },
+  { caminho: '/v1/carteira/clientes/:id/campanhas', razao: 'Campanhas de um cliente (G8 1C): agregado mensal com supressão k=5, redigido. Não é agregado de caixa aberto.' },
+  { caminho: '/v1/carteira/clientes/:id/reunioes', razao: 'Atas de reunião de um cliente (G8 1B): texto, encaminhamentos e saúde. Nenhum valor, nenhum agregado de caixa.' },
+  { caminho: '/v1/carteira/clientes/:id/reunioes/asana-importados', razao: 'Ids de tarefa do Asana que já têm ata do cliente (G8 4B), para a prévia da importação. Nenhum valor, nenhum agregado de caixa.' },
+  { caminho: '/v1/carteira/clientes/:id/documentos', razao: 'Documentos de um cliente (G8 1B): título, link e visibilidade. Nenhum valor.' },
+  { caminho: '/v1/carteira/clientes/:id/materiais', razao: 'Materiais enviados a um cliente (G8 1B). Nenhum valor.' },
+  { caminho: '/v1/carteira/biblioteca', razao: 'Biblioteca geral de materiais (G8 1B). Nenhum valor.' },
+  { caminho: '/v1/carteira/biblioteca/personalizados', razao: 'Materiais personalizados de todas as clientes visíveis (G8 3D, filtro "Personalizados"). Nenhum valor.' },
+  { caminho: '/v1/carteira/beneficios/regra', razao: 'A regra do benefício de indicação (G8 3D, T5/L12): um percentual, não caixa nem esperado.' },
+  { caminho: '/v1/carteira/clientes/:id/previa-do-portal', razao: '"Ver como a cliente" (G8 3D, O9): a seção do portal com mensalidades e campanhas redigidas pela carteira. Nenhum esperado de caixa nem de contagem.' },
+  { caminho: '/v1/carteira/clientes/:id/acessos-do-portal', razao: 'As contas do portal de uma cliente (G8 3D, V7/O10): nome, usuário, ativação. Nenhum valor.' },
   { caminho: '/v1/agenda-externa', razao: 'A configuração da agenda do sistema (ADR 0019): link mascarado, responsável e contagens da última leitura. Nenhum valor, nenhum agregado de caixa.' },
   { caminho: '/v1/unidades', razao: 'As unidades da clínica. Nenhum valor.' },
   {
@@ -550,11 +568,22 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   },
   // ---------------------------------------------------------------------
   // G5 — funil de prospecção e rotina interna da equipe Firmare.
-  { caminho: '/v1/carteira/leads', razao: 'O funil de prospecção. Nenhum valor, nenhum agregado de dia — etapa, temperatura, origem.' },
+  { caminho: '/v1/carteira/leads', razao: 'O funil de prospecção. O único dinheiro é o potencial (valor ESTIMADO de quem ainda não é cliente, regra 4), redigido sem valores; nenhum caixa, nenhum agregado de dia.' },
+  // G8 1E — a ficha do lead, o ranking de quem indica e os benefícios.
+  { caminho: '/v1/carteira/leads/:id', razao: 'A ficha de UM lead: contato, histórico e o benefício dele. Valor estimado redigido; nenhum caixa, nenhum dia.' },
+  { caminho: '/v1/carteira/indicacoes', razao: 'Ranking de quem indica: contagens e um percentual inteiro. Nenhum valor em R$.' },
+  { caminho: '/v1/carteira/beneficios', razao: 'Benefícios de indicação: percentual e situação (guardado, pendente, concedido). Nenhum valor em R$, nenhum caixa.' },
   { caminho: '/v1/carteira/leads/:id/interacoes', razao: 'Histórico append-only de contato com o prospect. Texto, sem valor.' },
   { caminho: '/v1/carteira/rotinas-internas', razao: 'As definições de rotina interna da equipe Firmare. Nenhum valor, nenhum dia.' },
   { caminho: '/v1/carteira/tarefas-internas', razao: 'As tarefas da equipe Firmare sobre a carteira. Nenhum valor, nenhum agregado de dia.' },
   { caminho: '/v1/carteira/clientes/:id/checkins', razao: 'O histórico de checkins de um Cliente Firmare — qualitativo nesta fatia (nota + saúde), sem meta_id nem valor (G3, fora de escopo).' },
+  // G8 2A — rotina completa, carga da equipe e aniversários.
+  { caminho: '/v1/carteira/equipe-da-rotina', razao: 'Nomes da equipe Firmare para os seletores da rotina. Nenhum valor, nenhum dia.' },
+  { caminho: '/v1/carteira/carga', razao: 'Contagem de tarefas abertas por pessoa e semana. Quantidade de tarefas, nunca dinheiro nem caixa.' },
+  { caminho: '/v1/carteira/aniversarios', razao: 'Nome, dia e mês dos aniversários dos próximos 7 dias. Sem valor, sem caixa.' },
+  { caminho: '/v1/carteira/eu/aniversario', razao: 'O dia e o mês do próprio aniversário e a oposição. Sem valor.' },
+  // G8 0.6 — segundo fator (A-12).
+  { caminho: '/v1/carteira/eu/segundo-fator', razao: 'Estado do próprio segundo fator: ativo, desde quando e quantos códigos de recuperação restam. Nunca o segredo; nenhum valor, nenhum dia.' },
   // ---------------------------------------------------------------------
   // G3 — indicadores, metas comerciais e a cobrança do Cliente Firmare (ADR
   // 0015). As três DEVOLVEM dinheiro (mensalidade, desconto, valor, valorMeta,
@@ -590,6 +619,25 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'As metas comerciais do cliente: alvo e o ÚLTIMO lançamento, sempre ' +
       'derivado. Nenhum agregado de dia, nenhuma forma de pagamento.',
   },
+  // G8 2B — metas completas, indicadores manuais e ações do plano. Mesma
+  // classificação das três de G3 acima: o NEGÓCIO DO CLIENTE por semana e
+  // por mês, redigido pela regra 17, nunca um agregado de caixa ou contagem.
+  {
+    caminho: '/v1/carteira/metas/painel',
+    razao: 'Painel de metas (M1): cada meta avaliada por semana/mês do negócio da cliente. Sem caixa, sem forma de pagamento.',
+  },
+  {
+    caminho: '/v1/carteira/clientes/:id/metas',
+    razao: 'Metas de uma cliente avaliadas (M2/M3): alvo, acumulado semanal e ritmo. Negócio da cliente, sem caixa nem contagem.',
+  },
+  {
+    caminho: '/v1/carteira/clientes/:id/indicadores',
+    razao: 'Cartões dos indicadores manuais (V10): últimas 8 segundas lançadas e a variação. Medição do negócio da cliente, sem caixa.',
+  },
+  {
+    caminho: '/v1/carteira/clientes/:id/acoes-do-plano',
+    razao: 'As ações do plano da cliente (V8): título, prazo, status. Nenhum valor, nenhum dia de caixa.',
+  },
   {
     caminho: '/v1/carteira/cobrancas',
     razao:
@@ -599,4 +647,42 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'segundo SELECT — e por isso não é o "esperado" que a regra 6 proíbe: ' +
       'ele nunca antecipa uma contagem que alguém ainda vai fazer.',
   },
+  {
+    caminho: '/v1/carteira/cobrancas/painel',
+    razao:
+      'O painel de Mensalidades (G8 1F): as cobranças JÁ GERADAS de uma ' +
+      'competência e os totais da mesma lista (somaValor, recebido, ' +
+      'aReceber). É dívida da Firmare com o cliente, não gaveta de caixa de ' +
+      'clínica: nenhuma forma de pagamento, nenhum esperado de conferência.',
+  },
+  {
+    caminho: '/v1/carteira/clientes/:id/planilha',
+    razao:
+      'A planilha de indicadores do Cliente Firmare (G8 4A): o que os parceiros ' +
+      'informaram por semana, lido do Google. Não é caixa nem contagem de ' +
+      'ninguém aqui — não há esperado a esconder; o dinheiro sai em `valor`, redigido.',
+  },
+  // Anexos de arquivo da carteira e do portal (G8 4C): metadado e conteúdo de
+  // arquivo enviado pela equipe. Nenhum valor, nenhum agregado de dia.
+  // G8 3A — mensagens prontas: texto de modelo, roteiro e configuração da Firmare. Nenhum agregado de dia.
+  { caminho: '/v1/carteira/mensagens/modelos', razao: 'Os modelos de mensagem da Firmare (texto com variáveis). Sem valor, sem dia.' },
+  { caminho: '/v1/carteira/mensagens/roteiros', razao: 'Os roteiros de abordagem comercial do lead. Texto e passos, sem valor, sem dia.' },
+  { caminho: '/v1/carteira/mensagens/configuracao', razao: 'Favorecido e chave Pix da Firmare (Pix só com valores). Não é caixa nem contagem.' },
+  { caminho: '/v1/carteira/anexos', razao: 'Lista de anexos de uma reunião/documento: nome, tipo, tamanho, situação da varredura. Sem valor, sem dia.' },
+  { caminho: '/v1/carteira/anexos/:id/conteudo', razao: 'O arquivo anexado (download). Conteúdo enviado pela equipe, não agregado de caixa nem de contagem.' },
+  { caminho: '/v1/portal/anexos', razao: 'Lista de anexos liberados de dono compartilhado, no portal. Sem valor, sem dia.' },
+  { caminho: '/v1/portal/anexos/:id/conteudo', razao: 'O arquivo anexado (download pelo portal). Não é agregado de caixa nem de contagem.' },
+  // G8 2C: checklists e entrada de cliente. Itens de rotina e cadastro, sem valor nenhum.
+  { caminho: '/v1/carteira/metodo/checklists', razao: 'Os checklists dos programas (modelos e itens D+N). Conteúdo do Método, sem valor, sem dia de caixa.' },
+  { caminho: '/v1/carteira/clientes/:id/checklist', razao: 'O checklist do contrato de um cliente: tarefas, prazos e progresso em contagem de itens. Sem valor, sem caixa.' },
+  { caminho: '/v1/carteira/clientes/:id/entrada', razao: 'O que falta no cadastro da cliente que já era da Firmare (links, metas, parceiros). Sem valor nenhum.' },
+  // G8 3B — Visão geral da carteira e os badges do menu.
+  {
+    caminho: '/v1/carteira/painel',
+    razao:
+      'A Visão geral da carteira (G8 3B): MRR e ticket médio são mensalidade de CONTRATO ' +
+      '(redigidos sem valores), mais contagens de clientes, ações e tarefas. Não lê caixa ' +
+      'de clínica nenhuma, nenhuma forma de pagamento, nenhum esperado de conferência.',
+  },
+  { caminho: '/v1/carteira/eu/contadores', razao: 'Os badges do menu (G8 3B, T4): duas contagens (tarefas vencidas, contatos "agora"). Sem valor, sem caixa.' },
 ]

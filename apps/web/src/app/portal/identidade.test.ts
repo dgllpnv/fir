@@ -50,7 +50,8 @@ describe('a varredura olhou o portal inteiro', () => {
     expect(nomes).toContain('contexto.tsx')
     expect(nomes).toContain('pecas.tsx')
     // a porta (/portal), entrar, trocar a senha e a leitura agregada (/portal/clientes).
-    expect(PORTAL.filter((f) => f.nome === 'page.tsx').length).toBe(4)
+    // G8 3D: mais a prévia "ver como a cliente" (/portal/previa/[id]).
+    expect(PORTAL.filter((f) => f.nome === 'page.tsx').length).toBe(5)
   })
 })
 

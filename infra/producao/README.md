@@ -112,6 +112,43 @@ Se ele cair, o balcão continua funcionando: o que para é a agenda deixar de
 se atualizar. O sinal disso é de negócio (clínica cuja sincronização parou de
 dar certo), não um gráfico de container.
 
+## worker-planilhas (G8 4A)
+
+Lê as planilhas de indicadores dos clientes da carteira pela API do Google
+Sheets, com a conta de serviço: a cada 30 min e sob demanda ("Ler planilha
+agora" só enfileira em `carteira-planilhas`). Mesma imagem, `node
+worker-planilhas.js`. A chave da conta de serviço (`GOOGLE_SA_JSON`) existe
+**só neste container**; a API recebe apenas `GOOGLE_SA_EMAIL`.
+
+Rede própria `saida-planilhas` (sub-rede fixa `172.31.248.0/24`), separada da
+`saida` do worker-agenda. O código já fala só com `oauth2.googleapis.com` e
+`sheets.googleapis.com` (URLs fixas, sem seguir redirecionamento, teto de
+tamanho). **A restrição de rede a esses hosts NÃO existe enquanto alguém não
+aplicar uma regra de egress na VPS** — Docker sozinho não filtra destino por
+nome. Proposta (não aplicada; aplicar exige decisão do dono, porque a VPS é
+compartilhada com outros negócios):
+
+```bash
+# DOCKER-USER é a cadeia que o Docker reserva para regras do operador e não reescreve.
+# 1. DNS para o resolvedor do Docker continua liberado (o container resolve nomes).
+# 2. HTTPS só para as faixas do Google; o resto da sub-rede é recusado.
+SUB=172.31.248.0/24
+iptables -I DOCKER-USER -s $SUB -j DROP
+iptables -I DOCKER-USER -s $SUB -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -I DOCKER-USER -s $SUB -p udp --dport 53 -j ACCEPT
+iptables -I DOCKER-USER -s $SUB -p tcp --dport 443 -m set --match-set google-apis dst -j ACCEPT
+# O conjunto `google-apis` (ipset hash:net) é alimentado pelas faixas publicadas
+# pelo Google em https://www.gstatic.com/ipranges/goog.json, por um cron diário.
+```
+
+Alternativa mais simples de manter: um proxy de saída (Squid/tinyproxy) num
+container só, com allowlist `*.googleapis.com`, e `HTTPS_PROXY` no worker — o
+filtro passa a ser por nome em vez de por faixa de IP. As duas exigem
+mudança de infraestrutura e ficam para o dono decidir.
+
+O passo 7.6e do `implantar.sh` avisa se o worker não resolve
+`sheets.googleapis.com`.
+
 ## Variáveis do `.env`
 
 | Chave | Quem define | Para quê |
@@ -124,6 +161,9 @@ dar certo), não um gráfico de container.
 | `SENHA_PAINEL` | `provisionar-painel.sh` | o papel `fir_painel` |
 | `DATABASE_URL_PAINEL` | `provisionar-painel.sh` | a segunda conexão da API |
 | `VERSAO` | o deploy | a tag das imagens |
+| `GOOGLE_SA_JSON` | você (opcional) | a chave JSON da conta de serviço do Google, numa linha, entre aspas simples — só o `worker-planilhas` a recebe |
+| `GOOGLE_SA_EMAIL` | você (opcional) | o `client_email` dessa conta, para a tela dizer com quem compartilhar a planilha |
+| `FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA` | `implantar.sh` | cifra o segredo TOTP de cada Usuário de Gestão e é o pepper dos códigos de recuperação. **Nunca troque**: trocar exige resetar o segundo fator de todos |
 
 `.env` **não é versionado** — está no `.gitignore`, e
 `teste/allowlist-do-painel.test.ts` cobra isso.
@@ -165,6 +205,30 @@ mesma coisa que se perdeu.
 
 E ele **grava** — `auditoria_do_painel`, `ator_tipo = 'vps'`. Um break-glass
 que não deixa rastro é uma porta dos fundos com outro nome.
+
+## Perdi o celular — o segundo fator da carteira (G8 0.6, ADR 0022)
+
+Todo `Usuário de Gestão` entra com senha **e** código do app autenticador. Quem
+perdeu o celular entra com um dos dez **códigos de recuperação** (cada um vale
+uma vez) e gera códigos novos em "Verificação em duas etapas". Quem perdeu o
+celular **e** os códigos precisa do **reset pelo superadmin**:
+`POST /v1/superadmin/usuarios-gestao/:id/segundo-fator/resetar`, com motivo.
+
+O reset é o ponto fraco do segundo fator — **reset por pedido de WhatsApp é o
+ataque**. Antes de resetar, o superadmin:
+
+1. **Não age pelo canal em que o pedido chegou.** Liga de volta para o número
+   que já estava no cadastro da pessoa (nunca para o número que mandou a
+   mensagem), ou confirma por videochamada vendo o rosto.
+2. **Confirma com uma segunda pessoa da Firmare** que conhece quem pediu.
+3. **Escreve no motivo como a identidade foi confirmada** ("ligação de volta
+   para o número do cadastro + confirmação da Ana"). O motivo vai para
+   `auditoria_do_painel` com o nome do superadmin.
+4. Depois do reset, a pessoa entra com a senha e é obrigada a cadastrar o app
+   de novo. O superadmin nunca vê nem define o segredo.
+
+Assimetria assumida (D3a): o painel do superadmin **não tem segundo fator**. A
+força do 2FA da carteira fica limitada à conta de quem pode resetá-lo.
 
 ## Dois operadores, não um
 
