@@ -89,7 +89,7 @@ export default function ClientesDaCarteira() {
           <p className="nota">Cadastre o primeiro em “Novo cliente”.</p>
         </div>
       ) : (
-        <div className="carteira-lista">
+        <div className="carteira-lista carteira-lista-rolavel" tabIndex={0} aria-label="Clientes da carteira">
           {estado.itens.map((c) => (
             <Link key={c.id} href={`/carteira/clientes/${c.id}`} className="carteira-card">
               <span className="carteira-nome">{c.nome}</span>

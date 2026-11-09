@@ -307,6 +307,25 @@
   gap: 10px;
 }
 
+/* A lista de clientes rola SOZINHA no computador (pedido do dono,
+   2026-11-09): o título e "Novo cliente" ficam sempre à vista, como a lateral.
+   No celular a página rola inteira — rolagem dentro de rolagem, no toque, é
+   onde o dedo se perde. `tabIndex` na lista deixa rolar pelo teclado. */
+@media (min-width: 900px) {
+  .carteira-lista-rolavel {
+    max-height: calc(100dvh - 190px);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    padding-right: 6px;
+    align-content: start;
+  }
+  .carteira-lista-rolavel:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 4px;
+    border-radius: 14px;
+  }
+}
+
 .carteira-card {
   background: var(--surface);
   border: 1px solid var(--line);
