@@ -292,15 +292,13 @@ export class ConsultaDeTarefasService {
   /**
    * UMA tarefa, pelo id, na forma completa.
    *
-   * **Por que existe.** A ficha do paciente mostra o histórico num modelo de
-   * leitura enxuto (`TarefaNaFicha`) — o suficiente para a linha do tempo, e
-   * de propósito: a ficha não precisa carregar orçamento, série nem pagamento
-   * de cada tarefa para desenhar uma tabela. Mas o painel de edição precisa da
-   * tarefa inteira, e a PO pediu o botão de editar ali: *"na parte de Tarefas
-   * de paciente, precisa ter um botão de editar"*.
-   *
-   * A alternativa era engordar `TarefaNaFicha` até caber o formulário, e aí
-   * toda abertura de ficha pagaria o preço do que só o clique de editar usa.
+   * **Por que existe.** Nasceu quando a ficha do paciente mostrava o
+   * histórico num modelo de leitura enxuto, sem orçamento, série nem
+   * pagamento, e o painel de edição precisava da tarefa inteira — a PO pediu o
+   * botão de editar ali: *"na parte de Tarefas de paciente, precisa ter um
+   * botão de editar"*. Desde as correções da PO (A2) a ficha já devolve
+   * `TarefaNaLista`; esta rota continua sendo a leitura de UMA tarefa com a
+   * autorização da escrita.
    *
    * **A autorização é `podeEditar`, a MESMA do `PATCH`.** Não é conveniência:
    * se a leitura fosse mais frouxa que a escrita, a tela abriria o formulário

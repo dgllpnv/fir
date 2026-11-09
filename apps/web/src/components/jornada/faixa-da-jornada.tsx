@@ -1,13 +1,13 @@
 'use client'
 
 import { FORMAS, type MotivoDePerda, type TarefaNaLista } from '@fir/contracts'
-import { type AcaoDeJornada, type Etapa, ROTULO_DE_ETAPA } from '@fir/domain'
+import { type AcaoDeJornada, type Etapa, orcamentoVigente, ROTULO_DE_ETAPA } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
 import { useEffect, useState } from 'react'
 import { acoesDaEtapa, contextoDaEtapa } from '@/lib/acoes-da-etapa'
 import { chamar } from '@/lib/api'
-import { centavosDoTexto } from '@/lib/dinheiro-digitado'
-import { diaEmTexto, linkDeWhatsApp, somarDiasNaTela } from '@/lib/formato'
+import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
+import { diaCurto, diaEmTexto, linkDeWhatsApp, somarDiasNaTela } from '@/lib/formato'
 import {
   Montador,
   montadorVazio,
@@ -39,7 +39,19 @@ const TOM_DA_ETAPA: Readonly<Record<Etapa, string>> = {
   encerrado: '',
 }
 
-export type MoverEtapa = (id: string, corpo: Record<string, unknown>) => Promise<void>
+/**
+ * A ação da jornada, e — opcional — a pergunta "esta pessoa pode corrigir o
+ * orçamento deste cartão?".
+ *
+ * A pergunta viaja PRESA ao `mover` porque quem sabe quem está na tela é
+ * `useAcoesDeTarefa` (Hoje, Tarefas, a ficha), e o cartão só repassa o
+ * `mover`: assim o botão "Corrigir orçamento" some nos dois lugares sem que
+ * o cartão aprenda o que é permissão. Ausente, o botão aparece e o servidor
+ * decide (403).
+ */
+export type MoverEtapa = ((id: string, corpo: Record<string, unknown>) => Promise<void>) & {
+  readonly podeCorrigirOrcamento?: (t: TarefaNaLista) => boolean
+}
 
 type Props = {
   readonly tarefa: TarefaNaLista
@@ -81,6 +93,7 @@ export function FaixaDaJornada({
     concluidaEm: t.concluidaEm,
     hoje,
     podeReceber,
+    podeCorrigir: mover.podeCorrigirOrcamento?.(t) ?? true,
   })
   const contexto = contextoDaEtapa({
     etapa,
@@ -210,10 +223,45 @@ function Evolucao({ tarefa: t }: { tarefa: TarefaNaLista }) {
             {e.valor === null || e.valor === undefined ? null : (
               <span className="num">{formatarDinheiro(BigInt(e.valor))}</span>
             )}
+            {e.acao === 'corrigirOrcamento' ? <Correcao de={e.de} para={e.para} /> : null}
           </li>
         ))}
       </ol>
     </details>
+  )
+}
+
+type Retrato = NonNullable<TarefaNaLista['historico'][number]['de']>
+
+/**
+ * Uma correção do orçamento na Evolução: o que mudou, de → para.
+ *
+ * Só o que MUDOU aparece. O valor só quando os dois lados vieram: sem a
+ * permissão `valores` o servidor mandou `null` nos dois, e a linha diz
+ * "Orçamento corrigido" sem número nenhum — nenhum `if` de permissão aqui.
+ */
+function Correcao({ de, para }: { de: Retrato | undefined; para: Retrato | undefined }) {
+  if (de === undefined || para === undefined) return <span>Orçamento corrigido</span>
+  const valorDe = de.valor
+  const valorPara = para.valor
+  return (
+    <>
+      <span>Orçamento corrigido</span>
+      {valorDe !== null && valorPara !== null && valorDe !== valorPara ? (
+        <span className="num">
+          {formatarDinheiro(BigInt(valorDe))} → {formatarDinheiro(BigInt(valorPara))}
+        </span>
+      ) : null}
+      {de.retomarEm === para.retomarEm ? null : (
+        <span className="num muted">
+          retomar {de.retomarEm === null ? '—' : diaCurto(de.retomarEm)} →{' '}
+          {para.retomarEm === null ? '—' : diaCurto(para.retomarEm)}
+        </span>
+      )}
+      {de.nota === para.nota ? null : (
+        <span className="muted">{para.nota === null ? 'nota apagada' : para.nota}</span>
+      )}
+    </>
   )
 }
 
@@ -253,11 +301,25 @@ function FormularioDaAcao({
   const temProposta = t.programaOrcado !== null && t.programaOrcado.length > 0
   const [prazo, setPrazo] = useState(t.prazo >= hoje ? t.prazo : hoje)
   const [hora, setHora] = useState(t.hora ?? '')
-  const [nota, setNota] = useState('')
-  const [valor, setValor] = useState('')
-  const [quando, setQuando] = useState(
-    somarDiasNaTela(hoje, acao === 'followUp' ? 3 : 2),
+  /**
+   * Na CORREÇÃO, o formulário nasce com o que o cartão diz hoje — valor,
+   * retomar e "o que foi orçado" —, e só o que a pessoa MUDAR viaja. Sem a
+   * permissão `valores` o servidor mandou `valorOrcamento: null`, e o campo
+   * nasce vazio: vazio mantém o valor.
+   */
+  const corrigindo = acao === 'corrigirOrcamento'
+  const notaVigente = corrigindo ? (orcamentoVigente(t.historico)?.nota ?? '') : ''
+  const [nota, setNota] = useState(notaVigente)
+  const [valor, setValor] = useState(
+    corrigindo && t.valorOrcamento !== null ? textoDeCentavos(BigInt(t.valorOrcamento)) : '',
   )
+  const [quando, setQuando] = useState(
+    corrigindo && t.proximoPassoEm !== null
+      ? t.proximoPassoEm
+      : somarDiasNaTela(hoje, acao === 'followUp' ? 3 : 2),
+  )
+  /** A chave do ENVIO: o duplo clique e o retry da rede trazem a mesma, e o servidor grava uma vez. */
+  const [chaveIdempotencia] = useState(() => crypto.randomUUID())
   const [motivoId, setMotivoId] = useState('')
   const [entrada, setEntrada] = useState('')
   const [aberto, setAberto] = useState('')
@@ -355,6 +417,21 @@ function FormularioDaAcao({
             : {}),
           ...comNota,
         }
+      }
+      case 'corrigirOrcamento': {
+        const corpo: Record<string, unknown> = { acao, chaveIdempotencia }
+        if (valor.trim() !== '') {
+          const centavos = centavosDoTexto(valor)
+          if (centavos === null || centavos <= 0n) return 'Informe o valor do orçamento.'
+          // STRING DE CENTAVOS, e só se mudou: o que não mudou não viaja.
+          if (t.valorOrcamento === null || BigInt(t.valorOrcamento) !== centavos) {
+            corpo['valor'] = centavos.toString()
+          }
+        }
+        if (quando !== '' && quando !== (t.proximoPassoEm ?? '')) corpo['retomarEm'] = quando
+        if (nota.trim() !== notaVigente) corpo['nota'] = nota.trim()
+        if (Object.keys(corpo).length === 2) return 'Nada mudou no orçamento.'
+        return corpo
       }
       case 'followUp':
         if (nota.trim() === '') return 'Conte como foi o contato.'
@@ -455,6 +532,31 @@ function FormularioDaAcao({
             </>
           ) : null}
         </>
+      ) : null}
+
+      {corrigindo ? (
+        <div className="par">
+          <label className="campo">
+            Valor do orçamento (R$)
+            <input
+              inputMode="decimal"
+              className="num"
+              placeholder={t.valorOrcamento === null ? 'Vazio mantém o valor' : 'Ex.: 3.600,00'}
+              value={valor}
+              onChange={(e) => setValor(e.target.value)}
+            />
+          </label>
+          <label className="campo">
+            Retomar contato em
+            <input
+              type="date"
+              className="num"
+              min={hoje}
+              value={quando}
+              onChange={(e) => setQuando(e.target.value)}
+            />
+          </label>
+        </div>
       ) : null}
 
       {acao === 'followUp' ? (
@@ -625,6 +727,7 @@ const TITULO: Partial<Record<AcaoDeJornada, string>> = {
   followUp: 'Follow-up do orçamento',
   perder: 'Orçamento perdido',
   fechar: 'Fechou o orçamento',
+  corrigirOrcamento: 'Corrigir o orçamento enviado',
 }
 
 const DICA: Partial<Record<AcaoDeJornada, string>> = {
@@ -635,6 +738,8 @@ const DICA: Partial<Record<AcaoDeJornada, string>> = {
   desmarcar: 'O cartão continua aberto em “Recontatar” até reagendar ou encerrar.',
   registrarOrcamento:
     'O valor do orçamento mede a conversão do funil — ele não entra na receita.',
+  corrigirOrcamento:
+    'Corrige o que foi registrado; a etapa não muda. O funil dos meses já fechados continua igual, e a correção fica na Evolução.',
   fechar:
     'O valor recebido agora entra no caixa de hoje; o que ficou em aberto vira saldo da paciente. Fica registrado neste atendimento — não lance de novo em Recebimento.',
 }
@@ -643,6 +748,7 @@ const ROTULO_DA_NOTA: Partial<Record<AcaoDeJornada, string>> = {
   desmarcar: 'Motivo (opcional)',
   encerrar: 'Motivo (opcional)',
   registrarOrcamento: 'O que foi orçado (opcional)',
+  corrigirOrcamento: 'O que foi orçado (opcional)',
   followUp: 'Como foi o contato',
   perder: 'Observação (opcional)',
   fechar: 'Observação (opcional)',

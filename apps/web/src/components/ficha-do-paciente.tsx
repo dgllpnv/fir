@@ -1,17 +1,14 @@
 'use client'
 
-import type {
-  DesativacaoDePaciente,
-  FichaDoPaciente as Ficha,
-  TarefaNaFicha,
-  TarefaParaEditar,
-} from '@fir/contracts'
+import type { DesativacaoDePaciente, FichaDoPaciente as Ficha, TarefaNaLista } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useAcoesDeTarefa } from '@/lib/acoes-de-tarefa'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { diaEmTexto, linkDeWhatsApp, plural } from '@/lib/formato'
 import { ICONE_WHATSAPP, inicial } from '@/lib/icones'
+import { CartaoDeTarefa } from './cartao-de-tarefa'
 import { Carregando, Erro, Toast } from './estados'
 import { FormularioDePaciente } from './formulario-de-paciente'
 import { PainelDeEdicao } from './painel-de-edicao'
@@ -29,35 +26,82 @@ import { SeloConferirCadastro } from './selo-conferir-cadastro'
  * paciente"*, e por isso a ficha abre numa rota própria em vez de expandir
  * dentro da lista: um acesso, uma linha.
  */
-export function FichaDoPaciente({ id, podeGerir }: { id: string; podeGerir: boolean }) {
+/** O filtro do Histórico — o `seg` do protótipo (`vPaciente`). */
+type FiltroDoHistorico = 'tudo' | 'abertas' | 'concluidas'
+const FILTROS: readonly (readonly [FiltroDoHistorico, string])[] = [
+  ['tudo', 'Tudo'],
+  ['abertas', 'Em aberto'],
+  ['concluidas', 'Concluídas'],
+]
+const VAZIO_DO_FILTRO: Readonly<Record<FiltroDoHistorico, string>> = {
+  tudo: 'Nenhuma tarefa registrada para esta paciente.',
+  abertas: 'Nenhuma tarefa em aberto.',
+  concluidas: 'Nenhuma tarefa concluída.',
+}
+
+type Props = {
+  readonly id: string
+  readonly podeGerir: boolean
+  /** A `Pessoa` da sessão — quem é "eu" no cartão. `''` na sessão de suporte. */
+  readonly eu: string
+  readonly podeEquipe: boolean
+  readonly podeReceber: boolean
+  /** Repassado ao montador do orçamento, dentro do cartão da jornada. */
+  readonly podeValores: boolean
+  /** `temPerm(…, 'pacientes')`. A página já exige; o cartão a recebe explícita (S-1). */
+  readonly podePacientes: boolean
+  /**
+   * `temPerm(…, 'jornada')` (appsec S-5). Sem ela, a faixa da jornada não
+   * aparece no cartão: o servidor já devolve o histórico vazio e responderia
+   * 403 a qualquer ação, e um botão que só dá 403 não é oferecido.
+   */
+  readonly podeJornada: boolean
+  /**
+   * `?tarefa={id}` — a tarefa que o link (o mini-cartão da Jornada) veio
+   * mostrar. A ficha rola até ela e a destaca.
+   */
+  readonly tarefaEmFoco: string | null
+}
+
+export function FichaDoPaciente({
+  id,
+  podeGerir,
+  eu,
+  podeEquipe,
+  podeReceber,
+  podeValores,
+  podePacientes,
+  podeJornada,
+  tarefaEmFoco,
+}: Props) {
   const { dados: p, carregando, erro, recarregar } = useDados<Ficha>(`v1/pacientes/${id}`)
   const [editando, setEditando] = useState(false)
   const [confirmando, setConfirmando] = useState(false)
-  const [recado, setRecado] = useState<string | null>(null)
   const [desativando, setDesativando] = useState(false)
-  /**
-   * A tarefa que o painel de edição está editando, com o `hoje` do servidor.
-   *
-   * Carregada no clique, não junto da ficha: o histórico de uma paciente
-   * antiga tem dezenas de tarefas, e trazer a forma completa de todas para
-   * desenhar uma tabela de quatro colunas seria pagar o preço do que só um
-   * clique usa.
-   */
-  const [emEdicao, setEmEdicao] = useState<TarefaParaEditar | null>(null)
-  const [abrindo, setAbrindo] = useState(false)
+  const [filtro, setFiltro] = useState<FiltroDoHistorico>('tudo')
 
-  async function abrirEdicao(tarefaId: string) {
-    setAbrindo(true)
-    try {
-      setEmEdicao(await chamar<TarefaParaEditar>(`v1/tarefas/${tarefaId}`))
-    } catch (e) {
-      // Inclui o 403 de quem não é responsável nem solicitante e não tem
-      // `tarefas.equipe`: a frase vem do domínio, uma vez.
-      setRecado(e instanceof Error ? e.message : 'Não consegui abrir a tarefa.')
-    } finally {
-      setAbrindo(false)
-    }
-  }
+  /**
+   * As MESMAS ações de Hoje e de Tarefas — concluir, cancelar, reabrir,
+   * editar e mover na jornada — e o MESMO recado: uma mensagem por vez, para
+   * a ficha inteira (design.md §4).
+   */
+  const { acoes, mover, emEdicao, fecharEdicao, recado, setRecado, aoSalvarEdicao } =
+    useAcoesDeTarefa(recarregar, {
+      podeVerValores: podeValores,
+      hoje: p?.hoje ?? null,
+      autor: { id: eu, podeEquipe },
+    })
+
+  /** Rola até a tarefa do link UMA vez — recarregar depois de agir não rola de novo. */
+  const jaRolou = useRef(false)
+  useEffect(() => {
+    if (p === null || tarefaEmFoco === null || jaRolou.current) return
+    const alvo = document.getElementById(`tarefa-${tarefaEmFoco}`)
+    if (alvo === null) return
+    jaRolou.current = true
+    alvo.scrollIntoView({ block: 'center' })
+    alvo.focus({ preventScroll: true })
+  }, [p, tarefaEmFoco])
 
   async function desativar() {
     setDesativando(true)
@@ -133,7 +177,14 @@ export function FichaDoPaciente({ id, podeGerir }: { id: string; podeGerir: bool
           <span className="num">Aniversário {diaEmTexto(p.aniversario)}</span>
         )}
         <span className="pill">{p.origem === '' ? 'Origem não informada' : p.origem}</span>
-        {p.indicadoPor === '' ? null : <span className="pill">por {p.indicadoPor}</span>}
+        {/* "Indicado por" (B2): a indicadora ATIVA com link para a ficha dela; desativada, sem nome nem link (L-B2-6); senão, o texto livre. */}
+        {p.indicadora !== null ? (
+          <a className="pill" href={`/pacientes/${p.indicadora.id}`}>por {p.indicadora.nome}</a>
+        ) : p.indicadaPorPaciente ? (
+          <span className="pill">por uma paciente</span>
+        ) : p.indicadoPor === '' ? null : (
+          <span className="pill">por {p.indicadoPor}</span>
+        )}
       </div>
 
       {editando ? (
@@ -206,34 +257,52 @@ export function FichaDoPaciente({ id, podeGerir }: { id: string; podeGerir: bool
         </h3>
         {p.tarefas.length === 0 ? (
           <div className="vazio">
-            <p style={{ margin: 0, color: 'var(--muted)' }}>
-              Nenhuma tarefa registrada para esta paciente.
-            </p>
+            <p style={{ margin: 0, color: 'var(--muted)' }}>{VAZIO_DO_FILTRO.tudo}</p>
             <a href={`/nova?pacienteId=${p.id}`} style={{ color: 'var(--gold-ink)', fontWeight: 600 }}>
               Criar a primeira
             </a>
           </div>
         ) : (
-          <div className="tabela-rolavel">
-            <table className="lista">
-              <thead>
-                <tr>
-                  <th>Quando</th>
-                  <th>Tipo</th>
-                  <th>O quê</th>
-                  <th>Situação</th>
-                  <th>
-                    <span className="sr-apenas">Editar</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {p.tarefas.map((t) => (
-                  <LinhaDoHistorico key={t.id} tarefa={t} aoEditar={() => void abrirEdicao(t.id)} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="chips" role="group" aria-label="Filtrar o histórico">
+              {FILTROS.map(([k, rotulo]) => (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={filtro === k}
+                  onClick={() => setFiltro(k)}
+                >
+                  {rotulo}
+                </button>
+              ))}
+            </div>
+            {/*
+              O MESMO cartão de Hoje e de Tarefas, com a jornada dentro —
+              `cardTarefa(t, {semPaciente: true})` do protótipo (L6913). A
+              ordem (abertas primeiro) e todo número vêm do servidor; o filtro
+              só escolhe quais cartões desenhar, sobre a lista inteira que já
+              chegou.
+            */}
+            {visiveis(p.tarefas, filtro).length === 0 ? (
+              <p className="nota">{VAZIO_DO_FILTRO[filtro]}</p>
+            ) : (
+              visiveis(p.tarefas, filtro).map((t) => (
+                <CartaoDeTarefa
+                  key={t.id}
+                  tarefa={t}
+                  hoje={p.hoje}
+                  eu={eu}
+                  podeEquipe={podeEquipe}
+                  podePacientes={podePacientes}
+                  podeReceber={podeReceber}
+                  podeValores={podeValores}
+                  acoes={podeJornada ? { ...acoes, mover } : acoes}
+                  semPaciente
+                  destacada={t.id === tarefaEmFoco}
+                />
+              ))
+            )}
+          </>
         )}
       </div>
 
@@ -268,67 +337,30 @@ export function FichaDoPaciente({ id, podeGerir }: { id: string; podeGerir: bool
 
       {emEdicao === null ? null : (
         <PainelDeEdicao
-          tarefa={emEdicao.tarefa}
-          hoje={emEdicao.hoje}
-          aoFechar={() => setEmEdicao(null)}
-          aoSalvar={(aviso) => {
-            setEmEdicao(null)
-            setRecado(aviso)
-            recarregar()
-          }}
+          tarefa={emEdicao}
+          hoje={p.hoje}
+          aoFechar={fecharEdicao}
+          aoSalvar={aoSalvarEdicao}
         />
       )}
 
-      {abrindo ? <p className="nota">Abrindo a tarefa…</p> : null}
       {carregando ? <p className="nota">Atualizando…</p> : null}
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
   )
 }
 
-function LinhaDoHistorico({
-  tarefa: t,
-  aoEditar,
-}: {
-  tarefa: TarefaNaFicha
-  aoEditar: () => void
-}) {
-  const quando = t.concluidaEm === null ? t.prazo : t.concluidaEm.slice(0, 10)
-  return (
-    <tr>
-      <td className="num">
-        {diaEmTexto(quando)}
-        {t.hora === null ? '' : ` · ${t.hora}`}
-      </td>
-      <td>{t.tipo === '' ? 'Tarefa interna' : t.tipo}</td>
-      <td>
-        {t.descricao}
-        {t.resultado === '' ? null : <div className="obs">{t.resultado}</div>}
-      </td>
-      <td>
-        {t.status === 'concluida' ? (
-          <span className="pill bom">Concluída</span>
-        ) : t.status === 'cancelada' ? (
-          <span className="pill">Cancelada</span>
-        ) : (
-          <span className="pill alerta">Em aberto</span>
-        )}
-      </td>
-      <td>
-        {/*
-          O botão existe para TODA tarefa do histórico, inclusive concluída:
-          corrigir o resultado de um contato de ontem é exatamente o caso que a
-          PO trouxe. Quem não pode editar descobre pelo SERVIDOR — a rota usa a
-          mesma `podeEditar` do `PATCH`, e a tela mostra o 403 em vez de
-          esconder o botão com uma segunda cópia da regra de permissão.
-        */}
-        <button type="button" className="link" onClick={aoEditar}>
-          Editar
-        </button>
-      </td>
-    </tr>
+/**
+ * Os cartões do filtro escolhido — só a escolha de quais desenhar.
+ *
+ * "Concluídas" é `status = concluida`, como no protótipo: um orçamento em
+ * aberto é uma tarefa CONCLUÍDA na etapa `orcamento` (CONTEXT.md, Jornada), e
+ * é nesse filtro que ele aparece — com a faixa da jornada dentro.
+ */
+const visiveis = (tarefas: readonly TarefaNaLista[], f: FiltroDoHistorico): TarefaNaLista[] =>
+  tarefas.filter((t) =>
+    f === 'tudo' ? true : f === 'abertas' ? t.status === 'aberta' : t.status === 'concluida',
   )
-}
 
 /** String de centavos → `bigint`. `null` quando a redação já apagou o campo. */
 const centavos = (texto: string | null): bigint | null => (texto === null ? null : BigInt(texto))

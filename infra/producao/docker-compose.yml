@@ -435,7 +435,13 @@ services:
       # como limpo.
       CLAMD_CONF_StreamMaxLength: 25M
     volumes:
-      - clamav-assinaturas:/var/lib/clamav:ro
+      # **Sem `:ro`.** O `init` da imagem `clamav/clamav` faz `chown` da pasta
+      # de assinaturas antes de subir o `clamd`; com o volume somente leitura
+      # o `chown` falha e o container reinicia em loop — medido em produção em
+      # 2026-11-09 ("chown: /var/lib/clamav: Read-only file system"), com todo
+      # anexo caindo em "antivírus indisponível". Quem escreve as assinaturas
+      # continua sendo só o `clamav-atualizador` (CLAMAV_NO_FRESHCLAMD aqui).
+      - clamav-assinaturas:/var/lib/clamav
     healthcheck:
       test: ["CMD", "clamdcheck.sh"]
       interval: 30s

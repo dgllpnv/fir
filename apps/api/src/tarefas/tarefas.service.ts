@@ -23,6 +23,7 @@ import type { Ator, PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
+import { campanhaParaVincular } from '../campanhas/vinculo'
 import { unidadeValida } from '../comum/unidade'
 import { conferirAvisosDoRecebimento, confirmacoesDe } from '../financeiro/recebimentos.avisos'
 import { brAno, lerTarefas, TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from './leitura'
@@ -40,7 +41,7 @@ export function exigirDominio<T>(r: Result<T>): T {
   return r.valor
 }
 
-/** As 18 colunas que toda tarefa nova preenche, na ordem. */
+/** As 19 colunas que toda tarefa nova preenche, na ordem. */
 const COLUNAS = [
   'clinica_id',
   'solicitante_id',
@@ -60,6 +61,7 @@ const COLUNAS = [
   'serie_id',
   'recorrencia',
   'unidade_id',
+  'campanha_id',
 ] as const
 
 type LinhaNova = readonly unknown[]
@@ -70,7 +72,7 @@ type LinhaNova = readonly unknown[]
  * 150 linhas em 150 `INSERT` são 150 idas ao banco, e a tela de quem criou a
  * série fica parada enquanto isso — no celular da recepção, com o telefone
  * tocando. Um `VALUES` de 150 linhas × 18 colunas são 2.700 parâmetros, bem
- * abaixo do teto de 65.535 do protocolo.
+ * abaixo do teto de 65.535 do protocolo (com 19 colunas, 2.850).
  */
 async function inserirTarefas(c: pg.PoolClient, linhas: readonly LinhaNova[]): Promise<string[]> {
   const params: unknown[] = []
@@ -161,6 +163,17 @@ export class TarefasService {
       const descricao = (dados.descricao ?? '').trim() || tipo
       if (descricao === '') throw new BadRequestException('Descreva a tarefa.')
 
+      // A campanha passa pela MESMA janela da lista (S-10): em andamento ou
+      // encerrada há até 30 dias, da clínica e não excluída. A série inteira
+      // herda a mesma campanha, como no protótipo (`Object.assign({}, nova)`).
+      const campanhaId = await campanhaParaVincular(c, {
+        clinicaId,
+        campanhaId: dados.campanhaId,
+        contexto: 'tarefa',
+        agora,
+        fuso,
+      })
+
       const comum = {
         clinicaId,
         autor,
@@ -171,6 +184,7 @@ export class TarefasService {
         pacienteId,
         tipo,
         unidade,
+        campanhaId,
       }
 
       const ids =
@@ -353,6 +367,7 @@ type Comum = {
   readonly pacienteId: string | null
   readonly tipo: string
   readonly unidade: string | null
+  readonly campanhaId: string | null
 }
 
 const linha = (
@@ -387,6 +402,7 @@ const linha = (
   x.serieId,
   x.recorrencia,
   t.unidade,
+  t.campanhaId,
 ]
 
 /**

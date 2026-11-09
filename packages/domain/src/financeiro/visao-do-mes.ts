@@ -116,7 +116,7 @@ export type VisaoDoMes = {
    *
    * **Não se chama `resultado`**, e isso não é estilo. `CAMPOS_MONETARIOS` é
    * uma lista de NOMES, e o interceptor apaga toda chave com esses nomes em
-   * qualquer profundidade de qualquer resposta. `TarefaNaFicha.resultado` já
+   * qualquer profundidade de qualquer resposta. `TarefaNaLista.resultado` já
    * existe e é o desfecho do atendimento — um texto ("Compareceu"). Registrar
    * `resultado` como monetário apagaria o desfecho de toda tarefa para quem
    * não tem `valores`, sem erro nenhum. Medido: foi o que a varredura

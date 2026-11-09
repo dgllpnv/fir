@@ -1,3 +1,4 @@
+import { DICA_DO_NOME_DA_CAMPANHA } from './dica-do-nome-da-campanha'
 import type { CapituloDoManual } from './tipos'
 
 /**
@@ -173,6 +174,7 @@ Para registrar algo que aconteceu, use sempre **Concluir**. Se a data de realiza
 - **Reagendar** devolve o cartão para Agendada com a nova data; **Encerrar** fecha sem reagendar, com motivo opcional.
 - **Realizada**: tocar no círculo conclui o atendimento (e pergunta se recebeu algum valor).
 - **Orçamento enviado**: “Registrar orçamento”, com valor e data para retomar o contato (2 dias, por padrão). Se for programa, marque “É um programa” e monte os procedimentos e sessões como a médica prescreveu: o valor sugerido já aparece. No dia de retomar, o cartão aparece em “Orçamentos para retomar”. “Registrar follow-up” anota o contato e marca o próximo.
+- **Corrigir orçamento**: digitou errado? Enquanto o orçamento está em aberto, quem pediu, quem atende ou quem acompanha a equipe corrige o valor, a data de retomar e “o que foi orçado”. A etapa não muda, a correção aparece na “Evolução” (de → para), e o funil dos meses já fechados continua igual.
 - **Fechou**: abre o Recebimento já preenchido. Informe só a entrada: o restante do orçamento vira **saldo em aberto** sozinho, e o programa orçado já vem montado para confirmar a data de início. A adesão nasce no fechamento.
 - **Perdeu**: encerra o orçamento com o motivo (preço, sem retorno, outro lugar, momento, outro).
 
@@ -451,7 +453,9 @@ Exemplo: toxina botulínica, repetir a cada 4 meses, contato 15 dias antes.`,
         texto: `Em **Campanhas › Nova campanha**, informe:
 - **Tipo:** Aniversariantes, Recaptação, Procedimento específico, Orçamentos em aberto, Data comemorativa, Indicação ou Outra.
 - Procedimento em foco (opcional), nome, objetivo ou roteiro, início e fim.
-- **Meta** e a métrica dela.`,
+- **Meta** e a métrica dela.
+
+**${DICA_DO_NOME_DA_CAMPANHA}** O nome da campanha aparece ao lado da paciente nas tarefas, nos recebimentos e na ficha dela; um nome como o de um medicamento diria a quem lê qual tratamento ela faz.`,
       },
       {
         titulo: 'Métricas da meta',

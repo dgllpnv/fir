@@ -18,6 +18,15 @@ Uma linha por classe de dado pessoal:
 
 As demais classes já conhecidas, do protótipo e da v20 — nome, telefone, aniversário, histórico de contato, valor pago, saldo, **dose, produto, lote e aplicação por paciente**, salário, contrato, admissão, férias, documento com validade, banco de horas, foto de nota fiscal.
 
+### Cadastro do paciente — quem indicou (correções da PO, B2, migration 0062 — 2026-11-09)
+
+Linhas redigidas pelo gate LGPD (`docs/specs/correcoes-po-gate-lgpd.md`, B2). **Dívida registrada:** a classe "cadastro do paciente" (nome, telefone, aniversário, origem, `indicado_por`, `campanha_id`) ainda não tem linha própria, e as duas abaixo herdam o prazo dela. Gatilho: antes da primeira solicitação de eliminação de titular, e no máximo até a migração das 4 clínicas. O procedimento de anonimização do §3 precisa incluir L-B2-7.
+
+| Dado | Finalidade | Base legal | Titular | Prazo | Ação no fim |
+|---|---|---|---|---|---|
+| `pacientes.indicado_por_id` — vínculo indicada → indicadora cadastrada (0062) | Atribuir origem, reconhecer quem indica (B3) | Art. 7º, IX, com LIA da clínica e oposição | Indicada **e** indicadora | O da classe "cadastro do paciente" da indicada (classe pendente) | Fica ao anonimizar qualquer das duas (aponta para uma linha sem identidade). `null` a pedido de oposição de qualquer das duas |
+| `pacientes.indicado_por` (texto) — nome de quem indicou **sem ser paciente**, e dado migrado | Atribuir origem | Art. 7º, IX | Indicada; e a indicadora, **terceira coletada indiretamente** | O do cadastro da indicada | `''` ao anonimizar a indicada, ou a pedido da indicadora (busca por nome normalizado). Fica na trilha até a purga de 5 anos |
+
 ### Carteira comercial da Firmare (ADR 0011, 0012, 0013 — 2026-11-05)
 
 | Dado | Finalidade | Base legal | Titular | Prazo | Ação no fim |

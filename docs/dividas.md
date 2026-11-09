@@ -526,7 +526,19 @@ limite, e a limpeza é manual e lembrada.
 no Vitest que varre por prefixo, ou um `beforeAll` que varre o que sobrou da rodada anterior — o
 segundo é mais barato e não depende de a rodada terminar.
 
-### D-E6 · A etiqueta do estoque imprime o CÓDIGO, não a imagem do QR
+### ~~D-E6 · A etiqueta do estoque imprime o CÓDIGO, não a imagem do QR~~ — **RESOLVIDA (A4, 2026-11-09)**
+
+**Como foi resolvida:** a etiqueta impressa tem o QR, desenhado por `qrcode` — dependência que o
+projeto já empacotava para o segundo fator da carteira, nunca o CDN do protótipo — e carregado por
+`import()` só quando a lista de etiquetas abre. O desenho é um `<path>` do React montado da matriz
+de módulos (`estoque/etiquetas.tsx`), sem SVG de texto injetado na página, a partir da mesma
+`codigoQr` que vem do servidor. "Etiqueta QR" no detalhe do item imprime só aquela, como o MANUAL
+promete. O teste de navegador `apps/web/e2e/leitor-de-codigo.e2e.ts` ("D-E6 · a etiqueta QR
+impressa, fotografada, abre o item certo") imprime a etiqueta (mídia `print`), fotografa o QR e o lê
+pelo "Tirar foto do código": o item certo abre. Roda com `pnpm test:e2e` (web e API no ar — ver o
+cabeçalho de `apps/web/playwright.config.ts`).
+
+Era:
 
 A tela de etiquetas (`/estoque` → Etiquetas) imprime nome, local e o **código em texto**
 (`FRMEST:<clínica>:<item>`). Quem lê com **leitor de código de barras USB** — o que a maioria das
@@ -547,7 +559,38 @@ implementações do formato para divergir.
 Aí a imagem deixa de ser enfeite: sem ela, não há o que a câmera aponte para. O conserto é uma
 dependência de QR empacotada no projeto (nunca um CDN) mais um `<svg>` por etiqueta.
 
-### D-E7 · A leitura pela CÂMERA não existe — só o leitor USB e o código digitado
+### ~~D-E7 · A leitura pela CÂMERA não existe — só o leitor USB e o código digitado~~ — **RESOLVIDA (A4, 2026-11-09)**
+
+**Como foi resolvida:** decodificador **empacotado** — `@zxing/browser` 0.1.5 + `@zxing/library`
+0.21.3, versões exatas no `apps/web/package.json` (a 0.23 declara `engines: node >= 24`, e o build
+é Node 22) —, carregado por `import()` só quando alguém abre o leitor (~119 KB gzip fora do JS
+inicial do Estoque). Os três caminhos do protótipo (`abrirLeitor`) vivem em
+`estoque/captura-de-codigo.tsx`: câmera ao vivo (`facingMode: environment`), "Tirar foto do código"
+(`<input capture="environment">`) e o campo onde o leitor USB digita. O leitor está no topo, ao lado
+do Item na entrada e na saída, e no cadastro do item ("Ler da caixa" preenche o código de barras e,
+na contagem inicial, a validade do DataMatrix). Câmera negada, ausente ou sem suporte tem frase
+própria e cai na foto e na digitação. O `parar` da câmera vale em qualquer fase — inclusive enquanto
+ela ainda abre — e também quando a aba fica oculta (`visibilitychange`; ao voltar, só religa pelo
+botão "Ligar a câmera").
+
+**O teste de navegador está no repositório:** `apps/web/e2e/` (Playwright, `@playwright/test`
+1.56.1 exato em `apps/web`), rodado por `pnpm test:e2e` — fora do `pnpm test`, porque exige web e
+API no ar e o banco local semeado (como rodar: cabeçalho de `apps/web/playwright.config.ts`). A
+mídia é gerada pelo próprio teste (`e2e/apoio/midia.ts`): câmera falsa do Chromium
+(`--use-file-for-fake-video-capture`) com um Y4M mostrando um EAN-13 (`leitor-camera-ao-vivo.e2e.ts`)
+ou em branco (`leitor-de-codigo.e2e.ts`), PNG de EAN-13 e de DataMatrix GS1 gerado pela própria
+ZXing. Cobre: leitura ao vivo, foto, permissão negada, Fechar/Esc/aba oculta soltando a câmera
+(nenhuma `MediaStreamTrack` viva — AB-A4-2), Enter do leitor USB no cadastro sem enviar o
+formulário, etiqueta de outra clínica (AB-A4-3) e — em **todos** os testes, por fixture automático
+(`e2e/apoio/leitor.ts`) — toda requisição fora da origem é bloqueada (AB-A4-1) e **reprova** o teste
+(S-16). A aba oculta é simulada (`document.hidden` + o evento): o Chromium headless não muda a
+visibilidade ao trocar de aba — medido.
+
+**Pendente, achado por este teste (2026-11-09):** `apps/web/src/app/layout.tsx` carrega Lora e Inter
+de `fonts.googleapis.com` em toda página. É requisição fora da origem — o S-16 reprova todos os
+testes até as fontes serem servidas pela própria origem (self-host).
+
+Era:
 
 `LeitorDeCodigo` recebe o código de duas formas: passado pelo **leitor de código de barras USB**
 (ele digita no campo e dá Enter) ou **digitado à mão**. As duas funcionam em qualquer navegador, e
@@ -562,6 +605,58 @@ sabe se funciona — pior que a ausência, porque a ausência a equipe percebe n
 **Gatilho:** a mesma da D-E6 — a clínica que for ler pela câmera em vez do leitor de balcão. As
 duas se pagam juntas, com a mesma decisão sobre empacotar codificador e decodificador no projeto
 (nunca um CDN) e um teste de navegador de verdade.
+
+---
+
+## Correções da PO 2026-11-09 — o que o B4 (setor de atuação) deixou registrado
+
+### D-B4-1 · `tarefas.responsavel_id` e `tarefas.solicitante_id` têm FK simples até a 0066
+
+As duas FKs da `0006` são `REFERENCES pessoas(id)`, sem `clinica_id`. A integridade referencial do
+Postgres **ignora a RLS**, então o banco aceita uma tarefa cuja responsável ou solicitante é pessoa
+de **outra clínica**. Hoje quem esconde essa linha é o `JOIN pessoas pr` interno do `SELECT_TAREFA`,
+sob RLS: a tarefa some da leitura em silêncio, e o erro fica do lado seguro sem que ninguém tenha
+escolhido isso. A primeira camada existe (`SELECT ativo FROM pessoas WHERE id = $1` sob RLS, em
+`tarefas.service.ts` e `edicao.service.ts`); a segunda, no banco, não.
+
+**Paga na 0066** (ADR 0025 §2, S-51): FKs compostas `(clinica_id, responsavel_id)` e `(clinica_id,
+solicitante_id)`, com uma contagem prévia que aborta a migration se houver linha cruzada. O `JOIN`
+vira `LEFT JOIN` **no mesmo deploy**, nunca antes.
+
+**Gatilho:** qualquer mudança em `SELECT_TAREFA` que troque o `JOIN pessoas pr` por `LEFT JOIN`
+antes da 0066, porque essa troca tira a única proteção que existe hoje. E, em qualquer caso, a
+construção do B4.
+
+### D-B4-2 · O cartão não desenha a linha "Programa orçado", que o protótipo tem (lacuna de paridade)
+
+No protótipo, o cartão de orçamento (fechado ou perdido) mostra "Programa orçado: …"
+(`esteiraCardHtml`, L4790, com `resumoProgOrc`, L4819), em Hoje, Tarefas e Jornada. O nosso não
+mostra. A linha ajuda o follow-up: a recepção vê o que foi orçado sem abrir a ficha.
+
+**Quando for feita, sai SEM dose** ("Tirzepatida 4× → Tirzepatida 4×"). A ausência da dose na lista
+é decisão, não parte da lacuna (ADR 0025 §10.4, divergência deliberada do protótipo). Os dados
+chegam por `ItemOrcadoNaLista`, e a varredura LA24-2 do B4-6 já cobre a linha nova. Não atrasa a
+migração e não entra no B4-6.
+
+**Gatilho:** a próxima conferência de paridade do cartão (`docs/paridade.md`), ou a primeira
+reclamação da recepção de que precisa abrir a ficha para saber o que foi orçado.
+
+### D-B4-3 · A dose chega à lista em texto livre, onde o tipo de lista não alcança (LA24-4)
+
+`ItemOrcadoNaLista` tira a chave `dose` de toda lista (ADR 0025 §10.4), mas um tipo não alcança
+**texto livre**. A dose continua chegando à lista por dois caminhos:
+- o rótulo que o montador gera para a **sessão** (`montador.service.ts:346-355`, "Aplicação 5/12 ·
+  Tirzepatida 2,5 mg"), em `descricao`. É a dose a aplicar, de quem aplica, e é paridade (protótipo
+  L1847);
+- `historico[].nota`, escrita por pessoa.
+
+Hoje isso não alarga nada: a sessão é tarefa de pessoa, e sessão não vai para setor (`CHECK
+sessao_nao_vai_para_setor`). A pergunta que fica aberta (L-A2-4, para tarefa de sessão em tarefa de
+pessoa) é se o rótulo da sessão precisa da dose na lista.
+
+**Gatilho — e aqui ela passa a BLOQUEAR:** a ADR que levar **sessão de programa para setor**
+(condição 7 do gate de LGPD, ADR 0025 §11). Antes de ela ser aceita, esta dívida precisa de
+resposta, porque o rótulo da sessão iria, com a dose, para o setor inteiro.
 
 ---
 

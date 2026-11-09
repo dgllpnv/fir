@@ -16,11 +16,16 @@ describe('interpretarCodigo — etiqueta, GS1 e código de barras', () => {
   it('a ETIQUETA da ferramenta devolve o item', () => {
     expect(interpretarCodigo('FRMEST:clinica-abc:item-123')).toEqual({
       tipo: 'etiqueta',
+      clinica: 'clinica-abc',
       itemId: 'item-123',
     })
     // O código da clínica pode estar vazio (o protótipo usa "demo"), e o item
     // continua sendo lido: o que identifica é o terceiro campo.
-    expect(interpretarCodigo('FRMEST::item-123')).toEqual({ tipo: 'etiqueta', itemId: 'item-123' })
+    expect(interpretarCodigo('FRMEST::item-123')).toEqual({
+      tipo: 'etiqueta',
+      clinica: '',
+      itemId: 'item-123',
+    })
   })
 
   it('o DATAMATRIX GS1 devolve GTIN, validade e lote', () => {
@@ -54,6 +59,16 @@ describe('interpretarCodigo — etiqueta, GS1 e código de barras', () => {
     expect(interpretarCodigo('010789123456789517280200')).toMatchObject({
       validade: '2028-02-29',
     })
+  })
+
+  it('validade com dia que NÃO EXISTE no mês não vira data', () => {
+    // `270631` é 31 de junho; `270229`, 29 de fevereiro de ano comum. Antes os
+    // dois viravam texto de data inexistente, e o FIFO de validade comparava
+    // um lote contra um dia que o calendário não tem.
+    expect(interpretarCodigo('010789123456789517270631')).not.toHaveProperty('validade', '2027-06-31')
+    expect(interpretarCodigo('010789123456789517270229')).not.toHaveProperty('validade', '2027-02-29')
+    expect(interpretarCodigo('010789123456789517270630')).toMatchObject({ validade: '2027-06-30' })
+    expect(interpretarCodigo('010789123456789517280229')).toMatchObject({ validade: '2028-02-29' })
   })
 
   it('o LOTE é de tamanho VARIÁVEL e termina no separador de grupo', () => {

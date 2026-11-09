@@ -11,8 +11,10 @@ import {
   declararAtorSistema,
 } from '../banco/limpeza-de-teste'
 import { hashDeSenha } from '../autenticacao/senha'
+import { clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { registrarCookie } from '../main'
+import { gravarGtin } from './itens.service'
 
 /**
  * O ESTOQUE pela porta HTTP, contra **Postgres de verdade**.
@@ -1291,6 +1293,171 @@ describe('ligarCodigoItem — GS1/EAN, normalizado para 14 dígitos', () => {
 
   it('ligar código num item da OUTRA clínica é 404', async () => {
     await ligarCodigo(gestora, itemDaOutra, '7891234567895').expect(404)
+  })
+})
+
+/**
+ * A CORRIDA do `ligarCodigoItem` e a SEGUNDA CAMADA de clínica em `gravarGtin`.
+ *
+ * A corrida é reproduzida de forma determinística: uma transação do teste grava
+ * o código no item A e NÃO confirma. A conferência de `gravarGtin` não enxerga
+ * o que está por confirmar, passa, e o `UPDATE` do item B espera o índice
+ * único. O teste só confirma depois de ver o `UPDATE` esperando o lock — e
+ * então o índice decide. Antes da correção, esse `23505` saía como 500.
+ */
+describe('ligarCodigoItem — a corrida é 409, e a clínica é filtrada também na aplicação', () => {
+  it('duas ligações simultâneas do mesmo código: a segunda é 409 legível, nunca 500', async () => {
+    const a = await criarItem(gestora, { nome: 'Corrida A' }).expect(201)
+    const b = await criarItem(gestora, { nome: 'Corrida B' }).expect(201)
+    const outra = new pg.Client({ connectionString: URL_MIG })
+    await outra.connect()
+    try {
+      await declararAtorSistema(outra)
+      const pidDaOutra = (await outra.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))
+        .rows[0]!.pid
+      await outra.query('BEGIN')
+      await outra.query(`UPDATE itens_de_estoque SET gtin = '07891234567895' WHERE id = $1`, [
+        a.body.id,
+      ])
+      const resposta = ligarCodigo(gestora, b.body.id, '7891234567895').then((r) => r)
+      // Espera o UPDATE da requisição ficar BLOQUEADO no índice — só então a
+      // corrida está montada. Sem isto o teste mediria a conferência, não o índice.
+      let esperando = false
+      for (let i = 0; i < 100 && !esperando; i++) {
+        // `pg_blocking_pids`, e não o texto da consulta: `fir_migrate` não lê
+        // o `query` das conexões de `fir_app` em `pg_stat_activity`.
+        const w = await migrate.query<{ n: string }>(
+          `SELECT count(*)::text AS n FROM pg_stat_activity
+            WHERE $1::int = ANY (pg_blocking_pids(pid))`,
+          [pidDaOutra],
+        )
+        esperando = w.rows[0]!.n !== '0'
+        if (!esperando) await new Promise((r) => setTimeout(r, 50))
+      }
+      expect(esperando).toBe(true)
+      await outra.query('COMMIT')
+      const r = await resposta
+      expect(r.status).toBe(409)
+      expect(r.body.message).toBe('Este código de barras já está ligado a outro item do estoque.')
+    } finally {
+      await outra.query('ROLLBACK').catch(() => undefined)
+      await outra.end()
+    }
+    const lista = await listarItens(gestora).expect(200)
+    const comCodigo = (lista.body.itens as { id: string; gtin: string }[]).filter(
+      (i) => i.gtin === '07891234567895',
+    )
+    expect(comCodigo.map((i) => i.id)).toEqual([a.body.id])
+  })
+
+  /**
+   * `fir_migrate` IGNORA a RLS (BYPASSRLS): é a conexão que mostra o que a
+   * aplicação filtra sozinha. Com a RLS como única camada, as duas
+   * verificações abaixo falham.
+   */
+  it('gravarGtin filtra clinica_id: o código da vizinha não conflita, e o item da vizinha não muda', async () => {
+    const a = await criarItem(gestora, { nome: 'Da Clínica A' }).expect(201)
+    await migrate.query(`UPDATE itens_de_estoque SET gtin = '07891234567895' WHERE id = $1`, [
+      itemDaOutra,
+    ])
+    try {
+      const daClinica = clinicaIdDeFonteConfiavel(clinica)
+      // Mesmo código que a vizinha tem: sem o filtro, 409 com o NOME do item dela.
+      await expect(gravarGtin(migrate, daClinica, a.body.id, '7891234567895')).resolves.toBeUndefined()
+      // O id da vizinha com a clínica A: sem o filtro, o código dela mudaria.
+      await gravarGtin(migrate, daClinica, itemDaOutra, '4006381333931')
+      const dela = await migrate.query<{ gtin: string }>(
+        'SELECT gtin FROM itens_de_estoque WHERE id = $1',
+        [itemDaOutra],
+      )
+      expect(dela.rows[0]!.gtin).toBe('07891234567895')
+    } finally {
+      await migrate.query(`UPDATE itens_de_estoque SET gtin = '' WHERE id = $1`, [itemDaOutra])
+    }
+  })
+})
+
+/**
+ * O CÓDIGO NO CADASTRO — o campo "Código de barras da caixa" do protótipo
+ * (`eigtin`), que a câmera preenche ao ler a caixa. Mesmo esquema e mesma
+ * normalização de `ligarCodigoItem`: os dois caminhos passam por `gravarGtin`.
+ */
+describe('salvarItemEstoque — o `gtin` do cadastro, normalizado como no ligar', () => {
+  const gtinNoBanco = async (id: string): Promise<string> =>
+    (await migrate.query<{ gtin: string }>('SELECT gtin FROM itens_de_estoque WHERE id = $1', [id]))
+      .rows[0]!.gtin
+
+  it('o cadastro grava o EAN-13 em 14 dígitos — a mesma forma do ligar', async () => {
+    const r = await criarItem(gestora, { nome: 'Tirzepatida 5 mg', gtin: '7891234567895' }).expect(201)
+    expect(r.body.gtin).toBe('07891234567895')
+    expect(await gtinNoBanco(r.body.id)).toBe('07891234567895')
+  })
+
+  it('SALVAR O MESMO CÓDIGO TRÊS VEZES não muda nada — nem item, nem código, nem trilha', async () => {
+    const a = await criarItem(gestora, { nome: 'Tirzepatida 5 mg', gtin: '7891234567895' }).expect(201)
+    const ultimaDaCriacao = await migrate.query<{ id: string }>(
+      `SELECT max(id)::text AS id FROM auditoria
+        WHERE clinica_id = $1 AND entidade = 'itens_de_estoque' AND entidade_id = $2`,
+      [clinica, a.body.id],
+    )
+    // Três gravações, nas três formas que a tela pode mandar: o EAN-13 lido,
+    // o GTIN-14 que a API devolveu, e o código pelo caminho do ligar.
+    await editarItem(gestora, a.body.id, { gtin: '7891234567895' }).expect(200)
+    await editarItem(gestora, a.body.id, { gtin: '07891234567895' }).expect(200)
+    await ligarCodigo(gestora, a.body.id, '7891234567895').expect(201)
+    expect(await gtinNoBanco(a.body.id)).toBe('07891234567895')
+
+    const lista = await listarItens(gestora).expect(200)
+    const comCodigo = (lista.body.itens as { gtin: string }[]).filter(
+      (i) => i.gtin === '07891234567895',
+    )
+    expect(comCodigo).toHaveLength(1)
+
+    // O `ligar` repetido não escreve: `gravarGtin` só faz `UPDATE` quando o
+    // código muda. As duas edições escrevem a linha do item (são PATCHes), mas
+    // nenhuma tocou o código — no de → para da trilha, o `gtin` é o mesmo.
+    const trilha = await migrate.query<{
+      de: { gtin?: string } | null
+      para: { gtin?: string } | null
+    }>(
+      `SELECT de, para FROM auditoria
+        WHERE clinica_id = $1 AND entidade = 'itens_de_estoque' AND entidade_id = $2
+          AND id > $3::bigint
+        ORDER BY id`,
+      [clinica, a.body.id, ultimaDaCriacao.rows[0]!.id],
+    )
+    expect(trilha.rows.length).toBeLessThanOrEqual(2)
+    for (const t of trilha.rows) {
+      expect(t.de?.gtin).toBe('07891234567895')
+      expect(t.para?.gtin).toBe('07891234567895')
+    }
+  })
+
+  it('o código de OUTRO item é 409 no cadastro, NOMEANDO o item — e nada é criado', async () => {
+    await criarItem(gestora, { nome: 'Tirzepatida 5 mg', gtin: '7891234567895' }).expect(201)
+    const r = await criarItem(gestora, { nome: 'Tirzepatida 10 mg', gtin: '07891234567895' }).expect(
+      409,
+    )
+    expect(r.body.message).toContain('Tirzepatida 5 mg')
+    // A transação inteira volta: o item com o código repetido não fica pela
+    // metade, sem código, no catálogo.
+    const lista = await listarItens(gestora).expect(200)
+    expect((lista.body.itens as { nome: string }[]).map((i) => i.nome)).toEqual(['Tirzepatida 5 mg'])
+  })
+
+  it('PATCH sem `gtin` PRESERVA o código; `gtin: ""` o TIRA', async () => {
+    const a = await criarItem(gestora, { nome: 'Tirzepatida 5 mg', gtin: '7891234567895' }).expect(201)
+    const r = await editarItem(gestora, a.body.id, { nome: 'Tirzepatida ampola 5 mg' }).expect(200)
+    expect(r.body.gtin).toBe('07891234567895')
+    const s = await editarItem(gestora, a.body.id, { gtin: '' }).expect(200)
+    expect(s.body.gtin).toBe('')
+    // `''` não é normalizado para catorze zeros.
+    expect(await gtinNoBanco(a.body.id)).toBe('')
+  })
+
+  it('código fora do formato é 400 no cadastro, com a mesma regra do ligar', async () => {
+    await criarItem(gestora, { nome: 'Tirzepatida 5 mg', gtin: '1234567' }).expect(400)
+    await criarItem(gestora, { nome: 'Tirzepatida 5 mg', gtin: 'nao-e-numero' }).expect(400)
   })
 })
 

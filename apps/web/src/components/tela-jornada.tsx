@@ -8,6 +8,7 @@ import type {
   RespostaDaJornada,
 } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
+import Link from 'next/link'
 import { useState } from 'react'
 import { consultaEmTexto, useDados } from '@/lib/dados'
 import { diaCurto, diaEmTexto } from '@/lib/formato'
@@ -31,7 +32,12 @@ const PERIODOS: readonly (readonly [PeriodoDoFunil, string])[] = [
   ['mes-passado', 'Mês passado'],
 ]
 
-export function TelaJornada() {
+/**
+ * `podePacientes` é `temPerm(…, 'pacientes')`, resolvido pela página: sem
+ * ela, o mini-cartão não leva à ficha (appsec S-1) — `jornada` não implica
+ * `pacientes`, e o link daria 403.
+ */
+export function TelaJornada({ podePacientes }: { readonly podePacientes: boolean }) {
   const [periodo, setPeriodo] = useState<PeriodoDoFunil>('30dias')
   const caminho = `v1/jornada${consultaEmTexto({ periodo })}`
   const { dados, carregando, erro, recarregar } = useDados<RespostaDaJornada>(caminho)
@@ -71,13 +77,21 @@ export function TelaJornada() {
       ) : dados === null ? (
         <Carregando linhas={5} />
       ) : (
-        <Conteudo dados={dados} carregando={carregando} />
+        <Conteudo dados={dados} carregando={carregando} podePacientes={podePacientes} />
       )}
     </section>
   )
 }
 
-function Conteudo({ dados, carregando }: { dados: RespostaDaJornada; carregando: boolean }) {
+function Conteudo({
+  dados,
+  carregando,
+  podePacientes,
+}: {
+  dados: RespostaDaJornada
+  carregando: boolean
+  podePacientes: boolean
+}) {
   const vazio = dados.funil.every((p) => p.n === 0) && dados.colunas.every((c) => c.n === 0)
   if (vazio) {
     /**
@@ -145,7 +159,7 @@ function Conteudo({ dados, carregando }: { dados: RespostaDaJornada; carregando:
           Agendadas, confirmadas, no-show e orçamentos em aberto mostram a situação de hoje;
           realizadas, fechados e perdidos mostram o período escolhido.
         </p>
-        <Colunas colunas={dados.colunas} hoje={dados.hoje} />
+        <Colunas colunas={dados.colunas} hoje={dados.hoje} podePacientes={podePacientes} />
       </div>
 
       {carregando ? <p className="nota">Atualizando…</p> : null}
@@ -200,9 +214,11 @@ function PassoDoFunil({ passo: p }: { passo: PassoDoFunilNaSaida }) {
 function Colunas({
   colunas,
   hoje,
+  podePacientes,
 }: {
   colunas: readonly ColunaDaJornadaNaSaida[]
   hoje: string
+  podePacientes: boolean
 }) {
   return (
     <>
@@ -219,7 +235,7 @@ function Colunas({
             {c.itens.length === 0 ? (
               <p className="kvazio">Nenhum</p>
             ) : (
-              c.itens.map((x) => <MiniCartao key={x.id} cartao={x} hoje={hoje} />)
+              c.itens.map((x) => <MiniCartao key={x.id} cartao={x} hoje={hoje} podePacientes={podePacientes} />)
             )}
             {c.restantes === 0 ? null : <p className="kvazio">+{c.restantes}</p>}
           </div>
@@ -239,7 +255,7 @@ function Colunas({
             {c.itens.length === 0 ? (
               <p className="kvazio">Nenhum</p>
             ) : (
-              c.itens.map((x) => <MiniCartao key={x.id} cartao={x} hoje={hoje} />)
+              c.itens.map((x) => <MiniCartao key={x.id} cartao={x} hoje={hoje} podePacientes={podePacientes} />)
             )}
             {c.restantes === 0 ? null : <p className="kvazio">+{c.restantes}</p>}
           </details>
@@ -258,15 +274,37 @@ const TOM_DA_COLUNA: Readonly<Record<string, string>> = {
   perdidos: 'mau',
 }
 
-function MiniCartao({ cartao: x, hoje }: { cartao: CartaoDaColuna; hoje: string }) {
-  return (
-    <a className="kmini" href={`/pacientes/${x.pacienteId ?? ''}`}>
+/**
+ * O mini-cartão leva à TAREFA, dentro da ficha: `/pacientes/{id}?tarefa={id}`,
+ * que rola até o cartão e o destaca — é lá que estão as ações da jornada.
+ *
+ * Sem paciente, não há ficha: o cartão vira texto, e o link nunca é
+ * `/pacientes/` com id vazio (que a rota trataria como a lista, e a recepção
+ * acharia que o toque não funcionou).
+ */
+function MiniCartao({
+  cartao: x,
+  hoje,
+  podePacientes,
+}: {
+  cartao: CartaoDaColuna
+  hoje: string
+  podePacientes: boolean
+}) {
+  const corpo = (
+    <>
       <b>{x.pacienteNome ?? 'Sem paciente'}</b>
       <span className="num">{quandoDoCartao(x, hoje)}</span>
       {x.valorOrcamento === null ? null : (
         <span className="num kval">{formatarDinheiro(BigInt(x.valorOrcamento))}</span>
       )}
-    </a>
+    </>
+  )
+  if (x.pacienteId === null || !podePacientes) return <div className="kmini">{corpo}</div>
+  return (
+    <Link className="kmini" href={`/pacientes/${x.pacienteId}?tarefa=${x.id}`}>
+      {corpo}
+    </Link>
   )
 }
 

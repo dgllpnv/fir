@@ -83,7 +83,13 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   // saldo com `greatest(0, …)` em SQL e passaram a consumir `saldoEmAberto`,
   // que preserva o excedente em vez de engoli-lo.
   { metodo: 'GET', caminho: '/v1/pacientes', camposDeDinheiro: ['ltv', 'saldo', 'credito'] },
-  { metodo: 'GET', caminho: '/v1/pacientes/:id', camposDeDinheiro: ['ltv', 'saldo', 'credito'] },
+  // A ficha devolve o Histórico como `TarefaNaLista` desde as correções da PO
+  // (A2): o cartão da jornada, com o orçado e o pagamento embutido.
+  {
+    metodo: 'GET',
+    caminho: '/v1/pacientes/:id',
+    camposDeDinheiro: ['ltv', 'saldo', 'credito', ...DINHEIRO_DA_TAREFA],
+  },
   { metodo: 'POST', caminho: '/v1/tarefas', camposDeDinheiro: DINHEIRO_DA_TAREFA },
   { metodo: 'POST', caminho: '/v1/tarefas/:id/concluir', camposDeDinheiro: DINHEIRO_DA_TAREFA },
   { metodo: 'POST', caminho: '/v1/tarefas/:id/cancelar', camposDeDinheiro: DINHEIRO_DA_TAREFA },

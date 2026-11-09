@@ -177,6 +177,12 @@ const comumDaTarefa = {
   prioridade: z.enum(['normal', 'urgente']).default('normal'),
   obs: z.string().trim().max(300).default(''),
   unidadeId: Uuid.nullish(),
+  /**
+   * A campanha de que esta ação faz parte (A3). Opcional e anulável: ausente
+   * e `null` são "nenhuma". A janela (em andamento ou encerrada há até 30
+   * dias) e a clínica são conferidas no SERVIDOR, por `conferirVinculo`.
+   */
+  campanhaId: Uuid.nullish(),
   quando: Quando,
   // O lançamento retroativo com pagamento grava recebimento — e pode cair
   // num dia de caixa já fechado, que é justamente o caso que o aviso pega.
@@ -242,6 +248,13 @@ export const EditarTarefa = z
     unidadeId: Uuid.nullish(),
     pacienteId: Uuid.nullish(),
     tipo: tipoQueNaoEhPagamento.optional(),
+    /**
+     * **TRÊS ESTADOS, e eles não se confundem** (N-4): AUSENTE mantém a
+     * campanha que está lá; `null` remove; um id troca. Com dois estados, a
+     * tela que reenvia o formulário sem o campo limparia a campanha de uma
+     * tarefa antiga, e a receita sumiria dela em silêncio.
+     */
+    campanhaId: Uuid.nullish(),
     // A data de realização vale SÓ para esta tarefa, nunca para a série — a
     // tela diz isso em letra miúda, e o serviço precisa do mesmo contrato.
     realizadaEm: DiaCivil.optional(),
@@ -302,6 +315,17 @@ export const PagamentoNaSaida = z.object({
 export type PagamentoNaSaida = z.infer<typeof PagamentoNaSaida>
 
 /**
+ * O orçamento num instante, como a correção (B1) o grava em `de` e `para`.
+ * `valor` é `null` sem a permissão `valores` — a chave é a que a redação já
+ * conhece, e por isso nada novo entra em `CAMPOS_MONETARIOS`.
+ */
+const RetratoDoOrcamentoNaSaida = z.object({
+  valor: centavosNaSaida,
+  retomarEm: DiaCivil.nullable(),
+  nota: z.string().nullable(),
+})
+
+/**
  * Um evento da Jornada, como ele SAI.
  *
  * Chaves por extenso (decisão D-5), não as abreviações do protótipo
@@ -331,6 +355,13 @@ export const EventoDeJornada = z.object({
   motivoId: Uuid.optional(),
   /** O NOME do motivo no instante do evento (D-2). Nunca redigido: não é valor. */
   motivo: z.string().optional(),
+  /**
+   * Só em `corrigirOrcamento` (B1): o orçamento antes e depois. `valor` dentro
+   * deles é redigido pela MESMA varredura em profundidade (S-27).
+   */
+  de: RetratoDoOrcamentoNaSaida.optional(),
+  para: RetratoDoOrcamentoNaSaida.optional(),
+  chaveIdempotencia: Uuid.optional(),
 })
 export type EventoDeJornada = z.infer<typeof EventoDeJornada>
 
@@ -393,6 +424,8 @@ export const TarefaNaLista = z.object({
   serieId: Uuid.nullable(),
   recorrencia: z.string(),
   unidadeId: Uuid.nullable(),
+  /** A campanha desta ação (A3), ou `null`. Só o id: o nome vem da lista vinculável. */
+  campanhaId: Uuid.nullable(),
   atrasada: z.boolean(),
   pagamento: PagamentoNaSaida.nullable(),
   /**

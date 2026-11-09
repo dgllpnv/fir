@@ -379,6 +379,28 @@ details.pendentes:not([open]) .ver-aberto { display: none; }
   white-space: nowrap;
 }
 .pill.paciente { background: var(--gold-soft); color: var(--on-gold-soft); border-color: transparent; }
+/* O nome que abre a ficha (correções da PO, A1). Mesmas cores do selo — o par
+   `--on-gold-soft` sobre `--gold-soft` já está em contraste.test.ts. A área de
+   toque cresce por um pseudo-elemento invisível, sem engordar o selo: quem
+   toca está com a outra mão no telefone. */
+a.pill.paciente {
+  position: relative;
+  text-decoration: none;
+  font-size: 12.5px;
+  /* Nome longo quebra a linha em vez de empurrar o cartão para fora dos
+     390 px — `overflow: hidden` cortaria também a área de toque abaixo. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  /* O raio do `pchip` do protótipo: com 999px, o nome em duas linhas vira
+     uma cápsula. */
+  border-radius: 6px;
+}
+a.pill.paciente::after { content: ''; position: absolute; inset: -9px -3px; }
+a.pill.paciente:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* A tarefa que o link da Jornada veio mostrar, dentro da ficha. Traço, não
+   fundo — o mesmo idioma da borda de urgência. */
+.tarefa[data-destaque='sim'] { outline: 2px solid var(--gold); outline-offset: 1px; }
 .pill.mau { color: var(--bad); border-color: var(--bad); }
 .pill.alerta { color: var(--warn-ink); border-color: var(--warn); }
 .pill.bom { color: var(--ok); border-color: var(--ok); }

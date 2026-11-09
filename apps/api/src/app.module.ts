@@ -15,6 +15,7 @@ import { HojeModule } from './hoje/hoje.module'
 import { JornadaModule } from './jornada/jornada.module'
 import { RedacaoInterceptor } from './comum/redacao.interceptor'
 import { FiltroDeSessaoDeSuporte } from './comum/sessao-de-suporte.filtro'
+import { FiltroDeTarefaVivaDaCampanha } from './tarefas/tarefa-viva-da-campanha.filtro'
 import { PacientesModule } from './pacientes/pacientes.module'
 import { PainelGuard } from './painel/painel.guard'
 import { PainelModule } from './painel/painel.module'
@@ -141,6 +142,12 @@ import { TarefasModule } from './tarefas/tarefas.module'
      * tratamento de todo o resto continua sendo o do Nest.
      */
     { provide: APP_FILTER, useClass: FiltroDeSessaoDeSuporte },
+    /**
+     * O 23505 de `tarefa_viva_da_campanha` vira 409 legível em TODO caminho
+     * que reabre ou cria tarefa com campanha (correções da PO, A3 · N-6).
+     * `@Catch(pg.DatabaseError)`, e só aquele índice; o resto segue o padrão.
+     */
+    { provide: APP_FILTER, useClass: FiltroDeTarefaVivaDaCampanha },
   ],
 })
 export class AppModule {}

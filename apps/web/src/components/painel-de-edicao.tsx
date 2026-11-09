@@ -10,6 +10,7 @@ import type {
 import { useEffect, useRef, useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
+import { CampoDeCampanha } from './campo-de-campanha'
 
 /**
  * Editar — e **Excluir dentro de Editar**, como no MANUAL cap. 4.
@@ -41,6 +42,8 @@ export function PainelDeEdicao({
   const [prioridade, setPrioridade] = useState(t.prioridade)
   const [obs, setObs] = useState(t.obs)
   const [unidadeId, setUnidadeId] = useState(t.unidadeId ?? '')
+  const [campanhaId, setCampanhaId] = useState(t.campanhaId ?? '')
+  const trocouCampanha = campanhaId !== (t.campanhaId ?? '')
   const [realizadaEm, setRealizadaEm] = useState(
     t.concluidaEm === null ? '' : t.concluidaEm.slice(0, 10),
   )
@@ -80,6 +83,9 @@ export function PainelDeEdicao({
         serie,
       }
       if (t.pacienteId !== null) corpo['unidadeId'] = unidadeId === '' ? null : unidadeId
+      // TRÊS estados (N-4): a campanha só vai quando a pessoa a MUDOU. Ausente
+      // é "mantém" — inclusive uma campanha antiga que a lista já não oferece.
+      if (trocouCampanha) corpo['campanhaId'] = campanhaId === '' ? null : campanhaId
       // A data de realização só vai quando a tarefa ESTÁ concluída: o servidor
       // recusa o contrário, e com razão — editar não conclui.
       if (t.status === 'concluida' && realizadaEm !== '') corpo['realizadaEm'] = realizadaEm
@@ -184,6 +190,17 @@ export function PainelDeEdicao({
           </select>
         </label>
       )}
+
+      <CampoDeCampanha valor={campanhaId} aoMudar={setCampanhaId} incluir={t.campanhaId} />
+      {/* N-5: trocar a campanha de uma tarefa paga MOVE o recebimento — permitido,
+          como no protótipo, e dito antes de salvar. Sem número: a frase vale
+          para quem não vê valores. */}
+      {trocouCampanha && t.pagamento !== null ? (
+        <p className="nota" role="status">
+          O valor pago nesta tarefa passa para{' '}
+          {campanhaId === '' ? 'nenhuma campanha' : 'a campanha escolhida'}.
+        </p>
+      ) : null}
 
       {t.status === 'concluida' ? (
         <label className="campo">

@@ -136,7 +136,7 @@ export const SELECT_TAREFA = `
          t.paciente_id, pa.nome AS paciente_nome, pa.telefone AS paciente_telefone,
          coalesce(pa.conferir_cadastro, false) AS paciente_conferir_cadastro,
          t.tipo, t.etapa::text AS etapa, t.historico, t.resultado, t.obs,
-         t.serie_id, t.recorrencia, t.unidade_id,
+         t.serie_id, t.recorrencia, t.unidade_id, t.campanha_id,
          -- A identidade de SESSÃO (épico 5). NULL em toda tarefa que não é
          -- sessão, e garantida pelo CHECK sessao_e_do_programa quando é.
          t.programa_id, t.item_chave, t.sessao_indice, t.sessao_total,
@@ -194,6 +194,7 @@ export type LinhaDeTarefa = {
   serie_id: string | null
   recorrencia: string
   unidade_id: string | null
+  campanha_id: string | null
   programa_id: string | null
   item_chave: string | null
   sessao_indice: number | null
@@ -254,6 +255,7 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   serieId: l.serie_id,
   recorrencia: l.recorrencia,
   unidadeId: l.unidade_id,
+  campanhaId: l.campanha_id,
   atrasada: l.atrasada,
   /**
    * Os quatro andam juntos ou nenhum, e isso é o banco falando: o

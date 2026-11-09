@@ -68,6 +68,12 @@ const comumDoRecebimento = {
   em: DiaCivil,
   obs: Obs,
   unidadeId: Uuid.nullish(),
+  /**
+   * A campanha do pagamento (A3). Vai para a TAREFA companheira que o
+   * recebimento cria — nunca para `recebimentos`, que não tem a coluna: a
+   * receita da campanha tem um caminho só (N-1, N-3).
+   */
+  campanhaId: Uuid.nullish(),
   ...confirmacoesDoRecebimento,
 }
 
@@ -610,7 +616,7 @@ export const VisaoDoMes = z
     percentualFixas: z.number().int().nullable(),
     percentualVariaveis: z.number().int().nullable(),
 
-    // `resultadoDoMes`, e não `resultado`: `TarefaNaFicha.resultado` já existe
+    // `resultadoDoMes`, e não `resultado`: `TarefaNaLista.resultado` já existe
     // e é texto, e a redação apaga por NOME em qualquer profundidade.
     resultadoDoMes: centavosNaSaida,
     percentualDoResultado: z.number().int().nullable(),

@@ -98,7 +98,7 @@ const Programa = z
   })
 
 /**
- * As onze ações que esta rota aceita.
+ * As doze ações que esta rota aceita.
  *
  * **`agendar` e `concluir` não estão aqui.** São `POST /v1/tarefas` e
  * `POST /v1/tarefas/:id/concluir` (épico 2), que já escrevem `etapa` e
@@ -157,6 +157,28 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
   // servidor dentro da mesma transação (decisão D-2). Aceitar o nome do
   // cliente faria a história contar o que o navegador disse.
   z.object({ acao: z.literal('perder'), motivoId: Uuid, nota: Nota }).strict(),
+  /**
+   * CORRIGIR O ORÇAMENTO JÁ ENVIADO (correções da PO, item B1).
+   *
+   * Os três campos são opcionais: ausente = MANTÉM, e `nota: ''` limpa. "Pelo
+   * menos um" é regra do domínio (`corrigirOrcamento`), porque um `.refine`
+   * aqui tiraria o objeto da `discriminatedUnion`.
+   *
+   * `valor` é o MESMO `valorDeOrcamento` do registro (gate de números, N-16):
+   * dois esquemas para o mesmo dinheiro é como um deles passa a aceitar zero.
+   *
+   * `chaveIdempotencia` é obrigatória: a tela a gera quando abre o formulário,
+   * e o duplo clique e o retry da rede trazem a mesma — um evento só.
+   */
+  z
+    .object({
+      acao: z.literal('corrigirOrcamento'),
+      chaveIdempotencia: Uuid,
+      valor: valorDeOrcamento.optional(),
+      retomarEm: DiaCivil.optional(),
+      nota: Nota,
+    })
+    .strict(),
 ])
 export type MoverEtapa = z.infer<typeof MoverEtapa>
 

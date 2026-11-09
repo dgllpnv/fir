@@ -21,8 +21,14 @@
 import { fimDoMes } from './relogio'
 
 export type CodigoLido =
-  /** A etiqueta impressa pela ferramenta: `FRMEST:<clínica>:<item>`. */
-  | { readonly tipo: 'etiqueta'; readonly itemId: string }
+  /**
+   * A etiqueta impressa pela ferramenta: `FRMEST:<clínica>:<item>`.
+   *
+   * `clinica` é o CÓDIGO da clínica impresso na etiqueta (pode vir vazio, como
+   * no protótipo). Quem lê compara com a clínica da sessão ANTES de procurar o
+   * item: etiqueta de outra clínica é recusada sem consulta nenhuma.
+   */
+  | { readonly tipo: 'etiqueta'; readonly clinica: string; readonly itemId: string }
   /** DataMatrix GS1 da caixa: GTIN, validade e lote do fabricante. */
   | {
       readonly tipo: 'medicamento'
@@ -37,7 +43,7 @@ export type CodigoLido =
   | { readonly tipo: 'desconhecido'; readonly texto: string }
 
 /** O prefixo da etiqueta da ferramenta. Mesmo do protótipo (`codigoQrItem`). */
-const ETIQUETA = /^FRMEST:[^:]*:(.+)$/
+const ETIQUETA = /^FRMEST:([^:]*):(.+)$/
 
 /**
  * A data de um AI de validade GS1 (`AAMMDD`).
@@ -53,8 +59,11 @@ function dataGs1(aammdd: string): string | null {
   const mes = aammdd.slice(2, 4)
   const dia = aammdd.slice(4, 6)
   if (mes < '01' || mes > '12') return null
-  if (dia === '00') return fimDoMes(`${ano}-${mes}`)
-  if (dia < '01' || dia > '31') return null
+  const ultimo = fimDoMes(`${ano}-${mes}`)
+  if (dia === '00') return ultimo
+  // Comparar com o último dia DO MÊS, e não com '31': `270631` viraria
+  // `2027-06-31`, uma data que não existe e que quebra o FIFO de validade.
+  if (dia < '01' || `${ano}-${mes}-${dia}` > ultimo) return null
   return `${ano}-${mes}-${dia}`
 }
 
@@ -70,7 +79,7 @@ export function interpretarCodigo(bruto: string): CodigoLido {
   const t = String(bruto ?? '').trim()
 
   const etiqueta = ETIQUETA.exec(t)
-  if (etiqueta !== null) return { tipo: 'etiqueta', itemId: etiqueta[1]! }
+  if (etiqueta !== null) return { tipo: 'etiqueta', clinica: etiqueta[1]!, itemId: etiqueta[2]! }
 
   // Os prefixos de simbologia que o leitor às vezes entrega (`]d2` para
   // DataMatrix, `]C1` para GS1-128, `]Q3` para QR), e o separador de grupo

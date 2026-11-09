@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, Uuid } from './comum'
+import { TarefaNaLista } from './tarefas'
 
 /** As sugestões da tela (`CONFIG.ORIGENS`). A coluna é texto livre de 60. */
 export const ORIGENS = [
@@ -26,6 +27,18 @@ const camposDoPaciente = {
   aniversario: DiaCivil.nullish(),
   origem: z.string().trim().max(60).default(''),
   indicadoPor: z.string().trim().max(80).default(''),
+  /**
+   * A indicadora, quando ela É paciente da clínica (correções da PO, B2). Com
+   * ela, `indicadoPor` vai vazio — quem decide é `decidirIndicacao`, no
+   * domínio. O servidor aceita só paciente ATIVA desta clínica.
+   */
+  indicadoPorId: Uuid.nullish(),
+  /**
+   * "Chegou por uma campanha?" — só campanha ativa hoje, no fuso da clínica
+   * (`GET /v1/campanhas/vinculaveis?contexto=paciente`). Não cria receita: a
+   * receita da campanha vem só dos recebimentos das tarefas dela (N-1).
+   */
+  campanhaId: Uuid.nullish(),
   unidadeId: Uuid.nullish(),
   // Para quem já era atendido antes da ferramenta (MANUAL cap. 7). Data no
   // FUTURO é descartada pelo serviço, não recusada — a comparação com "hoje"
@@ -43,8 +56,11 @@ const camposDoPaciente = {
  * "indicado por" pendurado numa paciente que veio do Instagram vira, na
  * próxima campanha, um agradecimento a quem nunca indicou ninguém.
  */
-const limparIndicacao = <T extends { origem: string; indicadoPor: string }>(p: T): T =>
-  p.origem === ORIGEM_INDICACAO ? p : { ...p, indicadoPor: '' }
+const limparIndicacao = <
+  T extends { origem: string; indicadoPor: string; indicadoPorId?: string | null | undefined },
+>(
+  p: T,
+): T => (p.origem === ORIGEM_INDICACAO ? p : { ...p, indicadoPor: '', indicadoPorId: null })
 
 export const SalvarPaciente = z.object(camposDoPaciente).strict().transform(limparIndicacao)
 export type SalvarPaciente = z.infer<typeof SalvarPaciente>
@@ -63,13 +79,23 @@ export const EditarPaciente = z
     aniversario: DiaCivil.nullish(),
     origem: z.string().trim().max(60).optional(),
     indicadoPor: z.string().trim().max(80).optional(),
+    /** Três estados: ausente mantém, `null` remove, uuid liga (B2). */
+    indicadoPorId: Uuid.nullish(),
+    /**
+     * Três estados, como na tarefa (N-4): ausente mantém, `null` remove, uuid
+     * troca. A campanha ATUAL é aceita mesmo já encerrada — editar o telefone
+     * de quem chegou por uma campanha de março não pode soltá-la de março.
+     */
+    campanhaId: Uuid.nullish(),
     unidadeId: Uuid.nullish(),
     ultimaConsulta: DiaCivil.nullish(),
     obs: z.string().trim().max(300).optional(),
   })
   .strict()
   .transform((p) =>
-    p.origem !== undefined && p.origem !== ORIGEM_INDICACAO ? { ...p, indicadoPor: '' } : p,
+    p.origem !== undefined && p.origem !== ORIGEM_INDICACAO
+      ? { ...p, indicadoPor: '', indicadoPorId: null }
+      : p,
   )
 export type EditarPaciente = z.infer<typeof EditarPaciente>
 
@@ -168,31 +194,43 @@ export const PacienteNaLista = z.object({
 })
 export type PacienteNaLista = z.infer<typeof PacienteNaLista>
 
-/**
- * A tarefa como a ficha do paciente a mostra.
- *
- * NENHUM campo de dinheiro, e isso não é esquecimento: `tarefas` não tem
- * coluna monetária. O pagamento do atendimento mora em `recebimentos`, e é o
- * índice único parcial da migration 0006 que impede a segunda contagem.
- */
-export const TarefaNaFicha = z.object({
-  id: Uuid,
-  descricao: z.string(),
-  tipo: z.string(),
-  prazo: DiaCivil,
-  hora: z.string().nullable(),
-  prioridade: z.enum(['normal', 'urgente']),
-  status: z.enum(['aberta', 'concluida', 'cancelada']),
-  concluidaEm: z.string().nullable(),
-  responsavelId: Uuid,
-  etapa: z.string().nullable(),
-  resultado: z.string(),
-})
-export type TarefaNaFicha = z.infer<typeof TarefaNaFicha>
-
 /** O cadastro mais a linha do tempo. LTV por programa chega nos épicos 4 e 5. */
 export const FichaDoPaciente = PacienteNaLista.extend({
-  tarefas: z.array(TarefaNaFicha),
+  /**
+   * Abertas primeiro, depois da mais recente para a mais antiga — a ordem do
+   * Histórico do protótipo (`vPaciente`). Ordenada no servidor.
+   *
+   * `TarefaNaLista`, **a mesma forma de Hoje e de Tarefas** (correções da PO,
+   * A2). Era uma forma enxuta própria, sem `historico`, `valorOrcamento`,
+   * `proximoPassoEm` nem `programaOrcado`, e por isso a ficha não desenhava o
+   * cartão da jornada: a paciente com um orçamento de R$ 20.000 em aberto
+   * aparecia sem nenhuma etapa. O protótipo desenha o mesmo `cardTarefa` no
+   * Histórico (`semPaciente`), e uma terceira forma da mesma tarefa é
+   * exatamente como o legado divergiu. Sem alias: um segundo nome para a
+   * mesma forma convida a divergir de novo.
+   *
+   * O dinheiro (`valorOrcamento`, `pagamento.valor`, `programaOrcado[].valor`)
+   * sai pela redação de ponto único (regra 17). Sem `jornada`, o servidor
+   * devolve `historico: []`, `proximoPassoEm` e `programaOrcado` nulos — a
+   * mesma forma, os blocos vazios (appsec S-5).
+   */
+  tarefas: z.array(TarefaNaLista),
+  /** O dia civil de hoje NA CLÍNICA (regra 24): o cartão nunca usa `new Date()`. */
+  hoje: DiaCivil,
+  /**
+   * A indicadora cadastrada — **só id e nome, e só se ela estiver ATIVA**
+   * (LGPD L-B2-6, appsec S-36). Desativada ou anonimizada: `null`, e a ficha
+   * diz "Indicada por uma paciente", sem nome e sem link.
+   *
+   * Mora na FICHA, e não em `PacienteNaLista`: a ficha tem trilha de acesso,
+   * a lista não. Nem o id da indicadora sai na lista — com os nomes de todas
+   * ao lado, o id já remontaria o grafo de quem indicou quem.
+   */
+  indicadora: z.object({ id: Uuid, nome: z.string() }).strict().nullable(),
+  /** Há indicadora cadastrada ligada, ativa ou não. É o que a ficha usa sem nome. */
+  indicadaPorPaciente: z.boolean(),
+  /** "Chegou por uma campanha?" — só o id; o nome vem da lista de vinculáveis. */
+  campanhaId: Uuid.nullable(),
 })
 export type FichaDoPaciente = z.infer<typeof FichaDoPaciente>
 

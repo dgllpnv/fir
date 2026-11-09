@@ -44,8 +44,8 @@
    * recepção lê de relance. Medido agora: 4,68:1.
    */
   --bad-soft: #f9e9e6;
-  --display: 'Lora', Georgia, 'Times New Roman', serif;
-  --body: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --display: var(--fonte-lora, 'Lora'), Georgia, 'Times New Roman', serif;
+  --body: var(--fonte-inter, Inter), 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --r: 10px;
 
   /*

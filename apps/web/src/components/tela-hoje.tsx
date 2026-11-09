@@ -33,6 +33,7 @@ export function TelaHoje({
   podeEquipe,
   podeReceber,
   podeValores,
+  podePacientes,
   inicial,
 }: {
   eu: string
@@ -40,6 +41,8 @@ export function TelaHoje({
   podeReceber: boolean
   /** Repassado ao montador do orçamento, dentro do cartão da jornada. */
   podeValores: boolean
+  /** `temPerm(…, 'pacientes')`: sem ela, o nome no cartão não leva à ficha (S-1). */
+  podePacientes: boolean
   /** O que o servidor já trouxe para o caminho padrão. Ver `DadoInicial`. */
   inicial?: DadoInicial<HojeComProgramas>
 }) {
@@ -52,7 +55,11 @@ export function TelaHoje({
   // Concluir, cancelar, reabrir e editar são as MESMAS quatro ações da tela
   // Tarefas, e moram num lugar só. Ver `lib/acoes-de-tarefa.ts`.
   const { acoes, mover, emEdicao, fecharEdicao, recado, setRecado, aoSalvarEdicao } =
-    useAcoesDeTarefa(recarregar, { podeVerValores: podeValores, hoje: dados?.hoje ?? null })
+    useAcoesDeTarefa(recarregar, {
+      podeVerValores: podeValores,
+      hoje: dados?.hoje ?? null,
+      autor: { id: eu, podeEquipe },
+    })
 
   const cartao = (t: TarefaNaLista, semPrazo = false) => (
     <CartaoDeTarefa
@@ -61,6 +68,7 @@ export function TelaHoje({
       hoje={dados?.hoje ?? ''}
       eu={eu}
       podeEquipe={podeEquipe}
+      podePacientes={podePacientes}
       podeReceber={podeReceber}
       acoes={{ ...acoes, mover }}
       semPrazo={semPrazo}

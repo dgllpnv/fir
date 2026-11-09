@@ -1,6 +1,7 @@
 'use client'
 
 import type { TarefaNaLista, TarefasAfetadas } from '@fir/contracts'
+import { type Autor, podeCorrigirOrcamento } from '@fir/domain'
 import { useCallback, useState } from 'react'
 import type { AcoesDoCartao, DadosDaConclusao } from '@/components/cartao-de-tarefa'
 import type { MoverEtapa } from '@/components/jornada/faixa-da-jornada'
@@ -42,7 +43,18 @@ export type UsoDasAcoes = {
  * `podeVerValores` decide só se a pergunta de duplicidade mostra o valor que
  * a própria pessoa digitou; `hoje` é o do servidor.
  */
-export type ContextoDasAcoes = { readonly podeVerValores: boolean; readonly hoje: string | null }
+export type ContextoDasAcoes = {
+  readonly podeVerValores: boolean
+  readonly hoje: string | null
+  /**
+   * Quem está na tela: `{ id: sessao.minhaPessoaId, podeEquipe: temPerm(…,
+   * 'tarefas.equipe') }`. Com ele, "Corrigir orçamento" some do cartão que a
+   * pessoa não pode editar (B1) — pela MESMA `podeCorrigirOrcamento` do
+   * servidor. Ausente, o botão aparece e o servidor responde 403 a quem não
+   * pode: falhar mostrando é melhor que esconder de quem pode.
+   */
+  readonly autor?: Autor
+}
 
 export function useAcoesDeTarefa(
   recarregar: () => void,
@@ -111,7 +123,7 @@ export function useAcoesDeTarefa(
     editar: (t: TarefaNaLista) => setEmEdicao(t),
   }
 
-  const mover: MoverEtapa = (id, corpo) =>
+  const enviar = (id: string, corpo: Record<string, unknown>) =>
     agir(
       () =>
         // Só `fechar` grava dinheiro, e só ele recebe 409 de confirmação; as
@@ -125,6 +137,13 @@ export function useAcoesDeTarefa(
         }),
       AVISO_DA_ACAO[String(corpo['acao'])] ?? 'Registrado.',
     )
+  const autor = contexto.autor
+  const mover: MoverEtapa =
+    autor === undefined
+      ? enviar
+      : Object.assign(enviar, {
+          podeCorrigirOrcamento: (t: TarefaNaLista) => podeCorrigirOrcamento(t, autor),
+        })
 
   return {
     acoes,
@@ -160,12 +179,19 @@ const AVISO_DA_ACAO: Readonly<Record<string, string>> = {
   followUp: 'Follow-up registrado.',
   perder: 'Orçamento marcado como perdido.',
   fechar: 'Fechamento registrado.',
+  corrigirOrcamento: 'Orçamento corrigido.',
 }
 
-/** O valor que a pessoa digitou no "Fechou" — texto de centavos no corpo. */
-function valorDoFechamento(corpo: Readonly<Record<string, unknown>>): bigint | null {
+/**
+ * O valor que a pessoa digitou no "Fechou" — texto de centavos no corpo.
+ *
+ * Exportada para o teste: a expressão era `/^d+$/` (sem a barra invertida),
+ * que só casa com "d", "dd"… — o valor nunca chegava à pergunta de possível
+ * duplicidade (D-21), e nenhum erro aparecia.
+ */
+export function valorDoFechamento(corpo: Readonly<Record<string, unknown>>): bigint | null {
   const r = corpo['recebimento']
   if (typeof r !== 'object' || r === null) return null
   const v = (r as Record<string, unknown>)['valor']
-  return typeof v === 'string' && /^d+$/.test(v) ? BigInt(v) : null
+  return typeof v === 'string' && /^\d+$/.test(v) ? BigInt(v) : null
 }

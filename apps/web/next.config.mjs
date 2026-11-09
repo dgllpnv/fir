@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import { identificadorDeDeploy } from './identificador-de-deploy.mjs'
 
 /**
  * O navegador chama `/api/...` na MESMA origem do web, e o servidor do Next
@@ -40,6 +41,41 @@ export default {
   outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
 
   transpilePackages: ['@fir/contracts', '@fir/domain', '@fir/ui'],
+
+  /**
+   * **Uma aba aberta antes do deploy recarrega inteira, em vez de navegar.**
+   *
+   * Sem isto, o JavaScript antigo que ficou na memória da aba navega por
+   * dentro depois do deploy e monta telas com classes que o CSS novo não tem:
+   * o dono viu o painel do superadmin desmontado por um instante, em
+   * produção, depois de um deploy que reverteu uma mudança de tela (2026-11-09,
+   * `docs/specs/correcoes-po-2026-11-09.md` C1). Com o `deploymentId`, o Next
+   * compara a versão da aba com a do servidor a cada navegação e, se
+   * divergirem, faz a navegação completa.
+   *
+   * O valor é o commit que o `implantar.sh` passa como `FIR_COMMIT`
+   * (`apps/web/Dockerfile`). Fora do deploy ele não existe, e o build local
+   * segue sem identificador — `||` pela mesma razão do `rewrites()` abaixo: um
+   * `ARG` não passado chega como string vazia.
+   */
+  deploymentId: identificadorDeDeploy(process.env.FIR_COMMIT),
+
+  /**
+   * **A câmera só para este site, e nada de microfone nem localização.** O leitor
+   * de código do estoque usa a câmera (A4); sem esta linha, qualquer `iframe` de
+   * terceiro que um dia entrasse numa página herdaria o direito de pedi-la
+   * (gate appsec S-18).
+   */
+  async headers() {
+    return [
+      {
+        source: '/:caminho*',
+        headers: [
+          { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=()' },
+        ],
+      },
+    ]
+  },
 
   experimental: {
     // `packages/ui` traz o CSS que o Next precisa processar, e ele vive **fora**

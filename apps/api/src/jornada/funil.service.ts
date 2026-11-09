@@ -12,7 +12,9 @@ import {
   type AcaoDeJornada,
   diaCivil,
   type Etapa,
+  type EventoDeJornada,
   janela,
+  orcadoNaJanela,
   type Relogio,
 } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
@@ -67,8 +69,14 @@ export const ACOES_DOS_KPIS = ['noshow', 'desmarcar', 'perder'] as const satisfi
 type Desenho = {
   readonly chave: PassoDoFunil
   readonly rotulo: string
-  /** De onde sai o valor do passo. `null` = o passo não tem valor. */
-  readonly valorDe: 'recebido' | 'evento' | null
+  /**
+   * De onde sai o valor do passo. `null` = o passo não tem valor.
+   *
+   * `'orcado'`: o valor VIGENTE NO FIM DA JANELA de cada orçamento enviado
+   * nela (B1, gate de números N-14, leitura b). Um mês fechado nunca muda; o
+   * período em curso mostra o corrigido.
+   */
+  readonly valorDe: 'recebido' | 'evento' | 'orcado' | null
   readonly rotuloDoValor: string
   /** O passo sobre o qual este converte. `null` = o primeiro. */
   readonly sobre: PassoDoFunil | null
@@ -87,7 +95,7 @@ const DESENHO: readonly Desenho[] = [
   { chave: 'agendados', rotulo: 'Agendados', valorDe: null, rotuloDoValor: '', sobre: null, sobreRotulo: '' },
   { chave: 'confirmados', rotulo: 'Confirmados', valorDe: null, rotuloDoValor: '', sobre: 'agendados', sobreRotulo: 'dos agendados' },
   { chave: 'realizados', rotulo: 'Realizados', valorDe: 'recebido', rotuloDoValor: 'recebido', sobre: 'agendados', sobreRotulo: 'dos agendados' },
-  { chave: 'orcamentosEnviados', rotulo: 'Orçamentos enviados', valorDe: 'evento', rotuloDoValor: 'orçado', sobre: 'realizados', sobreRotulo: 'dos realizados' },
+  { chave: 'orcamentosEnviados', rotulo: 'Orçamentos enviados', valorDe: 'orcado', rotuloDoValor: 'orçado', sobre: 'realizados', sobreRotulo: 'dos realizados' },
   { chave: 'fechados', rotulo: 'Fechados', valorDe: 'evento', rotuloDoValor: 'fechado', sobre: 'orcamentosEnviados', sobreRotulo: 'dos orçamentos' },
 ]
 
@@ -177,6 +185,7 @@ export class FunilService {
 
       const eventos = await contarEventos(c, filtro.onde, params, emInstantes)
       const recebido = await somarRecebido(c, filtro.onde, params, emInstantes)
+      const orcado = await somarOrcado(c, filtro.onde, params, emInstantes)
       const colunas = await montarColunas(c, filtro.onde, params, emInstantes)
 
       const n = (chave: PassoDoFunil): number =>
@@ -202,7 +211,13 @@ export class FunilService {
           valor:
             d.valorDe === null
               ? null
-              : emTexto(d.valorDe === 'recebido' ? recebido : valorDoEvento(d.chave)),
+              : emTexto(
+                  d.valorDe === 'recebido'
+                    ? recebido
+                    : d.valorDe === 'orcado'
+                      ? orcado
+                      : valorDoEvento(d.chave),
+                ),
           rotuloDoValor: d.rotuloDoValor,
           conversao: sobre === null ? null : percentual(quantos, n(sobre)),
           conversaoSobre: sobre === null ? '' : sobreRotulo,
@@ -348,6 +363,44 @@ async function somarRecebido(
     p,
   )
   return BigInt(r.rows[0]?.total ?? '0')
+}
+
+/**
+ * "Orçamentos enviados · R$ orçado": o valor VIGENTE no fim da janela.
+ *
+ * A soma de `(ev->>'valor')` dos `registrarOrcamento` contaria o valor
+ * DIGITADO, para sempre — o R$ 200.000 que era R$ 20.000 ficaria no funil do
+ * período corrente sem conserto. Aqui o banco só recorta (os cartões com
+ * orçamento enviado na janela) e a regra — último evento de orçamento com
+ * `em < ate` — é `orcadoNaJanela`, de `packages/domain`, uma vez só.
+ *
+ * Por que a correção de 05/11 não alcança outubro: `ate` de outubro é 01/11, e
+ * toda correção futura tem `em >= agora >= ate`.
+ */
+async function somarOrcado(
+  c: pg.PoolClient,
+  onde: string,
+  params: unknown[],
+  emInstantes: { de: Date; ate: Date },
+): Promise<bigint> {
+  const p = [...params, emInstantes.de, emInstantes.ate]
+  const base = params.length
+  const r = await c.query<{ historico: EventoDeJornada[] }>(
+    `SELECT t.historico
+       FROM tarefas t
+      WHERE ${onde}
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements(t.historico) ev
+           WHERE ev->>'acao' = 'registrarOrcamento'
+             AND (ev->>'em')::timestamptz >= $${base + 1}
+             AND (ev->>'em')::timestamptz <  $${base + 2})`,
+    p,
+  )
+  return orcadoNaJanela(
+    r.rows.map((x) => x.historico),
+    emInstantes.de,
+    emInstantes.ate,
+  ).centavos
 }
 
 type LinhaDeColuna = {

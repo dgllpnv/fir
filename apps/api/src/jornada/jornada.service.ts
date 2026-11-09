@@ -1,17 +1,21 @@
 import type { MoverEtapa, TarefasAfetadas } from '@fir/contracts'
 import {
+  corrigirOrcamento,
   diaCivil,
+  Dinheiro,
   ehErro,
-  type Etapa,
+  type ErroDeDominio,
   type EventoDeJornada,
+  programaCabeNoOrcamento,
   type Relogio,
   somarDias,
-  type StatusDeTarefa,
   transicao,
 } from '@fir/domain'
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
+  type HttpException,
   Inject,
   Injectable,
   NotFoundException,
@@ -77,7 +81,13 @@ export class JornadaService {
     autor: AutorDaRequisicao,
     id: string,
     dados: MoverEtapa,
+    /** `temPerm(…, 'valores')`. Só a correção do orçamento pergunta (S-28). */
+    podeVerValores = false,
   ): Promise<TarefasAfetadas> {
+    if (dados.acao === 'corrigirOrcamento') {
+      return this.corrigir(clinicaId, ator, fuso, autor, id, dados, podeVerValores)
+    }
+
     /**
      * `reabrir` DELEGA para a rota do épico 2 — uma implementação, duas portas.
      *
@@ -97,7 +107,7 @@ export class JornadaService {
     const hoje = diaCivil(agora, fuso)
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
-      const t = await carregarCartao(c, id)
+      const t = await carregarCartao(c, clinicaId, id)
 
       const destino = transicao({ etapa: t.etapa, status: t.status, historico: t.historico }, dados.acao)
       if (ehErro(destino)) throw new ConflictException(destino.erro.mensagem)
@@ -111,6 +121,15 @@ export class JornadaService {
       // (commit d0d4bb0), onde a FK existia e ainda assim atravessou a RLS.
       if (dados.acao === 'registrarOrcamento' && dados.programa !== undefined) {
         await conferirResponsaveis(c, dados.programa)
+        // A MESMA regra da correção (N-17): itens com valor que passam do
+        // orçamento fariam o rateio do fechamento prender a sobra em zero.
+        const cabe = programaCabeNoOrcamento(
+          Dinheiro.deCentavos(dados.valor),
+          dados.programa.map((i) => ({
+            valor: i.valor === undefined || i.valor === null ? null : Dinheiro.deCentavos(i.valor),
+          })),
+        )
+        if (ehErro(cabe)) throw new BadRequestException(cabe.erro.mensagem)
       }
 
       /**
@@ -199,6 +218,97 @@ export class JornadaService {
       return { tarefa, todas }
     })
   }
+
+  /**
+   * CORRIGIR O ORÇAMENTO JÁ ENVIADO (B1).
+   *
+   * Porta própria, como `fechar`, porque a pergunta é outra: não é "para onde
+   * vai o cartão" (não vai — fica em `orcamento`), é "quem pode consertar o
+   * que já foi dito". A regra INTEIRA é `corrigirOrcamento`, em
+   * `packages/domain`; aqui só o transporte:
+   *
+   *   1. `SELECT … FOR UPDATE` — o Fechou de outra recepcionista espera, ou
+   *      esta espera o dele e lê `fechado` (S-29, N-18);
+   *   2. a regra do domínio, com o `hoje` DO SERVIDOR (regra 24);
+   *   3. o `UPDATE` só das duas colunas e do histórico — NUNCA a etapa. Gravar
+   *      `etapa = 'orcamento'` aqui seria a forma de, sem o `FOR UPDATE`,
+   *      devolver um cartão já fechado para "Orçamentos em aberto".
+   */
+  private async corrigir(
+    clinicaId: ClinicaId,
+    ator: Ator,
+    fuso: string,
+    autor: AutorDaRequisicao,
+    id: string,
+    dados: Extract<MoverEtapa, { acao: 'corrigirOrcamento' }>,
+    podeVerValores: boolean,
+  ): Promise<TarefasAfetadas> {
+    const agora = this.relogio.agora()
+    const hoje = diaCivil(agora, fuso)
+
+    return this.banco.naClinica(clinicaId, ator, async (c) => {
+      const t = await carregarCartao(c, clinicaId, id)
+      const r = corrigirOrcamento({
+        tarefa: t,
+        autor: { id: autor.id, podeEquipe: autor.podeEquipe },
+        podeVerValores,
+        pedido: {
+          chaveIdempotencia: dados.chaveIdempotencia,
+          ...(dados.valor === undefined ? {} : { valor: dados.valor }),
+          ...(dados.retomarEm === undefined ? {} : { retomarEm: dados.retomarEm }),
+          ...(dados.nota === undefined ? {} : { nota: dados.nota }),
+        },
+        hoje,
+        agora,
+      })
+      if (ehErro(r)) throw excecaoDaCorrecao(r.erro)
+
+      if (r.valor.tipo === 'corrigir') {
+        await c.query(
+          `UPDATE tarefas
+              SET valor_orcamento = $3::bigint,
+                  proximo_passo_em = $4::date,
+                  historico = historico || $5::jsonb
+            WHERE id = $1 AND clinica_id = $2 AND excluida_em IS NULL`,
+          [
+            id,
+            clinicaId,
+            paraParametro(r.valor.valorOrcamento),
+            r.valor.proximoPassoEm,
+            JSON.stringify([r.valor.evento]),
+          ],
+        )
+      }
+
+      const todas = await lerTarefas(c, clinicaId, hoje, [id])
+      const tarefa = todas[0]
+      if (tarefa === undefined) throw new NotFoundException('Agendamento não encontrado.')
+      return { tarefa, todas }
+    })
+  }
+}
+
+/**
+ * O erro de domínio da correção → o status HTTP. Tabela, não `if` espalhado.
+ *
+ * 403: a pessoa não pode (não é dela, ou o valor exige `valores`). 409: o
+ * estado do cartão não deixa (já fechou, ou o programa não cabe). O resto é o
+ * pedido que está errado: 400. A mensagem é a do domínio, que nunca carrega
+ * número (S-27).
+ */
+const STATUS_DO_ERRO: Readonly<Record<string, 403 | 409>> = {
+  SEM_ACESSO_A_TAREFA: 403,
+  CORRECAO_EXIGE_VALORES: 403,
+  TRANSICAO_INVALIDA: 409,
+  ESTADO_IMPOSSIVEL: 409,
+  PROGRAMA_PASSA_DO_ORCAMENTO: 409,
+}
+
+function excecaoDaCorrecao(e: ErroDeDominio): HttpException {
+  const status = STATUS_DO_ERRO[e.codigo]
+  if (status === 403) return new ForbiddenException(e.mensagem)
+  if (status === 409) return new ConflictException(e.mensagem)
+  return new BadRequestException(e.mensagem)
 }
 
 /** O motivo de perda, resolvido pela lista DA CLÍNICA — ou 400. */
@@ -257,7 +367,7 @@ async function conferirResponsaveis(
  * ramo morto é onde a próxima ação esquecida vai se esconder.
  */
 function efeitosDa(
-  dados: Exclude<MoverEtapa, { acao: 'reabrir' | 'fechar' }>,
+  dados: Exclude<MoverEtapa, { acao: 'reabrir' | 'fechar' | 'corrigirOrcamento' }>,
   t: CartaoCarregado,
   hoje: string,
   agora: Date,

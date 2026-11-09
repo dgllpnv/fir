@@ -654,6 +654,48 @@ sinal de tentativa de acesso indevido nos logs. Fechar é só pôr os IPs em `IP
 **No código:** `infra/producao/implantar.sh` (asserção 7.8) trata o `200` em `/superadmin` como aviso **só** quando a lista
 contém `0.0.0.0/0` explicitamente; qualquer outra lista que deixe passar origem de fora continua reprovando a implantação.
 
+## D-25 · Correções da PO após o teste em produção (2026-11-09)
+
+Spec, gates e plano: `docs/specs/correcoes-po-2026-11-09.md`, `correcoes-po-gate-*.md`, `correcoes-po-plano.md`.
+(O número D-25 usado pelo commit revertido `5c4f1bc` não chegou a valer; a reversão `7fccae0` o anulou.)
+
+**Decisões do dono:**
+1. **Corrigir o orçamento** (item 2): só valor, data de retomar e nota do orçamento já enviado, com trilha; as etapas
+   passadas não mudam. O coordenador seguiu a recomendação dos gates: a correção é um evento novo (`corrigirOrcamento`),
+   e "R$ orçado" de uma janela usa o valor vigente no fim dela — mês fechado nunca muda.
+2. **Setor de atuação** (item 8): nome "Setor de atuação"; setores por clínica; **um setor por pessoa**; a tarefa vai
+   para uma pessoa **ou** para um setor; quem é do setor vê em "Para mim", conclui, edita e reabre — cancelar e excluir
+   não; quem gerencia setores tem `config`; tarefa de setor **não** entra no % no prazo da meta individual (linha própria
+   no Painel). Sessão de programa fica fora do setor nesta versão. ADR 0025.
+3. **Recebimento** (item 10): não haverá entrada sem paciente; só a tela melhora, como o protótipo.
+4. **Indicação** (itens 6 e 7): "Indicado por" liga a uma paciente cadastrada (o texto livre fica para quem não é
+   paciente) e o Painel ganha "Quem mais indica".
+5. Trocar a campanha de uma tarefa já paga é permitido, como no protótipo (recomendação do gate de números, N-5).
+6. **Reabrir** tarefa de setor concluída: só quem a concluiu, quem a solicitou ou quem tem `tarefas.equipe` (P8).
+   **Depois de vencida**, trocar o destino (pessoa↔setor) só por quem solicitou ou tem `tarefas.equipe` (N-24). O destino
+   de qualquer tarefa só muda enquanto ela está aberta (N-25) — isso muda um comportamento de hoje: passar uma tarefa já
+   concluída para outra pessoa deixa de ser possível.
+
+7. **Índice `tarefa_viva_da_campanha` (migration 0065):** além de incluir `tipo` (N-6), passa a **ignorar tarefas de
+   série** (`serie_id IS NULL`). Sem isso, criar uma tarefa recorrente com campanha dava 409 já na criação (todas as
+   ocorrências ficam abertas, mesmo tipo, mesma paciente). A importação de lista nunca cria série, então a idempotência
+   dela continua. **Risco de reversão:** com a 0065 aplicada, voltar o código para antes dela deixa a importação de
+   campanha em erro 500 permanente (o `ON CONFLICT` antigo não acha mais índice) — reverter exige também uma migration
+   que recrie o índice antigo. **Efeito na importação** (gate de números, seção "A3 — índice da 0065"): se a paciente já
+   tem uma ocorrência aberta de série do mesmo tipo na campanha, importá-la cria uma tarefa avulsa em vez de "ignorada".
+   Não dobra receita nem convertidos (contam pacientes distintos); são dois contatos reais se as duas forem feitas. Se o
+   dono preferir que a série conte como "já está na campanha", o lugar é um `NOT EXISTS` na importação, não o índice.
+8. **Registrar orçamento** passa a recusar (400) um programa cujos itens com valor somam mais que o orçamento (N-17); antes
+   aceitava. A correção do orçamento aplica a mesma regra.
+9. **Defeito em produção corrigido no caminho:** a pergunta de possível duplicidade ao clicar "Fechou" (D-21) nunca
+   disparava — a expressão que lia o valor era `/^d+$/` em vez de `/^\d+$/` (`apps/web/src/lib/acoes-de-tarefa.ts`).
+10. **Migrations desta onda:** 0062 e 0065; 0063 e 0064 ficam sem uso; o setor de atuação usa **0066**.
+
+**Para o RIPD da clínica (gate LGPD, S60-2):** com o setor de atuação, perfis **sem** a permissão `pacientes` (ex.:
+Enfermagem) passam a ver **nome e telefone** da paciente nas tarefas mandadas ao setor deles. É o mínimo para cumprir a
+tarefa; a ficha, a jornada, valores e dose continuam fora (ADR 0025 §14.4). Deve constar no RIPD e no DPA (P-3) antes de
+implantar numa clínica real.
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

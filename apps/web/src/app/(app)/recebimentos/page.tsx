@@ -18,6 +18,7 @@ export default async function Recebimentos() {
       hoje={eu.hoje}
       mes={eu.hoje.slice(0, 7)}
       podeValores={temPerm(quem, perfis, 'valores')}
+      podePacientes={temPerm(quem, perfis, 'pacientes')}
     />
   )
 }

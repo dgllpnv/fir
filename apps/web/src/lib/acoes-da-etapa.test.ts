@@ -42,12 +42,23 @@ describe('a faixa de ações vem da tabela de @fir/domain', () => {
     expect(nomes('desmarcou')).toEqual(['reagendar', 'encerrar'])
   })
 
-  it('de orçamento saem fechar, follow-up e perder', () => {
-    expect(nomes('orcamento', { status: 'concluida' }).sort()).toEqual([
-      'fechar',
+  it('de orçamento saem follow-up, fechar, corrigir e perder — a recusa por último', () => {
+    expect(nomes('orcamento', { status: 'concluida' })).toEqual([
       'followUp',
+      'fechar',
+      'corrigirOrcamento',
       'perder',
     ])
+  })
+
+  it('"Corrigir orçamento" some de quem não pode editar o cartão (B1)', () => {
+    expect(nomes('orcamento', { status: 'concluida', podeCorrigir: false })).not.toContain(
+      'corrigirOrcamento',
+    )
+    // E não aparece em etapa nenhuma além de `orcamento`.
+    for (const etapa of ETAPAS.filter((e) => e !== 'orcamento')) {
+      expect(nomes(etapa, { status: 'concluida' }), etapa).not.toContain('corrigirOrcamento')
+    }
   })
 
   it('os três terminais não oferecem ação nenhuma', () => {

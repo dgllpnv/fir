@@ -4,6 +4,7 @@ import type { PagamentoEmbutido, TarefaNaLista } from '@fir/contracts'
 import { FORMAS } from '@fir/contracts'
 import { aceitaPagamento, tipoAoConcluir } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
+import Link from 'next/link'
 import { useState } from 'react'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto, linkDeWhatsApp } from '@/lib/formato'
@@ -45,6 +46,13 @@ type Props = {
   readonly hoje: string
   readonly eu: string
   readonly podeEquipe: boolean
+  /**
+   * `temPerm(…, 'pacientes')`, resolvido pela TELA (appsec S-1). Sem ela, o
+   * nome é texto: a ficha responderia 403, e um link que dá 403 é um link
+   * quebrado na mão da recepção (Enfermagem não tem `pacientes`).
+   * Obrigatória de propósito — a tela que esquecer não compila.
+   */
+  readonly podePacientes: boolean
   /** `temPerm(…, 'receber')`. Sem ela, "Fechou" some da faixa (D-7). */
   readonly podeReceber?: boolean
   /** Repassado a `FaixaDaJornada`: o campo de valor do ITEM no montador. */
@@ -52,6 +60,17 @@ type Props = {
   readonly acoes: AcoesDoCartao
   /** Em Hoje o prazo é redundante — a tela inteira já é daquele dia. */
   readonly semPrazo?: boolean
+  /**
+   * Dentro da própria ficha da paciente: o nome não vira link para a página
+   * em que a pessoa já está, e o WhatsApp sai do cartão (a ficha o mostra uma
+   * vez, no cabeçalho). É o `semPaciente` do `cardTarefa` do protótipo.
+   */
+  readonly semPaciente?: boolean
+  /**
+   * A tarefa que o link trouxe até aqui (`/pacientes/{id}?tarefa={tarefaId}`).
+   * Ganha a âncora e o realce; quem rola até ela é a tela.
+   */
+  readonly destacada?: boolean
 }
 
 export function CartaoDeTarefa({
@@ -59,10 +78,13 @@ export function CartaoDeTarefa({
   hoje,
   eu,
   podeEquipe,
+  podePacientes,
   podeReceber = true,
   podeValores = false,
   acoes,
   semPrazo,
+  semPaciente = false,
+  destacada = false,
 }: Props) {
   const [concluindo, setConcluindo] = useState(false)
   const [ocupado, setOcupado] = useState(false)
@@ -84,7 +106,7 @@ export function CartaoDeTarefa({
       ? `Para ${primeiroNome(t.responsavelNome)}`
       : `${primeiroNome(t.solicitanteNome)} → ${primeiroNome(t.responsavelNome)}`
 
-  const whats = linkDeWhatsApp(t.pacienteTelefone)
+  const whats = semPaciente ? null : linkDeWhatsApp(t.pacienteTelefone)
 
   async function aoTocarNoCirculo() {
     if (ocupado) return
@@ -103,6 +125,9 @@ export function CartaoDeTarefa({
   return (
     <article
       className="tarefa"
+      id={destacada ? `tarefa-${t.id}` : undefined}
+      tabIndex={destacada ? -1 : undefined}
+      data-destaque={destacada ? 'sim' : undefined}
       data-situacao={t.status}
       data-atrasada={t.atrasada ? 'sim' : 'nao'}
       data-urgente={t.prioridade === 'urgente' && !feita && !cancelada ? 'sim' : 'nao'}
@@ -120,8 +145,17 @@ export function CartaoDeTarefa({
       <div className="corpo">
         {t.pacienteId !== null ? (
           <div className="pmeta">
-            <span className="pill paciente">{t.pacienteNome}</span>
-            {t.pacienteConferirCadastro ? <SeloConferirCadastro /> : null}
+            {/* O nome abre a ficha — o `pchip` do protótipo (L2085, L2215).
+                Neste ramo `pacienteId` não é nulo: o link nunca vira
+                `/pacientes/` vazio. */}
+            {semPaciente ? null : podePacientes ? (
+              <Link className="pill paciente" href={`/pacientes/${t.pacienteId}`}>
+                {t.pacienteNome}
+              </Link>
+            ) : (
+              <span className="pill paciente">{t.pacienteNome}</span>
+            )}
+            {t.pacienteConferirCadastro && !semPaciente ? <SeloConferirCadastro /> : null}
             {t.tipo === '' ? null : <span className="pill">{t.tipo}</span>}
             {t.pagamento === null ? null : (
               <>

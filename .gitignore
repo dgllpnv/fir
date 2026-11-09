@@ -22,3 +22,6 @@ docs/seguranca-v20-local.md
 # mandado para o GitHub. Ficam no disco, como fonte da migracao, e nunca aqui.
 docs/Planilhas/
 *.xlsx
+
+# Permissões locais do Claude Code (por máquina)
+.claude/settings.local.json

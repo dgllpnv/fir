@@ -1,6 +1,7 @@
 import type {
   CumprimentoDePrazos,
   FiltroDoPainel,
+  IndicadoraNoPainel,
   LinhaPorResponsavel,
   LinhaPorSolicitante,
   LinhaPorUnidade,
@@ -100,7 +101,7 @@ export class PainelService {
     const campanhas = await this.campanhas.noPeriodo(ctx, periodo.de, periodo.ate)
 
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const [prazos, criadas, solicitantes, pacientes, topPagantes, porUnidade, novos] =
+      const [prazos, criadas, solicitantes, pacientes, topPagantes, porUnidade, novos, indica] =
         await Promise.all([
           this.prazos(c, ctx, periodo, hoje),
           this.criadasNoPeriodo(c, ctx, periodo),
@@ -109,6 +110,7 @@ export class PainelService {
           this.topPagantes(c, ctx, periodo, filtro.top),
           this.porUnidade(c, ctx, periodo, hoje),
           this.novosPacientes(c, ctx, periodo),
+          this.quemMaisIndica(c, ctx, periodo),
         ])
 
       return {
@@ -123,6 +125,7 @@ export class PainelService {
         porUnidade,
         novosPacientes: novos,
         campanhas,
+        quemMaisIndica: indica,
       }
     })
   }
@@ -853,6 +856,56 @@ export class PainelService {
       total: porOrigem.reduce((n, o) => n + o.novos, 0),
       porOrigem,
     }
+  }
+
+  /**
+   * **QUEM MAIS INDICA** (correções da PO, B3) — pela data de CADASTRO da
+   * indicada, a mesma janela de `novosPacientes`.
+   *
+   * ──────────────────────────────────────────────────────────────────────────
+   * CONTA PACIENTES, NÃO LINHAS (N-19)
+   *
+   * A consulta lê só `pacientes`, as duas pontas do vínculo, e conta
+   * `count(DISTINCT indicada)`. Nenhum `JOIN` com `tarefas` ou `recebimentos`:
+   * com ele, a indicada com 12 sessões pagas viraria 12 indicações. Se a
+   * receita das indicadas entrar um dia, ela vem de uma subconsulta agregada
+   * POR INDICADA, com `baseDeReceita` e o corte de caixa (N-22), e só então
+   * entra aqui.
+   * ──────────────────────────────────────────────────────────────────────────
+   *
+   * Só por `indicado_por_id`: o texto livre de `indicado_por` não diz, sem
+   * homônimo, quem é a pessoa (N-20, L-B2-4).
+   *
+   * Indicadora **ativa** apenas (L-B3-3); a indicada desativada conta, porque
+   * o cadastro aconteceu na janela e desativar é estado (N-20).
+   *
+   * `clinica_id = $1` nas DUAS pontas além da RLS (S-39): o ranking só tem
+   * paciente da clínica, mesmo que um vínculo antigo apontasse para fora.
+   *
+   * Desempate `nome, id` ANTES do `LIMIT` (N-21): sem ele, duas indicadoras
+   * empatadas trocam de lugar entre dois carregamentos, e a décima some e
+   * volta sozinha.
+   */
+  private async quemMaisIndica(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    periodo: { de: string; ate: string },
+  ): Promise<IndicadoraNoPainel[]> {
+    const j = janela(periodo.de, periodo.ate, ctx.fuso)
+    const r = await c.query<{ id: string; nome: string; n: string }>(
+      `SELECT i.id::text AS id, i.nome, count(DISTINCT p.id)::text AS n
+         FROM pacientes p
+         JOIN pacientes i ON i.clinica_id = p.clinica_id AND i.id = p.indicado_por_id
+        WHERE p.clinica_id = $1 AND i.clinica_id = $1
+          AND p.indicado_por_id IS NOT NULL
+          AND i.ativo
+          AND p.criado_em >= $2 AND p.criado_em < $3
+        GROUP BY i.id, i.nome
+        ORDER BY count(DISTINCT p.id) DESC, i.nome ASC, i.id ASC
+        LIMIT 10`,
+      [ctx.clinicaId, j.de, j.ate],
+    )
+    return r.rows.map((l) => ({ pacienteId: l.id, nome: l.nome, indicadas: Number(l.n) }))
   }
 }
 

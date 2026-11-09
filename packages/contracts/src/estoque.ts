@@ -117,6 +117,25 @@ const Conversao = z.discriminatedUnion('tem', [
     .strict(),
 ])
 
+/**
+ * O CÓDIGO DE BARRAS DA CAIXA (GS1/EAN): **8 a 14 dígitos**.
+ *
+ * Um esquema só, para os dois caminhos que gravam o código — ligar pela
+ * leitura (`LigarCodigoItem`) e o campo do cadastro (`SalvarItemEstoque`).
+ * Dois `regex` iguais em dois lugares divergem no dia em que alguém aceitar 15
+ * dígitos num deles, e o mesmo código passaria a valer num caminho e não no
+ * outro. A forma canônica (14 dígitos) é gravada pelo servidor, também num
+ * ponto só — `gravarGtin`, em `apps/api/src/estoque/itens.service.ts`.
+ */
+const MENSAGEM_DO_GTIN = 'O código de barras precisa ter de 8 a 14 dígitos.'
+export const CodigoDeBarras = z.string().trim().regex(/^\d{8,14}$/, MENSAGEM_DO_GTIN)
+
+/** `''` (sem código) ou {@link CodigoDeBarras}. */
+const CodigoDeBarrasOuVazio = z
+  .string()
+  .trim()
+  .refine((v) => v === '' || CodigoDeBarras.safeParse(v).success, MENSAGEM_DO_GTIN)
+
 export const SalvarItemEstoque = z
   .object({
     nome: z.string().trim().min(1, 'Dê um nome ao item.').max(80),
@@ -153,6 +172,16 @@ export const SalvarItemEstoque = z
     responsavelId: Uuid.nullish(),
 
     ativo: z.boolean().default(true),
+
+    /**
+     * O código de barras da caixa — `''` = sem código.
+     *
+     * O mesmo esquema de `LigarCodigoItem` e a mesma normalização para 14
+     * dígitos no servidor. Na EDIÇÃO (parcial), ausente PRESERVA o código — um
+     * `PATCH { nome }` não pode apagar o que a leitura da caixa ligou — e `''`
+     * explícito o tira.
+     */
+    gtin: CodigoDeBarrasOuVazio.default(''),
 
     /**
      * A CONTAGEM INICIAL — "a quantidade de hoje é o ponto de partida"
@@ -855,10 +884,7 @@ export type ConsultaDaAnalise = z.infer<typeof ConsultaDaAnalise>
  */
 export const LigarCodigoItem = z
   .object({
-    gtin: z
-      .string()
-      .trim()
-      .regex(/^\d{8,14}$/, 'O código precisa ter de 8 a 14 dígitos.'),
+    gtin: CodigoDeBarras,
   })
   .strict()
 export type LigarCodigoItem = z.infer<typeof LigarCodigoItem>

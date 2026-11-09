@@ -31,6 +31,11 @@ import { JornadaService } from './jornada.service'
  * hoje.
  *
  * `fechar` exige TAMBÉM `receber` — ver `PERMISSAO_EXTRA`.
+ *
+ * `corrigirOrcamento` (B1) exige `jornada` (este decorador) **e** poder editar
+ * a tarefa — solicitante, responsável ou `tarefas.equipe` —, decidido em
+ * `packages/domain` (`corrigirOrcamento` → `podeEditar`). Não é permissão de
+ * matriz, é de autoria, e por isso não está em `PERMISSAO_EXTRA`.
  */
 
 /**
@@ -75,6 +80,16 @@ export class JornadaController {
     if (extra !== undefined && !c.pode(extra)) {
       throw new ForbiddenException('Sem acesso a esta ação.')
     }
-    return this.jornada.mover(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id, dados.data)
+    // `valores` vai junto só para a correção do orçamento decidir sem virar
+    // oráculo (S-28) — a REDAÇÃO continua sendo do interceptor, na saída.
+    return this.jornada.mover(
+      c.clinicaId,
+      c.ator,
+      c.clinicaFuso,
+      autorDe(c),
+      id,
+      dados.data,
+      c.pode('valores'),
+    )
   }
 }

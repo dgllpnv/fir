@@ -1,10 +1,11 @@
 import type { CampanhaNaLista } from '@fir/contracts'
-import { TIPOS_DE_RECEITA, TIPOS_PAGAVEIS, mesesEntre, type StatusDeCampanhaCarteira } from '@fir/domain'
+import { mesesEntre, type StatusDeCampanhaCarteira } from '@fir/domain'
 import type pg from 'pg'
 import { SISTEMA } from '../../banco/ator'
 import { BancoService } from '../../banco/banco.service'
 import { clinicaIdDeFonteConfiavel, type ClinicaId } from '../../banco/clinica-id'
 import { CampanhasService } from '../../campanhas/campanhas.service'
+import { RECEITA_DA_CAMPANHA } from '../../campanhas/receita-da-campanha'
 import type { Relogio } from '../../comum/relogio'
 import { diaDaClinica } from '../../estoque/dia-da-clinica'
 import { DINHEIRO_QUE_ENTROU } from '../../financeiro/dinheiro-que-entrou'
@@ -205,11 +206,10 @@ async function lerCelulas(
         WHERE t.clinica_id = $1
           AND t.campanha_id IS NOT NULL
           AND t.excluida_em IS NULL
-          AND t.status = 'concluida'
-          AND t.paciente_id IS NOT NULL
-          AND (t.tipo = ANY($3) OR (t.tipo = ANY($4) AND r.valor > 0))
+          -- O predicado ÚNICO da receita da campanha (correções da PO, N-2).
+          AND ${RECEITA_DA_CAMPANHA}
         GROUP BY 1, 2`,
-      [clinicaId, fuso, [...TIPOS_DE_RECEITA], [...TIPOS_PAGAVEIS]],
+      [clinicaId, fuso],
     ),
   )
   // Os meses que JÁ existem na carteira para estas campanhas entram de novo

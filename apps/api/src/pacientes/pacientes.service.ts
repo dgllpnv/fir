@@ -5,6 +5,7 @@ import type {
   ListaDePacientes,
   PacienteNaLista,
   SalvarPaciente,
+  TarefaNaLista,
 } from '@fir/contracts'
 import { diaCivil, type Relogio, type SaldoDoPaciente, somarDias, TIPOS } from '@fir/domain'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
@@ -16,6 +17,14 @@ import { RELOGIO } from '../comum/relogio'
 import { unidadeValida } from '../comum/unidade'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 import { saldoDe, saldosDe } from '../financeiro/saldo.repositorio'
+import {
+  type LeitorDaRequisicao,
+  type LinhaDeTarefa,
+  paraSaida as tarefaParaSaida,
+  SELECT_TAREFA,
+} from '../tarefas/leitura'
+import { campanhaParaVincular } from '../campanhas/vinculo'
+import { decidirIndicacaoNoBanco, traduzirErroDeIndicacao, vinculosNaFicha } from './vinculos-do-cadastro'
 
 /**
  * Os tipos que contam como ATENDIMENTO.
@@ -30,6 +39,23 @@ import { saldoDe, saldosDe } from '../financeiro/saldo.repositorio'
  * lugares — com duas delas já divergindo.
  */
 const TIPOS_DE_ATENDIMENTO = TIPOS.filter((t) => t.atende === true).map((t) => t.nome)
+
+/**
+ * A tarefa da ficha SEM a jornada, para quem não tem `jornada` (appsec S-5).
+ *
+ * A ficha exige `pacientes`, não `jornada`, e o perfil é editável: sem isto,
+ * a ficha seria a porta lateral para o funil — o histórico com a nota em
+ * texto livre, o dia de retomar e o programa orçado com a dose. É a mesma
+ * regra dos três blocos da jornada em Hoje (`consulta.service.ts`): o
+ * servidor não compõe a seção, e a FORMA da resposta não muda — vazio e
+ * `null`, que o contrato já admite, nunca uma chave a menos.
+ */
+const semJornada = (t: TarefaNaLista): TarefaNaLista => ({
+  ...t,
+  historico: [],
+  proximoPassoEm: null,
+  programaOrcado: null,
+})
 
 /** "Sem retorno há 6+ meses" é 182 dias no protótipo. O mesmo número aqui. */
 const DIAS_SEM_RETORNO = 182
@@ -198,24 +224,40 @@ export class PacientesService {
     const ultima = this.soPassado(dados.ultimaConsulta, fuso)
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const unidade = await unidadeValida(c, dados.unidadeId ?? null)
+      // B2: a indicadora cadastrada, decidida no domínio e validada aqui.
+      const indicacao = await decidirIndicacaoNoBanco(c, clinicaId, null, null, dados.origem, {
+        indicadoPor: dados.indicadoPor,
+        indicadoPorId: dados.indicadoPorId ?? null,
+      })
+      // "Chegou por uma campanha?": só a em andamento HOJE, na clínica (A3).
+      // A validação é a da lista (`conferirVinculo`), nunca uma segunda janela.
+      const campanha = await campanhaParaVincular(c, {
+        clinicaId,
+        campanhaId: dados.campanhaId,
+        contexto: 'paciente',
+        agora: this.relogio.agora(),
+        fuso,
+      })
       let id: string
       try {
         const r = await c.query<{ id: string }>(
           `INSERT INTO pacientes
              (clinica_id, nome, telefone, aniversario, origem, indicado_por, unidade_id,
-              ultima_consulta, obs, criado_por)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+              ultima_consulta, obs, criado_por, indicado_por_id, campanha_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
           [
             clinicaId,
             dados.nome,
             dados.telefone,
             dados.aniversario ?? null,
             dados.origem,
-            dados.indicadoPor,
+            indicacao.indicadoPor ?? '',
             unidade,
             ultima,
             dados.obs,
             pessoaDoAtor(ator),
+            indicacao.indicadoPorId ?? null,
+            campanha,
           ],
         )
         id = r.rows[0]!.id
@@ -224,6 +266,7 @@ export class PacientesService {
         // perde a corrida entre duas recepcionistas cadastrando a mesma
         // paciente ao mesmo tempo, e o índice não perde.
         if (ehNomeRepetido(e)) throw new ConflictException(NOME_REPETIDO)
+        traduzirErroDeIndicacao(e)
         throw e
       }
       return this.lerUm(c, clinicaId, fuso, id)
@@ -238,6 +281,32 @@ export class PacientesService {
     dados: EditarPaciente,
   ): Promise<PacienteNaLista> {
     return this.banco.naClinica(clinicaId, ator, async (c) => {
+      // A linha travada: a indicação e a campanha comparam o pedido com o que
+      // ela JÁ tem (ausente mantém; o valor atual é aceito sem revalidar).
+      const atual = (
+        await c.query<{
+          origem: string
+          indicado_por_id: string | null
+          campanha_id: string | null
+        }>(
+          `SELECT origem, indicado_por_id::text AS indicado_por_id, campanha_id::text AS campanha_id
+             FROM pacientes WHERE clinica_id = $1 AND id = $2 AND ativo FOR UPDATE`,
+          [clinicaId, id],
+        )
+      ).rows[0]
+      if (atual === undefined) throw new NotFoundException('Paciente não encontrado.')
+      const indicacao = await decidirIndicacaoNoBanco(
+        c,
+        clinicaId,
+        id,
+        atual.indicado_por_id,
+        dados.origem ?? atual.origem,
+        {
+          ...(dados.indicadoPor === undefined ? {} : { indicadoPor: dados.indicadoPor }),
+          ...(dados.indicadoPorId === undefined ? {} : { indicadoPorId: dados.indicadoPorId }),
+        },
+      )
+
       const campos: string[] = []
       const params: unknown[] = [id]
       const por = (coluna: string, valor: unknown): void => {
@@ -249,7 +318,23 @@ export class PacientesService {
       if (dados.telefone !== undefined) por('telefone', dados.telefone)
       if (dados.aniversario !== undefined) por('aniversario', dados.aniversario ?? null)
       if (dados.origem !== undefined) por('origem', dados.origem)
-      if (dados.indicadoPor !== undefined) por('indicado_por', dados.indicadoPor)
+      if (indicacao.indicadoPor !== undefined) por('indicado_por', indicacao.indicadoPor)
+      if (indicacao.indicadoPorId !== undefined) por('indicado_por_id', indicacao.indicadoPorId)
+      // Três estados (N-4): ausente mantém; `null` remove; id troca — e a
+      // campanha que ela JÁ tem passa mesmo encerrada (`atual`).
+      if (dados.campanhaId !== undefined) {
+        por(
+          'campanha_id',
+          await campanhaParaVincular(c, {
+            clinicaId,
+            campanhaId: dados.campanhaId,
+            contexto: 'paciente',
+            agora: this.relogio.agora(),
+            fuso,
+            atual: atual.campanha_id,
+          }),
+        )
+      }
       if (dados.unidadeId !== undefined) {
         por('unidade_id', await unidadeValida(c, dados.unidadeId ?? null))
       }
@@ -273,6 +358,7 @@ export class PacientesService {
           if (r.rowCount === 0) throw new NotFoundException('Paciente não encontrado.')
         } catch (e) {
           if (ehNomeRepetido(e)) throw new ConflictException(NOME_REPETIDO)
+          traduzirErroDeIndicacao(e)
           throw e
         }
       }
@@ -326,44 +412,46 @@ export class PacientesService {
     return paraSaida(linha, await saldoDe(c, clinicaId, id))
   }
 
-  async ficha(clinicaId: ClinicaId, ator: Ator, fuso: string, id: string): Promise<FichaDoPaciente> {
+  /**
+   * A ficha: o cadastro e o Histórico, com as tarefas na forma `TarefaNaLista`.
+   *
+   * A leitura das tarefas é `SELECT_TAREFA` — a ÚNICA leitura de tarefa do
+   * sistema — e não uma consulta própria: uma terceira montagem da mesma
+   * tarefa é exatamente como a ficha ficou sem a etapa e sem o orçamento
+   * (correções da PO, A2). O dinheiro que ela carrega (`valorOrcamento`, o
+   * pagamento embutido, o valor de cada item orçado) sai pelo
+   * `RedacaoInterceptor`, como em toda rota: nenhum `if` de permissão aqui.
+   *
+   * Ordem do protótipo (`vPaciente`): abertas primeiro, depois a mais recente.
+   *
+   * `leitor.podeJornada` vem de `leitorDe(c)` no controlador — a permissão
+   * resolvida no servidor, nunca um parâmetro da tela (S-5).
+   */
+  async ficha(
+    clinicaId: ClinicaId,
+    ator: Ator,
+    fuso: string,
+    leitor: Pick<LeitorDaRequisicao, 'podeJornada'>,
+    id: string,
+  ): Promise<FichaDoPaciente> {
+    const hoje = this.hojeDaClinica(fuso)
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const paciente = await this.lerUm(c, clinicaId, fuso, id)
-      const tarefas = await c.query<{
-        id: string
-        descricao: string
-        tipo: string
-        prazo: string
-        hora: string | null
-        prioridade: 'normal' | 'urgente'
-        status: 'aberta' | 'concluida' | 'cancelada'
-        concluida_em: Date | null
-        responsavel_id: string
-        etapa: string | null
-        resultado: string
-      }>(
-        `SELECT id, descricao, tipo, prazo::text AS prazo, hora::text AS hora, prioridade, status,
-                concluida_em, responsavel_id, etapa::text AS etapa, resultado
-           FROM tarefas
-          WHERE paciente_id = $1 AND excluida_em IS NULL
-          ORDER BY coalesce(concluida_em, (prazo + time '12:00') AT TIME ZONE $2) DESC`,
-        [id, fuso],
+      const tarefas = await c.query<LinhaDeTarefa>(
+        `${SELECT_TAREFA} AND t.paciente_id = $3
+          ORDER BY (t.status = 'aberta') DESC,
+                   coalesce(t.concluida_em, (t.prazo + coalesce(t.hora, time '12:00')) AT TIME ZONE $4) DESC,
+                   t.criada_em DESC`,
+        [clinicaId, hoje, id, fuso],
       )
       return {
         ...paciente,
-        tarefas: tarefas.rows.map((t) => ({
-          id: t.id,
-          descricao: t.descricao,
-          tipo: t.tipo,
-          prazo: t.prazo,
-          hora: t.hora === null ? null : t.hora.slice(0, 5),
-          prioridade: t.prioridade,
-          status: t.status,
-          concluidaEm: t.concluida_em === null ? null : t.concluida_em.toISOString(),
-          responsavelId: t.responsavel_id,
-          etapa: t.etapa,
-          resultado: t.resultado,
-        })),
+        tarefas: tarefas.rows
+          .map(tarefaParaSaida)
+          .map((t) => (leitor.podeJornada ? t : semJornada(t))),
+        hoje,
+        // B2: só a linha do "indicado por" (e a campanha do cadastro).
+        ...(await vinculosNaFicha(c, clinicaId, id)),
       }
     })
   }

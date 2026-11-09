@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
 import { ehPortaDoPainel } from '@/lib/rota-do-painel'
-import { ProvedorDoPainel } from './contexto'
+import { ProvedorDoPainel, usePainel } from './contexto'
 import { FaixaDoPainel } from './faixa'
 
 /**
@@ -32,9 +32,26 @@ export function Casco({ children }: { children: ReactNode }) {
       <div className="superadmin">
         <FaixaDoPainel />
         <div className="superadmin-corpo">
-          <main className="wrap">{children}</main>
+          <main className="wrap">
+            <CorpoComSessao>{children}</CorpoComSessao>
+          </main>
         </div>
       </div>
     </ProvedorDoPainel>
   )
+}
+
+/**
+ * **A tela só aparece depois que a sessão se resolve.** Antes, a Visão geral
+ * era desenhada vazia enquanto `GET /v1/superadmin/eu` respondia — e, com senha
+ * provisória, aparecia por um instante antes do desvio para `trocar-senha`.
+ * Um painel que pisca antes de mudar de tela parece quebrado, e é o primeiro
+ * acesso de quem acabou de ganhar a conta.
+ */
+function CorpoComSessao({ children }: { children: ReactNode }) {
+  const { sessao } = usePainel()
+  if (sessao.tag === 'carregando' || sessao.tag === 'saindo') {
+    return <p className="nota" role="status" aria-busy="true" />
+  }
+  return <>{children}</>
 }

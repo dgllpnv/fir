@@ -23,6 +23,7 @@ export default async function Tarefas() {
       podeEquipe={podeEquipe}
       podeReceber={podeReceber}
       podeValores={temPerm(quem, perfis, 'valores')}
+      podePacientes={temPerm(quem, perfis, 'pacientes')}
     />
   )
 }

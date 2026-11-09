@@ -52,6 +52,12 @@ ENV NODE_ENV=production
 # argumento de **build**.
 ARG FIR_API_URL=http://api:4811
 
+# O commit vira o `deploymentId` do Next (ver `next.config.mjs`): uma aba aberta
+# antes do deploy recarrega inteira em vez de misturar versões. Declarado logo
+# antes do build porque muda a cada commit e invalida o cache só daqui em
+# diante.
+ARG FIR_COMMIT=desconhecido
+
 RUN pnpm --filter @fir/web build
 
 # ---------------------------------------------------------------------------

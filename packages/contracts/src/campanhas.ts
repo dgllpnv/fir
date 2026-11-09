@@ -274,3 +274,65 @@ export const Campanhas = z
   })
   .strict()
 export type Campanhas = z.infer<typeof Campanhas>
+
+// ---------------------------------------------------------------------------
+// AS CAMPANHAS VINCULÁVEIS (correções da PO, A3)
+// ---------------------------------------------------------------------------
+
+/**
+ * `GET /v1/campanhas/vinculaveis?contexto=tarefa|paciente[&incluir=<uuid>]`.
+ *
+ * A janela é `campanhasVinculaveis` de `packages/domain` — a mesma função que
+ * valida a escrita. `incluir` acrescenta a campanha ATUAL do registro em
+ * edição, mesmo encerrada ou excluída (N-4).
+ *
+ * **`paciente` NÃO existe aqui** (L-A3-8). A sugestão é a campanha de ORIGEM
+ * da paciente, e essa leitura precisa de trilha de acesso com o id dela: sai
+ * de `GET /v1/pacientes/:id/campanha-sugerida` (`CampanhaSugerida`). O
+ * `.strict()` faz o cliente antigo que ainda manda `?paciente=` levar 400 —
+ * ignorar em silêncio esconderia quem não migrou.
+ */
+export const ConsultaDeCampanhasVinculaveis = z
+  .object({
+    contexto: z.enum(['tarefa', 'paciente']),
+    incluir: Uuid.optional(),
+  })
+  .strict()
+export type ConsultaDeCampanhasVinculaveis = z.infer<typeof ConsultaDeCampanhasVinculaveis>
+
+/**
+ * **Só `id` e `nome`** (S-9, L-A3-2, AB-A3-1). Esta rota é de quem cria
+ * tarefa, recebe ou cadastra — inclusive quem NÃO tem a permissão
+ * `campanhas` —, e por isso é OUTRO contrato, não `CampanhaNaLista` com campos
+ * nulos: meta, receita, resultado e contagens não existem aqui nem como chave.
+ * `.strict()` nos dois níveis: a chave nova que alguém acrescentar no SELECT
+ * quebra o parse do teste de forma, em vez de atravessar.
+ */
+export const CampanhaVinculavel = z.object({ id: Uuid, nome: z.string() }).strict()
+export type CampanhaVinculavel = z.infer<typeof CampanhaVinculavel>
+
+export const CampanhasVinculaveis = z
+  .object({
+    itens: z.array(CampanhaVinculavel),
+  })
+  .strict()
+export type CampanhasVinculaveis = z.infer<typeof CampanhasVinculaveis>
+
+/**
+ * `GET /v1/pacientes/:id/campanha-sugerida` (L-A3-8, L-A3-9) — a sugestão da
+ * Nova tarefa e do Recebimento (`campanhaDoPaciente` do protótipo).
+ *
+ * **Resposta mínima.** Só o uuid e o porquê, que a tela mostra ("chegou por
+ * esta campanha" / "tarefa recente nesta campanha"). Sem nome da campanha (a
+ * tela já o tem da lista vinculável), sem id, data ou descrição de tarefa, e
+ * sem a origem quando ela não está em andamento. `.strict()`: a chave nova que
+ * alguém puser na resposta quebra o teste de forma, em vez de atravessar.
+ */
+export const MOTIVOS_DE_SUGESTAO = ['origem', 'tarefa'] as const
+export const CampanhaSugerida = z
+  .object({
+    sugerida: Uuid.nullable(),
+    motivo: z.enum(MOTIVOS_DE_SUGESTAO).nullable(),
+  })
+  .strict()
+export type CampanhaSugerida = z.infer<typeof CampanhaSugerida>

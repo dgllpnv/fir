@@ -20,11 +20,12 @@ import {
   ROTULO_FREQUENCIA,
   TIPOS,
 } from '@fir/domain'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { useDados } from '@/lib/dados'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto } from '@/lib/formato'
+import { CampoDeCampanha, useSugestaoDeCampanha } from './campo-de-campanha'
 import { Carregando, Erro, Toast } from './estados'
 import { SeletorDePaciente } from './seletor-de-paciente'
 
@@ -74,9 +75,11 @@ type Props = {
   readonly inicial: { pacienteId?: string; tipo?: string; descricao?: string }
   /** Só decide se a pergunta de duplicidade (D-21) mostra o valor digitado. */
   readonly podeValores?: boolean
+  /** Decide se a campanha é SUGERIDA ao escolher a paciente (L-A3-11). */
+  readonly podePacientes?: boolean
 }
 
-export function TelaNovaTarefa({ eu, inicial, podeValores = false }: Props) {
+export function TelaNovaTarefa({ eu, inicial, podeValores = false, podePacientes = false }: Props) {
   const clinica = useDados<ClinicaAtual>('v1/clinica')
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
   const unidades = useDados<ListaDeUnidades>('v1/unidades')
@@ -101,6 +104,7 @@ export function TelaNovaTarefa({ eu, inicial, podeValores = false }: Props) {
       tipoInicial={inicial.tipo ?? ''}
       descricaoInicial={inicial.descricao ?? ''}
       podeValores={podeValores}
+      podePacientes={podePacientes}
     />
   )
 }
@@ -114,6 +118,7 @@ function Formulario({
   tipoInicial,
   descricaoInicial,
   podeValores,
+  podePacientes,
 }: {
   eu: string
   hoje: string
@@ -123,6 +128,7 @@ function Formulario({
   tipoInicial: string
   descricaoInicial: string
   podeValores: boolean
+  podePacientes: boolean
 }) {
   const [modo, setModo] = useState<'interna' | 'paciente'>(
     pacienteInicial !== null ? 'paciente' : 'interna',
@@ -136,6 +142,19 @@ function Formulario({
   const [obs, setObs] = useState('')
   const [urgente, setUrgente] = useState(false)
   const [unidadeId, setUnidadeId] = useState('')
+  const [campanhaId, setCampanhaId] = useState('')
+  const sugestao = useSugestaoDeCampanha(podePacientes, setCampanhaId)
+  /**
+   * A paciente que chega pela URL (atalho da ficha) também é uma ESCOLHA, e
+   * lê a sugestão uma vez. A ref segura o duplo efeito do modo estrito: o
+   * `key` de `Formulario` já remonta tudo quando a paciente pré-escolhida muda.
+   */
+  const sugeriuAInicial = useRef(false)
+  useEffect(() => {
+    if (sugeriuAInicial.current || pacienteInicial === null) return
+    sugeriuAInicial.current = true
+    sugestao.controle.escolherPaciente(pacienteInicial.id)
+  }, [pacienteInicial, sugestao.controle])
   const [retro, setRetro] = useState(false)
   const [freq, setFreq] = useState<Frequencia | ''>('')
   const [aCadaNDias, setACadaNDias] = useState('10')
@@ -263,6 +282,7 @@ function Formulario({
             prioridade: urgente ? 'urgente' : 'normal',
             obs: obs.trim(),
             unidadeId: unidadeId === '' ? null : unidadeId,
+            ...(campanhaId === '' ? {} : { campanhaId }),
             quando,
           }
         : {
@@ -271,6 +291,7 @@ function Formulario({
             descricao: descricao.trim(),
             prioridade: urgente ? 'urgente' : 'normal',
             obs: obs.trim(),
+            ...(campanhaId === '' ? {} : { campanhaId }),
             quando,
           }
 
@@ -322,14 +343,20 @@ function Formulario({
           <button
             type="button"
             aria-pressed={modo === 'interna'}
-            onClick={() => setModo('interna')}
+            onClick={() => {
+              setModo('interna')
+              sugestao.controle.suspender()
+            }}
           >
             Tarefa interna
           </button>
           <button
             type="button"
             aria-pressed={modo === 'paciente'}
-            onClick={() => setModo('paciente')}
+            onClick={() => {
+              setModo('paciente')
+              sugestao.controle.reaplicar()
+            }}
           >
             Vinculada a paciente
           </button>
@@ -337,7 +364,14 @@ function Formulario({
 
         {modo === 'paciente' ? (
           <>
-            <SeletorDePaciente escolhido={paciente} aoEscolher={setPaciente} />
+            <SeletorDePaciente
+              escolhido={paciente}
+              aoEscolher={(p) => {
+                setPaciente(p)
+                // A ÚNICA leitura da sugestão: ao escolher (L-A3-11).
+                sugestao.controle.escolherPaciente(p?.id ?? null)
+              }}
+            />
 
             <label className="campo">
               Tipo de contato
@@ -367,6 +401,10 @@ function Formulario({
             </p>
           </>
         ) : null}
+
+        {/* Fora de "+ Mais opções", como no protótipo: o agendamento enxuto é
+            "paciente, tipo, data, horário, responsável e campanha" (L2584). */}
+        <CampoDeCampanha valor={campanhaId} aoMudar={setCampanhaId} sugestao={sugestao} />
 
         <label className="campo">
           Responsável por executar

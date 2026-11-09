@@ -12,12 +12,12 @@ import { sessaoAtual } from '@/lib/sessao'
  * manda continua sendo `GET /v1/jornada`, que recusa sozinho.
  */
 export default async function Jornada() {
-  const { eu, perfis, quem } = await sessaoAtual()
+  const { perfis, quem } = await sessaoAtual()
   const pode = temPerm(
     quem,
     perfis,
     'jornada',
   )
   if (!pode) return <SemAcesso tela="Jornada do paciente" />
-  return <TelaJornada />
+  return <TelaJornada podePacientes={temPerm(quem, perfis, 'pacientes')} />
 }

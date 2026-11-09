@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { provedorDeRelogio } from '../comum/relogio'
 import { CampanhasController } from './campanhas.controller'
 import { CampanhasService } from './campanhas.service'
+import { CampanhasVinculaveisController } from './vinculaveis.controller'
 
 /**
  * **Comercial › Campanhas** (épico 8).
@@ -11,7 +12,9 @@ import { CampanhasService } from './campanhas.service'
  * paciente de passagem — o dono do cadastro continua sendo o outro módulo.
  */
 @Module({
-  controllers: [CampanhasController],
+  // A lista vinculável vem ANTES: a rota estática `vinculaveis` é registrada
+  // primeiro, e nenhum `:id` de `CampanhasController` a sombreia.
+  controllers: [CampanhasVinculaveisController, CampanhasController],
   providers: [CampanhasService, provedorDeRelogio],
   /**
    * **Exportado para o `PainelGeralModule`**, e só para ele.

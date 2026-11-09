@@ -416,7 +416,9 @@ describe('GET /v1/pacientes/:id — a ficha', () => {
     expect(r.body.nome).toBe('Ficha Completa')
     expect(r.body.tarefas).toHaveLength(1)
     expect(r.body.tarefas[0].tipo).toBe('Consulta realizada')
-    // A tarefa NÃO carrega dinheiro: ele mora em `recebimentos`.
+    // A tarefa não tem coluna `valor`: o dinheiro do atendimento mora em
+    // `recebimentos` e chega em `pagamento`. A redação dos campos monetários
+    // da ficha é provada em `ficha.e2e.test.ts`.
     expect(Object.keys(r.body.tarefas[0])).not.toContain('valor')
   })
 

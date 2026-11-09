@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest'
 import {
   LIMITES_DO_ASANA,
   diaDoAsana,
-  ehDiaDoCalendario,
   lerCsv,
   lerExportacaoDoAsana,
   linhasParaImportar,
@@ -11,6 +10,7 @@ import {
   problemaDaTarefa,
   type ExportacaoDoAsana,
 } from './asana-carteira'
+import { ehDiaDoCalendario } from './relogio'
 import { ehErro, exigir } from './resultado'
 
 /** Serializa como o Asana (e o Excel) fazem: todo campo entre aspas, `"` dobrada. */

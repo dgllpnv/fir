@@ -16,6 +16,7 @@ import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
+import { campanhaParaVincular } from '../campanhas/vinculo'
 import { unidadeValida } from '../comum/unidade'
 import { DINHEIRO_QUE_ENTROU } from './dinheiro-que-entrou'
 import { confirmacoesDe, conferirAvisosDoRecebimento } from './recebimentos.avisos'
@@ -191,11 +192,29 @@ export class RecebimentosService {
       const unidade = await unidadeValida(c, dados.unidadeId)
       const tipo = TIPO_DA_REFERENCIA[ref]
 
+      /**
+       * A CAMPANHA vai para a TAREFA companheira — e só para ela (N-3).
+       * `recebimentos` não tem `campanha_id`: a receita da campanha tem um
+       * caminho só (`campanhas → tarefas → recebimentos`, N-1).
+       *
+       * Validada DEPOIS de `porRequisicao`, como os avisos: o duplo toque
+       * devolve a linha que o primeiro gravou, com a campanha do primeiro
+       * pedido, mesmo que ela tenha sido excluída entre os dois toques.
+       */
+      const campanhaId = await campanhaParaVincular(c, {
+        clinicaId: ctx.clinicaId,
+        campanhaId: dados.campanhaId,
+        contexto: 'tarefa',
+        agora,
+        fuso: ctx.fuso,
+      })
+
       const tarefa = await c.query<{ id: string }>(
         `INSERT INTO tarefas
            (clinica_id, solicitante_id, responsavel_id, descricao, prazo, prioridade,
-            status, concluida_em, paciente_id, tipo, historico, resultado, obs, recorrencia, unidade_id)
-         VALUES ($1,$2,$2,$3,$4,'normal','concluida',$5,$6,$7,'[]','','','',$8)
+            status, concluida_em, paciente_id, tipo, historico, resultado, obs, recorrencia, unidade_id,
+            campanha_id)
+         VALUES ($1,$2,$2,$3,$4,'normal','concluida',$5,$6,$7,'[]','','','',$8,$9)
          RETURNING id`,
         [
           ctx.clinicaId,
@@ -208,6 +227,7 @@ export class RecebimentosService {
           dados.pacienteId,
           tipo,
           unidade,
+          campanhaId,
         ],
       )
 

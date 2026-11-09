@@ -223,6 +223,7 @@ export function TelaPainel() {
           <PorUnidade painel={d} />
           <CampanhasNoPeriodo painel={d} />
           <NovosPacientesPorOrigem painel={d} />
+          <QuemMaisIndica painel={d} />
         </>
       )}
     </section>
@@ -536,6 +537,58 @@ function NovosPacientesPorOrigem({ painel }: { painel: Painel }) {
             </tbody>
           </table>
         </div>
+      )}
+    </>
+  )
+}
+
+/**
+ * **Quem mais indica** (correções da PO, B3) — o desenho do Top 10 pagantes,
+ * com a contagem no lugar do valor.
+ *
+ * Só o nome da INDICADORA e quantas pacientes ela trouxe (LGPD L-B3-3): as
+ * indicadas não aparecem aqui nem num detalhe. A ordem, o desempate e o corte
+ * em 10 vêm do servidor; a tela só desenha.
+ */
+function QuemMaisIndica({ painel }: { painel: Painel }) {
+  const itens = painel.quemMaisIndica
+  const maior = itens[0]?.indicadas ?? 0
+  return (
+    <>
+      <h3>Quem mais indica</h3>
+      <p className="nota">
+        Pacientes que indicaram quem se cadastrou no período, pela escolha feita em “Indicado por”.
+      </p>
+      {itens.length === 0 ? (
+        <Vazio>
+          <p style={{ margin: 0, color: 'var(--ink)' }}>Nenhuma indicação de paciente no período.</p>
+          <p style={{ margin: 0, color: 'var(--muted)' }}>
+            No cadastro, com a origem Indicação, escolha na lista a paciente que indicou — é ela que
+            aparece aqui.
+          </p>
+        </Vazio>
+      ) : (
+        <ol className="top-pagantes">
+          {itens.map((p, i) => (
+            <li key={p.pacienteId}>
+              <span className="posicao" aria-hidden="true">
+                {i + 1}
+              </span>
+              <div>
+                <b>{p.nome}</b>
+                {/* Fatia do primeiro colocado: desenho de dois inteiros do servidor, não conta. */}
+                <i
+                  className="fatia"
+                  aria-hidden="true"
+                  style={{ width: maior === 0 ? '0%' : `${Math.floor((p.indicadas * 100) / maior)}%` }}
+                />
+              </div>
+              <b className="num">
+                {p.indicadas} {p.indicadas === 1 ? 'indicada' : 'indicadas'}
+              </b>
+            </li>
+          ))}
+        </ol>
       )}
     </>
   )

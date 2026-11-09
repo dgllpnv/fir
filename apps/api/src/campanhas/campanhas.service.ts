@@ -10,10 +10,10 @@ import type {
 import { METRICAS_DE_CAMPANHA, METRICA_EM_DINHEIRO } from '@fir/contracts'
 import {
   TIPOS_DE_CONTATO,
-  TIPOS_DE_RECEITA,
-  TIPOS_PAGAVEIS,
   TIPOS_QUE_ATENDEM,
   diasEntre,
+  emAndamento,
+  inicioDoDia,
   percentualInteiro,
 } from '@fir/domain'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
@@ -24,6 +24,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { diaDaClinica } from '../estoque/dia-da-clinica'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
+import { RECEITA_DA_CAMPANHA } from './receita-da-campanha'
 
 /**
  * **Comercial › Campanhas** (MANUAL cap. 9).
@@ -391,9 +392,9 @@ export class CampanhasService {
              (clinica_id, solicitante_id, responsavel_id, descricao, prazo, prioridade,
               status, historico, resultado, obs, recorrencia, paciente_id, tipo, campanha_id)
            VALUES ($1, $2, $3, $4, $5::date, 'normal', 'aberta', '[]', '', $6, '', $7, $8, $9)
-           ON CONFLICT (clinica_id, campanha_id, paciente_id)
+           ON CONFLICT (clinica_id, campanha_id, paciente_id, tipo)
              WHERE campanha_id IS NOT NULL AND paciente_id IS NOT NULL
-               AND status = 'aberta' AND excluida_em IS NULL
+               AND status = 'aberta' AND excluida_em IS NULL AND serie_id IS NULL
              DO NOTHING`,
           [
             ctx.clinicaId,
@@ -445,7 +446,10 @@ export class CampanhasService {
                   t.paciente_id,
                   t.status,
                   t.tipo,
-                  r.valor AS valor
+                  -- A RECEITA desta tarefa: o predicado ÚNICO de
+                  -- \`receita-da-campanha.ts\` (N-2), o mesmo da conferência
+                  -- da migração e da sincronização da carteira.
+                  CASE WHEN ${RECEITA_DA_CAMPANHA} THEN r.valor END AS receita
              FROM tarefas t
              LEFT JOIN recebimentos r
                     ON r.tarefa_id = t.id
@@ -478,10 +482,7 @@ export class CampanhasService {
                   WHERE f.status = 'concluida' AND f.paciente_id IS NOT NULL
                     AND f.tipo = ANY($3)
                 )::text AS pac_convertidos,
-                coalesce(sum(f.valor) FILTER (
-                  WHERE f.status = 'concluida' AND f.paciente_id IS NOT NULL
-                    AND (f.tipo = ANY($4) OR (f.tipo = ANY($5) AND f.valor > 0))
-                ), 0)::text AS receita
+                coalesce(sum(f.receita), 0)::text AS receita
            FROM campanhas cp
            LEFT JOIN feitas f ON f.campanha_id = cp.id
           WHERE cp.clinica_id = $1 AND cp.excluida_em IS NULL
@@ -491,13 +492,11 @@ export class CampanhasService {
           ctx.clinicaId,
           [...TIPOS_DE_CONTATO],
           [...TIPOS_QUE_ATENDEM],
-          [...TIPOS_DE_RECEITA],
-          [...TIPOS_PAGAVEIS],
         ],
       )
     ).rows
 
-    const campanhas = linhas.map((l) => montarCampanha(l, hoje))
+    const campanhas = linhas.map((l) => montarCampanha(l, hoje, ctx.fuso))
     return {
       hoje,
       campanhas,
@@ -512,7 +511,7 @@ export class CampanhasService {
 // APOIO — nenhuma destas funções lê banco
 // ---------------------------------------------------------------------------
 
-function montarCampanha(l: LinhaDeCampanha, hoje: string): CampanhaNaLista {
+function montarCampanha(l: LinhaDeCampanha, hoje: string, fuso: string): CampanhaNaLista {
   const meta = BigInt(l.meta)
   const receita = BigInt(l.receita)
   const pacAlcancados = Number(l.pac_alcancados)
@@ -535,7 +534,7 @@ function montarCampanha(l: LinhaDeCampanha, hoje: string): CampanhaNaLista {
           : receita
 
   const ehDinheiro = l.metrica === METRICA_EM_DINHEIRO
-  const situacao = situacaoDaCampanha(l.inicio, l.fim, hoje)
+  const situacao = situacaoDaCampanha(l.inicio, l.fim, hoje, fuso)
 
   return {
     id: l.id,
@@ -589,10 +588,20 @@ function montarCampanha(l: LinhaDeCampanha, hoje: string): CampanhaNaLista {
  * encerra a campanha um dia antes, e o atrasado a deixa "em andamento" depois
  * do fim.
  */
-function situacaoDaCampanha(inicio: string, fim: string, hoje: string): SituacaoDaCampanha {
-  if (hoje < inicio) return 'futura'
-  if (hoje > fim) return 'encerrada'
-  return 'andamento'
+function situacaoDaCampanha(
+  inicio: string,
+  fim: string,
+  hoje: string,
+  fuso: string,
+): SituacaoDaCampanha {
+  // "Em andamento" é a regra do domínio (`emAndamento`), a mesma da lista de
+  // campanhas vinculáveis — não uma segunda escrita dela. O instante é o
+  // INÍCIO de `hoje` na clínica, e não uma segunda leitura do relógio: `hoje`
+  // já é o dia de negócio desta resposta, e ler o relógio de novo poderia
+  // cair no dia seguinte à meia-noite, com o rótulo de um dia e a situação de
+  // outro.
+  if (emAndamento({ inicio, fim }, inicioDoDia(hoje, fuso), fuso)) return 'andamento'
+  return hoje < inicio ? 'futura' : 'encerrada'
 }
 
 function rotuloDaSituacao(

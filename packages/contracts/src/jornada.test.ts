@@ -234,3 +234,34 @@ describe('o motivo é dado, e o id atravessa', () => {
     expect(passa({ acao: 'perder', motivoId: uuid, motivo: 'Preço' })).toBe(false)
   })
 })
+
+describe('corrigirOrcamento — o mesmo dinheiro do registro (N-16)', () => {
+  it('valor é centavos em texto, o mesmo `valorDeOrcamento`: zero, negativo e float são recusados', () => {
+    const base = { acao: 'corrigirOrcamento', chaveIdempotencia: uuid }
+    expect(MoverEtapa.parse({ ...base, valor: '30000' })).toMatchObject({ valor: 30000n })
+    expect(passa({ ...base, valor: '0' })).toBe(false)
+    expect(passa({ ...base, valor: '-1' })).toBe(false)
+    expect(passa({ ...base, valor: '300.00' })).toBe(false)
+    expect(passa({ ...base, valor: 30000 })).toBe(false)
+  })
+
+  it('a chave do envio é obrigatória e é uuid', () => {
+    expect(passa({ acao: 'corrigirOrcamento', valor: '30000' })).toBe(false)
+    expect(passa({ acao: 'corrigirOrcamento', chaveIdempotencia: 'x', valor: '30000' })).toBe(false)
+  })
+
+  it('a etapa, o programa e campo estranho não entram — a correção não move o cartão', () => {
+    const base = { acao: 'corrigirOrcamento', chaveIdempotencia: uuid, valor: '30000' }
+    expect(passa({ ...base, etapa: 'fechado' })).toBe(false)
+    expect(passa({ ...base, programa: [] })).toBe(false)
+    expect(passa({ ...base, valorAnterior: '300000' })).toBe(false)
+  })
+
+  it('data e nota têm o formato de sempre; nota vazia passa (limpa)', () => {
+    const base = { acao: 'corrigirOrcamento', chaveIdempotencia: outro }
+    expect(passa({ ...base, retomarEm: '10/11/2026' })).toBe(false)
+    expect(passa({ ...base, retomarEm: '2026-11-10' })).toBe(true)
+    expect(passa({ ...base, nota: '' })).toBe(true)
+    expect(passa({ ...base, nota: 'x'.repeat(161) })).toBe(false)
+  })
+})

@@ -21,6 +21,8 @@ O legado carrega três gerações de nomes para as mesmas coisas. Essa dívida s
 | `qtd` sem unidade | `Quantidade` com `medida` | Quantidade sem unidade é a origem da dose errada |
 | `e-mail`, `email`, `convite` | `Usuário` (o identificador de login) | **D-10:** o e-mail saiu do produto inteiro. Não há coluna, não há convite, não há SMTP. `grep -rn "email"` em `apps` e `packages` devolve zero, e é assim que fica |
 | `admin` para o superadmin | `Operador` | `admin` é a administradora **da clínica**, que é uma `Pessoa`. O superadmin é um `Operador`, que **não é uma `Pessoa`** — confundir os dois é o primeiro passo para um booleano em `pessoas` |
+| `setor` sozinho | `Setor de atuação` (onde a `Pessoa` da clínica atua, e para onde vai uma `Tarefa`) ou `Setor da carteira` (o `setor` do `Usuário de Gestão`) | São dois conceitos em dois produtos, e um deles **amplia quem vê dado de paciente**. O identificador já gravado da carteira (`usuarios_gestao.setor`, `SetorDaCarteiraEnum`) fica como está, pela mesma razão de `'Sessão de plano'`; todo código, tela e documento **novo** diz o nome inteiro. ADR 0025 |
+| `Equipe` para o setor de atuação | `Setor de atuação` | `Equipe` já é três coisas: o escopo *Equipe toda* (`escopo=equipe`), a chave `tarefas.equipe` e a tela *Equipe* (RH, `pessoas.gerir`). Um quarto significado faria "a equipe vê" querer dizer qualquer coisa |
 | `/painel` como rota do superadmin | `/superadmin` | `painel` é chave de permissão existente (`painel` → `valores`) e é o nome da tela do épico 8. A allowlist de IP casa o segmento `superadmin`; usar `painel` bloquearia a tela de indicadores para a clínica inteira |
 
 **A única exceção, e ela é deliberada:** o **nome do tipo de tarefa** continua `'Sessão de plano'`
@@ -150,10 +152,82 @@ sujeito.
 sou eu" (filtro *Para mim*, responsável padrão, *Minhas metas*) mostram **vazio** — fingir que o
 operador é alguém poria o nome de uma funcionária numa ação que não foi dela.
 
+### `Setor de atuação`
+**Onde uma `Pessoa` da clínica trabalha no dia a dia** — Recepção, Enfermagem, Comercial — e,
+por isso, **para onde uma `Tarefa` pode ir** quando não importa *qual* pessoa vai fazê-la, só que
+alguém daquele setor faça. Cadastro por clínica (`setores_de_atuacao`), um por pessoa
+(`pessoas.setor_de_atuacao_id`, opcional). Decidido pelo dono em 2026-11-09 (item 8 da PO); o
+protótipo não tem. **ADR 0025.**
+
+**Não confundir — são quatro coisas que a clínica chama de "Enfermagem":**
+
+| Termo | O que é | Decide |
+|---|---|---|
+| `Perfil de acesso` "Enfermagem" | Conjunto de permissões | **O que** a pessoa pode ver e fazer |
+| `funcao` da `Pessoa` ("Enfermeira chefe") | Texto livre de apresentação, ao lado do nome | Nada |
+| `cargo` da `Ficha de pessoa` | Dado de RH, sob `pessoas.gerir` | Nada fora do RH |
+| `Setor de atuação` "Enfermagem" | Lugar de trabalho, lista fechada da clínica | **Quem** recebe a tarefa que foi para o setor |
+
+**Invariantes:**
+- **Setor de atuação nunca autoriza.** Ele alarga **quem** recebe uma tarefa, nunca **o que** a
+  pessoa vê nela: quem lê uma tarefa do setor passa pelas mesmas permissões que passaria numa
+  tarefa atribuída a ela (`jornada` para os blocos da jornada, `valores` para dinheiro, `pacientes`
+  para abrir a ficha). Mesmo princípio do `Setor da carteira`.
+- **Pertencer é lido do banco, na transação da própria requisição** — nunca copiado na tarefa,
+  nunca guardado na sessão, nunca aceito do cliente. Quem sai do setor, ou é desativada, deixa de
+  ver as tarefas dele **na requisição seguinte**. Quem entra passa a ver as abertas e as
+  concluídas do dia, **nunca o histórico do setor** — concluídas de outros dias e canceladas ficam
+  com o solicitante e com *Equipe toda* (LGPD, revisão do gate, condição 2).
+- **Ninguém se põe num setor sozinho.** Criar, renomear e excluir setor, e pôr uma pessoa num
+  setor, exigem `config` (a chave de *Usuários e acessos*). Entrar num setor é ganhar acesso a
+  tarefas e pacientes; sem a chave, seria escalada de permissão.
+- **Uma tarefa vai para uma pessoa OU para um setor de atuação — exatamente um.** `CHECK` no
+  banco (`responsavel_id` e `setor_de_atuacao_id`, um e só um). Nunca uma pessoa "de enfeite" no
+  `responsavel_id` de uma tarefa de setor: ela passaria a ver a tarefa em *Para mim*, a poder
+  editá-la e a contar na meta por algo que talvez não tenha feito.
+- **Na tarefa de setor não há responsável; há quem concluiu.** `tarefas.concluida_por` é a
+  **pessoa** da sessão que concluiu — nunca o setor, nunca todos os membros. É ela que conta na
+  produção da meta; o prazo fica com o setor. Ver `Para quem a tarefa conta`, em `Tarefa`.
+- **Conclui quem vê.** A tarefa de setor é concluída por membro do setor, pelo solicitante ou por
+  quem tem `tarefas.equipe` — nunca por quem só conhece o id. Reabre quem a concluiu (enquanto ainda
+  a vê), o solicitante ou `tarefas.equipe`; o membro edita, mas não cancela nem exclui.
+- **O destino só muda em tarefa aberta** (concluída ou cancelada: 400), e, depois de vencida, só
+  por quem solicitou ou por `tarefas.equipe`. Vale para toda tarefa, de pessoa ou de setor: é o que
+  impede alguém de tomar o ponto de outra pessoa, ou de tirar a própria atrasada do % no prazo.
+- **Dado de trabalho, não de RH.** Mora em `pessoas`, **nunca** em `fichas_de_pessoa`; nenhuma
+  rota que devolve setor devolve campo da ficha; nunca se deriva de `cargo` nem de `funcao` (base:
+  LGPD art. 7º, V). O nome do setor diz **onde a pessoa atua, não a situação dela** — "Afastadas"
+  ou "Gestantes" seria dado de saúde de funcionária (art. 11).
+- **Excluir setor é soft delete** (`excluido_em`), e só com o setor vazio: sem pessoa ativa e sem
+  tarefa aberta. Tarefas antigas continuam apontando para ele e continuam legíveis.
+- **A carteira não lê setor de atuação** (ADR 0013 §2). Nem nome, nem quem está em qual.
+
 ### `Tarefa`
 Qualquer item da rotina: interna, contato, atendimento, pagamento ou sessão. É a entidade mais usada do produto.
 
 **Invariante central:** um agendamento é **uma única `Tarefa`** que anda pelas etapas da `Jornada`; cada movimento entra em `historico`. Nunca uma tarefa nova por etapa.
+
+**Vai para uma pessoa (`responsavel_id`) ou para um `Setor de atuação` (`setor_de_atuacao_id`) —
+exatamente um** (ADR 0025). A tarefa de setor é vista por **quem está no setor no momento da
+leitura** (só as abertas e as concluídas do dia), pelo solicitante e por quem tem `tarefas.equipe`.
+
+**`concluida_por`** — a pessoa da sessão que concluiu. Gravada em toda conclusão a partir da
+migration `0066`; `NULL` nas concluídas antes dela (não se inventa autoria para o passado) e em
+toda tarefa que não está concluída. Obrigatória na tarefa de setor concluída (`CHECK`). Todo
+caminho que muda `status` a trata: grava ao concluir, zera ao reabrir e ao cancelar.
+
+**`Para quem a tarefa conta`** — são **duas** perguntas, com duas expressões no mesmo módulo, e
+não se trocam:
+
+- **Produção** (contatos, orçamentos, recebimentos da meta): `PESSOA_QUE_CONTA =
+  coalesce(responsavel_id, concluida_por)` — o responsável; na tarefa de setor, quem concluiu.
+- **Prazo** (Painel de prazos e `tarefas_prazo`): `DESTINO_DO_PRAZO` — o responsável, senão o
+  setor. `concluida_por` **nunca** entra em prazo: o atraso do setor fica na linha do setor, e não
+  na de quem o resgatou. A tarefa de setor fica fora do % no prazo da meta individual.
+
+**A 0066 sozinha não muda número de mês nenhum.** Depois dela, um mês passado só muda pelos caminhos
+que já existem (reabrir, corrigir a data de realização, trocar o responsável de tarefa aberta), e
+**nunca** pela troca de destino para ou de um setor.
 
 ### `Jornada`
 As **nove** etapas de um agendamento, e cada uma obriga um `status` (`CHECK etapa_combina_com_status`, migration `0007`):
@@ -172,9 +246,24 @@ As **nove** etapas de um agendamento, e cada uma obriga um `status` (`CHECK etap
 
 **Invariante:** `faltou` e `desmarcou` mantêm a tarefa **aberta** até alguém **reagendar** (volta a `agendado`) ou **encerrar**. É isso que faz o cartão aparecer em "Recontatar" todo dia até alguém resolver — e é o ritual que a ferramenta existe para instalar.
 
-A jornada é uma **tabela de dados** em `packages/domain/src/jornada.ts`, não um encadeamento de `if`: 13 ações, 23 transições permitidas, e `transicao()` é a única porta. O funil conta por **`acao` declarada** (`contaNoFunil` na tabela), nunca por inferência de rótulo — `reagendar` leva a `agendado` e **não conta**, senão quem remarcou três vezes vira três agendamentos. Ver [ADR 0004](docs/adr/0004-maquina-de-estados-da-jornada.md).
+A jornada é uma **tabela de dados** em `packages/domain/src/jornada.ts`, não um encadeamento de `if`: 14 ações, 24 transições permitidas (a 14ª é `corrigirOrcamento`), e `transicao()` é a única porta. O funil conta por **`acao` declarada** (`contaNoFunil` na tabela), nunca por inferência de rótulo — `reagendar` leva a `agendado` e **não conta**, senão quem remarcou três vezes vira três agendamentos. Ver [ADR 0004](docs/adr/0004-maquina-de-estados-da-jornada.md).
 
 **Termo proibido: `acaoEm`.** No protótipo ele tem dois significados — dia do no-show e dia de retomar o orçamento. Use `proximo_passo_em`.
+
+### `Corrigir orçamento` (`corrigirOrcamento`)
+A ação que ajusta **valor, dia de retomar e nota** de um orçamento já registrado, enquanto o cartão está na etapa
+`orcamento`. **Acrescenta** um evento ao histórico — nunca reescreve o `registrarOrcamento` original — e **não conta no
+funil** (`contaNoFunil: false`): "orçamentos enviados" não muda. "R$ orçado" de uma janela usa o **valor vigente no fim
+dela**, então um mês fechado nunca muda de valor. Quem corrige tem `jornada` e pode editar a tarefa
+(`podeCorrigirOrcamento`, a mesma no servidor e na tela). O de → para do valor sai apagado sem `valores`. Decisão D-25;
+spec `docs/specs/correcoes-po-2026-11-09.md` B1.
+
+### `Indicadora`
+A **paciente cadastrada** que indicou outra (`pacientes.indicado_por_id`, migration 0062). Só vale com a origem
+"Indicação"; quando há indicadora, o texto livre `indicado_por` fica vazio (CHECK) — o texto livre continua para quem
+indicou e **não** é paciente. Ninguém se indica. Apagar a indicadora zera só o vínculo. O nome da indicadora aparece
+**só na ficha** da indicada, e só se ela estiver ativa; nunca na lista de pacientes. "Quem mais indica" (Painel) conta
+**pacientes indicadas distintas** pela data de cadastro. **Nunca** se deduz a indicadora casando o texto antigo pelo nome.
 
 ### `proximo_passo_em`
 **O dia a partir do qual este cartão volta a pedir ação.** Um campo, um significado.
@@ -476,6 +565,8 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 | **Sessão de suporte** | A sessão do PRODUTO que carrega um `Operador` em vez de uma `Pessoa`. 30 min, revogável, com faixa permanente na tela |
 | **Perfil de acesso** | Conjunto de permissões por pilar |
 | **Pilar** | Dia a dia · Comercial · Financeiro · Processos · Pessoas · Gestão |
+| **Setor de atuação** | Onde a pessoa atua (Recepção, Enfermagem…) e para onde a tarefa pode ir. Nunca autoriza; nunca é RH |
+| **Concluída por** | A pessoa que concluiu a tarefa. Na tarefa de setor, é para ela que conta a produção da meta; o prazo fica com o setor |
 | **Ficha de pessoa** | O registro de RH de quem trabalha na clínica, com ou sem login |
 | **Período aquisitivo** | Os 12 meses de CLT que dão 30 dias de férias, com 12 meses para conceder |
 | **Banco de horas** | O saldo do mês em **minutos inteiros**, transcrito do app de ponto |
@@ -552,7 +643,9 @@ a mesma função no servidor e na tela:
 - **`carteira.administrar`**: a chave da Diretoria (D-22 item 2) — arquivar,
   editar conteúdo e configuração, compartilhar todas as reuniões, redistribuir
   tarefas, encerrar cliente. **Nunca identidade.** Só para escopo `geral`.
-- **Setor** (`setor`): diz quem recebe item de checklist. **Nunca autoriza.**
+- **Setor da carteira** (`setor`): diz quem recebe item de checklist. **Nunca autoriza.** O
+  identificador gravado continua `setor`; o termo é `Setor da carteira`, para não se confundir com
+  o `Setor de atuação` da clínica (ADR 0025), que é outro conceito em outro produto.
 - **Diretoria (acesso total)**: não é papel gravado; é o conjunto completo
   dessas chaves, escrito por extenso.
 

@@ -149,6 +149,23 @@ export function somarDias(dia: string, n: number): string {
 }
 
 /**
+ * `aaaa-mm-dd` que existe no calendário (31/11 e 29/02/2025 não existem).
+ *
+ * Uma só, aqui ao lado de `somarDias`: a jornada (data de retomar) e a
+ * importação do Asana tinham cada uma a sua cópia, e duas validações da mesma
+ * data são como uma aceita o que a outra recusa.
+ */
+export function ehDiaDoCalendario(dia: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dia)
+  if (m === null) return false
+  const a = Number(m[1])
+  const me = Number(m[2])
+  const d = Number(m[3])
+  const t = new Date(Date.UTC(a, me - 1, d))
+  return t.getUTCFullYear() === a && t.getUTCMonth() === me - 1 && t.getUTCDate() === d
+}
+
+/**
  * Dias civis entre dois dias, `ate − de`. Negativo quando `ate` é anterior.
  *
  * Aritmética de calendário em UTC, sem fuso: `Date.UTC` ignora horário de

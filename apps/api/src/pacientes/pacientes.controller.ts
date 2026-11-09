@@ -1,4 +1,5 @@
 import {
+  type CampanhaSugerida,
   ConsultaDePacientes,
   type DesativacaoDePaciente,
   EditarPaciente,
@@ -29,6 +30,9 @@ import {
 import { DadoSensivel } from '../auditoria/acesso.decorator'
 import { Exige } from '../autorizacao/autorizacao.guard'
 import type { RequisicaoComContexto } from '../comum/contexto'
+import { primeiroErro } from '../comum/primeiro-erro'
+import { leitorDe } from '../tarefas/leitura'
+import { CampanhaSugeridaService } from './campanha-sugerida.service'
 import { ImportacaoDePacientesService } from './importacao.service'
 import { PacientesService } from './pacientes.service'
 
@@ -39,9 +43,9 @@ import { PacientesService } from './pacientes.service'
  * nas duas ações que mudam a vida da clínica inteira — desativar e importar.
  * `getAllAndOverride` no guard faz o do handler vencer o da classe.
  *
- * `@DadoSensivel` fica SÓ na ficha e só nela: é a rota que a regra 18 nomeia,
- * porque a pergunta da LGPD é *"quem olhou o cadastro da minha paciente"*. A
- * listagem não entra — uma busca que devolve 200 pacientes viraria 200 linhas
+ * `@DadoSensivel` fica na ficha e na campanha sugerida, as duas rotas de UMA
+ * paciente que leem a origem dela: a pergunta da LGPD é *"quem olhou o
+ * cadastro da minha paciente"* (regra 18, L-A3-8). A listagem não entra — uma busca que devolve 200 pacientes viraria 200 linhas
  * de trilha, e o próximo acesso a UMA ficha ficaria invisível no meio delas.
  */
 @Controller('v1/pacientes')
@@ -53,6 +57,8 @@ export class PacientesController {
     @Inject(PacientesService) private readonly pacientes: PacientesService,
     @Inject(ImportacaoDePacientesService)
     private readonly importacao: ImportacaoDePacientesService,
+    @Inject(CampanhaSugeridaService)
+    private readonly sugestao: CampanhaSugeridaService,
   ) {}
 
   @Get()
@@ -113,7 +119,24 @@ export class PacientesController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<FichaDoPaciente> {
     const c = req.contexto!
-    return this.pacientes.ficha(c.clinicaId, c.ator, c.clinicaFuso, id)
+    return this.pacientes.ficha(c.clinicaId, c.ator, c.clinicaFuso, leitorDe(c), id)
+  }
+
+  /**
+   * A campanha que a Nova tarefa e o Recebimento pré-selecionam (L-A3-8).
+   *
+   * É a ORIGEM da paciente quando em andamento, e por isso grava acesso com o
+   * id dela. A tela chama UMA vez, ao escolher a paciente (L-A3-11). Paciente
+   * inexistente, de outra clínica ou desativada: 404, que não grava.
+   */
+  @Get(':id/campanha-sugerida')
+  @DadoSensivel('pacientes')
+  async campanhaSugerida(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<CampanhaSugerida> {
+    const c = req.contexto!
+    return this.sugestao.sugerir(c.clinicaId, c.ator, c.clinicaFuso, id)
   }
 
   @Patch(':id')
@@ -146,12 +169,3 @@ export class PacientesController {
   }
 }
 
-/**
- * A primeira mensagem do Zod, sem o VALOR que a causou.
- *
- * `JSON.stringify(error)` traria o corpo inteiro para dentro da resposta — e
- * daí para o log do cliente, do proxy e do navegador. Nome e telefone de
- * paciente não atravessam (regra 21).
- */
-const primeiroErro = (erro: { issues: readonly { message: string }[] }): string =>
-  erro.issues[0]?.message ?? 'Confira os campos do cadastro.'

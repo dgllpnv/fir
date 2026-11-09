@@ -455,6 +455,13 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'regra 17 como qualquer outro valor.',
   },
   {
+    caminho: '/v1/campanhas/vinculaveis',
+    razao:
+      'As campanhas que se pode marcar numa tarefa, num recebimento ou no ' +
+      'cadastro (correções da PO, A3): só `id` e `nome`. Nenhum valor, nenhum ' +
+      'dia, nenhuma forma de pagamento.',
+  },
+  {
     caminho: '/v1/estoque',
     razao:
       'O catálogo de itens, com saldo DERIVADO e custo. Não é agregado de dia ' +
@@ -531,6 +538,12 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   {
     caminho: '/v1/pacientes/:id/saldo',
     razao: 'O saldo em aberto de uma paciente, agrupado por programa. Não é dinheiro do dia.',
+  },
+  {
+    caminho: '/v1/pacientes/:id/campanha-sugerida',
+    razao:
+      'A campanha a pré-selecionar para uma paciente (L-A3-8): um uuid e o motivo. ' +
+      'Nenhum valor, nenhum dia, nenhuma forma de pagamento.',
   },
   {
     caminho: '/v1/cobrancas',

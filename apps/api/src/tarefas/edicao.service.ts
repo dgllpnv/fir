@@ -23,6 +23,7 @@ import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
+import { campanhaParaVincular } from '../campanhas/vinculo'
 import { unidadeValida } from '../comum/unidade'
 import { SESSAO_NAO_SE_EXCLUI } from '../programas/mensagens'
 import { type AutorDaRequisicao, lerTarefas } from './leitura'
@@ -47,9 +48,14 @@ type TarefaCarregada = {
   readonly pacienteId: string | null
   readonly prazo: string
   readonly serieId: string | null
+  readonly campanhaId: string | null
 }
 
-async function carregar(c: pg.PoolClient, id: string): Promise<TarefaCarregada> {
+async function carregar(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  id: string,
+): Promise<TarefaCarregada> {
   const r = await c.query<{
     id: string
     solicitante_id: string
@@ -59,11 +65,15 @@ async function carregar(c: pg.PoolClient, id: string): Promise<TarefaCarregada> 
     paciente_id: string | null
     prazo: string
     serie_id: string | null
+    campanha_id: string | null
   }>(
     `SELECT id, solicitante_id, responsavel_id, status, tipo, paciente_id,
-            prazo::text AS prazo, serie_id
-       FROM tarefas WHERE id = $1 AND excluida_em IS NULL FOR UPDATE`,
-    [id],
+            prazo::text AS prazo, serie_id, campanha_id::text AS campanha_id
+       FROM tarefas
+      -- A clínica TAMBÉM no filtro: a RLS é a primeira camada, não a única
+      -- (regra 19). É o mesmo filtro de \`carregarCartao\` (jornada/cartao.ts).
+      WHERE id = $1 AND clinica_id = $2 AND excluida_em IS NULL FOR UPDATE`,
+    [id, clinicaId],
   )
   const l = r.rows[0]
   if (l === undefined) throw new NotFoundException('Tarefa não encontrada.')
@@ -76,6 +86,7 @@ async function carregar(c: pg.PoolClient, id: string): Promise<TarefaCarregada> 
     pacienteId: l.paciente_id,
     prazo: l.prazo,
     serieId: l.serie_id,
+    campanhaId: l.campanha_id,
   }
 }
 
@@ -103,7 +114,7 @@ export class EdicaoDeTarefasService {
     const hoje = diaCivil(agora, fuso)
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
-      const t = await carregar(c, id)
+      const t = await carregar(c, clinicaId, id)
       exigirAutorizacao(podeEditar(t, autor))
 
       const campos: string[] = []
@@ -114,9 +125,11 @@ export class EdicaoDeTarefasService {
       }
 
       if (dados.responsavelId !== undefined) {
-        const r = await c.query<{ ativo: boolean }>('SELECT ativo FROM pessoas WHERE id = $1', [
-          dados.responsavelId,
-        ])
+        // `clinica_id` também na aplicação: a RLS é a primeira camada, não a única.
+        const r = await c.query<{ ativo: boolean }>(
+          'SELECT ativo FROM pessoas WHERE id = $1 AND clinica_id = $2',
+          [dados.responsavelId, clinicaId],
+        )
         if (r.rowCount === 0 || r.rows[0]!.ativo !== true) {
           throw new BadRequestException('Escolha um responsável ativo.')
         }
@@ -164,6 +177,30 @@ export class EdicaoDeTarefasService {
       if (dados.resultado !== undefined) por('resultado', dados.resultado)
       if (dados.unidadeId !== undefined) {
         por('unidade_id', await unidadeValida(c, dados.unidadeId))
+      }
+
+      /**
+       * A CAMPANHA, em três estados (N-4): ausente MANTÉM, `null` remove, um
+       * id troca. Reenviar a atual passa mesmo que ela esteja encerrada há 90
+       * dias ou excluída — é "não mexi", e recusá-lo tiraria a receita dela.
+       *
+       * Trocar a campanha de uma tarefa JÁ PAGA é permitido (N-5, decisão do
+       * coordenador seguindo o protótipo, L1654): o recebimento passa inteiro
+       * para a nova campanha, e a soma das campanhas não muda — a coluna é uma
+       * só. A troca fica na trilha pelo trigger de `tarefas` (de → para, ids).
+       */
+      if (dados.campanhaId !== undefined) {
+        por(
+          'campanha_id',
+          await campanhaParaVincular(c, {
+            clinicaId,
+            campanhaId: dados.campanhaId,
+            contexto: 'tarefa',
+            agora,
+            fuso,
+            atual: t.campanhaId,
+          }),
+        )
       }
 
       if (dados.realizadaEm !== undefined) {
@@ -227,6 +264,9 @@ export class EdicaoDeTarefasService {
     if (dados.descricao !== undefined) por('descricao', dados.descricao)
     if (dados.hora !== undefined) por('hora', dados.hora ?? null)
     if (dados.prioridade !== undefined) por('prioridade', dados.prioridade)
+    // A campanha propaga para as próximas da série, como no protótipo (L1668).
+    // Já validada acima, contra a campanha atual DESTA ocorrência.
+    if (dados.campanhaId !== undefined) por('campanha_id', dados.campanhaId)
     if (dados.pacienteId !== undefined) {
       por('paciente_id', dados.pacienteId ?? null)
       por('tipo', dados.pacienteId === null ? '' : (dados.tipo ?? t.tipo))
@@ -256,7 +296,7 @@ export class EdicaoDeTarefasService {
     serie: boolean,
   ): Promise<ExclusaoDeTarefa> {
     return this.banco.naClinica(clinicaId, ator, async (c) => {
-      const t = await carregar(c, id)
+      const t = await carregar(c, clinicaId, id)
       // O responsável NÃO exclui: ele conserta o que vai executar, e não apaga
       // o que outra pessoa pediu.
       exigirAutorizacao(podeExcluir(t, autor))

@@ -15,6 +15,7 @@ import { consultaEmTexto, useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto } from '@/lib/formato'
+import { CampoDeCampanha, useSugestaoDeCampanha } from './campo-de-campanha'
 import { Carregando, Erro, Toast, Vazio } from './estados'
 import { SeletorDePaciente } from './seletor-de-paciente'
 
@@ -78,11 +79,14 @@ export function TelaRecebimentos({
   hoje,
   mes,
   podeValores,
+  podePacientes,
 }: {
   hoje: string
   mes: string
   /** Só decide se a pergunta de duplicidade (D-21) mostra o valor digitado. */
   podeValores: boolean
+  /** Decide se a campanha é SUGERIDA ao escolher a paciente (L-A3-11). */
+  podePacientes: boolean
 }) {
   const [paciente, setPaciente] = useState<TPacienteEncontrado | null>(null)
   const [ref, setRef] = useState<Referencia | ''>('')
@@ -91,6 +95,8 @@ export function TelaRecebimentos({
   const [em, setEm] = useState(hoje)
   const [aberto, setAberto] = useState('')
   const [obs, setObs] = useState('')
+  const [campanhaId, setCampanhaId] = useState('')
+  const sugestao = useSugestaoDeCampanha(podePacientes, setCampanhaId)
   const [salvando, setSalvando] = useState(false)
   const [erroDoForm, setErroDoForm] = useState<string | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
@@ -126,6 +132,9 @@ export function TelaRecebimentos({
     setAberto('')
     setObs('')
     setEm(hoje)
+    setCampanhaId('')
+    // O próximo recebimento da MESMA paciente sugere de novo, sem ler de novo.
+    sugestao.controle.recomecar()
     setTroca((n) => n + 1)
   }
 
@@ -159,6 +168,7 @@ export function TelaRecebimentos({
           em,
           obs: obs.trim(),
           ref: escolhida.k,
+          ...(campanhaId === '' ? {} : { campanhaId }),
           ...(escolhida.abre && abertoEmCentavos !== null
             ? { valorAberto: abertoEmCentavos.toString() }
             : {}),
@@ -195,35 +205,36 @@ export function TelaRecebimentos({
       </p>
 
       <form className="formulario" onSubmit={registrar} style={{ maxWidth: 'none' }}>
-        <SeletorDePaciente escolhido={paciente} aoEscolher={setPaciente} destaque />
+        <SeletorDePaciente
+          escolhido={paciente}
+          aoEscolher={(p) => {
+            setPaciente(p)
+            // A ÚNICA leitura da sugestão: ao escolher (L-A3-11).
+            sugestao.controle.escolherPaciente(p?.id ?? null)
+          }}
+          destaque
+        />
 
-        {/* Sem paciente, só o bloco do primeiro passo: a dica dele já diz o que fazer. */}
-        {paciente === null ? null : (
+        {/*
+          A5 (decisão do dono, 2026-11-09): ANTES da paciente, a tela diz o que
+          fazer e já mostra as opções — desabilitadas — para que a recepção veja
+          o caminho inteiro. São RÓTULOS estáticos (S-23): nenhuma chamada de
+          saldo, programa ou valor acontece antes de haver paciente. Não há
+          entrada sem paciente, e o servidor recusa (400) quem tentar.
+        */}
+        {paciente === null ? (
+          <>
+            <p className="nota" style={{ margin: 0 }} role="status">
+              Escolha o paciente para continuar.
+            </p>
+            <Referencias escolhida="" desabilitadas aoEscolher={() => undefined} />
+          </>
+        ) : (
           <>
             <AvisoDeRepeticao estado={recentes} />
             <AvisoDeSaldo estado={saldo} />
 
-            <fieldset className="refs">
-              <legend>O que a paciente está pagando?</legend>
-              {REFERENCIAS.map((r) => (
-                <button
-                  key={r.k}
-                  type="button"
-                  className="ref"
-                  aria-pressed={ref === r.k}
-                  // "Programa em andamento" fica desabilitado até o épico 5,
-                  // com o texto do protótipo — e não escondido: a opção existe
-                  // no produto, e some dela é como a recepção procura por ela.
-                  disabled={r.k === 'programa'}
-                  onClick={() => setRef(r.k)}
-                >
-                  <b>{r.t}</b>
-                  <span>
-                    {r.k === 'programa' ? 'Esta paciente não tem programa em andamento.' : r.d}
-                  </span>
-                </button>
-              ))}
-            </fieldset>
+            <Referencias escolhida={ref} aoEscolher={setRef} />
 
             {escolhida === undefined ? null : (
               <>
@@ -271,6 +282,11 @@ export function TelaRecebimentos({
                     <div />
                   )}
                 </div>
+
+                {/* A sugestão é a do protótipo (L5037): a campanha por onde a
+                    paciente chegou, se em andamento. Lida ao escolher a
+                    paciente; depois de registrar, `recomecar` a reaplica. */}
+                <CampoDeCampanha valor={campanhaId} aoMudar={setCampanhaId} sugestao={sugestao} />
 
                 {/* O raro fica recolhido: `docs/design.md` §1. */}
                 <details className="evolucao">
@@ -343,6 +359,47 @@ export function TelaRecebimentos({
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
+  )
+}
+
+/**
+ * "O que a paciente está pagando?" — os cinco cartões de `REFS_RECEB`.
+ *
+ * Um componente só para os dois momentos da tela: antes da paciente, todos
+ * desabilitados (A5); depois, só "Programa em andamento", com o texto do
+ * protótipo — e não escondido: a opção existe no produto, e sumir com ela é
+ * como a recepção passa a procurá-la.
+ */
+function Referencias({
+  escolhida,
+  aoEscolher,
+  desabilitadas = false,
+}: {
+  escolhida: Referencia | ''
+  aoEscolher: (r: Referencia) => void
+  desabilitadas?: boolean
+}) {
+  return (
+    <fieldset className="refs" disabled={desabilitadas} aria-disabled={desabilitadas}>
+      <legend>O que a paciente está pagando?</legend>
+      {REFERENCIAS.map((r) => (
+        <button
+          key={r.k}
+          type="button"
+          className="ref"
+          aria-pressed={escolhida === r.k}
+          disabled={desabilitadas || r.k === 'programa'}
+          onClick={() => aoEscolher(r.k)}
+        >
+          <b>{r.t}</b>
+          <span>
+            {r.k === 'programa' && !desabilitadas
+              ? 'Esta paciente não tem programa em andamento.'
+              : r.d}
+          </span>
+        </button>
+      ))}
+    </fieldset>
   )
 }
 

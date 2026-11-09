@@ -203,6 +203,42 @@ table.conferencia-de-contagem td.direita { font-variant-numeric: tabular-nums; }
   .linha-da-nota-digitada { grid-template-columns: 2fr 1fr 1fr 1fr 1fr; align-items: end; }
 }
 
+/* ---------- leitor de código (câmera, foto, digitação) ---------- */
+
+/*
+ * A IMAGEM DA CÂMERA com proporção fixa: o quadro existe antes de a câmera
+ * abrir, e a imagem chegando não empurra os botões para baixo do dedo.
+ */
+.leitor-camera {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: var(--ink);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.leitor-camera video { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* A mira diz ONDE pôr o código — traço dourado, sem sombra. */
+.leitor-camera .mira {
+  position: absolute;
+  inset: 18% 14%;
+  border: 2px solid var(--gold);
+  border-radius: 8px;
+  pointer-events: none;
+}
+.leitor-digitado-linha { display: flex; gap: 8px; align-items: stretch; }
+.leitor-digitado-linha input { flex: 1; min-width: 0; }
+.leitor-digitado-linha .btn { flex: none; }
+
+/* O rótulo do campo com a ação ao lado ("Item · Ler código"). */
+.rotulo-com-acao {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.rotulo-com-acao .link { min-height: 40px; }
+
 /* ---------- etiquetas ---------- */
 
 .escolha-de-etiquetas {
@@ -237,6 +273,7 @@ table.conferencia-de-contagem td.direita { font-variant-numeric: tabular-nums; }
     gap: 1mm;
     break-inside: avoid;
   }
+  .etiqueta .qr-da-etiqueta { width: 28mm; height: 28mm; justify-self: center; }
   .etiqueta b { font-size: 11pt; }
   .etiqueta span { font-size: 8pt; }
   .etiqueta code { font-size: 8pt; word-break: break-all; }

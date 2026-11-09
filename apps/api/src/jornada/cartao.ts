@@ -2,6 +2,7 @@ import type { ItemOrcadoNaSaida, MoverEtapa } from '@fir/contracts'
 import type { Etapa, EventoDeJornada, StatusDeTarefa } from '@fir/domain'
 import { NotFoundException } from '@nestjs/common'
 import type pg from 'pg'
+import type { ClinicaId } from '../banco/clinica-id'
 
 /**
  * O cartão carregado, e as colunas que uma transição pode tocar.
@@ -26,6 +27,10 @@ export type CartaoCarregado = {
   /** Centavos, ou `null`. Nunca redigido aqui: isto é leitura interna. */
   readonly valorOrcamento: bigint | null
   readonly programaOrcado: ItemOrcadoNaSaida[] | null
+  /** Quem pode editar o cartão (`podeEditar`): a correção do orçamento pergunta (B1). */
+  readonly solicitanteId: string
+  readonly responsavelId: string
+  readonly proximoPassoEm: string | null
 }
 
 /**
@@ -41,7 +46,11 @@ export type CartaoCarregado = {
  * mesmo estado e dois `UPDATE` que se sobrescrevem — e o histórico perde um
  * evento. A trilha (regra 20) é prova, e prova com buraco não é prova.
  */
-export async function carregarCartao(c: pg.PoolClient, id: string): Promise<CartaoCarregado> {
+export async function carregarCartao(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  id: string,
+): Promise<CartaoCarregado> {
   const r = await c.query<{
     etapa: Etapa | null
     status: StatusDeTarefa
@@ -53,6 +62,9 @@ export async function carregarCartao(c: pg.PoolClient, id: string): Promise<Cart
     unidade_id: string | null
     valor_orcamento: string | null
     programa_orcado: ItemOrcadoNaSaida[] | null
+    solicitante_id: string
+    responsavel_id: string
+    proximo_passo_em: string | null
   }>(
     `SELECT etapa::text AS etapa, status, prazo::text AS prazo, hora::text AS hora, historico,
             paciente_id, tipo, unidade_id,
@@ -60,9 +72,14 @@ export async function carregarCartao(c: pg.PoolClient, id: string): Promise<Cart
             -- qualquer jeito, mas explicitar impede que uma mudança de
             -- configuração o traga como number — e number perto de dinheiro é
             -- a regra 1 quebrada.
-            valor_orcamento::text AS valor_orcamento, programa_orcado
-       FROM tarefas WHERE id = $1 AND excluida_em IS NULL FOR UPDATE`,
-    [id],
+            valor_orcamento::text AS valor_orcamento, programa_orcado,
+            solicitante_id, responsavel_id, proximo_passo_em::text AS proximo_passo_em
+       FROM tarefas
+      -- A clínica TAMBÉM no filtro: a RLS é a primeira camada, não a única
+      -- (regra 19). Esquecida aqui, a próxima consulta copiada daqui também
+      -- a esqueceria.
+      WHERE id = $1 AND clinica_id = $2 AND excluida_em IS NULL FOR UPDATE`,
+    [id, clinicaId],
   )
   const l = r.rows[0]
   if (l === undefined || l.etapa === null) {
@@ -79,6 +96,9 @@ export async function carregarCartao(c: pg.PoolClient, id: string): Promise<Cart
     unidadeId: l.unidade_id,
     valorOrcamento: l.valor_orcamento === null ? null : BigInt(l.valor_orcamento),
     programaOrcado: l.programa_orcado,
+    solicitanteId: l.solicitante_id,
+    responsavelId: l.responsavel_id,
+    proximoPassoEm: l.proximo_passo_em,
   }
 }
 

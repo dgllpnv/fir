@@ -1,11 +1,19 @@
 'use client'
 
 import type { ItemNaLista, TPacienteEncontrado } from '@fir/contracts'
-import { useState } from 'react'
+import { type CodigoLido, gtinCanonico } from '@fir/domain'
+import { useEffect, useId, useRef, useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { milesimosDoTexto } from '@/lib/quantidade'
 import { SeletorDePaciente } from '../seletor-de-paciente'
+import { CapturaDeCodigo } from './captura-de-codigo'
+import {
+  etiquetaDeOutraClinica,
+  FRASE_DE_OUTRA_CLINICA,
+  gtinParaExibir,
+  itemDoCodigo,
+} from './item-do-codigo'
 
 /**
  * `movEstoque` pela tela — entrada e saída.
@@ -20,7 +28,7 @@ import { SeletorDePaciente } from '../seletor-de-paciente'
  */
 
 type Sub = 'entrada' | 'saida'
-type TipoDeSaida = 'consumo' | 'descarte' | 'interno' | 'ajuste'
+export type TipoDeSaida = 'consumo' | 'descarte' | 'interno' | 'ajuste'
 
 const ROTULO_DA_SAIDA: Record<TipoDeSaida, string> = {
   consumo: 'Uso em paciente',
@@ -36,22 +44,43 @@ export function FormularioDeMovimento({
   itens,
   itemInicial,
   loteInicial,
+  tipoInicial,
+  loteDoFabricante,
   hoje,
   podeGerir,
   aoFechar,
   aoSalvar,
+  aoLigar,
 }: {
   sub: Sub
   itens: ItemNaLista[]
   itemInicial: ItemNaLista | null
   loteInicial: string | null
+  /** O tipo de saída já escolhido no leitor do topo (Uso em paciente, Descarte). */
+  tipoInicial?: TipoDeSaida
+  /**
+   * O lote IMPRESSO na caixa, lido do DataMatrix. O nosso lote é a validade
+   * (é por ela que o FIFO anda); o texto do fabricante vai para a observação,
+   * como no protótipo (`emo` = "lote …"), para a rastreabilidade não se perder.
+   */
+  loteDoFabricante: string
   hoje: string
   podeGerir: boolean
   aoFechar: () => void
   aoSalvar: (recado: string) => void
+  /** O item com o código recém-ligado pela leitura, para a lista trocar em memória. */
+  aoLigar: (item: ItemNaLista) => void
 }) {
+  const idDoItem = useId()
+  const formulario = useRef<HTMLFormElement>(null)
+  // Aberto pelo leitor do topo ou pela linha do item, o formulário nasce
+  // acima da lista e abaixo dos botões — em 390 px, fora da vista. Rolar até
+  // ele é o `focoForm` do protótipo.
+  useEffect(() => {
+    formulario.current?.scrollIntoView({ block: 'start' })
+  }, [])
   const [itemId, setItemId] = useState(itemInicial?.id ?? '')
-  const [tipo, setTipo] = useState<TipoDeSaida>('consumo')
+  const [tipo, setTipo] = useState<TipoDeSaida>(tipoInicial ?? 'consumo')
   const [quantidade, setQuantidade] = useState('')
   const [unidade, setUnidade] = useState('')
   const [dia, setDia] = useState(hoje)
@@ -60,9 +89,69 @@ export function FormularioDeMovimento({
   const [motivo, setMotivo] = useState('Vencido')
   const [sentido, setSentido] = useState<'faltou' | 'sobrou'>('faltou')
   const [paciente, setPaciente] = useState<TPacienteEncontrado | null>(null)
-  const [obs, setObs] = useState('')
+  const [obs, setObs] = useState(loteDoFabricante === '' ? '' : `lote ${loteDoFabricante}`)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
+  const [lendo, setLendo] = useState(false)
+  const [leitura, setLeitura] = useState<string | null>(null)
+  /** O código da caixa lido que ainda não é de nenhum item: ligar ao Item escolhido. */
+  const [semItem, setSemItem] = useState<{ gtin: string; validade: string | null } | null>(null)
+
+  /**
+   * O que a leitura ao lado do Item faz (`emler` no protótipo): escolhe o item
+   * e traz a validade lida para o lote. Código da caixa ainda não ligado não
+   * vira item novo — a pessoa escolhe o item na lista e liga o código a ele.
+   */
+  function aoLerCodigo(c: CodigoLido): void {
+    setLendo(false)
+    setSemItem(null)
+    const achado = itemDoCodigo(itens, c)
+    const validade = c.tipo === 'medicamento' ? c.validade : null
+    if (achado !== null) {
+      setItemId(achado.id)
+      setUnidade('')
+      setLote(validade ?? '')
+      if (c.tipo === 'medicamento' && c.lote !== '' && obs.trim() === '') setObs(`lote ${c.lote}`)
+      setLeitura(
+        `Item: ${achado.nome}` +
+          (validade === null ? '' : ` · validade lida: ${mesAno(validade)}`) +
+          (c.tipo === 'medicamento' && c.lote !== '' ? ` · lote ${c.lote}` : ''),
+      )
+      return
+    }
+    if (c.tipo === 'medicamento' || c.tipo === 'barras') {
+      setSemItem({ gtin: gtinCanonico(c.gtin), validade })
+      setLeitura(
+        `O código ${gtinParaExibir(gtinCanonico(c.gtin))} ainda não está ligado a um item. ` +
+          'Escolha o item acima e toque em “Ligar código”: nas próximas leituras a ferramenta reconhece sozinha.',
+      )
+      return
+    }
+    setLeitura(
+      etiquetaDeOutraClinica(itens, c)
+        ? FRASE_DE_OUTRA_CLINICA
+        : c.tipo === 'etiqueta'
+        ? 'Esta etiqueta não é de um item ativo do estoque.'
+        : 'Este código não é de um item do estoque.',
+    )
+  }
+
+  async function ligarLido(): Promise<void> {
+    if (semItem === null || itemId === '') return
+    setErro(null)
+    try {
+      const r = await chamar<ItemNaLista>(`v1/estoque/${itemId}/codigo`, {
+        method: 'POST',
+        body: JSON.stringify({ gtin: semItem.gtin }),
+      })
+      aoLigar(r)
+      if (semItem.validade !== null) setLote(semItem.validade)
+      setSemItem(null)
+      setLeitura(`Código ligado a “${r.nome}”. Nas próximas leituras a ferramenta reconhece sozinha.`)
+    } catch (e) {
+      setErro(e instanceof ErroDaApi ? e.message : 'Não consegui falar com o servidor.')
+    }
+  }
 
   const item = itens.find((i) => i.id === itemId) ?? null
   // As unidades que o item DECLAROU, e só elas. A `medida` sempre; a de compra
@@ -143,12 +232,22 @@ export function FormularioDeMovimento({
   }
 
   return (
-    <form className="cartao" onSubmit={enviar} style={{ display: 'grid', gap: 12 }}>
+    <form ref={formulario} className="cartao" onSubmit={enviar} style={{ display: 'grid', gap: 12 }}>
       <h3>{sub === 'entrada' ? 'Registrar entrada' : 'Registrar saída'}</h3>
 
-      <label className="campo">
-        Item
-        <select value={itemId} onChange={(e) => setItemId(e.target.value)} required>
+      <div className="campo">
+        <span className="rotulo-com-acao">
+          <label htmlFor={idDoItem}>Item</label>
+          <button type="button" className="link" onClick={() => setLendo(true)}>
+            Ler código
+          </button>
+        </span>
+        <select
+          id={idDoItem}
+          value={itemId}
+          onChange={(e) => setItemId(e.target.value)}
+          required
+        >
           <option value="">Selecione</option>
           {itens.map((i) => (
             <option key={i.id} value={i.id}>
@@ -156,7 +255,31 @@ export function FormularioDeMovimento({
             </option>
           ))}
         </select>
-      </label>
+        {leitura === null ? null : (
+          <small role="status" className="num">
+            {leitura}
+          </small>
+        )}
+        {semItem === null ? null : (
+          <span className="botoes">
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={itemId === ''}
+              onClick={() => void ligarLido()}
+            >
+              Ligar código
+            </button>
+          </span>
+        )}
+      </div>
+      {lendo ? (
+        <CapturaDeCodigo
+          titulo={sub === 'entrada' ? 'Ler código · entrada' : 'Ler código · saída'}
+          aoLer={aoLerCodigo}
+          aoFechar={() => setLendo(false)}
+        />
+      ) : null}
 
       {sub === 'saida' ? (
         <div className="chips" role="group" aria-label="Tipo de saída">
@@ -317,3 +440,6 @@ export function FormularioDeMovimento({
     </form>
   )
 }
+
+/** `aaaa-mm-dd` → `mm/aaaa`. A validade se lê por mês, como no frasco. */
+const mesAno = (dia: string): string => `${dia.slice(5, 7)}/${dia.slice(0, 4)}`

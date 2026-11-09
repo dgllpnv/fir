@@ -7,12 +7,15 @@
     "build": "next build",
     "start": "next start -p 4810",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@fir/contracts": "workspace:*",
     "@fir/domain": "workspace:*",
     "@fir/ui": "workspace:*",
+    "@zxing/browser": "0.1.5",
+    "@zxing/library": "0.21.3",
     "next": "^16.4.2",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
@@ -20,6 +23,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "1.56.1",
     "@types/node": "^22.20.5",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",

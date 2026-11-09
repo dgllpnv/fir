@@ -10,10 +10,12 @@ import { METRICAS_DE_CAMPANHA } from '@fir/contracts'
 import { TIPOS, ehPagamento } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
 import { useState } from 'react'
+import { DICA_DO_NOME_DA_CAMPANHA } from '@/conteudo/dica-do-nome-da-campanha'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
 import { lerTabelaDeCampanha, type Lidas } from '@/lib/campanha-importada'
+import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
 import { dataDoDiaCivil, diaCurto, plural } from '@/lib/formato'
 import { baixarModeloDeCampanha } from '@/lib/modelos'
 import { lerTabela } from '@/lib/planilha'
@@ -605,7 +607,7 @@ function Formulario({
           // não vê o valor também não o reescreve sem querer.
           campanha.metaEmDinheiro === null
           ? ''
-          : (Number(campanha.metaEmDinheiro) / 100).toFixed(2).replace('.', ',')
+          : textoDeCentavos(BigInt(campanha.metaEmDinheiro))
         : String(campanha.metaEmNumero ?? ''),
   )
 
@@ -618,8 +620,15 @@ function Formulario({
       onSubmit={(e) => {
         e.preventDefault()
         setErro(null)
-        const n = Number(meta.replace(/\./g, '').replace(',', '.'))
-        if (!Number.isFinite(n) || n <= 0) {
+        // Meta em dinheiro é lida como DÍGITOS pela leitura única do front
+        // (`centavosDoTexto`, regra 1); meta em quantidade é um inteiro.
+        const emCentavos = metrica === 'receita' ? centavosDoTexto(meta) : null
+        const n = metrica === 'receita' ? 0 : Number(meta.replace(/\./g, ''))
+        const valida =
+          metrica === 'receita'
+            ? emCentavos !== null && emCentavos > 0n
+            : Number.isInteger(n) && n > 0
+        if (!valida) {
           setErro('Informe a meta — um número maior que zero.')
           return
         }
@@ -632,11 +641,10 @@ function Formulario({
           fim,
           metrica,
           tipoMetrica: metrica === 'tipo' ? tipoMetrica : '',
-          // CENTAVOS, inteiro, por UMA multiplicação na borda — o transporte é
-          // texto justamente para que ninguém some dois valores sem converter
-          // de propósito.
-          metaEmDinheiro: metrica === 'receita' ? String(Math.round(n * 100)) : null,
-          metaEmNumero: metrica === 'receita' ? null : Math.round(n),
+          // CENTAVOS, inteiro, em texto — o transporte é texto justamente para
+          // que ninguém some dois valores sem converter de propósito.
+          metaEmDinheiro: emCentavos === null ? null : emCentavos.toString(),
+          metaEmNumero: metrica === 'receita' ? null : n,
         })
       }}
     >
@@ -644,7 +652,18 @@ function Formulario({
 
       <label className="campo">
         Nome
-        <input value={nome} onChange={(e) => setNome(e.target.value)} maxLength={80} required />
+        <input
+          value={nome}
+          onChange={(e) => setNome(e.target.value)}
+          maxLength={80}
+          required
+          aria-describedby="dica-nome-da-campanha"
+        />
+        {/* L-A3-12: SEMPRE à vista, não atrás de ícone. O nome da campanha
+            aparece ao lado da paciente na lista de tarefas, no recebimento, na
+            ficha e na sugestão; com "Tirzepatida" no nome, o vínculo vira dado
+            de saúde. A trilha registra quem leu, mas não impede. */}
+        <small id="dica-nome-da-campanha">{DICA_DO_NOME_DA_CAMPANHA}</small>
       </label>
 
       <div className="par">

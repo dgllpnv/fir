@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
 import { ehPortaDaCarteira } from '@/lib/rota-da-carteira'
-import { ProvedorDaCarteira } from './contexto'
+import { ProvedorDaCarteira, useCarteira } from './contexto'
 import { FaixaDaCarteira } from './faixa'
 
 /**
@@ -25,9 +25,26 @@ export function Casco({ children }: { children: ReactNode }) {
       <div className="carteira">
         <FaixaDaCarteira />
         <div className="carteira-corpo">
-          <main className="wrap">{children}</main>
+          <main className="wrap">
+            <CorpoComSessao>{children}</CorpoComSessao>
+          </main>
         </div>
       </div>
     </ProvedorDaCarteira>
   )
+}
+
+/**
+ * **A tela só aparece depois que a sessão se resolve.** A página é
+ * pré-renderizada: sem isto, quem abre `/carteira` sem estar logado (o primeiro
+ * acesso num computador novo) via o menu e os blocos vazios da Visão geral por
+ * meio segundo antes do desvio para a entrada — e isso parece um sistema
+ * quebrado. Mesma regra do `casco.tsx` do painel do superadmin.
+ */
+function CorpoComSessao({ children }: { children: ReactNode }) {
+  const { sessao } = useCarteira()
+  if (sessao.tag === 'carregando' || sessao.tag === 'saindo') {
+    return <p className="nota" role="status" aria-busy="true" />
+  }
+  return <>{children}</>
 }

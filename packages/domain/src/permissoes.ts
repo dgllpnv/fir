@@ -112,7 +112,7 @@ export const CAMPOS_MONETARIOS = [
   // e `teste/campos-de-dinheiro-registrados.test.ts` cobra as duas coisas.
   //
   // `resultadoDoMes`, e não `resultado`: esta lista apaga por NOME em
-  // qualquer profundidade de qualquer resposta, e `TarefaNaFicha.resultado`
+  // qualquer profundidade de qualquer resposta, e `TarefaNaLista.resultado`
   // já existe — é o desfecho do atendimento, um texto. Registrar `resultado`
   // apagaria o desfecho de toda tarefa para quem não tem `valores`, sem erro
   // nenhum. Nome genérico em dinheiro é nome que colide; medido.

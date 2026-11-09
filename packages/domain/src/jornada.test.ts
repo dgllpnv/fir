@@ -142,10 +142,10 @@ describe('transicao — o que é proibido, cada caso', () => {
     expect(ETAPAS.filter((e) => statusDaEtapa(e) === 'cancelada')).toEqual([ETAPA_AO_CANCELAR])
   })
 
-  it('A MATRIZ INTEIRA: 9 etapas × 13 ações, e só as 23 combinações da tabela passam', () => {
-    // 117 combinações, uma por uma, e as 94 restantes são recusadas. É o
+  it('A MATRIZ INTEIRA: 9 etapas × 14 ações, e só as 24 combinações da tabela passam', () => {
+    // 126 combinações, uma por uma, e as 102 restantes são recusadas. É o
     // único jeito de provar que CADA transição proibida é recusada — "de
-    // faltou só saem três" prova três linhas, não as outras 114.
+    // faltou só saem três" prova três linhas, não as outras 123.
     //
     // A lista abaixo é LITERAL de propósito: a propriedade "ou está na tabela
     // ou é erro" deriva o esperado da PRÓPRIA tabela, então acrescentar uma
@@ -178,6 +178,8 @@ describe('transicao — o que é proibido, cada caso', () => {
         'faltou -concluir-> realizado/concluida',
         'faltou -encerrar-> encerrado/cancelada',
         'faltou -reagendar-> agendado/aberta',
+        // B1 (2026-11-09): corrigir o orçamento já enviado não muda a etapa.
+        'orcamento -corrigirOrcamento-> orcamento/concluida',
         'orcamento -fechar-> fechado/concluida',
         'orcamento -followUp-> orcamento/concluida',
         'orcamento -perder-> perdido/concluida',
@@ -186,7 +188,7 @@ describe('transicao — o que é proibido, cada caso', () => {
         'realizado -registrarOrcamento-> orcamento/concluida',
       ].sort(),
     )
-    expect(permitidas).toHaveLength(23)
+    expect(permitidas).toHaveLength(24)
   })
 
   it('nenhuma ação de agenda alcança um cartão concluído', () => {

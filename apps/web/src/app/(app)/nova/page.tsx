@@ -33,6 +33,7 @@ export default async function Nova({
     <TelaNovaTarefa
       eu={minhaPessoaId}
       podeValores={temPerm(quem, perfis, 'valores')}
+      podePacientes={temPerm(quem, perfis, 'pacientes')}
       inicial={{
         ...(texto('pacienteId') === undefined ? {} : { pacienteId: texto('pacienteId')! }),
         ...(texto('tipo') === undefined ? {} : { tipo: texto('tipo')! }),

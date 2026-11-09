@@ -10,7 +10,8 @@ import { AbaContagens } from './estoque/aba-contagens'
 import { EntradaPelaNota } from './estoque/entrada-pela-nota'
 import { FormularioDeItem } from './estoque/formulario-de-item'
 import { ImportarItens } from './estoque/importar-itens'
-import { FormularioDeMovimento } from './estoque/formulario-de-movimento'
+import { FormularioDeMovimento, type TipoDeSaida } from './estoque/formulario-de-movimento'
+import { gtinParaExibir } from './estoque/item-do-codigo'
 import { LeitorDeCodigo } from './estoque/leitor-de-codigo'
 import { ListaDeEtiquetas } from './estoque/etiquetas'
 import { FormularioDeLocais } from './estoque/locais'
@@ -127,11 +128,18 @@ function AbaItens({
   const [painel, setPainel] = useState<
     | null
     | { tipo: 'item'; item: Item | null }
-    | { tipo: 'movimento'; sub: 'entrada' | 'saida'; item: Item | null; lote?: string | null }
+    | {
+        tipo: 'movimento'
+        sub: 'entrada' | 'saida'
+        item: Item | null
+        lote?: string | null
+        tipoDeSaida?: TipoDeSaida
+        loteDoFabricante?: string
+      }
     | { tipo: 'nota' }
     | { tipo: 'locais' }
     | { tipo: 'codigo' }
-    | { tipo: 'etiquetas' }
+    | { tipo: 'etiquetas'; so?: string[] }
     | { tipo: 'importar' }
   >(null)
 
@@ -144,6 +152,13 @@ function AbaItens({
     itens.recarregar()
     locais.recarregar()
   }
+  /**
+   * O código recém-ligado entra na lista EM MEMÓRIA, com o item que o
+   * servidor devolveu. Recarregar a lista desmontaria o formulário aberto — a
+   * pessoa leu o código no meio de uma entrada e perderia o que já digitou.
+   */
+  const trocarItem = (novo: Item) =>
+    itens.trocar((d) => ({ ...d, itens: d.itens.map((i) => (i.id === novo.id ? novo : i)) }))
 
   /**
    * Os filtros são de TELA, e por isso ficam aqui: eles não calculam nada —
@@ -273,7 +288,7 @@ function AbaItens({
               className="btn ghost"
               onClick={() => setPainel({ tipo: 'etiquetas' })}
             >
-              Etiquetas
+              Etiquetas QR
             </button>
           </>
         ) : null}
@@ -308,6 +323,7 @@ function AbaItens({
       {painel?.tipo === 'item' ? (
         <FormularioDeItem
           item={painel.item}
+          itens={todos}
           locais={locais.dados?.locais ?? []}
           aoFechar={() => setPainel(null)}
           aoSalvar={(r) => {
@@ -320,10 +336,15 @@ function AbaItens({
 
       {painel?.tipo === 'movimento' ? (
         <FormularioDeMovimento
+          // Chave por intenção: abrir outra entrada/saída por cima da aberta
+          // precisa de formulário novo, não do estado do anterior.
+          key={`${painel.sub}:${painel.item?.id ?? ''}:${painel.tipoDeSaida ?? ''}:${painel.lote ?? ''}`}
           sub={painel.sub}
           itens={ativos}
           itemInicial={painel.item}
           loteInicial={painel.lote ?? null}
+          {...(painel.tipoDeSaida === undefined ? {} : { tipoInicial: painel.tipoDeSaida })}
+          loteDoFabricante={painel.loteDoFabricante ?? ''}
           hoje={hoje}
           podeGerir={podeGerir}
           aoFechar={() => setPainel(null)}
@@ -332,6 +353,7 @@ function AbaItens({
             avisar(r)
             atualizar()
           }}
+          aoLigar={trocarItem}
         />
       ) : null}
 
@@ -360,19 +382,25 @@ function AbaItens({
       ) : null}
 
       {painel?.tipo === 'etiquetas' ? (
-        <ListaDeEtiquetas itens={ativos} aoFechar={() => setPainel(null)} />
+        <ListaDeEtiquetas
+          itens={ativos}
+          {...(painel.so === undefined ? {} : { escolhidosIniciais: painel.so })}
+          aoFechar={() => setPainel(null)}
+        />
       ) : null}
 
       {painel?.tipo === 'codigo' ? (
         <LeitorDeCodigo
           itens={todos}
           aoFechar={() => setPainel(null)}
-          aoAchar={(item, lote) => setPainel({ tipo: 'movimento', sub: 'saida', item, lote })}
-          aoEntrar={(item, lote) => setPainel({ tipo: 'movimento', sub: 'entrada', item, lote })}
-          aoLigar={(r) => {
-            avisar(r)
-            atualizar()
-          }}
+          aoAgir={(item, acao, lote, loteDoFabricante) =>
+            setPainel(
+              acao === 'entrada'
+                ? { tipo: 'movimento', sub: 'entrada', item, lote, loteDoFabricante }
+                : { tipo: 'movimento', sub: 'saida', item, lote, tipoDeSaida: acao, loteDoFabricante },
+            )
+          }
+          aoLigar={trocarItem}
         />
       ) : null}
 
@@ -433,6 +461,7 @@ function AbaItens({
                 aoAbrir={() => setAberto(aberto === i.id ? null : i.id)}
                 aoAgir={(sub) => setPainel({ tipo: 'movimento', sub, item: i })}
                 aoEditar={() => setPainel({ tipo: 'item', item: i })}
+                aoEtiqueta={() => setPainel({ tipo: 'etiquetas', so: [i.id] })}
               />
             ))}
           </div>
@@ -450,6 +479,7 @@ function LinhaDoItem({
   aoAbrir,
   aoAgir,
   aoEditar,
+  aoEtiqueta,
 }: {
   item: Item
   hoje: string
@@ -458,6 +488,7 @@ function LinhaDoItem({
   aoAbrir: () => void
   aoAgir: (sub: 'entrada' | 'saida') => void
   aoEditar: () => void
+  aoEtiqueta: () => void
 }) {
   const limite = somarDiasNaTela(hoje, DIAS_PARA_VENCER)
   const proximo = item.lotes.find((l) => l.lote <= limite)
@@ -540,7 +571,7 @@ function LinhaDoItem({
               )}
               <p className="nota">
                 Código da etiqueta: <code>{item.codigoQr}</code>
-                {item.gtin === '' ? '' : ` · caixa ${item.gtin}`}
+                {item.gtin === '' ? '' : ` · caixa ${gtinParaExibir(item.gtin)}`}
               </p>
             </div>
           </div>
@@ -552,9 +583,14 @@ function LinhaDoItem({
               Registrar saída
             </button>
             {podeGerir ? (
-              <button type="button" className="link" onClick={aoEditar}>
-                Editar item
-              </button>
+              <>
+                <button type="button" className="link" onClick={aoEditar}>
+                  Editar item
+                </button>
+                <button type="button" className="link" onClick={aoEtiqueta}>
+                  Etiqueta QR
+                </button>
+              </>
             ) : null}
           </div>
         </div>

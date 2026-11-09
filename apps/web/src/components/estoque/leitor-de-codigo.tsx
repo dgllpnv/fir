@@ -1,66 +1,87 @@
 'use client'
 
 import type { ItemNaLista } from '@fir/contracts'
-import { type CodigoLido, gtinCanonico, interpretarCodigo } from '@fir/domain'
-import { useState } from 'react'
+import { type CodigoLido, gtinCanonico } from '@fir/domain'
+import { useEffect, useRef, useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
-import { diaEmTexto } from '@/lib/formato'
+import { CapturaDeCodigo } from './captura-de-codigo'
+import {
+  etiquetaDeOutraClinica,
+  FRASE_DE_OUTRA_CLINICA,
+  gtinParaExibir,
+  itemDoCodigo,
+} from './item-do-codigo'
+
+/** O que a pessoa escolhe fazer com o item lido — os três botões do protótipo. */
+export type AcaoDoCodigo = 'consumo' | 'entrada' | 'descarte'
 
 /**
- * **Ler o código** — a etiqueta da ferramenta, ou a caixa do medicamento.
+ * **Ler o código** no topo do Estoque — a etiqueta da ferramenta, ou a caixa
+ * do medicamento.
  *
- * ────────────────────────────────────────────────────────────────────────────
- * O QUE ESTA TELA FAZ, E O QUE AINDA NÃO FAZ
+ * A captura (câmera ao vivo, foto ou digitação/leitor USB) é a
+ * {@link CapturaDeCodigo}; a interpretação é do domínio (`interpretarCodigo`),
+ * com teste próprio — inclusive a regra do GS1 em que o dia `00` significa o
+ * último dia do mês, que o protótipo traduz para `28`.
  *
- * Ela interpreta o código: etiqueta `FRMEST:`, DataMatrix GS1 (produto, lote e
- * validade) e código de barras. **A interpretação é do domínio**
- * (`interpretarCodigo`), com teste próprio — inclusive a regra do GS1 em que o
- * dia `00` significa o último dia do mês, que o protótipo traduz para `28`.
- *
- * A entrada do código vem de dois lugares, e os dois funcionam hoje:
- *
- *  1. **leitor de código de barras USB** — ele digita no campo e dá Enter, que
- *     é como a maioria das clínicas já lê caixa;
- *  2. **digitado à mão**, lendo o número embaixo do código de barras.
- *
- * **A CÂMERA não está nesta fatia, e isso é deliberado.** O protótipo carrega
- * `html5-qrcode` de um CDN — script de terceiro na página que mostra dado de
- * saúde é decisão de segurança, não detalhe de implementação, e ela não foi
- * tomada. Escrever o caminho da câmera sem poder testá-lo aqui seria pior que
- * a ausência: código de navegador não exercitado é código que ninguém sabe se
- * funciona. A dívida está em `docs/dividas.md` (D-E6 e D-E7) com o gatilho
- * escrito — a primeira clínica que quiser ler pela câmera.
- * ────────────────────────────────────────────────────────────────────────────
+ * Depois de ler, como no protótipo (`qrEscolhaHtml`): o item achado pergunta
+ * **Uso em paciente · Entrada · Descarte**, com a validade lida já indo para o
+ * formulário. O código da caixa que ainda não é de nenhum item pede, uma vez,
+ * a qual item ele pertence (`ligarCodigoItem`) — e **nunca cria item novo
+ * sozinho**.
  */
 export function LeitorDeCodigo({
   itens,
   aoFechar,
-  aoAchar,
-  aoEntrar,
+  aoAgir,
   aoLigar,
 }: {
   itens: ItemNaLista[]
   aoFechar: () => void
-  aoAchar: (item: ItemNaLista, lote: string | null) => void
-  aoEntrar: (item: ItemNaLista, lote: string | null) => void
-  aoLigar: (recado: string) => void
+  /** `lote` é a VALIDADE lida (o lote no nosso modelo); `loteDoFabricante`, o texto impresso. */
+  aoAgir: (
+    item: ItemNaLista,
+    acao: AcaoDoCodigo,
+    lote: string | null,
+    loteDoFabricante: string,
+  ) => void
+  /** O item com o código recém-ligado, para a lista trocar em memória. */
+  aoLigar: (item: ItemNaLista) => void
 }) {
-  const [texto, setTexto] = useState('')
+  const [capturando, setCapturando] = useState(true)
   const [lido, setLido] = useState<CodigoLido | null>(null)
+  const [ligado, setLigado] = useState<ItemNaLista | null>(null)
   const [paraLigar, setParaLigar] = useState('')
   const [erro, setErro] = useState<string | null>(null)
+  const cartao = useRef<HTMLDivElement>(null)
 
-  const achar = (c: CodigoLido): ItemNaLista | null => {
-    if (c.tipo === 'etiqueta') return itens.find((i) => i.id === c.itemId) ?? null
-    if (c.tipo === 'medicamento' || c.tipo === 'barras') {
-      const alvo = gtinCanonico(c.gtin)
-      return itens.find((i) => i.gtin !== '' && i.gtin === alvo) ?? null
-    }
-    return null
+  // O resultado nasce abaixo dos botões do topo — em 390 px, fora da vista.
+  // Rolar até ele é o `focoForm` do protótipo: sem isso a pessoa lê o código,
+  // o leitor fecha, e nada parece ter acontecido.
+  useEffect(() => {
+    if (!capturando) cartao.current?.scrollIntoView({ block: 'start' })
+  }, [capturando, ligado])
+
+  if (capturando) {
+    return (
+      <CapturaDeCodigo
+        titulo="Ler código do produto"
+        aoFechar={aoFechar}
+        aoLer={(c) => {
+          setLido(c)
+          setLigado(null)
+          setErro(null)
+          setCapturando(false)
+        }}
+      />
+    )
   }
+  if (lido === null) return null
 
-  const item = lido === null ? null : achar(lido)
-  const lote = lido?.tipo === 'medicamento' ? lido.validade : null
+  const item = ligado ?? itemDoCodigo(itens, lido)
+  const lote = lido.tipo === 'medicamento' ? lido.validade : null
+  const doFabricante = lido.tipo === 'medicamento' ? lido.lote : ''
+  const lerOutro = () => setCapturando(true)
 
   async function ligar(): Promise<void> {
     if (lido === null || lido.tipo === 'desconhecido' || lido.tipo === 'etiqueta') return
@@ -74,59 +95,24 @@ export function LeitorDeCodigo({
         method: 'POST',
         body: JSON.stringify({ gtin: lido.gtin }),
       })
-      aoLigar(`Código ligado a "${r.nome}". Nas próximas leituras a ferramenta reconhece sozinha.`)
-      setLido(null)
-      aoFechar()
+      aoLigar(r)
+      setLigado(r)
     } catch (e) {
       setErro(e instanceof ErroDaApi ? e.message : 'Não consegui falar com o servidor.')
     }
   }
 
   return (
-    <div className="cartao" style={{ display: 'grid', gap: 12 }}>
-      <h3>Ler código</h3>
-
-      {lido === null ? (
+    <div ref={cartao} className="cartao" style={{ display: 'grid', gap: 12 }}>
+      {lido.tipo === 'desconhecido' ? (
         <>
+          <div className="eyebrow">Código lido</div>
           <p className="nota" style={{ margin: 0 }}>
-            Passe o leitor na etiqueta da prateleira ou na caixa do medicamento — ele digita aqui
-            sozinho. Ou digite o número embaixo do código de barras.
-          </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              setErro(null)
-              setLido(interpretarCodigo(texto))
-            }}
-          >
-            <label className="campo">
-              Código
-              <input
-                type="text"
-                autoFocus
-                value={texto}
-                onChange={(e) => setTexto(e.target.value)}
-                placeholder="Ex.: 7891234567895"
-              />
-            </label>
-            <div className="botoes" style={{ marginTop: 10 }}>
-              <button type="submit" className="btn">
-                Usar código
-              </button>
-              <button type="button" className="btn ghost" onClick={aoFechar}>
-                Cancelar
-              </button>
-            </div>
-          </form>
-        </>
-      ) : lido.tipo === 'desconhecido' ? (
-        <>
-          <p className="nota" style={{ margin: 0 }}>
-            Não reconheci este código: <code>{lido.texto}</code>
+            Este código não é de um item do estoque: <code>{lido.texto}</code>
           </p>
           <div className="botoes">
-            <button type="button" className="btn" onClick={() => setLido(null)}>
-              Tentar outro
+            <button type="button" className="btn" onClick={lerOutro}>
+              Ler outro
             </button>
             <button type="button" className="btn ghost" onClick={aoFechar}>
               Fechar
@@ -136,21 +122,51 @@ export function LeitorDeCodigo({
       ) : item !== null ? (
         <>
           <div className="info">
+            <div className="eyebrow">{ligado === null ? 'Código lido' : 'Código ligado'}</div>
             <b>{item.nome}</b>
-            <small>
+            <small className="num">
               Em estoque: {item.semContagem ? 'sem contagem' : item.saldoEmEstoque.texto}
-              {lote === null ? '' : ` · validade lida: ${diaEmTexto(lote)}`}
-              {lido.tipo === 'medicamento' && lido.lote !== ''
-                ? ` · lote ${lido.lote}`
-                : ''}
+              {lote === null ? '' : ` · validade lida: ${mesAno(lote)}`}
+              {lido.tipo === 'medicamento' && lido.lote !== '' ? ` · lote ${lido.lote}` : ''}
             </small>
+            {ligado === null ? null : (
+              <small>Nas próximas leituras a ferramenta reconhece este código sozinha.</small>
+            )}
           </div>
           <div className="botoes">
-            <button type="button" className="btn" onClick={() => aoAchar(item, lote)}>
-              Registrar saída
+            <button type="button" className="btn" onClick={() => aoAgir(item, 'consumo', lote, doFabricante)}>
+              Uso em paciente
             </button>
-            <button type="button" className="btn ghost" onClick={() => aoEntrar(item, lote)}>
-              Registrar entrada
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => aoAgir(item, 'entrada', lote, doFabricante)}
+            >
+              Entrada
+            </button>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => aoAgir(item, 'descarte', lote, doFabricante)}
+            >
+              Descarte
+            </button>
+            <button type="button" className="link" onClick={aoFechar}>
+              Cancelar
+            </button>
+          </div>
+        </>
+      ) : lido.tipo === 'etiqueta' ? (
+        <>
+          <div className="eyebrow">Código lido</div>
+          <p className="nota" style={{ margin: 0 }}>
+            {etiquetaDeOutraClinica(itens, lido)
+              ? FRASE_DE_OUTRA_CLINICA
+              : 'Esta etiqueta é de um item que não está mais no catálogo desta clínica.'}
+          </p>
+          <div className="botoes">
+            <button type="button" className="btn" onClick={lerOutro}>
+              Ler outro
             </button>
             <button type="button" className="btn ghost" onClick={aoFechar}>
               Fechar
@@ -160,49 +176,52 @@ export function LeitorDeCodigo({
       ) : (
         <>
           <div className="info">
-            <b>Código ainda não ligado a um item</b>
-            <small>
-              Código {lido.tipo === 'etiqueta' ? lido.itemId : gtinCanonico(lido.gtin)}
-              {lote === null ? '' : ` · validade ${diaEmTexto(lote)}`}. Escolha o item uma vez: nas
-              próximas leituras a ferramenta reconhece sozinha.
+            <div className="eyebrow">Código novo</div>
+            <b>
+              {lido.tipo === 'medicamento' ? 'Código da caixa do medicamento' : 'Código de barras'}{' '}
+              ainda não ligado a um item
+            </b>
+            <small className="num">
+              Código {gtinParaExibir(gtinCanonico(lido.gtin))}
+              {lote === null ? '' : ` · validade ${mesAno(lote)}`}
+              {lido.tipo === 'medicamento' && lido.lote !== '' ? ` · lote ${lido.lote}` : ''}.
+              Escolha o item uma vez: nas próximas leituras a ferramenta reconhece sozinha.
             </small>
           </div>
-          {lido.tipo === 'etiqueta' ? (
-            <p className="nota" style={{ margin: 0 }}>
-              Esta etiqueta é de um item que não está mais no catálogo desta clínica.
+          <label className="campo">
+            Item do estoque
+            <select value={paraLigar} onChange={(e) => setParaLigar(e.target.value)}>
+              <option value="">Escolha o item</option>
+              {itens
+                .filter((i) => i.ativo)
+                .map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.nome}
+                  </option>
+                ))}
+            </select>
+          </label>
+          {erro !== null ? (
+            <p className="erro" role="alert">
+              {erro}
             </p>
-          ) : (
-            <>
-              <label className="campo">
-                Item do estoque
-                <select value={paraLigar} onChange={(e) => setParaLigar(e.target.value)}>
-                  <option value="">Escolha o item</option>
-                  {itens
-                    .filter((i) => i.ativo)
-                    .map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.nome}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              {erro !== null ? (
-                <p className="erro" role="alert">
-                  {erro}
-                </p>
-              ) : null}
-              <div className="botoes">
-                <button type="button" className="btn" onClick={() => void ligar()}>
-                  Ligar código
-                </button>
-                <button type="button" className="btn ghost" onClick={aoFechar}>
-                  Cancelar
-                </button>
-              </div>
-            </>
-          )}
+          ) : null}
+          <div className="botoes">
+            <button type="button" className="btn" onClick={() => void ligar()}>
+              Ligar código
+            </button>
+            <button type="button" className="btn ghost" onClick={lerOutro}>
+              Ler outro
+            </button>
+            <button type="button" className="link" onClick={aoFechar}>
+              Cancelar
+            </button>
+          </div>
         </>
       )}
     </div>
   )
 }
+
+/** `aaaa-mm-dd` → `mm/aaaa`. A validade se lê por mês, como no frasco. */
+const mesAno = (dia: string): string => `${dia.slice(5, 7)}/${dia.slice(0, 4)}`

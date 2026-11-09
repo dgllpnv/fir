@@ -106,7 +106,7 @@ export const CampanhaNoPortal = z.discriminatedUnion('tipo', [
     mes: DiaCivil,
     // `resultadoEmDinheiro`, nunca `resultado`: a mesma convenção de
     // `CampanhaNaLista` (campanhas.ts) — o nome genérico já colide com
-    // `TarefaNaFicha.resultado` (texto, não dinheiro), e a redação por nome
+    // `TarefaNaLista.resultado` (texto, não dinheiro), e a redação por nome
     // de chave não distingue os dois (CAMPOS_MONETARIOS, nota em
     // permissoes.ts).
     resultadoEmDinheiro: centavosNaSaida,

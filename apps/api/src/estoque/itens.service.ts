@@ -11,6 +11,7 @@ import {
   deMedidaParaExibicao,
   ehAltoValor,
   ehOk,
+  gtinCanonico,
   lotesComSaldo,
   saldoEmMedida,
 } from '@fir/domain'
@@ -147,21 +148,8 @@ export class ItensService {
    */
   async ligarCodigo(ctx: Contexto, id: string, gtin: string): Promise<ItemNaLista> {
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const canonico = gtin.padStart(14, '0')
       await linhaPorId(c, id)
-      const outro = await c.query<{ nome: string }>(
-        `SELECT nome FROM itens_de_estoque
-          WHERE gtin = $1 AND id <> $2 AND excluido_em IS NULL`,
-        [canonico, id],
-      )
-      // A frase do protótipo, e ela é útil: dizer QUAL item já tem o código é
-      // o que permite à pessoa descobrir que leu a caixa errada.
-      if (outro.rows[0] !== undefined) {
-        throw new ConflictException(
-          `Este código já está ligado a "${outro.rows[0].nome}".`,
-        )
-      }
-      await c.query('UPDATE itens_de_estoque SET gtin = $2 WHERE id = $1', [id, canonico])
+      await gravarGtin(c, ctx.clinicaId, id, gtin)
       return umPorId(c, id, ctx.clinicaCodigo)
     })
   }
@@ -279,10 +267,13 @@ export class ItensService {
       d.responsavelId ?? null,
       d.ativo,
     ]
-    // `gtin` NÃO entra: ele é gravado por `ligarCodigoItem`, e incluí-lo aqui
-    // faria um `PATCH { nome }` apagar o código que a leitura da caixa ligou.
+    // `gtin` NÃO entra nesta lista: ele passa por `gravarGtin`, o mesmo ponto
+    // de `ligarCodigoItem` — a normalização e a frase do conflito existem uma
+    // vez. Na edição, `mesclar` já trouxe o código atual quando o corpo não o
+    // mandou, então um `PATCH { nome }` não apaga o que a leitura ligou.
 
     try {
+      let gravado: string
       if (id === null) {
         const r = await c.query<{ id: string }>(
           `INSERT INTO itens_de_estoque
@@ -295,26 +286,98 @@ export class ItensService {
            RETURNING id`,
           [...valores, ctx.clinicaId, pessoaDoAtor(ctx.ator)],
         )
-        return r.rows[0]!.id
+        gravado = r.rows[0]!.id
+      } else {
+        const r = await c.query<{ id: string }>(
+          `UPDATE itens_de_estoque
+              SET nome = $1, codigo = $2, categoria = $3, medida = $4,
+                  unid_compra = $5, fator_compra = $6, unid_uso = $7, fator_uso = $8,
+                  aproveita_sobra = $9, controla_validade = $10, alta_rotatividade = $11,
+                  alto_valor = $12, minimo = $13, custo = $14, local_id = $15,
+                  unidade_id = $16, responsavel_id = $17, ativo = $18,
+                  desativado_em = CASE WHEN $18 THEN NULL ELSE coalesce(desativado_em, now()) END
+            WHERE id = $19 AND excluido_em IS NULL
+            RETURNING id`,
+          [...valores, id],
+        )
+        if (r.rowCount === 0) throw new NotFoundException('Item de estoque não encontrado.')
+        gravado = r.rows[0]!.id
       }
-      const r = await c.query<{ id: string }>(
-        `UPDATE itens_de_estoque
-            SET nome = $1, codigo = $2, categoria = $3, medida = $4,
-                unid_compra = $5, fator_compra = $6, unid_uso = $7, fator_uso = $8,
-                aproveita_sobra = $9, controla_validade = $10, alta_rotatividade = $11,
-                alto_valor = $12, minimo = $13, custo = $14, local_id = $15,
-                unidade_id = $16, responsavel_id = $17, ativo = $18,
-                desativado_em = CASE WHEN $18 THEN NULL ELSE coalesce(desativado_em, now()) END
-          WHERE id = $19 AND excluido_em IS NULL
-          RETURNING id`,
-        [...valores, id],
-      )
-      if (r.rowCount === 0) throw new NotFoundException('Item de estoque não encontrado.')
-      return r.rows[0]!.id
+      await gravarGtin(c, ctx.clinicaId, gravado, d.gtin)
+      return gravado
     } catch (e) {
       throw traduzirRepetido(e, d)
     }
   }
+}
+
+/**
+ * O CÓDIGO DE BARRAS DA CAIXA, gravado num ponto só — `ligarCodigoItem` e o
+ * campo do cadastro passam por aqui.
+ *
+ * Normalizado para **14 dígitos** com zeros à esquerda (`gtinCanonico`, do
+ * domínio — a mesma função com que a tela compara o que leu com o catálogo):
+ * EAN-13 e GTIN-14 do mesmo produto são o mesmo código, e guardá-los sem
+ * normalizar faria a leitura do DataMatrix não achar o item cadastrado pelo
+ * EAN. `''` tira o código, e não vira catorze zeros.
+ *
+ * Gravar o código que o item já tem não muda nada: o conflito exclui o próprio
+ * item, e o `UPDATE` só escreve quando o valor difere — sem linha nova na
+ * trilha por um "salvar" que não mudou o código.
+ *
+ * **`clinica_id` nas duas consultas**, além da RLS (regra 19: o filtro da
+ * aplicação é a segunda camada, nunca a única). Sem ele, uma conexão que
+ * escapasse da RLS diria o NOME do item de outra clínica no 409 — e o `UPDATE`
+ * por id gravaria o código num item alheio.
+ *
+ * **A corrida também é 409.** A conferência acima não vê a gravação de outra
+ * transação ainda aberta: duas pessoas ligando o mesmo código a dois itens ao
+ * mesmo tempo passam as duas por ela, e quem decide é o índice
+ * `itens_de_estoque_gtin_unico`. O `23505` dele vira aqui a mesma frase legível
+ * — para os DOIS caminhos (`ligarCodigoItem` não passa por `traduzirRepetido`).
+ * Sem o nome do outro item: o índice não diz qual é, e ler de novo numa
+ * transação já abortada não é possível.
+ *
+ * Exportada para o teste da segunda camada, que a chama com uma conexão que
+ * IGNORA a RLS (`fir_migrate`) — único jeito de provar que o filtro está aqui.
+ */
+export async function gravarGtin(
+  c: Pick<pg.ClientBase, 'query'>,
+  clinicaId: ClinicaId,
+  id: string,
+  gtin: string,
+): Promise<void> {
+  const canonico = gtin === '' ? '' : gtinCanonico(gtin)
+  if (canonico !== '') {
+    const outro = await c.query<{ nome: string }>(
+      `SELECT nome FROM itens_de_estoque
+        WHERE clinica_id = $3 AND gtin = $1 AND id <> $2 AND excluido_em IS NULL`,
+      [canonico, id, clinicaId],
+    )
+    // A frase do protótipo, e ela é útil: dizer QUAL item já tem o código é
+    // o que permite à pessoa descobrir que leu a caixa errada.
+    if (outro.rows[0] !== undefined) {
+      throw new ConflictException(`Este código já está ligado a "${outro.rows[0].nome}".`)
+    }
+  }
+  try {
+    await c.query(
+      `UPDATE itens_de_estoque SET gtin = $2
+        WHERE clinica_id = $3 AND id = $1 AND gtin IS DISTINCT FROM $2`,
+      [id, canonico, clinicaId],
+    )
+  } catch (e) {
+    throw traduzirGtinRepetido(e)
+  }
+}
+
+/** O `23505` do índice do código de barras, a frase única dos dois caminhos. */
+function traduzirGtinRepetido(e: unknown): unknown {
+  const erro = e as { code?: string; constraint?: string }
+  if (erro.code === '23505' && erro.constraint === 'itens_de_estoque_gtin_unico') {
+    return new ConflictException('Este código de barras já está ligado a outro item do estoque.')
+  }
+  return e
 }
 
 async function linhaPorId(c: pg.PoolClient, id: string): Promise<LinhaDeItem> {
@@ -466,7 +529,9 @@ function traduzirRepetido(e: unknown, d: SalvarItemEstoque): unknown {
   if (erro.constraint === 'itens_de_estoque_codigo_unico') {
     return new ConflictException(`O código "${d.codigo}" já está em outro item do estoque.`)
   }
-  return e
+  // A corrida do código de barras já sai de `gravarGtin` traduzida; isto
+  // cobre só o caso de o índice disparar fora dela.
+  return traduzirGtinRepetido(e)
 }
 
 /**
@@ -508,6 +573,8 @@ function mesclar(atual: LinhaDeItem, d: EditarItemEstoque): SalvarItemEstoque {
     unidadeId: 'unidadeId' in d ? (d.unidadeId ?? null) : atual.unidade_id,
     responsavelId: 'responsavelId' in d ? (d.responsavelId ?? null) : atual.responsavel_id,
     ativo: d.ativo ?? atual.ativo,
+    // Ausente preserva o código que a leitura ligou; `''` explícito o tira.
+    gtin: d.gtin ?? atual.gtin,
     inicial: null,
   }
 }

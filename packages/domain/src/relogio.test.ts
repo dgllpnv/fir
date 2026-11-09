@@ -1,6 +1,8 @@
+import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import {
   diaCivil,
+  ehDiaDoCalendario,
   diasEntre,
   fimDoMes,
   inicioDoDia,
@@ -116,5 +118,32 @@ describe('diasEntre', () => {
 
   it('`somarDias` e `diasEntre` são inversos', () => {
     expect(diasEntre('2026-01-31', somarDias('2026-01-31', 400))).toBe(400)
+  })
+})
+
+describe('ehDiaDoCalendario — uma validação de dia, para a jornada e para o Asana', () => {
+  it('recusa o dia que não existe e o formato que não é `aaaa-mm-dd`', () => {
+    expect(ehDiaDoCalendario('2024-02-29')).toBe(true)
+    expect(ehDiaDoCalendario('2025-02-29')).toBe(false)
+    expect(ehDiaDoCalendario('2026-11-31')).toBe(false)
+    expect(ehDiaDoCalendario('2026-13-01')).toBe(false)
+    expect(ehDiaDoCalendario('2026-00-10')).toBe(false)
+    expect(ehDiaDoCalendario('2026-1-05')).toBe(false)
+    expect(ehDiaDoCalendario('05/03/2026')).toBe(false)
+    expect(ehDiaDoCalendario('2026-03-05T00:00:00Z')).toBe(false)
+    expect(ehDiaDoCalendario('')).toBe(false)
+  })
+
+  it('todo dia que `somarDias` produz existe, e o dia seguinte ao último do mês não', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 365 * 200 }), (n) => {
+        const dia = somarDias('1900-01-01', n)
+        expect(ehDiaDoCalendario(dia)).toBe(true)
+        const ultimo = fimDoMes(dia)
+        const inexistente = `${ultimo.slice(0, 8)}${String(Number(ultimo.slice(8)) + 1).padStart(2, '0')}`
+        expect(ehDiaDoCalendario(inexistente)).toBe(false)
+      }),
+      { numRuns: 2000 },
+    )
   })
 })

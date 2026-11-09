@@ -1,10 +1,18 @@
 'use client'
 
 import type { ItemNaLista, ListaDeLocais } from '@fir/contracts'
-import { useState } from 'react'
+import { type CodigoLido, gtinCanonico } from '@fir/domain'
+import { useId, useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { milesimosDoTexto, textoDeMilesimos } from '@/lib/quantidade'
+import { CapturaDeCodigo } from './captura-de-codigo'
+import {
+  etiquetaDeOutraClinica,
+  FRASE_DE_OUTRA_CLINICA,
+  gtinParaExibir,
+  itemDoCodigo,
+} from './item-do-codigo'
 
 /**
  * Cadastrar e editar um item — **as três unidades, e cada conversão inteira**.
@@ -21,17 +29,24 @@ import { milesimosDoTexto, textoDeMilesimos } from '@/lib/quantidade'
  */
 export function FormularioDeItem({
   item,
+  itens,
   locais,
   aoFechar,
   aoSalvar,
 }: {
   item: ItemNaLista | null
+  /** O catálogo, para a leitura da caixa dizer na hora que o código já é de outro item. */
+  itens: readonly ItemNaLista[]
   locais: ListaDeLocais['locais']
   aoFechar: () => void
   aoSalvar: (recado: string) => void
 }) {
   const [nome, setNome] = useState(item?.nome ?? '')
   const [codigo, setCodigo] = useState(item?.codigo ?? '')
+  const idDoGtin = useId()
+  const [gtin, setGtin] = useState(gtinParaExibir(item?.gtin ?? ''))
+  const [lendo, setLendo] = useState(false)
+  const [leitura, setLeitura] = useState<string | null>(null)
   const [categoria, setCategoria] = useState(item?.categoria ?? '')
   const [medida, setMedida] = useState(item?.medida ?? 'un.')
   const [unidCompra, setUnidCompra] = useState(item?.compra?.unidade ?? '')
@@ -50,6 +65,51 @@ export function FormularioDeItem({
   const [loteInicial, setLoteInicial] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
+
+  /**
+   * "Ler da caixa" (`eigler` no protótipo): cadastro com a caixa na mão. Lê
+   * o código e preenche o código de barras e, na contagem inicial, a validade.
+   * O servidor confere de novo o código repetido — a conferência daqui só
+   * poupa a ida e diz o nome do outro item antes de a pessoa preencher o resto.
+   */
+  function aoLerCodigo(c: CodigoLido): void {
+    setLendo(false)
+    if (c.tipo === 'etiqueta') {
+      if (etiquetaDeOutraClinica(itens, c)) {
+        setLeitura(FRASE_DE_OUTRA_CLINICA)
+        return
+      }
+      const dela = itemDoCodigo(itens, c)
+      setLeitura(
+        dela === null
+          ? 'Esta é a etiqueta de um item, não o código da caixa.'
+          : `Esta é a etiqueta de um item já cadastrado: ${dela.nome}.`,
+      )
+      return
+    }
+    if (c.tipo === 'desconhecido') {
+      setLeitura('Não foi possível reconhecer o código da caixa.')
+      return
+    }
+    const outro = itemDoCodigo(
+      itens.filter((i) => i.id !== item?.id),
+      c,
+    )
+    if (outro !== null) {
+      setLeitura(`Este código já está ligado a ${outro.nome}.`)
+      return
+    }
+    setGtin(gtinParaExibir(gtinCanonico(c.gtin)))
+    const validade = c.tipo === 'medicamento' ? c.validade : null
+    if (item === null && controlaValidade && validade !== null && loteInicial === '') {
+      setLoteInicial(validade)
+    }
+    setLeitura(
+      'Código lido' +
+        (validade === null ? '' : ` · validade ${validade.slice(5, 7)}/${validade.slice(0, 4)}`) +
+        (c.tipo === 'medicamento' && c.lote !== '' ? ` · lote ${c.lote}` : ''),
+    )
+  }
 
   async function enviar(e: React.FormEvent): Promise<void> {
     e.preventDefault()
@@ -85,6 +145,10 @@ export function FormularioDeItem({
       const corpo = {
         nome: nome.trim(),
         codigo: codigo.trim(),
+        // Espaço é como o número vem impresso embaixo do código ("7 891234
+        // 567895"); tirá-lo não muda o código. O resto quem confere é o
+        // servidor, com o mesmo esquema do ligar.
+        gtin: gtin.replace(/[ ]/g, ''),
         categoria: categoria.trim(),
         medida: medida.trim(),
         compra: conversao(unidCompra, fatorCompra, 'compra'),
@@ -143,6 +207,40 @@ export function FormularioDeItem({
           placeholder="Ex.: Tirzepatida ampola 5 mg"
         />
       </label>
+
+      <div className="campo" style={{ maxWidth: 420 }}>
+        <span className="rotulo-com-acao">
+          <label htmlFor={idDoGtin}>
+            Código de barras da caixa <small>(opcional)</small>
+          </label>
+          <button type="button" className="link" onClick={() => setLendo(true)}>
+            Ler da caixa
+          </button>
+        </span>
+        <input
+          id={idDoGtin}
+          type="text"
+          inputMode="numeric"
+          maxLength={20}
+          autoComplete="off"
+          value={gtin}
+          onChange={(e) => setGtin(e.target.value)}
+          placeholder="Ex.: 7891234567895"
+          className="num"
+        />
+        {leitura === null ? null : (
+          <small role="status" className="num">
+            {leitura}
+          </small>
+        )}
+      </div>
+      {lendo ? (
+        <CapturaDeCodigo
+          titulo="Ler o código da caixa"
+          aoLer={aoLerCodigo}
+          aoFechar={() => setLendo(false)}
+        />
+      ) : null}
 
       <div className="par">
         <label className="campo">

@@ -73,6 +73,14 @@ export function acoesDaEtapa(t: {
    * de quem a tem.
    */
   readonly podeReceber?: boolean
+  /**
+   * `corrigirOrcamento(…)` permitiria esta pessoa? (B1: `jornada` e
+   * `podeEditar` da tarefa — solicitante, responsável ou `tarefas.equipe`).
+   *
+   * Mesma lógica de `podeReceber`: conveniência, o 403 do servidor é a
+   * resposta de verdade, e ausente = `true`.
+   */
+  readonly podeCorrigir?: boolean
 }): AcaoDaFaixa[] {
   if (t.etapa === null) return []
   const etapa = t.etapa
@@ -83,6 +91,7 @@ export function acoesDaEtapa(t: {
     // Afordância de tela, não regra: ver `DIAS_PARA_ORCAR`.
     if (x.acao === 'registrarOrcamento' && !aindaDaParaOrcar(t.concluidaEm, t.hoje)) return false
     if (x.acao === 'fechar' && t.podeReceber === false) return false
+    if (x.acao === 'corrigirOrcamento' && t.podeCorrigir === false) return false
     return true
   })
     .map((x) => ({

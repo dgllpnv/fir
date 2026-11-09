@@ -1,3 +1,4 @@
+import { ehDiaDoCalendario } from './relogio'
 import { type ErroDeDominio, type Result, erro, erroDe, ok } from './resultado'
 
 /**
@@ -131,11 +132,10 @@ export function diaDoAsana(valor: string): string | null {
   return null
 }
 
-/** O dia `aaaa-mm-dd` existe no calendário. Usado pelo contrato do servidor. */
-export const ehDiaDoCalendario = (dia: string): boolean => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dia)
-  return m !== null && diaDoCalendario(Number(m[1]), Number(m[2]), Number(m[3])) === dia
-}
+/*
+ * `ehDiaDoCalendario` (o dia `aaaa-mm-dd` existe) mora em `relogio.ts` e é a
+ * mesma da jornada — o contrato do Asana a importa de `@fir/domain`.
+ */
 
 /* ── Regras de linha (as mesmas na tela e no servidor) ─────────────────── */
 

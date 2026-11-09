@@ -10,6 +10,7 @@ import {
   type NomeDeAba,
 } from '@fir/domain'
 import type pg from 'pg'
+import { RECEITA_DA_CAMPANHA } from '../campanhas/receita-da-campanha'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 import { saldosDe } from '../financeiro/saldo.repositorio'
 import type { RelatorioDaMigracao } from './relatorio'
@@ -223,13 +224,19 @@ export async function conferirMigracao(
   // A tarefa carrega a campanha, e o recebimento pende da tarefa — então o
   // caminho é `campanhas → tarefas → recebimentos`, e não um `campanha_id` em
   // `recebimentos` (que seria o segundo lugar para a mesma pergunta).
+  //
+  // O QUE conta é `RECEITA_DA_CAMPANHA` — o predicado da tela de Campanhas e
+  // da carteira (N-2). Antes da A3 esta consulta somava todo recebimento de
+  // toda tarefa concluída, sem olhar paciente nem tipo; a origem
+  // (`contaComoReceita`) sempre olhou os dois.
   const campanhas = await c.query<{ chave: string; v: string }>(
-    `SELECT o.id_externo AS chave, coalesce(sum(r.valor), 0)::text AS v
+    `SELECT o.id_externo AS chave,
+            coalesce(sum(r.valor) FILTER (WHERE ${RECEITA_DA_CAMPANHA}), 0)::text AS v
        FROM origens_da_v20 o
        JOIN campanhas cp ON cp.id = o.id_interno AND cp.clinica_id = o.clinica_id
        LEFT JOIN tarefas t
               ON t.campanha_id = cp.id AND t.clinica_id = cp.clinica_id
-             AND t.excluida_em IS NULL AND t.status = 'concluida'
+             AND t.excluida_em IS NULL
        LEFT JOIN recebimentos r
               ON r.tarefa_id = t.id AND r.estornado_em IS NULL AND ${DINHEIRO_QUE_ENTROU}
       WHERE o.clinica_id = $1 AND o.entidade = 'Campanhas'

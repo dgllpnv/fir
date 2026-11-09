@@ -374,6 +374,31 @@ export const NovosPacientes = z
   .strict()
 export type NovosPacientes = z.infer<typeof NovosPacientes>
 
+/**
+ * Uma linha do **Quem mais indica** (correções da PO, B3).
+ *
+ * `indicadas` conta **pacientes distintas** com `indicado_por_id` igual a esta
+ * indicadora e **cadastradas** na janela do painel — nunca recebimentos nem
+ * tarefas (N-19). O texto livre de `indicado_por` não conta: só o vínculo
+ * por id diz, sem homônimo, quem indicou.
+ *
+ * **Só o nome da INDICADORA e a quantidade** (LGPD L-B3-3). Os nomes das
+ * indicadas não saem aqui nem num detalhe disto: quem quiser vê-los abre a
+ * ficha da indicadora, e a ficha tem trilha.
+ *
+ * **Sem receita nesta versão.** Se um dia ela entrar, entra com o corte de
+ * caixa fechado e `baseDeReceita` (N-22 inteiro) e com o nome registrado em
+ * `CAMPOS_MONETARIOS`.
+ */
+export const IndicadoraNoPainel = z
+  .object({
+    pacienteId: Uuid,
+    nome: z.string(),
+    indicadas: z.number().int(),
+  })
+  .strict()
+export type IndicadoraNoPainel = z.infer<typeof IndicadoraNoPainel>
+
 export const Painel = z
   .object({
     /** O dia da clínica, do SERVIDOR. É ele que separa atrasada de a vencer. */
@@ -425,6 +450,17 @@ export const Painel = z
      * nela o que o sistema espera em Pix hoje.
      */
     campanhas: z.array(CampanhaNaLista),
+    /**
+     * **Quem mais indica** — até 10 indicadoras ATIVAS, da que mais indicou
+     * para a que menos, com desempate fixo (nome, depois id) para que o
+     * ranking não troque sozinho entre dois carregamentos (N-21). Indicadora
+     * desativada não entra (L-B3-3); indicada desativada continua contando,
+     * porque o cadastro aconteceu na janela (N-20).
+     *
+     * Calculado na leitura e nunca gravado (L-B3-5): não vai para a carteira
+     * da Firmare nem para o Portal do Grupo.
+     */
+    quemMaisIndica: z.array(IndicadoraNoPainel),
   })
   .strict()
 export type Painel = z.infer<typeof Painel>
