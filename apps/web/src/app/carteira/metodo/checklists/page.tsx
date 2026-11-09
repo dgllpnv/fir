@@ -14,7 +14,7 @@ import { type FormEvent, useEffect, useState } from 'react'
 import { Carregando, Toast } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
+import { ErroDaCarteira } from '../../pecas'
 
 /**
  * **MÉTODO FIRMARE · CHECKLISTS DOS PROGRAMAS** (X3; protótipo
@@ -28,7 +28,6 @@ import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
  * A tabela de quatro colunas do protótipo vira linhas empilhadas em 390 px.
  */
 
-const AQUI = '/carteira/metodo/checklists'
 const QUEM: readonly QuemExecutaItem[] = ['responsavel', 'admin', 'comercial', 'administrativo', 'financeiro']
 
 type Estado = { tag: 'carregando' } | { tag: 'erro'; mensagem: string } | { tag: 'pronto'; dados: ChecklistsDoMetodoSaida }
@@ -61,7 +60,6 @@ export default function ChecklistsDoMetodo() {
 
   const cabeca = (
     <>
-      <NavDaCarteira atual={AQUI} />
       <h1 className="titulo">Checklists dos programas</h1>
       <p className="check-mudo">O passo a passo de cada programa, que vira tarefas quando um contrato é cadastrado.</p>
     </>

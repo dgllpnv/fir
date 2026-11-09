@@ -2,84 +2,276 @@
  * A CARTEIRA COMERCIAL DA FIRMARE — terceiro espaço de identidade, ao lado do
  * produto e do painel do superadmin. ADRs 0011, 0012.
  *
- * Mesmo princípio do painel (`superadmin.css`): uma faixa permanente que diz
- * ONDE você está e O QUE você enxerga (todos os grupos, ou um só) — nunca
- * estilo inline, nunca classe que colide com o produto ou com o painel.
- *
- * Cor própria para não confundir com o painel do superadmin (dourado cheio):
- * a faixa da carteira usa `--surface` com borda `--gold`, mais discreta —
- * ela não cria clínica em lugar nenhum, então o risco que justifica o
- * dourado cheio do painel não existe aqui.
+ * A forma é a do protótipo do Firmare Gestão: uma LATERAL à esquerda com a
+ * marca, o menu em grupos e, no pé, quem entrou e O QUE enxerga (todos os
+ * grupos, ou um só) — nunca estilo inline, nunca classe que colide com o
+ * produto ou com o painel.
  */
 
+/* ---------------------------------------------------------------------------
+   O CASCO: LATERAL À ESQUERDA, CONTEÚDO AO LADO. `casco.tsx`, `lateral.tsx`.
+
+   A forma do protótipo do Firmare Gestão (`.app` e `aside`, index.html L45–
+   58 e L223–231) e da ferramenta da clínica (`shell.css`): coluna de 232 px no
+   computador; abaixo de 900 px, gaveta aberta pelo botão "Menu". Os valores
+   são os de `shell.css`, mas as classes são daqui — `.side`, `.topbar` e
+   `.navitem` trariam junto `.conteudo .wrap` e a regra da faixa de suporte,
+   que não são da carteira (`identidade.test.ts` cobra o prefixo).
+
+   Uma régua só: a barra acompanha a JANELA, e o conteúdo vai até 1180 px
+   (o `.wrap` do protótipo, L66) — não mais o cabeçalho a 1080 e o corpo a 760.
+   --------------------------------------------------------------------------- */
 .carteira {
   min-height: 100vh;
   min-height: 100dvh;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
 }
 
-.carteira-faixa {
+.carteira-lateral {
+  background: var(--surface);
+  color: var(--ink);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 14px calc(16px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(14px, env(safe-area-inset-left, 0px));
+  min-width: 0;
+}
+
+/* A marca do protótipo: "Firmare" em Lora e "GESTÃO" embaixo. O "Gestão" é
+   TEXTO, então sai em --gold-ink (4,91:1 no claro) — --gold daria 2,21:1. */
+.carteira-marca { display: grid; gap: 4px; padding: 0 8px; min-width: 0; }
+.carteira-marca b {
+  font-family: var(--display);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  color: var(--ink);
+}
+.carteira-marca span {
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--gold-ink);
+}
+
+/* A navegação é a única parte que rola: marca e pé ficam sempre à vista. */
+.carteira-menu {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+.carteira-menu-grupo { display: grid; gap: 2px; }
+.carteira-menu-titulo {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 10px 4px;
+}
+.carteira-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  text-decoration: none;
+  min-width: 0;
+}
+.carteira-menu-rotulo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.carteira-menu-item:hover { background: var(--gold-soft); }
+/* O item ativo: dourado de FUNDO com a tinta escura fixa (6,73:1 nos dois
+   temas, `contraste.test.ts`), como o item ativo da clínica e o `.on` do
+   protótipo (L230). */
+.carteira-menu-item[aria-current='page'] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
+
+/* O contador vermelho do protótipo (`.nav-badge`, L56): à direita do rótulo,
+   algarismos tabulares. O par é `--bad` sobre `--bad-soft`, o "contador de
+   pendentes" já medido em `contraste.test.ts` nos dois temas — e não branco
+   sobre o vermelho, que no escuro não passa. Contagem do servidor, nunca da tela. */
+.carteira-menu-badge {
+  margin-left: auto;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bad-soft);
+  color: var(--bad);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* O pé: tema, quem entrou (e O QUE enxerga — o papel do `.who` do protótipo,
+   L486–488), a conta e Sair. */
+.carteira-lateral-pe {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding: 14px 6px 0;
+}
+.carteira-lateral-pe .tema { margin-bottom: 4px; }
+.carteira-quem-linha { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.carteira-quem { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.carteira-quem b {
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.carteira-quem small { font-size: 12px; color: var(--muted); }
+.carteira-lateral-pe .carteira-sair { flex: none; gap: 6px; padding: 8px 10px; min-height: 40px; font-size: 13px; }
+.carteira-conta { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.carteira-conta-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.carteira-conta-link:hover { color: var(--ink); }
+
+/* ---------- barra de topo (só abaixo de 900) ---------- */
+
+.carteira-topo {
   position: sticky;
   top: 0;
   z-index: 5;
   background: var(--surface);
-  border-bottom: 2px solid var(--gold);
+  border-bottom: 1px solid var(--line);
   padding-top: env(safe-area-inset-top, 0px);
 }
-
-.carteira-faixa-barra {
+.carteira-topo-barra {
   display: flex;
   align-items: center;
-  gap: 8px 14px;
-  flex-wrap: wrap;
-  padding: 10px max(16px, calc((100vw - 1080px) / 2));
-  font-size: 13px;
-}
-
-.carteira-aqui {
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 15px;
-  line-height: 1.1;
-  color: var(--gold-ink);
-}
-
-.carteira-aqui small {
-  display: block;
-  font-family: inherit;
-  font-size: 10.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-  font-weight: 600;
-  margin-top: 2px;
-}
-
-.carteira-onde {
-  margin: 0;
-  color: var(--muted);
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.carteira-onde b {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.carteira-quem {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--muted);
-}
-
-.carteira-corpo {
+  gap: 12px;
+  padding: 10px 16px;
   min-width: 0;
+}
+.carteira-marca.carteira-marca-topo { padding: 0; gap: 2px; flex: none; }
+.carteira-marca.carteira-marca-topo b { font-size: 20px; }
+.carteira-marca.carteira-marca-topo span { font-size: 9.5px; }
+.carteira-topo-quem {
+  margin-left: auto;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.carteira-botao-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-height: 40px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.carteira-botao-menu svg { width: 18px; height: 18px; }
+
+/* O véu fecha a gaveta ao toque em qualquer lugar do conteúdo. É um <button>
+   para funcionar no teclado também. */
+.carteira-veu {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  border: 0;
+  padding: 0;
+  background: rgba(15, 10, 5, 0.45);
+}
+
+.carteira-corpo { min-width: 0; }
+
+/* A coluna do conteúdo. É CONTÊINER: as telas que trocam de forma pela
+   largura que TÊM (a tabela da FIR Clinic, as linhas da Prospecção, o índice
+   do roteiro) perguntam a ele, não à janela — a 900 px a lateral come 232 px,
+   e a janela "larga" é um conteúdo de 630. Ver as regras `@container
+   carteira-tela` abaixo. */
+.carteira-principal {
+  container: carteira-tela / inline-size;
+  max-width: 1180px;
+  margin-inline: auto;
+  padding: 18px 16px 32px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* ---------- celular e tablet: a lateral vira gaveta ---------- */
+
+@media (max-width: 899px) {
+  .carteira-lateral {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 21;
+    width: min(290px, 84vw);
+    overflow-y: auto;
+    transform: translateX(-105%);
+    padding-top: calc(20px + env(safe-area-inset-top, 0px));
+    /* `visibility` e não só `transform`: a gaveta fechada continua no DOM, e
+       só com transform ela segue na ordem de tabulação — o Tab a partir de
+       "Menu" entraria em quinze links invisíveis. A visibilidade só some
+       DEPOIS do deslize, senão a gaveta sumiria no lugar de sair andando. */
+    visibility: hidden;
+    transition: transform 0.22s ease, visibility 0s 0.22s;
+  }
+  .carteira-lateral[data-aberta='sim'] {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.22s ease;
+  }
+  /* Na gaveta quem rola é ela inteira, não só o menu: com o pé fixo, a
+     844 px de altura sobravam onze dos quinze itens à vista. */
+  .carteira-menu { flex: none; overflow: visible; }
+}
+
+/* ---------- computador: a lateral é coluna fixa ---------- */
+
+@media (min-width: 900px) {
+  .carteira { display: grid; grid-template-columns: 232px minmax(0, 1fr); }
+  .carteira-lateral { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; }
+  .carteira-topo, .carteira-veu { display: none; }
+  .carteira-principal { padding: 26px clamp(16px, 2vw, 34px) 60px; }
+  /* Com mouse, o item do protótipo (L52: 7 px de respiro): os quinze cabem
+     numa janela de 900 px de altura sem o menu rolar. */
+  .carteira-lateral { gap: 14px; padding-top: 18px; }
+  .carteira-menu { gap: 10px; }
+  .carteira-menu-item { min-height: 34px; padding: 6px 10px; }
+  .carteira-conta-link { min-height: 28px; }
+}
+
+/* Movimento só quando explica algo — aqui, de onde a gaveta veio. */
+@media (prefers-reduced-motion: reduce) {
+  .carteira-lateral, .carteira-lateral[data-aberta='sim'] { transition: visibility 0s; }
 }
 
 /* A porta (entrar) — mesma caixa centrada do produto e do painel. */
@@ -249,29 +441,6 @@ a.carteira-card:hover {
  * `.../pecas.tsx`. Mesma família visual de `.carteira-card` acima — cartão,
  * nunca tabela, porque 390 px é o caso principal.
  */
-
-/* As três áreas (Clientes · Leads · Rotina) — mesma forma de `.superadmin-nav`,
-   prefixada para não colidir com ela (`identidade.test.ts` cobra isto). */
-.carteira-nav {
-  display: flex;
-  gap: 4px 20px;
-  flex-wrap: wrap;
-  margin-bottom: 18px;
-  border-bottom: 1px solid var(--line);
-}
-.carteira-nav a.link {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  font-weight: 600;
-  font-size: 13.5px;
-  border-bottom: 2px solid transparent;
-  text-decoration: none;
-}
-.carteira-nav a.carteira-nav-atual {
-  color: var(--gold-ink);
-  border-bottom-color: var(--gold);
-}
 
 /* O erro de tela DÁ SAÍDA (`design.md` §4) — `ErroDaCarteira`, `pecas.tsx`. */
 .carteira-erro {
@@ -579,9 +748,17 @@ details.carteira-dobra.carteira-dobra-mini > summary {
 .brief-barra-cheia { fill: var(--gold); }
 
 .brief-ensaio-grade { display: grid; gap: 4px; min-width: 0; }
-@media (min-width: 900px) {
+/* A grade pergunta ao CONTEÚDO (`.carteira-principal`), não à janela: a
+   900 px a lateral come 232 px. 700 px é o conteúdo que a grade tinha antes. */
+@container carteira-tela (min-width: 700px) {
   .brief-ensaio-grade { grid-template-columns: 230px minmax(0, 1fr); gap: 20px; align-items: start; }
   .brief-indice-nav { position: sticky; top: 72px; }
+}
+/* No computador não há barra de topo: o índice e as âncoras param junto da
+   borda, não 72 px abaixo dela (a altura da faixa antiga). */
+@media (min-width: 900px) {
+  .brief-indice-nav { top: 24px; }
+  .brief-bloco { scroll-margin-top: 24px; }
 }
 
 details.brief-indice-dobra {
@@ -849,8 +1026,10 @@ textarea.brief-entrada { min-height: 84px; resize: vertical; line-height: 1.45; 
 .uso-barra-vazia { fill: var(--line); }
 
 /* 390 px: cada clínica vira um bloco — nome e situação em cima, os números
-   em duas colunas com o rótulo antes, o gráfico na largura toda. */
-@media (max-width: 760px) {
+   em duas colunas com o rótulo antes, o gráfico na largura toda. Pergunta
+   ao CONTEÚDO: com a lateral, uma janela de 960 px dá 690 px de tabela, e as
+   nove colunas não cabem. */
+@container carteira-tela (max-width: 760px) {
   .uso-tabela thead {
     position: absolute;
     width: 1px;
@@ -1296,32 +1475,6 @@ textarea.brief-entrada { min-height: 84px; resize: vertical; line-height: 1.45; 
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Navegação em grupos, como o protótipo (renderNav L1249–1253). Em 390 px os
-   grupos empilham e os links quebram linha — nunca rolagem horizontal.
-   --------------------------------------------------------------------------- */
-.carteira-nav-grupos {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem 1.5rem;
-  align-items: baseline;
-}
-.carteira-nav-grupo {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.875rem;
-  align-items: baseline;
-  min-width: 0;
-}
-.carteira-nav-titulo {
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  width: 100%;
-}
-
 /* ---------- Prospecção completa (G8 1E): oportunidades, ficha do lead, quem indica ---------- */
 
 /*
@@ -1480,7 +1633,7 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
   vertical-align: 2px;
 }
 
-@media (max-width: 760px) {
+@container carteira-tela (max-width: 760px) {
   .lead-linha { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; }
   .lead-linha-nome, .lead-linha-origem, .lead-linha-interesse { grid-column: 1 / -1; }
   .lead-linha-chips { grid-column: 1 / -1; }
@@ -1546,7 +1699,7 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
 }
 .lead-posicao-ouro { border-color: var(--gold); color: var(--gold-ink); }
 
-@media (max-width: 760px) {
+@container carteira-tela (max-width: 760px) {
   .lead-ranking-linha { grid-template-columns: 28px minmax(0, 1fr); }
   .lead-ranking-numeros { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lead-ranking-beneficios { grid-column: 1 / -1; }
@@ -2387,6 +2540,14 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
 .visao-identidade .nota { margin: 4px 0 0; }
 .visao-atalhos { display: flex; flex-wrap: wrap; gap: 8px; }
 .visao-atalhos > .btn { min-height: 44px; flex: 1 1 auto; }
+/* No computador as ações do cabeçalho ficam à DIREITA, do tamanho do rótulo:
+   esticadas, elas comiam a linha do título e "Olá, Administrador Firmare"
+   quebrava em duas a 1280 px. Em 390 px continuam esticando (alvo grande).
+   Só o cabeçalho: os mesmos `.visao-atalhos` são os botões dos formulários. */
+@media (min-width: 900px) {
+  .visao-cabeca > .visao-atalhos { margin-left: auto; flex: 0 0 auto; }
+  .visao-cabeca > .visao-atalhos > .btn { flex: 0 0 auto; }
+}
 
 .visao-kpis {
   display: grid;
@@ -2547,22 +2708,6 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
 .visao-check:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
 .visao-check:disabled { cursor: default; opacity: 0.55; }
 .visao-check-feito { background: var(--ok); border-color: var(--ok); }
-
-/* O contador vermelho do menu (L1253). Contagem do servidor, nunca da tela. */
-.visao-nav-badge {
-  display: inline-grid;
-  place-items: center;
-  min-width: 18px;
-  height: 18px;
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--bad);
-  color: var(--surface);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-}
 
 /* ---------------------------------------------------------------------------
    Indicadores da ficha (G8 1A-b — V10, V11, V4). Protótipo `.ind`, `.indc`,
@@ -2730,12 +2875,6 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
   white-space: nowrap;
 }
 .ind-atrasado { color: var(--bad); font-weight: 500; }
-
-/* G8 3B, correção declarada fora do escopo da Visão geral: `.carteira-quem`
-   (faixa) ganhou um terceiro botão e não quebrava linha — com um usuário de
-   13 letras a faixa media 394 px em 390 e TODA tela da carteira rolava de
-   lado. Deixa quebrar; nada muda quando cabe. */
-.carteira-quem { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
 
 /*
  * G8 3D — biblioteca geral (filtro "Personalizados"), o espaço da cliente na

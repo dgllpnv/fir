@@ -10,7 +10,7 @@ import { CartaoDeTarefa, EscolhaTarefaOuRotina, FormularioDeTarefa } from '@/com
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../pecas'
+import { ErroDaCarteira } from '../pecas'
 
 /**
  * **MINHAS TAREFAS** — a Rotina da equipe Firmare (`vRotina`/`vTarefas`,
@@ -72,7 +72,6 @@ export default function MinhasTarefas() {
 
   const cabecalho = (
     <>
-      <NavDaCarteira atual="/carteira/rotina" />
       <p className="rot-int-sobretitulo">Equipe Firmare</p>
       <div className="rot-int-cabeca">
         <h1 className="titulo">Rotina da equipe</h1>

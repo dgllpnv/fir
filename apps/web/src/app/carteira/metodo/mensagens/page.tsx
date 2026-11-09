@@ -13,7 +13,7 @@ import { Modal } from '@/components/modal'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { useCarteira } from '../../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
+import { ErroDaCarteira } from '../../pecas'
 
 /**
  * **MÉTODO FIRMARE · MENSAGENS E ROTEIROS** (G8 3A; protótipo `vCadastros`
@@ -26,8 +26,6 @@ import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
  * a valores — o servidor já a apagou para os outros, e esta tela só diz
  * "restrito".
  */
-
-const AQUI = '/carteira/metodo/mensagens'
 
 type Formulario =
   | { readonly tag: 'modelo'; readonly modelo: ModeloDeMensagem | null }
@@ -45,7 +43,6 @@ export default function MensagensERoteiros() {
 
   const cabecalho = (
     <>
-      <NavDaCarteira atual={AQUI} />
       <h1 className="titulo">Mensagens e roteiros</h1>
     </>
   )

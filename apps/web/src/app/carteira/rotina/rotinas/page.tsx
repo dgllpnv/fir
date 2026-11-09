@@ -7,7 +7,7 @@ import { AbasDaRotina, diaMes, useEquipeEClientes } from '@/components/carteira/
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
+import { ErroDaCarteira } from '../../pecas'
 
 /**
  * **ROTINAS** — as rotinas fixas de cada pessoa (`vRotinas`, L1867; G8 2A,
@@ -74,7 +74,6 @@ export default function Rotinas() {
 
   const cabecalho = (
     <>
-      <NavDaCarteira atual="/carteira/rotina" />
       <p className="rot-int-sobretitulo">Equipe Firmare</p>
       <div className="rot-int-cabeca">
         <h1 className="titulo">Rotina da equipe</h1>

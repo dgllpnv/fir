@@ -7,7 +7,6 @@ import { useEffect, useState } from 'react'
 import { Modal } from '@/components/modal'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../contexto'
-import { NavDaCarteira } from '../pecas'
 import CadastroDoCliente from './[id]/cadastro'
 
 /**
@@ -72,7 +71,6 @@ export default function ClientesDaCarteira() {
 
   return (
     <section>
-      <NavDaCarteira atual="/carteira/clientes" />
       <div className="carteira-acoes">
         <h1 className="titulo">Clientes da carteira</h1>
         <button type="button" className="btn" onClick={abrirCriacao} disabled={criando.tag === 'carregando'}>

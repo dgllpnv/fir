@@ -77,7 +77,7 @@ export function VisaoGeral({
 }: {
   /** A sessão da CARTEIRA; `null` enquanto não se sabe. */
   usuario: UsuarioDeGestaoPublico | null
-  /** O menu da casa, no topo da tela. */
+  /** O menu da casa no topo da tela — `null` onde a casa tem lateral (a carteira). */
   navegacao: ReactNode
   /** O erro com as saídas da casa (a carteira e o painel têm saídas diferentes). */
   erro: (mensagem: string, recarregar: () => void) => ReactNode

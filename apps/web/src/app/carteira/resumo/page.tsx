@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { Carregando, Toast } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../pecas'
+import { ErroDaCarteira } from '../pecas'
 
 /**
  * **RESUMO SEMANAL** (`vResumo`, protótipo L2021-2025; G8 3C, S1).
@@ -60,7 +60,6 @@ export default function ResumoSemanal() {
 
   const cabecalho = (
     <>
-      <NavDaCarteira atual="/carteira/resumo" />
       <p className="rot-int-sobretitulo">Gerado pela ferramenta</p>
       <h1 className="titulo">Resumo semanal</h1>
       <p className="nota">Pronto para colar no WhatsApp da equipe ou enviar para a liderança.</p>

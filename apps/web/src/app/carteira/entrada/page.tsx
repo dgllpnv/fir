@@ -16,7 +16,7 @@ import { MetasEmAndamento } from '@/components/carteira/checklist-metas-em-andam
 import { Carregando } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../pecas'
+import { ErroDaCarteira } from '../pecas'
 
 /**
  * **ENTRADA DE CLIENTE** — "Novo cliente" (C4, `novoCliente` L2892–2895) e
@@ -45,8 +45,6 @@ type Passo =
   | { tag: 'metas'; cliente: CadastroDoClienteNaSaida; recado: string }
   | { tag: 'asana'; cliente: CadastroDoClienteNaSaida; recado: string }
   | { tag: 'pronto'; cliente: CadastroDoClienteNaSaida; recado: string }
-
-const AQUI = '/carteira/entrada'
 
 export default function EntradaDeCliente() {
   const { sessao, recarregar } = useCarteira()
@@ -87,7 +85,6 @@ export default function EntradaDeCliente() {
 
   const cabeca = (
     <>
-      <NavDaCarteira atual={AQUI} />
       <h1 className="titulo">Entrada de cliente</h1>
     </>
   )

@@ -7,7 +7,7 @@ import { UsoDelta, UsoSituacao, UsoSpark, pctTexto } from '@/components/carteira
 import { Carregando, Vazio } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../pecas'
+import { ErroDaCarteira } from '../pecas'
 
 /**
  * **FIR CLINIC — quem está usando a ferramenta** (`vFirClinic`, protótipo
@@ -56,7 +56,6 @@ export default function FirClinic() {
 
   const cabeca = (
     <>
-      <NavDaCarteira atual="/carteira/fir-clinic" />
       <div className="eyebrow">Clientes</div>
       <h1 className="titulo">FIR Clinic</h1>
       <p className="nota">

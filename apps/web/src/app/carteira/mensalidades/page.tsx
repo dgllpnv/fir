@@ -16,7 +16,7 @@ import {
 } from '@/components/carteira/mensalidade-pecas'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../pecas'
+import { ErroDaCarteira } from '../pecas'
 
 /**
  * **MENSALIDADES** — o painel do mês (`painelMensalidades`, `index.html`
@@ -115,7 +115,6 @@ export default function MensalidadesDaCarteira() {
 
   const cabeca = (
     <>
-      <NavDaCarteira atual="/carteira/mensalidades" />
       <p className="mens-sobretitulo">Todas as clientes</p>
       <h1 className="titulo">Mensalidades</h1>
     </>

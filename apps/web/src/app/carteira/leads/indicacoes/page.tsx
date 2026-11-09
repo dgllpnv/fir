@@ -8,7 +8,7 @@ import { CabecalhoDaProspeccao } from '@/components/carteira/lead-pecas'
 import { Carregando, Toast } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
+import { ErroDaCarteira } from '../../pecas'
 
 /**
  * **PROSPECÇÃO · QUEM INDICA** — `vIndicadores` do protótipo (L2533-2548):
@@ -66,7 +66,6 @@ export default function QuemIndica() {
 
   return (
     <section className="lead-tela">
-      <NavDaCarteira atual="/carteira/leads" />
       <CabecalhoDaProspeccao aba="indicacoes" {...(pendentes === undefined ? {} : { beneficiosPendentes: pendentes })} />
 
       {sessao.tag !== 'pronta' || estado.tag === 'carregando' ? (

@@ -1,10 +1,12 @@
 'use client'
 
-import type { ContadoresDoMenuSaida, UsuarioDeGestaoPublico } from '@fir/contracts'
-import { type ChaveDaCarteira, temPermCarteira } from '@fir/domain'
+import type { ContadoresDoMenuSaida } from '@fir/contracts'
+import { temPermCarteira } from '@fir/domain'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { chamar } from '@/lib/api'
+import { type Area, areaDoCaminho, GRUPOS } from './areas'
 import { useCarteira } from './contexto'
 
 /**
@@ -14,87 +16,23 @@ import { useCarteira } from './contexto'
  */
 
 /**
- * **AS ÁREAS DA CARTEIRA, nos grupos e na ordem do protótipo** (`renderNav`,
- * index.html L1249–1253): Hoje · Clientes · Novos clientes · Método Firmare ·
- * Administração. Mesmo padrão de `NavDoPainel`: cada tela chama isto no topo,
- * e `aria-current="page"` diz onde se está. Um destino só entra aqui quando a
- * tela existe — link para 404 é pior que item ausente.
- */
-type Area = {
-  readonly href: string
-  readonly rotulo: string
-  /** A tela que a área exige — a MESMA chave que o `CarteiraGuard` confere. */
-  readonly tela: ChaveDaCarteira
-  /** O contador vermelho do protótipo (L1250–1251), quando a área tem um. */
-  readonly badge?: { readonly de: keyof ContadoresDoMenuSaida; readonly dica: string }
-}
-
-const GRUPOS: readonly { titulo: string; areas: readonly Area[] }[] = [
-  {
-    titulo: 'Hoje',
-    areas: [
-      { href: '/carteira', rotulo: 'Visão geral', tela: 'painel' },
-      { href: '/carteira/rotina', rotulo: 'Minhas tarefas', tela: 'rotina', badge: { de: 'tarefasVencidas', dica: 'tarefas vencidas' } },
-    ],
-  },
-  {
-    titulo: 'Clientes',
-    areas: [
-      { href: '/carteira/clientes', rotulo: 'Carteira', tela: 'clientes' },
-      { href: '/carteira/fir-clinic', rotulo: 'FIR Clinic', tela: 'firclinic' },
-      { href: '/carteira/metas', rotulo: 'Metas', tela: 'metas' },
-      { href: '/carteira/campanhas', rotulo: 'Campanhas', tela: 'campanhas' },
-      // `resumo` é "só escopo geral" na tabela do domínio (A-5): some do menu
-      // de quem é de grupo pela mesma `temPermCarteira`, sem `if` aqui.
-      { href: '/carteira/resumo', rotulo: 'Resumo semanal', tela: 'resumo' },
-      { href: '/carteira/mensalidades', rotulo: 'Mensalidades', tela: 'mensalidades' },
-    ],
-  },
-  {
-    titulo: 'Novos clientes',
-    areas: [
-      {
-        href: '/carteira/leads',
-        rotulo: 'Prospecção',
-        tela: 'prospeccao',
-        badge: { de: 'contatosAgora', dica: 'contatos recomendados agora' },
-      },
-    ],
-  },
-  {
-    titulo: 'Método Firmare',
-    areas: [
-      { href: '/carteira/metodo/roteiros', rotulo: 'Roteiros de briefing', tela: 'metodo' },
-      { href: '/carteira/metodo/biblioteca', rotulo: 'Biblioteca de materiais', tela: 'metodo' },
-      { href: '/carteira/metodo/checklists', rotulo: 'Checklists', tela: 'metodo' },
-      { href: '/carteira/metodo/mensagens', rotulo: 'Mensagens automáticas', tela: 'metodo' },
-    ],
-  },
-]
-
-/**
- * A primeira área que a sessão pode abrir, na ordem do menu — para onde vai
- * quem abre `/carteira` sem a Visão geral (o protótipo faz o mesmo:
- * `MODULOS.find(can) || "rotina"`, L1266).
- */
-export function primeiraAreaPermitida(usuario: UsuarioDeGestaoPublico): string {
-  for (const g of GRUPOS) {
-    for (const a of g.areas) if (a.href !== '/carteira' && temPermCarteira(usuario, a.tela)) return a.href
-  }
-  return '/carteira/metodo/roteiros'
-}
-
-/**
- * O MENU: cada item só aparece se o perfil tem a tela (`can(k)`, L1252), pela
- * MESMA `temPermCarteira` do servidor (regra 16) — a tela é conveniência, o
- * guard é quem recusa. Os badges são CONTAGENS do servidor
+ * O MENU DA LATERAL: cada item só aparece se o perfil tem a tela (`can(k)`,
+ * L1252), pela MESMA `temPermCarteira` do servidor (regra 16) — a tela é
+ * conveniência, o guard é quem recusa. Os badges são CONTAGENS do servidor
  * (`GET /v1/carteira/eu/contadores`), nunca contados aqui; falhar em buscá-los
  * só deixa o menu sem badge.
+ *
+ * Desenhado UMA vez, pelo casco (`lateral.tsx`), e não mais por cada página:
+ * o item aceso sai do endereço (`areaDoCaminho`). Como o menu não remonta a
+ * cada tela, os contadores são rebuscados a cada troca de rota — antes isso
+ * acontecia de graça, porque cada página montava a sua nav.
  */
-export function NavDaCarteira({ atual }: { atual: string }) {
+export function NavDaCarteira() {
   const { sessao } = useCarteira()
+  const caminho = usePathname()
   const usuario = sessao.tag === 'pronta' ? sessao.usuarioDeGestao : null
   const [contadores, setContadores] = useState<ContadoresDoMenuSaida | null>(null)
+  const atual = areaDoCaminho(caminho)
 
   useEffect(() => {
     if (usuario === null) return
@@ -107,31 +45,32 @@ export function NavDaCarteira({ atual }: { atual: string }) {
     return () => {
       valeu = false
     }
-  }, [usuario])
+  }, [usuario, caminho])
 
-  // Antes de saber quem é, o menu inteiro (o guard recusa o que não for dela).
+  // Sem sessão resolvida (erro ao falar com o servidor), o menu inteiro: o
+  // guard recusa o que não for dela.
   const pode = (a: Area) => usuario === null || temPermCarteira(usuario, a.tela)
 
   return (
-    <nav className="carteira-nav carteira-nav-grupos" aria-label="Áreas da carteira">
+    <nav className="carteira-menu" aria-label="Áreas da carteira">
       {GRUPOS.map((g) => {
         const areas = g.areas.filter(pode)
         if (areas.length === 0) return null
         return (
-          <div key={g.titulo} className="carteira-nav-grupo">
-            <span className="carteira-nav-titulo">{g.titulo}</span>
+          <div key={g.titulo} className="carteira-menu-grupo">
+            <span className="carteira-menu-titulo">{g.titulo}</span>
             {areas.map((a) => {
               const n = a.badge ? contadores?.[a.badge.de] : null
               return (
                 <Link
                   key={a.href}
                   href={a.href}
-                  className={a.href === atual ? 'link carteira-nav-atual' : 'link'}
+                  className="carteira-menu-item"
                   aria-current={a.href === atual ? 'page' : undefined}
                 >
-                  {a.rotulo}
+                  <span className="carteira-menu-rotulo">{a.rotulo}</span>
                   {a.badge && typeof n === 'number' && n > 0 ? (
-                    <span className="visao-nav-badge num" title={a.badge.dica} aria-label={`${n} ${a.badge.dica}`}>
+                    <span className="carteira-menu-badge" title={a.badge.dica} aria-label={`${n} ${a.badge.dica}`}>
                       {n}
                     </span>
                   ) : null}

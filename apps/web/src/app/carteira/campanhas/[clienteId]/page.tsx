@@ -4,7 +4,6 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import CampanhasDoCliente from '@/components/carteira/campanhas-do-cliente'
 import { useCarteira } from '../../contexto'
-import { NavDaCarteira } from '../../pecas'
 import { Carregando } from '@/components/estados'
 
 /**
@@ -18,7 +17,6 @@ export default function CampanhasDeUmCliente() {
   const { sessao } = useCarteira()
   return (
     <section>
-      <NavDaCarteira atual="/carteira/campanhas" />
       <p className="nota">
         <Link className="link" href="/carteira/campanhas">
           Campanhas

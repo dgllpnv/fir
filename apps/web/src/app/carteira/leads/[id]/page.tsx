@@ -22,7 +22,7 @@ import { Modal } from '@/components/modal'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { centavos } from '@/lib/financeiro'
 import { useCarteira } from '../../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
+import { ErroDaCarteira } from '../../pecas'
 
 /**
  * **A FICHA DO LEAD** — `vLead` do protótipo (L2490-2513): cabeçalho com
@@ -113,7 +113,6 @@ export default function FichaDoLead() {
   if (sessao.tag !== 'pronta' || estado.tag === 'carregando') {
     return (
       <section className="lead-tela">
-        <NavDaCarteira atual="/carteira/leads" />
         {voltar}
         <Carregando linhas={6} />
       </section>
@@ -122,7 +121,6 @@ export default function FichaDoLead() {
   if (estado.tag === 'erro') {
     return (
       <section className="lead-tela">
-        <NavDaCarteira atual="/carteira/leads" />
         {voltar}
         <ErroDaCarteira mensagem={estado.mensagem} recarregar={recarregar} />
       </section>
@@ -136,7 +134,6 @@ export default function FichaDoLead() {
 
   return (
     <section className="lead-tela">
-      <NavDaCarteira atual="/carteira/leads" />
       {voltar}
 
       <header className="lead-cabeca">

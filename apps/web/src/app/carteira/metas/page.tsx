@@ -7,7 +7,7 @@ import { Carregando, Toast } from '@/components/estados'
 import { LancarMetasDaSemana, LinhaDaMeta } from '@/components/carteira/meta-pecas'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../pecas'
+import { ErroDaCarteira } from '../pecas'
 
 /**
  * **PAINEL DE METAS** (M1; `vMetas`, `index.html` L806-825).
@@ -74,7 +74,6 @@ export default function PainelDeMetas() {
 
   return (
     <section>
-      <NavDaCarteira atual="/carteira/metas" />
       <p className="meta-sobretitulo">Todas as clientes</p>
       <h1 className="titulo">Painel de metas</h1>
       {estado.tag === 'carregando' || sessao.tag !== 'pronta' ? <Carregando linhas={5} /> : null}

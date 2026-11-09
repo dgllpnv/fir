@@ -13,7 +13,7 @@ import { type DestinoDoMaterial, FormularioDeMaterial, MaterialCartao } from '@/
 import { Carregando, Toast } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
+import { ErroDaCarteira } from '../../pecas'
 
 /**
  * **MÉTODO FIRMARE · BIBLIOTECA DE MATERIAIS** (`vMetodo`, protótipo
@@ -31,7 +31,6 @@ import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
  * da equipe que vê a cliente, como na ficha.
  */
 
-const AQUI = '/carteira/metodo/biblioteca'
 const PERSONALIZADOS = '_pers'
 
 type Dados = {
@@ -85,7 +84,6 @@ export default function BibliotecaDeMateriais() {
 
   const cabecalho = (
     <>
-      <NavDaCarteira atual={AQUI} />
       <div className="eyebrow">Método Firmare</div>
       <h1 className="titulo">Biblioteca de materiais</h1>
       <p className="nota">

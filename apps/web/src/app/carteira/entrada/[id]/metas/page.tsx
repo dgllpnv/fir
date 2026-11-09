@@ -7,7 +7,7 @@ import { MetasEmAndamento } from '@/components/carteira/checklist-metas-em-andam
 import { Carregando } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../../../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../../../pecas'
+import { ErroDaCarteira } from '../../../pecas'
 
 /**
  * "Cadastrar metas em andamento" a partir do aviso da ficha (`data-migmetas`,
@@ -32,11 +32,9 @@ export default function MetasDaEntrada() {
     }
   }, [id, sessao.tag, tentativa])
 
-  const nav = <NavDaCarteira atual="/carteira/clientes" />
   if (sessao.tag === 'erro' || erro) {
     return (
       <section>
-        {nav}
         <ErroDaCarteira
           mensagem={erro ?? (sessao.tag === 'erro' ? sessao.mensagem : '')}
           recarregar={() => {
@@ -51,14 +49,12 @@ export default function MetasDaEntrada() {
   if (sessao.tag !== 'pronta' || nome === null) {
     return (
       <section>
-        {nav}
         <Carregando linhas={5} />
       </section>
     )
   }
   return (
     <section className="check">
-      {nav}
       <MetasEmAndamento clienteId={id} nomeDoCliente={nome} passoAPasso={false} aoTerminar={() => router.push(`/carteira/entrada/${id}`)} />
     </section>
   )

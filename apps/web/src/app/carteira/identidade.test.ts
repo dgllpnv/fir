@@ -45,7 +45,7 @@ describe('a varredura olhou a carteira inteira', () => {
     const nomes = CARTEIRA.map((f) => f.nome).sort()
     expect(nomes).toContain('layout.tsx')
     expect(nomes).toContain('casco.tsx')
-    expect(nomes).toContain('faixa.tsx')
+    expect(nomes).toContain('lateral.tsx')
     expect(nomes).toContain('contexto.tsx')
     expect(nomes).toContain('pecas.tsx')
     // O que se prova aqui é que a varredura ENXERGA a carteira inteira — um glob quebrado devolveria
@@ -118,5 +118,42 @@ describe('o estilo mora no sistema de design, não no JSX', () => {
       colidem,
       'classe da carteira que também existe em outro CSS: prefixe-a com carteira-',
     ).toEqual([])
+  })
+})
+
+describe('o menu é a LATERAL do casco, desenhada uma vez', () => {
+  /**
+   * Antes cada tela desenhava o próprio menu no topo do conteúdo — 23 telas,
+   * 44 chamadas, e a ficha da cliente sem menu nenhum. Uma tela que volte a
+   * chamá-lo mostra o menu DUAS vezes: na lateral e no meio da página.
+   */
+  it('nenhuma tela desenha o menu por conta própria', () => {
+    const comMenu = CARTEIRA.filter(
+      (f) => f.nome === 'page.tsx' && semComentarios(f.texto).includes('NavDaCarteira'),
+    ).map((f) => f.nome)
+    expect(comMenu).toEqual([])
+  })
+
+  it('o casco tem a lateral e o conteúdo ao lado', () => {
+    const lateral = CARTEIRA.find((f) => f.nome === 'lateral.tsx')!.texto
+    const casco = CARTEIRA.find((f) => f.nome === 'casco.tsx')!.texto
+    expect(lateral).toContain('<aside')
+    expect(lateral).toContain('<NavDaCarteira')
+    expect(casco).toContain('<LateralDaCarteira')
+    expect(casco).toContain('className="carteira-principal"')
+  })
+
+  it('a lateral obedece à sessão: sem menu antes de ela se resolver', () => {
+    // O "pisca" que `CorpoComSessao` resolveu para o conteúdo vale para o menu:
+    // quem abre `/carteira` deslogado não pode vê-lo antes do desvio.
+    const lateral = semComentarios(CARTEIRA.find((f) => f.nome === 'lateral.tsx')!.texto)
+    expect(lateral).toMatch(/resolvida \? <NavDaCarteira \/> : null/)
+    expect(lateral).toMatch(/const resolvida = sessao\.tag === 'pronta' \|\| sessao\.tag === 'erro'/)
+  })
+
+  it('a gaveta fechada sai da ordem de tabulação', () => {
+    // Só `transform` deixaria quinze links invisíveis no caminho do Tab.
+    const gaveta = /@media \(max-width: 899px\)\s*\{\s*\.carteira-lateral\s*\{[^}]*visibility:\s*hidden/
+    expect(CSS_DA_CARTEIRA.replace(/\/\*[\s\S]*?\*\//g, '')).toMatch(gaveta)
   })
 })

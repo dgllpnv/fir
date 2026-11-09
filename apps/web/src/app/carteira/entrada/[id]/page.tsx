@@ -9,7 +9,7 @@ import { ChecklistDoCliente, ProgressoDoChecklist } from '@/components/carteira/
 import { Carregando } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
+import { ErroDaCarteira } from '../../pecas'
 
 /**
  * **A entrada de UMA cliente**: o aviso "Entrada de cliente que já é da
@@ -35,11 +35,9 @@ export default function EntradaDaCliente() {
     }
   }, [id, sessao.tag, tentativa])
 
-  const nav = <NavDaCarteira atual="/carteira/clientes" />
   if (sessao.tag === 'erro') {
     return (
       <section>
-        {nav}
         <ErroDaCarteira mensagem={sessao.mensagem} recarregar={recarregar} />
       </section>
     )
@@ -47,7 +45,6 @@ export default function EntradaDaCliente() {
   if (erro) {
     return (
       <section>
-        {nav}
         <ErroDaCarteira mensagem={erro} recarregar={() => { setErro(null); setTentativa((n) => n + 1) }} />
       </section>
     )
@@ -55,7 +52,6 @@ export default function EntradaDaCliente() {
   if (sessao.tag !== 'pronta' || nome === null) {
     return (
       <section>
-        {nav}
         <Carregando linhas={5} />
       </section>
     )
@@ -63,7 +59,6 @@ export default function EntradaDaCliente() {
   const irParaOChecklist = () => document.getElementById('check-titulo')?.scrollIntoView({ behavior: 'smooth' })
   return (
     <section className="check">
-      {nav}
       <h1 className="titulo">{nome}</h1>
       <div className="check-acoes">
         <Link className="link" href={`/carteira/clientes/${id}`}>

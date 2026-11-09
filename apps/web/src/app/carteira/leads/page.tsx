@@ -19,7 +19,7 @@ import { Modal } from '@/components/modal'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { centavos } from '@/lib/financeiro'
 import { useCarteira } from '../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../pecas'
+import { ErroDaCarteira } from '../pecas'
 
 /**
  * **PROSPECÇÃO · OPORTUNIDADES** — `vOportunidades` do protótipo
@@ -90,7 +90,6 @@ export default function OportunidadesDaProspeccao() {
   if (sessao.tag !== 'pronta' || estado.tag === 'carregando') {
     return (
       <section className="lead-tela">
-        <NavDaCarteira atual="/carteira/leads" />
         {cabecalho}
         <Carregando linhas={5} />
       </section>
@@ -99,7 +98,6 @@ export default function OportunidadesDaProspeccao() {
   if (estado.tag === 'erro') {
     return (
       <section className="lead-tela">
-        <NavDaCarteira atual="/carteira/leads" />
         {cabecalho}
         <ErroDaCarteira mensagem={estado.mensagem} recarregar={() => setTentativa((n) => n + 1)} />
       </section>
@@ -117,7 +115,6 @@ export default function OportunidadesDaProspeccao() {
 
   return (
     <section className="lead-tela">
-      <NavDaCarteira atual="/carteira/leads" />
       {cabecalho}
 
       {dados.leads.length === 0 ? (

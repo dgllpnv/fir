@@ -10,7 +10,7 @@ import { SeletorDePrograma } from '@/components/carteira/roteiro-seletor'
 import { Carregando } from '@/components/estados'
 import { blocosDoPrograma, type Programa } from '@/conteudo/roteiro-briefing'
 import { useCarteira } from '../../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
+import { ErroDaCarteira } from '../../pecas'
 
 /**
  * **MÉTODO FIRMARE · ROTEIROS DE BRIEFING** (ticket 3E, inventário X1/B1/B9).
@@ -37,8 +37,6 @@ import { ErroDaCarteira, NavDaCarteira } from '../../pecas'
 
 type Modo = { tag: 'leitura' } | { tag: 'ensaio'; ensaio: EstadoDoEnsaio; mapa: boolean }
 
-const AQUI = '/carteira/metodo/roteiros'
-
 export default function RoteirosDeBriefing() {
   const { sessao, recarregar } = useCarteira()
   const [programa, setPrograma] = useState<Programa>('Gestão')
@@ -61,7 +59,6 @@ export default function RoteirosDeBriefing() {
   if (sessao.tag === 'erro') {
     return (
       <section>
-        <NavDaCarteira atual={AQUI} />
         <h1 className="titulo">Roteiros de briefing</h1>
         <ErroDaCarteira mensagem={sessao.mensagem} recarregar={recarregar} />
       </section>
@@ -71,7 +68,6 @@ export default function RoteirosDeBriefing() {
   if (sessao.tag !== 'pronta') {
     return (
       <section>
-        <NavDaCarteira atual={AQUI} />
         <h1 className="titulo">Roteiros de briefing</h1>
         <Carregando linhas={4} />
       </section>
@@ -81,7 +77,6 @@ export default function RoteirosDeBriefing() {
   if (modo.tag === 'ensaio') {
     return (
       <section>
-        <NavDaCarteira atual={AQUI} />
         {modo.mapa ? (
           <MapaEmBreve
             voltar={() => {
@@ -114,7 +109,6 @@ export default function RoteirosDeBriefing() {
 
   return (
     <section>
-      <NavDaCarteira atual={AQUI} />
       <div className="eyebrow">Método Firmare</div>
       <h1 className="titulo">Roteiros de briefing</h1>
       <p className="nota">

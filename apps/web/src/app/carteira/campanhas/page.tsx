@@ -21,7 +21,7 @@ import {
 import { chamar, ErroDaApi } from '@/lib/api'
 import { instanteEmTexto } from '@/lib/instante'
 import { useCarteira } from '../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../pecas'
+import { ErroDaCarteira } from '../pecas'
 
 /**
  * **CAMPANHAS — o comparativo de todas as clientes** (K1, `vCampanhas`,
@@ -78,7 +78,6 @@ export default function CampanhasDaCarteira() {
 
   const cabeca = (
     <>
-      <NavDaCarteira atual="/carteira/campanhas" />
       <p className="camp-sobretitulo">Todas as clientes</p>
       <h1 className="titulo">Campanhas</h1>
       <p className="nota">Quanto cada campanha trouxe de resultado real para as clínicas.</p>

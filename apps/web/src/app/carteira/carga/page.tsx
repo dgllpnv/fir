@@ -7,7 +7,7 @@ import { AbasDaRotina, useEquipeEClientes } from '@/components/carteira/rotina-p
 import { Carregando, Toast } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useCarteira } from '../contexto'
-import { ErroDaCarteira, NavDaCarteira } from '../pecas'
+import { ErroDaCarteira } from '../pecas'
 
 /**
  * **CARGA DA EQUIPE** (`vCarga`, L1832; G8 2A, R7/R8). Pessoa × atrasadas e
@@ -58,7 +58,6 @@ export default function CargaDaEquipe() {
 
   const cabecalho = (
     <>
-      <NavDaCarteira atual="/carteira/rotina" />
       <p className="rot-int-sobretitulo">Equipe Firmare</p>
       <h1 className="titulo">Rotina da equipe</h1>
       <AbasDaRotina atual="carga" podeVerCarga={estado.tag !== 'sem-acesso'} />

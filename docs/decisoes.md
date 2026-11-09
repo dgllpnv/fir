@@ -696,6 +696,24 @@ Enfermagem) passam a ver **nome e telefone** da paciente nas tarefas mandadas ao
 tarefa; a ficha, a jornada, valores e dose continuam fora (ADR 0025 §14.4). Deve constar no RIPD e no DPA (P-3) antes de
 implantar numa clínica real.
 
+## D-26 · A Carteira comercial ganha a barra lateral do protótipo (2026-11-09)
+
+**O defeito, visto pelo dono em produção:** o menu da Carteira (Hoje · Clientes · Novos clientes · Método Firmare)
+aparecia empilhado no topo de cada tela, o conteúdo numa coluna de 760 px desalinhada da faixa de 1080 px, e o título da
+Visão geral quebrava em duas linhas. Causa: a Carteira não tinha casco com lateral — cada uma das 23 páginas desenhava o
+próprio menu dentro do conteúdo. O protótipo do Firmare Gestão (`aside` de 232 px, conteúdo até 1180 px) nunca tinha sido
+seguido nesse ponto.
+
+**Decisões do dono:**
+1. O menu inteiro vai para uma **barra lateral à esquerda**, montada uma vez no casco, como o protótipo.
+2. Em tela estreita, **botão "Menu" com gaveta**, igual à ferramenta da clínica (diverge do protótipo, que usa uma faixa
+   rolável que esconde itens sem pista).
+3. Marca **"Firmare / Gestão"**, como o protótipo.
+4. **Seletor de tema** no pé da lateral (`docs/design.md`: o tema mora no rodapé da lateral).
+5. Conteúdo até **1180 px**, como o protótipo.
+
+Nada muda em rotas, permissões, conteúdo das telas e no painel do superadmin (que mantém o próprio menu no topo).
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |
