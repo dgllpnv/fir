@@ -34,6 +34,16 @@ export const CarteiraEuComSegundoFatorSaida = CarteiraEuSaida.extend({
 export type CarteiraEuComSegundoFatorSaida = z.infer<typeof CarteiraEuComSegundoFatorSaida>
 
 /**
+ * `GET /v1/carteira/eu` de fato — o de cima, mais `contaDoOperador`: a conta é
+ * a de gestão de um Operador (ADR 0024)? A lateral oferece "Voltar ao painel".
+ * Separado porque a resposta do login reaproveita o de cima e não precisa disto.
+ */
+export const CarteiraEuDaSessaoSaida = CarteiraEuComSegundoFatorSaida.extend({
+  contaDoOperador: z.boolean(),
+})
+export type CarteiraEuDaSessaoSaida = z.infer<typeof CarteiraEuDaSessaoSaida>
+
+/**
  * A segunda etapa do login — no MESMO `POST /v1/carteira/entrar`, com o
  * cookie do desafio. Um dos dois campos, nunca os dois.
  */

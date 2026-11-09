@@ -1,6 +1,6 @@
 import {
   type CadastroDoClienteSaida,
-  type CarteiraEuComSegundoFatorSaida,
+  type CarteiraEuDaSessaoSaida,
   type EntrarNaCarteiraSaida,
   type ListaDeClientesDaCarteiraSaida,
   type OpcoesDoCadastroSaida,
@@ -248,12 +248,20 @@ export class CarteiraController {
   }
 
   @Get('eu')
-  async eu(@Req() req: RequisicaoComCarteira): Promise<CarteiraEuComSegundoFatorSaida> {
+  async eu(@Req() req: RequisicaoComCarteira): Promise<CarteiraEuDaSessaoSaida> {
     // O guard já recusou (404) se não houver contexto — chegar aqui garante
     // que `req.carteira` existe. `segundoFator` diz à tela se manda para o
     // cadastro (G8 0.6) — só se o servidor o exige (ADR 0023).
-    const { ativo } = await this.segundoFator.resumo(req.carteira!.usuarioDeGestao.id)
-    return { usuarioDeGestao: req.carteira!.usuarioDeGestao, segundoFator: { ativo, exigido: segundoFatorLigado() } }
+    const id = req.carteira!.usuarioDeGestao.id
+    const [{ ativo }, contaDoOperador] = await Promise.all([
+      this.segundoFator.resumo(id),
+      this.carteira.ehContaDoOperador(id),
+    ])
+    return {
+      usuarioDeGestao: req.carteira!.usuarioDeGestao,
+      segundoFator: { ativo, exigido: segundoFatorLigado() },
+      contaDoOperador,
+    }
   }
 
   @Get('clientes')

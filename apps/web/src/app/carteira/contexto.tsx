@@ -1,6 +1,6 @@
 'use client'
 
-import type { CarteiraEuComSegundoFatorSaida, UsuarioDeGestaoPublico } from '@fir/contracts'
+import type { CarteiraEuDaSessaoSaida, UsuarioDeGestaoPublico } from '@fir/contracts'
 import { usePathname, useRouter } from 'next/navigation'
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
@@ -25,6 +25,8 @@ type Sessao =
       readonly usuarioDeGestao: UsuarioDeGestaoPublico
       /** O servidor exige o segundo fator (ADR 0023)? A faixa só mostra "Duas etapas" se sim. */
       readonly segundoFatorExigido: boolean
+      /** A conta é a de gestão de um Operador (ADR 0024): a lateral oferece "Voltar ao painel". */
+      readonly contaDoOperador: boolean
     }
 
 type Carteira = {
@@ -50,7 +52,7 @@ export function ProvedorDaCarteira({ children }: { children: ReactNode }) {
     setSessao({ tag: 'carregando' })
     void (async () => {
       try {
-        const eu = await chamar<CarteiraEuComSegundoFatorSaida>('v1/carteira/eu')
+        const eu = await chamar<CarteiraEuDaSessaoSaida>('v1/carteira/eu')
         if (!valeu) return
         // Senha provisória ⇒ a única coisa que a sessão pode fazer é trocá-la
         // (`CarteiraGuard`). Sem este desvio, o usuário recém-criado cairia
@@ -73,6 +75,7 @@ export function ProvedorDaCarteira({ children }: { children: ReactNode }) {
           tag: 'pronta',
           usuarioDeGestao: eu.usuarioDeGestao,
           segundoFatorExigido: eu.segundoFator.exigido,
+          contaDoOperador: eu.contaDoOperador,
         })
       } catch (e) {
         if (!valeu) return

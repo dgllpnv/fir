@@ -323,6 +323,16 @@ describe('entrar no painel abre a carteira', () => {
       administrar: true,
       senhaProvisoria: false,
     })
+    // A lateral oferece "Voltar ao painel" só a esta conta (D-26).
+    expect(eu.body.contaDoOperador).toBe(true)
+  })
+
+  it('a conta COMUM não é do operador: a lateral não oferece "Voltar ao painel"', async () => {
+    const login = await http().post('/v1/carteira/entrar').send({ usuario: USUARIO_COMUM, senha: SENHA }).expect(200)
+    const cookie = (login.headers['set-cookie'] as unknown as string[] | undefined)?.map(par).join('; ') ?? ''
+    const eu = await http().get('/v1/carteira/eu').set('Cookie', cookie).expect(200)
+    expect(eu.body.usuarioDeGestao.id).toBe(ids.comum)
+    expect(eu.body.contaDoOperador).toBe(false)
   })
 
   it('a Visão geral abre com valores pela sessão da carteira', async () => {

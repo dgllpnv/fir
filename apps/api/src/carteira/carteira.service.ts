@@ -299,6 +299,22 @@ export class CarteiraService {
    * como qualquer sessão sem código e devolve 409 — a entrada única não
    * contorna o segundo fator (ADR 0024 §4).
    */
+  /**
+   * A conta de gestão é a de um Operador (ADR 0024)? A lateral da carteira usa
+   * isto para oferecer "Voltar ao painel" só a quem veio do painel — sem uma
+   * segunda chamada a `/v1/superadmin/eu`, que daria 404 (e erro de console) a
+   * todo Usuário de Gestão comum. Não diz QUAL operador.
+   */
+  async ehContaDoOperador(usuarioDeGestaoId: string): Promise<boolean> {
+    return this.banco.nasTabelasDaCarteira(SISTEMA, async (c) => {
+      const r = await c.query(
+        'SELECT 1 FROM contas_de_gestao_do_operador WHERE usuario_gestao_id = $1',
+        [usuarioDeGestaoId],
+      )
+      return (r.rowCount ?? 0) > 0
+    })
+  }
+
   async abrirSessaoDaContaDoOperador(
     operadorId: string,
     duracaoMs: number,

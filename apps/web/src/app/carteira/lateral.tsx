@@ -75,12 +75,22 @@ export function LateralDaCarteira({
               {/* A conta fica em links discretos, não em botões cheios: são
                   raros, e a altura da lateral é do menu (design.md §1). */}
               <div className="carteira-conta">
-                {/* A troca VOLUNTÁRIA. A obrigatória (provisória) não passa por
-                    aqui: o provedor desvia antes de a lateral existir. `<a>` e
-                    não `<Link>`: a troca é porta, sem casco. */}
-                <a className="carteira-conta-link" href="/carteira/trocar-senha">
-                  Trocar senha
-                </a>
+                {/* Quem veio do painel (a conta de gestão do Operador, ADR 0024)
+                    volta por aqui — sem isto, a única saída da carteira era
+                    digitar o endereço. Essa conta não tem senha própria (é a
+                    do painel), então "Trocar senha" não se aplica a ela. `<a>`
+                    e não `<Link>`: painel e troca de senha são outro casco. */}
+                {sessao.contaDoOperador ? (
+                  <a className="carteira-conta-link" href="/superadmin">
+                    Voltar ao painel
+                  </a>
+                ) : (
+                  // A troca VOLUNTÁRIA. A obrigatória (provisória) não passa
+                  // por aqui: o provedor desvia antes de a lateral existir.
+                  <a className="carteira-conta-link" href="/carteira/trocar-senha">
+                    Trocar senha
+                  </a>
+                )}
                 {/* G8 0.6: estado do segundo fator e códigos de recuperação novos —
                     só quando o servidor o exige (ADR 0023: desligado por padrão). */}
                 {sessao.segundoFatorExigido ? (
