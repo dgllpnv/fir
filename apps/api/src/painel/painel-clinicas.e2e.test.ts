@@ -121,6 +121,36 @@ afterAll(async () => {
   await app.close()
 })
 
+describe('POST /v1/superadmin/clinicas: entra no grupo Firmare (0067)', () => {
+  it('a clínica criada pelo painel já nasce com histórico de grupo e Cliente Firmare no grupo padrão', async () => {
+    const c = await criarClinicaOk({ nome: 'Clínica do Dr. Teste' })
+    const padrao = (await migrate.query<{ id: string }>('SELECT id FROM grupos WHERE padrao')).rows[0]!.id
+
+    const cliente = await migrate.query<{ grupo_id: string; nome: string; produto: string; status: string }>(
+      'SELECT grupo_id, nome, produto, status FROM clientes_carteira WHERE clinica_id = $1',
+      [c.id],
+    )
+    expect(cliente.rows).toEqual([
+      { grupo_id: padrao, nome: 'Clínica do Dr. Teste', produto: 'FIR Clinic', status: 'onboarding' },
+    ])
+
+    const hist = await migrate.query<{ grupo_novo_id: string; motivo: string }>(
+      'SELECT grupo_novo_id, motivo FROM historico_grupo_da_clinica WHERE clinica_id = $1',
+      [c.id],
+    )
+    expect(hist.rows).toEqual([{ grupo_novo_id: padrao, motivo: 'clínica nova' }])
+  })
+
+  it('código repetido é 409 e não deixa cliente a mais', async () => {
+    const c = await criarClinicaOk()
+    // Nome único: o banco é compartilhado com arquivos que rodam em paralelo,
+    // então contar a tabela toda mediria o vizinho, não este teste.
+    const nome = `Clínica repetida ${Date.now()}`
+    await criarClinica({ codigo: c.codigo, nome }).expect(409)
+    expect((await migrate.query('SELECT 1 FROM clientes_carteira WHERE nome = $1', [nome])).rowCount).toBe(0)
+  })
+})
+
 describe('POST /v1/superadmin/clinicas', () => {
   it('entrega clínica + perfis padrão + admin com provisória, numa chamada', async () => {
     const codigo = novoCodigo()

@@ -254,6 +254,10 @@ function FormularioDeClinica({
           Uma chamada entrega a clínica funcionando: clínica, perfis padrão e a administradora com
           senha provisória. Tudo ou nada — meia criação é o estado que produz um chamado.
         </p>
+        <p className="nota">
+          A clínica já entra no grupo Firmare, com o cliente criado na carteira. Para mudar de grupo,
+          use Grupos.
+        </p>
 
         <label className="campo">
           Código da clínica

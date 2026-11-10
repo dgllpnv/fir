@@ -48,8 +48,10 @@ import {
   GrupoDesativado,
   GrupoNaoExiste,
   PainelCarteiraService,
+  GrupoPadraoNaoMuda,
   UsuarioDeGestaoJaExiste,
   UsuarioDeGestaoNaoExiste,
+  UsuarioNaoPodeSerDoGrupoPadrao,
 } from './painel-carteira.service'
 import { SoOperador } from './so-operador.decorator'
 
@@ -92,6 +94,9 @@ export class PainelCarteiraController {
       return { grupo }
     } catch (e) {
       if (e instanceof GrupoNaoExiste) throw new NotFoundException('Grupo não encontrado.')
+      if (e instanceof GrupoPadraoNaoMuda) {
+        throw new ConflictException('O grupo Firmare é o padrão das clínicas novas: não pode ser desativado.')
+      }
       throw e
     }
   }
@@ -123,6 +128,9 @@ export class PainelCarteiraController {
       // ADR 0024: a conta de gestão do operador acompanha o operador.
       if (e instanceof ContaDeGestaoDoOperadorFixa) {
         throw new ConflictException('Esta é a conta de gestão de um superadmin: perfil e estado acompanham o operador e não se editam aqui.')
+      }
+      if (e instanceof UsuarioNaoPodeSerDoGrupoPadrao) {
+        throw new ConflictException('O grupo Firmare vê todas as clínicas: use o escopo geral, e não um usuário de grupo.')
       }
       throw e
     }
@@ -237,6 +245,9 @@ export class PainelCarteiraController {
     } catch (e) {
       if (e instanceof UsuarioDeGestaoJaExiste) {
         throw new ConflictException('Já existe um usuário de gestão com este nome.')
+      }
+      if (e instanceof UsuarioNaoPodeSerDoGrupoPadrao) {
+        throw new ConflictException('O grupo Firmare vê todas as clínicas: use o escopo geral, e não um usuário de grupo.')
       }
       throw e
     }

@@ -230,6 +230,26 @@ describe('POST /v1/superadmin/clientes-carteira', () => {
   })
 })
 
+describe('o grupo Firmare é o padrão (0067): 409, nunca 500', () => {
+  const idDoPadrao = async () =>
+    (await migrate.query<{ id: string }>('SELECT id FROM grupos WHERE padrao')).rows[0]!.id
+
+  it('Usuário de Gestão de escopo grupo no Firmare é 409 (seria um segundo geral)', async () => {
+    const r = await http()
+      .post('/v1/superadmin/usuarios-gestao')
+      .set('Cookie', painel)
+      .send({ usuario: `gestora.no.padrao.${sufixo}`, nome: 'X', escopo: 'grupo', grupoId: await idDoPadrao(), ...PERFIL })
+      .expect(409)
+    expect(r.body.message).toMatch(/escopo geral/)
+  })
+
+  it('desativar o grupo Firmare é 409; renomear continua permitido', async () => {
+    const id = await idDoPadrao()
+    await http().patch(`/v1/superadmin/grupos/${id}`).set('Cookie', painel).send({ nome: 'Firmare', ativo: false }).expect(409)
+    await http().patch(`/v1/superadmin/grupos/${id}`).set('Cookie', painel).send({ nome: 'Firmare', ativo: true }).expect(200)
+  })
+})
+
 describe('POST /v1/superadmin/usuarios-gestao', () => {
   it('cria usuário de escopo geral, com provisória, e ela autentica na carteira', async () => {
     const usuario = `gestora.geral.${sufixo}`

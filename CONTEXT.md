@@ -650,11 +650,11 @@ a mesma função no servidor e na tela:
   dessas chaves, escrito por extenso.
 
 ### `Grupo Firmare`
-O escopo `geral` **apresentado como grupo** (D-23 item 2): a própria Firmare,
-que vê todas as clínicas sem vínculo. **Não é uma linha de `grupos`** — a
-alternativa "grupo GERAL contendo todas as clínicas" segue rejeitada pela ADR
-0011 (uma clínica, um grupo). Quem é do Grupo Firmare é o `Usuário de Gestão`
-com `escopo = 'geral'`, e a tela chama esse escopo pelo nome do grupo.
+A linha **padrão** de `grupos` (`padrao = true`, migration 0067, ADR 2026-11-10): onde toda clínica
+nova nasce, com o `Cliente Firmare` criado junto. **Uma clínica continua em um grupo só** (ADR 0011);
+mudar de grupo é a operação existente, com motivo. Não confundir com o escopo `geral`, que vê **todos**
+os grupos. Nenhum `Usuário de Gestão` de escopo `grupo` pode ser do Grupo Firmare (o banco recusa): quem
+vê a carteira inteira é o escopo `geral`.
 
 ### `Conta de gestão do operador`
 O `Usuário de Gestão` que **todo `Operador` tem automaticamente** (D-23 item 6,

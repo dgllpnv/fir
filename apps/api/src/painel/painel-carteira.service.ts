@@ -60,6 +60,21 @@ const ehContaFixa = (e: unknown): boolean => {
   return x.code === VIOLACAO_DE_CHECK && x.constraint === 'conta_de_gestao_do_operador_fixa'
 }
 
+/**
+ * O grupo Firmare (migration 0067) é o padrão: não se desativa, e nenhum
+ * Usuário de Gestão de escopo `grupo` aponta para ele (seria um segundo
+ * `geral`, sem a trilha da conta do operador). O banco é quem recusa; isto é
+ * a tradução para 409, nunca 500.
+ */
+export class UsuarioNaoPodeSerDoGrupoPadrao extends Error {}
+export class GrupoPadraoNaoMuda extends Error {}
+const traduzTravaDoGrupoPadrao = (e: unknown): void => {
+  const x = e as { code?: string; constraint?: string }
+  if (x.code !== VIOLACAO_DE_CHECK) return
+  if (x.constraint === 'usuario_de_gestao_do_grupo_padrao') throw new UsuarioNaoPodeSerDoGrupoPadrao()
+  if (x.constraint === 'grupo_padrao_fixo') throw new GrupoPadraoNaoMuda()
+}
+
 type LinhaClienteNoPainel = {
   id: string
   grupo_id: string
@@ -189,7 +204,10 @@ export class PainelCarteiraService {
       const r = await c.query<{ id: string; nome: string; ativo: boolean }>(
         'UPDATE grupos SET nome = $2, ativo = $3 WHERE id = $1 RETURNING id, nome, ativo',
         [id, dados.nome, dados.ativo],
-      )
+      ).catch((e: unknown) => {
+        traduzTravaDoGrupoPadrao(e)
+        throw e
+      })
       const grupo = r.rows[0]!
       await registrarNoPainel(c, {
         atorTipo: 'operador',
@@ -482,6 +500,7 @@ export class PainelCarteiraService {
         [id, dados.nome, dados.escopo, dados.grupoId, dados.ativo, ...valoresDoPerfil(dados)],
       ).catch((e: unknown) => {
         if (ehContaFixa(e)) throw new ContaDeGestaoDoOperadorFixa()
+        traduzTravaDoGrupoPadrao(e)
         throw e
       })
       const linha = r.rows[0]!
@@ -636,6 +655,7 @@ export class PainelCarteiraService {
         linha = r.rows[0]!
       } catch (e) {
         if ((e as { code?: string }).code === UNICIDADE_VIOLADA) throw new UsuarioDeGestaoJaExiste()
+        traduzTravaDoGrupoPadrao(e)
         throw e
       }
       await registrarNoPainel(c, {
