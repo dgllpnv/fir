@@ -25,8 +25,8 @@ import { ClientesDosGrupos } from './clientes-dos-grupos'
  * Criar grupo é um botão no topo que abre um modal (D-23 item 1), como em
  * `clinicas/page.tsx`. O **grupo Firmare** vem fixo antes da lista (D-23
  * item 2): é o escopo `geral` apresentado como grupo — vê todas as clínicas
- * sem vínculo nenhum, e por isso não tem "Vincular clínica". Uma clínica
- * continua pertencendo a no máximo um grupo de cliente.
+ * sem vínculo nenhum, e por isso não tem "Vincular clínica". Desde a 0068 uma
+ * clínica pode estar em vários grupos (um Cliente Firmare por grupo, um só paga).
  *
  * **Vincular clínica NÃO fica dentro da tela de uma clínica.** A clínica, no
  * painel, não tem tela própria de edição — só `pessoas/page.tsx`, que já
@@ -103,9 +103,9 @@ export default function Grupos() {
         <h2>Grupos</h2>
       </div>
       <p className="nota">
-        Cada <b>Clínica</b> pertence a no máximo um grupo de cliente. Vincular uma clínica aqui cria
-        o <b>Cliente Firmare</b> dela — o registro comercial que a carteira usa para separar o que é
-        de uma rede do que não é.
+        Uma <b>Clínica</b> fica no grupo Firmare e pode estar em outros grupos. Em cada grupo ela tem
+        o seu <b>Cliente Firmare</b> — o registro comercial que a carteira usa para separar o que é
+        de uma rede do que não é. Só um deles paga.
       </p>
 
       <div className="superadmin-acoes-topo">
