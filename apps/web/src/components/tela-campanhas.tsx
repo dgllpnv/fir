@@ -9,7 +9,7 @@ import type {
 import { METRICAS_DE_CAMPANHA } from '@fir/contracts'
 import { TIPOS, ehPagamento } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { DICA_DO_NOME_DA_CAMPANHA } from '@/conteudo/dica-do-nome-da-campanha'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
@@ -348,11 +348,28 @@ function Importar({
   const [responsavelId, setResponsavelId] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [lendo, setLendo] = useState(false)
-  const [doArquivo, setDoArquivo] = useState<Lidas | null>(null)
+  const [tabelaDoArquivo, setTabelaDoArquivo] = useState<string[][] | null>(null)
   const [nomeDoArquivo, setNomeDoArquivo] = useState('')
   const [erroDoArquivo, setErroDoArquivo] = useState<string | null>(null)
   const equipe = useDados<ListaDaEquipe>(aberto ? 'v1/equipe' : null)
-  const pessoas = equipe.dados?.equipe ?? []
+  const pessoas = useMemo(() => equipe.dados?.equipe ?? [], [equipe.dados])
+
+  /**
+   * O arquivo é LIDO uma vez e as linhas são DERIVADAS da tabela + padrões.
+   * Antes, a leitura rodava só ao escolher o arquivo e exigia o responsável
+   * já escolhido: quem anexava primeiro via o erro, escolhia o responsável
+   * depois, e a lista seguia vazia com o botão Importar travado — a lista
+   * nunca era relida.
+   */
+  const doArquivo = useMemo<Lidas | { erro: string } | null>(
+    () =>
+      tabelaDoArquivo === null
+        ? null
+        : lerTabelaDeCampanha(tabelaDoArquivo, { prazo, responsavelId, equipe: pessoas }),
+    [tabelaDoArquivo, prazo, responsavelId, pessoas],
+  )
+  const arquivoLido: Lidas | null = doArquivo !== null && !('erro' in doArquivo) ? doArquivo : null
+  const erroDaTabela = doArquivo !== null && 'erro' in doArquivo ? doArquivo.erro : null
 
   if (!aberto) {
     return (
@@ -379,34 +396,29 @@ function Importar({
    * padrão da caixa aqui apagaria a coluna da planilha — e a planilha modelo
    * promete essa coluna por escrito.
    */
-  const linhas = doArquivo === null ? coladas : doArquivo.linhas
+  const linhas = tabelaDoArquivo === null ? coladas : (arquivoLido?.linhas ?? [])
 
   async function escolherArquivo(arquivo: File | undefined) {
     setErroDoArquivo(null)
     if (arquivo === undefined) {
-      setDoArquivo(null)
+      setTabelaDoArquivo(null)
       setNomeDoArquivo('')
-      return
-    }
-    if (responsavelId === '') {
-      setErroDoArquivo('Escolha o responsável padrão antes de ler a planilha.')
       return
     }
     setLendo(true)
     try {
       const tabela = await lerTabela(arquivo, '')
       if (tabela === null) {
+        setTabelaDoArquivo(null)
+        setNomeDoArquivo('')
         setErroDoArquivo('Não consegui ler a planilha. Salve como .csv ou cole as linhas abaixo.')
         return
       }
-      const lidas = lerTabelaDeCampanha(tabela, { prazo, responsavelId, equipe: pessoas })
-      if ('erro' in lidas) {
-        setErroDoArquivo(lidas.erro)
-        return
-      }
-      setDoArquivo(lidas)
+      setTabelaDoArquivo(tabela)
       setNomeDoArquivo(arquivo.name)
     } catch {
+      setTabelaDoArquivo(null)
+      setNomeDoArquivo('')
       setErroDoArquivo('Não consegui ler a planilha. Salve como .csv ou cole as linhas abaixo.')
     } finally {
       setLendo(false)
@@ -487,21 +499,21 @@ function Importar({
           escolhidos abaixo.
         </p>
       )}
-      {doArquivo === null || doArquivo.responsaveisDesconhecidos.length === 0 ? null : (
+      {arquivoLido === null || arquivoLido.responsaveisDesconhecidos.length === 0 ? null : (
         <p className="nota" role="status">
-          <b>Não reconheci na equipe:</b> {doArquivo.responsaveisDesconhecidos.join(', ')}. Essas
+          <b>Não reconheci na equipe:</b> {arquivoLido.responsaveisDesconhecidos.join(', ')}. Essas
           linhas vão para o responsável padrão. Ninguém é criado por uma planilha.
         </p>
       )}
-      {doArquivo === null || doArquivo.prazosIlegiveis === 0 ? null : (
+      {arquivoLido === null || arquivoLido.prazosIlegiveis === 0 ? null : (
         <p className="nota" role="status">
-          {plural(doArquivo.prazosIlegiveis, 'linha', 'linhas')} com prazo que não deu para ler:
+          {plural(arquivoLido.prazosIlegiveis, 'linha', 'linhas')} com prazo que não deu para ler:
           valeu o prazo padrão. Use dd/mm/aaaa.
         </p>
       )}
-      {erroDoArquivo === null ? null : (
+      {(erroDoArquivo ?? erroDaTabela) === null ? null : (
         <p className="campo" role="alert">
-          <span className="erro">{erroDoArquivo}</span>
+          <span className="erro">{erroDoArquivo ?? erroDaTabela}</span>
         </p>
       )}
 
@@ -510,7 +522,7 @@ function Importar({
         <textarea
           rows={5}
           value={texto}
-          disabled={doArquivo !== null}
+          disabled={tabelaDoArquivo !== null}
           onChange={(e) => setTexto(e.target.value)}
           placeholder={'Marta Alves; 71 99999-0000; 1980-05-12\nRosa Lima'}
         />

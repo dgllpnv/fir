@@ -121,6 +121,7 @@ export const COLUNA_DE_EFEITO = {
   valorOrcamento: ['valor_orcamento', 'bigint'],
   programaOrcado: ['programa_orcado', 'jsonb'],
   motivoPerdaId: ['motivo_perda_id', 'uuid'],
+  contatoId: ['contato_id', 'uuid'],
 } as const satisfies Record<string, readonly [string, string]>
 
 export type ChaveDeColuna = keyof typeof COLUNA_DE_EFEITO
@@ -171,6 +172,7 @@ export type Efeitos = {
   readonly valorOrcamento?: bigint
   readonly programaOrcado?: readonly ItemOrcadoNoBanco[]
   readonly motivoPerdaId?: string | null
+  readonly contatoId?: string | null
   /** O que entra no EVENTO, não em coluna. */
   readonly nota?: string
   readonly valor?: string

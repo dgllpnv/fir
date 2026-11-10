@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { chamar } from '@/lib/api'
 import { ControleDeTema } from './controle-de-tema'
@@ -42,7 +42,6 @@ export function Shell({
   children: ReactNode
 }) {
   const rota = usePathname()
-  const router = useRouter()
   const [aberta, setAberta] = useState(false)
   const botaoMenu = useRef<HTMLButtonElement>(null)
   const gaveta = useRef<HTMLElement>(null)
@@ -84,8 +83,9 @@ export function Shell({
     // diz "não consegui sair" é pior do que mandá-la para a entrada, onde o
     // servidor decide de novo se ela está dentro ou fora.
     await chamar('v1/sair', { method: 'POST' }).catch(() => undefined)
-    router.push('/entrar')
-    router.refresh()
+    // Navegação COMPLETA, e `replace`: o Router Cache do Next guarda as telas
+    // autenticadas e o Voltar as restaura sem pedir nada ao servidor.
+    window.location.replace('/entrar')
   }
 
   const ativo = (href: string) => rota === href || rota.startsWith(`${href}/`)

@@ -1,6 +1,5 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import { type RefObject, useState } from 'react'
 import { ControleDeTema } from '@/components/controle-de-tema'
 import { chamar } from '@/lib/api'
@@ -29,15 +28,13 @@ export function LateralDaCarteira({
   gaveta: RefObject<HTMLElement | null>
 }) {
   const { sessao } = useCarteira()
-  const router = useRouter()
   const [saindo, setSaindo] = useState(false)
   const resolvida = sessao.tag === 'pronta' || sessao.tag === 'erro'
 
   async function sair() {
     setSaindo(true)
     await chamar('v1/carteira/sair', { method: 'POST' }).catch(() => undefined)
-    router.replace('/carteira/entrar')
-    router.refresh()
+    window.location.replace('/carteira/entrar')
   }
 
   return (

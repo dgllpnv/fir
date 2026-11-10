@@ -418,6 +418,9 @@ export const TarefaNaLista = z.object({
   motivoPerdaId: Uuid.nullable(),
   /** O dia a partir do qual este cartão volta a pedir ação (D-3). */
   proximoPassoEm: DiaCivil.nullable(),
+  /** Quem faz o contato da retomada do orçamento, ou `null` (vale responsável/solicitante). */
+  contatoId: Uuid.nullable(),
+  contatoNome: z.string().nullable(),
   confirmacaoEnviadaEm: z.string().nullable(),
   resultado: z.string(),
   obs: z.string(),

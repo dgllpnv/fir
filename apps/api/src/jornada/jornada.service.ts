@@ -119,6 +119,13 @@ export class JornadaService {
       // épico 5 monta doze sessões atribuídas a alguém que não existe aqui —
       // exatamente o furo que a unidade de outra clínica abriu no épico 2
       // (commit d0d4bb0), onde a FK existia e ainda assim atravessou a RLS.
+      if (
+        (dados.acao === 'registrarOrcamento' || dados.acao === 'followUp') &&
+        dados.contatoId !== undefined
+      ) {
+        await conferirContato(c, dados.contatoId)
+      }
+
       if (dados.acao === 'registrarOrcamento' && dados.programa !== undefined) {
         await conferirResponsaveis(c, dados.programa)
         // A MESMA regra da correção (N-17): itens com valor que passam do
@@ -326,6 +333,16 @@ async function resolverMotivo(
 }
 
 /**
+ * `contatoId` é pessoa ATIVA desta clínica? A RLS filtra por clínica: a pessoa
+ * da vizinha devolve zero linhas. Recusa (400) em vez de descartar: perder o
+ * vínculo em silêncio põe a retomada na fila de ninguém.
+ */
+async function conferirContato(c: pg.PoolClient, contatoId: string): Promise<void> {
+  const r = await c.query('SELECT 1 FROM pessoas WHERE id = $1 AND ativo', [contatoId])
+  if (r.rowCount !== 1) throw new BadRequestException('Escolha uma pessoa ativa para fazer o contato.')
+}
+
+/**
  * Os responsáveis da proposta existem NESTA clínica e estão ATIVOS?
  *
  * Recusa em vez de descartar em silêncio — ao contrário de `unidadeValida`,
@@ -425,6 +442,8 @@ function efeitosDa(
         // tela e manda a data; com o relógio do cliente adiantado, o orçamento
         // voltaria a pedir ação no dia errado (regra 24).
         proximoPassoEm: dados.retomarEm ?? somarDias(hoje, DIAS_PARA_RETOMAR),
+        // Novo orçamento redefine quem faz o contato: sem o campo, volta ao padrão.
+        contatoId: dados.contatoId ?? null,
         valor: centavosNoJsonb(dados.valor),
         ...(dados.nota === undefined ? {} : { nota: dados.nota }),
       }
@@ -434,6 +453,8 @@ function efeitosDa(
       // funil, e zerá-lo num follow-up apagaria a proposta sem apagar o cartão.
       return {
         proximoPassoEm: dados.retomarEm ?? somarDias(hoje, DIAS_PARA_FOLLOW_UP),
+        // Follow-up sem o campo MANTÉM quem já fazia o contato.
+        ...(dados.contatoId === undefined ? {} : { contatoId: dados.contatoId }),
         ...(dados.nota === undefined ? {} : { nota: dados.nota }),
       }
 

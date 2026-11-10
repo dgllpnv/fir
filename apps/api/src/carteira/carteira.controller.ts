@@ -35,6 +35,7 @@ import { FilaCheia, RETRY_AFTER_FILA_CHEIA } from '../autenticacao/concorrencia'
 import { LimitePorOrigem } from '../autenticacao/limite-por-origem'
 import type { RequisicaoComCarteira } from './contexto-da-carteira'
 import { DURACAO_SESSAO_CARTEIRA_MS, NOME_DO_COOKIE_CARTEIRA } from './carteira.guard'
+import { limparCookieDeSessao } from '../autenticacao/limpar-cookie'
 import { mensagemDeValidacao, traduzirErroDoBanco, trazCampoDeValor } from './cadastro-do-cliente'
 import {
   CarteiraService,
@@ -172,7 +173,7 @@ export class CarteiraController {
     if (!desafio) throw expirado()
     try {
       const { token, aviso } = await this.segundoFator.concluirDesafio(desafio, entrada)
-      res.clearCookie(NOME_DO_COOKIE_DESAFIO_DA_CARTEIRA, { path: '/' })
+      limparCookieDeSessao(res, NOME_DO_COOKIE_DESAFIO_DA_CARTEIRA, 'strict')
       this.gravarSessao(res, token)
       const contexto = await this.carteira.contextoDoToken(token)
       if (!contexto) throw expirado()
@@ -183,7 +184,7 @@ export class CarteiraController {
       }
     } catch (e) {
       if (e instanceof DesafioDaCarteiraInvalido) {
-        res.clearCookie(NOME_DO_COOKIE_DESAFIO_DA_CARTEIRA, { path: '/' })
+        limparCookieDeSessao(res, NOME_DO_COOKIE_DESAFIO_DA_CARTEIRA, 'strict')
         throw expirado()
       }
       if (e instanceof CodigoDoSegundoFatorInvalido) throw new HttpException('Código incorreto.', HttpStatus.UNAUTHORIZED)
@@ -214,7 +215,7 @@ export class CarteiraController {
   ): Promise<void> {
     const token = req.cookies?.[NOME_DO_COOKIE_CARTEIRA]
     if (token) await this.carteira.sair(token)
-    res.clearCookie(NOME_DO_COOKIE_CARTEIRA, { path: '/' })
+    limparCookieDeSessao(res, NOME_DO_COOKIE_CARTEIRA, 'strict')
   }
 
   /**

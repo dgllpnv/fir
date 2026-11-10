@@ -131,6 +131,7 @@ export const SELECT_TAREFA = `
   SELECT t.id,
          t.solicitante_id, ps.nome AS solicitante_nome,
          t.responsavel_id, pr.nome AS responsavel_nome,
+         t.contato_id, pc.nome AS contato_nome,
          t.descricao, t.prazo::text AS prazo, t.hora::text AS hora, t.prioridade, t.status,
          t.concluida_em, t.criada_em,
          t.paciente_id, pa.nome AS paciente_nome, pa.telefone AS paciente_telefone,
@@ -160,6 +161,7 @@ export const SELECT_TAREFA = `
     FROM tarefas t
     JOIN pessoas ps ON ps.id = t.solicitante_id
     JOIN pessoas pr ON pr.id = t.responsavel_id
+    LEFT JOIN pessoas pc ON pc.id = t.contato_id
     LEFT JOIN pacientes pa ON pa.id = t.paciente_id
     LEFT JOIN recebimentos r ON r.tarefa_id = t.id AND r.estornado_em IS NULL
    WHERE t.clinica_id = $1 AND t.excluida_em IS NULL`
@@ -170,6 +172,8 @@ export type LinhaDeTarefa = {
   solicitante_nome: string
   responsavel_id: string
   responsavel_nome: string
+  contato_id: string | null
+  contato_nome: string | null
   descricao: string
   prazo: string
   hora: string | null
@@ -229,6 +233,8 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   solicitanteNome: l.solicitante_nome,
   responsavelId: l.responsavel_id,
   responsavelNome: l.responsavel_nome,
+  contatoId: l.contato_id,
+  contatoNome: l.contato_nome,
   descricao: l.descricao,
   prazo: l.prazo,
   // `time` do Postgres volta `HH:MM:SS`; a tela e o contrato falam `HH:MM`.

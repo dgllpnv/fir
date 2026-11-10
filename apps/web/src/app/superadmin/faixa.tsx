@@ -1,6 +1,6 @@
 'use client'
 
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { ICONE_SAIR } from '@/lib/icones'
@@ -33,7 +33,6 @@ import { usePainel } from './contexto'
  */
 export function FaixaDoPainel() {
   const { sessao, clinicaAberta } = usePainel()
-  const router = useRouter()
   const caminho = usePathname()
   const [saindo, setSaindo] = useState(false)
 
@@ -44,8 +43,7 @@ export function FaixaDoPainel() {
     // diz "não consegui sair" é pior que mandá-lo para a porta — onde o
     // servidor decide de novo se ele está dentro ou fora.
     await chamar('v1/superadmin/sair', { method: 'POST' }).catch(() => undefined)
-    router.replace('/superadmin/entrar')
-    router.refresh()
+    window.location.replace('/superadmin/entrar')
   }
 
   return (

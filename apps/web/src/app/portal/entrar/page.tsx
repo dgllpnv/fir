@@ -1,7 +1,6 @@
 'use client'
 
 import type { PortalEuSaida } from '@fir/contracts'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { ICONE_OLHO_ABERTO, ICONE_OLHO_FECHADO } from '@/lib/icones'
@@ -16,7 +15,6 @@ import { ICONE_OLHO_ABERTO, ICONE_OLHO_FECHADO } from '@/lib/icones'
  * está decidido no cadastro dele (ADR 0017).
  */
 export default function EntrarNoPortal() {
-  const router = useRouter()
   const [usuario, setUsuario] = useState('')
   const [senha, setSenha] = useState('')
   const [senhaVisivel, setSenhaVisivel] = useState(false)
@@ -34,7 +32,7 @@ export default function EntrarNoPortal() {
         body: JSON.stringify({ usuario, senha }),
       })
       // Com provisória, a única coisa que a sessão pode fazer é trocá-la.
-      router.push(eu.usuarioDoPortal.senhaProvisoria ? '/portal/trocar-senha' : '/portal/clientes')
+      window.location.assign(eu.usuarioDoPortal.senhaProvisoria ? '/portal/trocar-senha' : '/portal/clientes')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
     } finally {

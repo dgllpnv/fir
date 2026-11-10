@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 /* O olho mora em `lib/icones` desde que a entrada do PAINEL passou a usar o
@@ -24,7 +24,6 @@ import { clinicaGuardada, lembrarClinica, resolverClinica } from '@/lib/clinica-
  * no painel do superadmin, que é autenticado e atrás da allowlist de IP.
  */
 export default function Entrar() {
-  const router = useRouter()
   const [clinica, setClinica] = useState('')
   /**
    * `true` quando a clínica veio do link ou da memória do aparelho — e aí o
@@ -102,7 +101,7 @@ export default function Entrar() {
        * a tela passaria a abrir sozinha numa clínica que não existe.
        */
       lembrarClinica(clinica)
-      router.push('/hoje')
+      window.location.assign('/hoje')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
     } finally {

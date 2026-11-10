@@ -26,6 +26,7 @@ import type { RequisicaoComPortal } from './contexto-do-portal'
 import { LeituraDoPortalService } from './leitura-do-portal.service'
 import { LIMITE_DO_PORTAL } from './limite-do-portal'
 import { DURACAO_SESSAO_PORTAL_MS, NOME_DO_COOKIE_PORTAL } from './portal.guard'
+import { limparCookieDeSessao } from '../../autenticacao/limpar-cookie'
 import { CredencialDoPortalInvalida, LimiteDeTentativasDoPortal, PortalService } from './portal.service'
 import { SoUsuarioDoPortal } from './so-usuario-do-portal.decorator'
 
@@ -106,7 +107,7 @@ export class PortalController {
   ): Promise<void> {
     const token = req.cookies?.[NOME_DO_COOKIE_PORTAL]
     if (token) await this.portal.sair(token)
-    res.clearCookie(NOME_DO_COOKIE_PORTAL, { path: '/' })
+    limparCookieDeSessao(res, NOME_DO_COOKIE_PORTAL, 'strict')
   }
 
   /**

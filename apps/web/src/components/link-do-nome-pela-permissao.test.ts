@@ -34,6 +34,8 @@ const tarefa: TarefaNaLista = {
   solicitanteNome: 'Beatriz',
   responsavelId: 'p1',
   responsavelNome: 'Beatriz',
+  contatoId: null,
+  contatoNome: null,
   descricao: 'Retorno',
   prazo: '2026-10-24',
   hora: null,

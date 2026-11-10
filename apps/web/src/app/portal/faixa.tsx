@@ -1,6 +1,5 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { ICONE_SAIR } from '@/lib/icones'
@@ -15,14 +14,12 @@ import { usePortal } from './contexto'
  */
 export function FaixaDoPortal() {
   const { sessao } = usePortal()
-  const router = useRouter()
   const [saindo, setSaindo] = useState(false)
 
   async function sair() {
     setSaindo(true)
     await chamar('v1/portal/sair', { method: 'POST' }).catch(() => undefined)
-    router.replace('/portal/entrar')
-    router.refresh()
+    window.location.replace('/portal/entrar')
   }
 
   return (

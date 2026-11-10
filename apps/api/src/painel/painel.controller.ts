@@ -25,6 +25,7 @@ import { LimitePorOrigem } from '../autenticacao/limite-por-origem'
 import { NOME_DO_COOKIE_CARTEIRA } from '../carteira/carteira.guard'
 import type { RequisicaoComPainel } from './contexto-do-painel'
 import { DURACAO_SESSAO_PAINEL_MS, NOME_DO_COOKIE_PAINEL } from './painel.guard'
+import { limparCookieDeSessao } from '../autenticacao/limpar-cookie'
 import {
   type ContaDeGestaoDoLogin,
   CredencialDeOperadorInvalida,
@@ -141,10 +142,10 @@ export class PainelController {
   ): Promise<void> {
     const token = req.cookies?.[NOME_DO_COOKIE_PAINEL]
     if (token) await this.painel.sair(token)
-    res.clearCookie(NOME_DO_COOKIE_PAINEL, { path: '/' })
+    limparCookieDeSessao(res, NOME_DO_COOKIE_PAINEL, 'strict')
     // A sessão da conta de gestão já foi revogada no banco por `sair`; o
     // cookie sai junto para a tela da carteira não guardar um token morto.
-    res.clearCookie(NOME_DO_COOKIE_CARTEIRA, { path: '/' })
+    limparCookieDeSessao(res, NOME_DO_COOKIE_CARTEIRA, 'strict')
   }
 
   /**

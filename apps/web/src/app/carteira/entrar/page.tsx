@@ -1,7 +1,6 @@
 'use client'
 
 import type { AvisoDeRecuperacao, EntrarNaCarteiraSaida } from '@fir/contracts'
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { ICONE_OLHO_ABERTO, ICONE_OLHO_FECHADO } from '@/lib/icones'
@@ -28,7 +27,6 @@ import { destinoDepoisDeEntrar, formatarQuando } from '../segundo-fator/destino'
 type Etapa = 'senha' | 'codigo' | 'aviso'
 
 export default function EntrarNaCarteira() {
-  const router = useRouter()
   const [etapa, setEtapa] = useState<Etapa>('senha')
   const [usuario, setUsuario] = useState('')
   const [senha, setSenha] = useState('')
@@ -49,7 +47,7 @@ export default function EntrarNaCarteira() {
       setEtapa('aviso')
       return
     }
-    router.push(para)
+    window.location.assign(para)
   }
 
   async function enviarSenha(e: React.FormEvent) {
@@ -218,7 +216,7 @@ export default function EntrarNaCarteira() {
               <a className="btn ghost" href="/carteira/segundo-fator">
                 Gerar códigos novos
               </a>
-              <button type="button" className="btn" onClick={() => router.push(destino)}>
+              <button type="button" className="btn" onClick={() => window.location.assign(destino)}>
                 Continuar
               </button>
             </div>

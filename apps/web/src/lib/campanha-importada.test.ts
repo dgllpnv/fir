@@ -107,3 +107,26 @@ describe('planilha de campanha', () => {
     })
   })
 })
+
+describe('lista de recaptação sem telefone nem prazo (caso da cliente)', () => {
+  // Sintético, no formato do arquivo que a cliente subiu: 43 pacientes, telefone
+  // e prazo em branco, responsável com um login que não é nome da equipe.
+  const corpo = Array.from({ length: 43 }, (_, i) => [
+    `Paciente ${i + 1}`, '', '', 'Recaptação Inativos - Master', 'dr.exemplo', '', 'Investido: R$ 1,00',
+  ])
+
+  it('gera uma linha por paciente, com o responsável e o prazo padrão', () => {
+    const r = ler([...MODELO, ...corpo])
+    expect(r.linhas).toHaveLength(43)
+    expect(r.linhas.every((l) => l.responsavelId === 'p-rosy' && l.prazo === '2026-12-01')).toBe(true)
+    expect(r.responsaveisDesconhecidos).toEqual(['dr.exemplo'])
+  })
+
+  it('o resultado muda quando o responsável padrão é escolhido DEPOIS de anexar', () => {
+    const tabela = [...MODELO, ...corpo]
+    const antes = ler(tabela, { ...PADROES, responsavelId: '' })
+    const depois = ler(tabela, { ...PADROES, responsavelId: 'p-sheila' })
+    expect(antes.linhas).toHaveLength(43)
+    expect(depois.linhas.every((l) => l.responsavelId === 'p-sheila')).toBe(true)
+  })
+})

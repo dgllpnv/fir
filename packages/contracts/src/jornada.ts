@@ -128,11 +128,19 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
       acao: z.literal('registrarOrcamento'),
       valor: valorDeOrcamento,
       retomarEm: DiaCivil.optional(),
+      /** Quem faz o contato da retomada. Opcional; o servidor confere pessoa ativa da clínica. */
+      contatoId: Uuid.optional(),
       programa: Programa.optional(),
       nota: Nota,
     })
     .strict(),
-  z.object({ acao: z.literal('followUp'), retomarEm: DiaCivil.optional(), nota: Nota }).strict(),
+  z
+    .object({
+      acao: z.literal('followUp'),
+      retomarEm: DiaCivil.optional(),
+      contatoId: Uuid.optional(),
+      nota: Nota,
+    }).strict(),
   // O MESMO `PagamentoEmbutido` do épico 2, não uma segunda cópia: se fosse
   // outro esquema, "valor em aberto pode ser zero" valeria num e não no
   // outro, e a diferença apareceria no saldo da paciente.

@@ -74,13 +74,34 @@ export async function baixarPlanilha(arquivo: string, abas: readonly Aba[]): Pro
  * vírgula → vírgula: colar de uma planilha dá tabulação, e exportação
  * brasileira dá ponto e vírgula porque a vírgula é o decimal.
  */
+/**
+ * Texto de um CSV, qualquer que seja a codificação que a planilha usou ao salvar.
+ *
+ * O SheetJS recebe bytes sem BOM e lê como Latin-1: um CSV em UTF-8 vira
+ * "ResponsÃ¡vel" — a coluna deixa de casar e o nome "José" seria gravado como
+ * "JosÃ©" no cadastro de paciente. Aqui UTF-8 é tentado primeiro, em modo
+ * estrito (byte inválido não passa em silêncio); o Excel brasileiro salva
+ * "CSV" em Windows-1252, que é o que sobra quando não é UTF-8.
+ */
+export function textoDoCsv(bytes: ArrayBuffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^﻿/, '')
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes)
+  }
+}
+
 export async function lerTabela(
   arquivo: File | null | undefined,
   texto: string,
 ): Promise<string[][] | null> {
   if (arquivo) {
     const X = await carregar()
-    const livro = X.read(await arquivo.arrayBuffer(), { type: 'array', cellDates: true })
+    const bytes = await arquivo.arrayBuffer()
+    const ehCsv = /\.(csv|txt)$/i.test(arquivo.name) || arquivo.type === 'text/csv'
+    const livro = ehCsv
+      ? X.read(textoDoCsv(bytes), { type: 'string', cellDates: true })
+      : X.read(bytes, { type: 'array', cellDates: true })
     const primeira = livro.SheetNames[0]
     if (primeira === undefined) return null
     const folha = livro.Sheets[primeira]

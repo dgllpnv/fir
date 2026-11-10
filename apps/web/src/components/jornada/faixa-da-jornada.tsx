@@ -1,11 +1,18 @@
 'use client'
 
-import { FORMAS, type MotivoDePerda, type TarefaNaLista } from '@fir/contracts'
+import {
+  FORMAS,
+  type ListaDaEquipe,
+  type ListaDeProcedimentos,
+  type MotivoDePerda,
+  type TarefaNaLista,
+} from '@fir/contracts'
 import { type AcaoDeJornada, type Etapa, orcamentoVigente, ROTULO_DE_ETAPA } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
 import { useEffect, useState } from 'react'
 import { acoesDaEtapa, contextoDaEtapa } from '@/lib/acoes-da-etapa'
 import { chamar } from '@/lib/api'
+import { useDados } from '@/lib/dados'
 import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
 import { diaCurto, diaEmTexto, linkDeWhatsApp, somarDiasNaTela } from '@/lib/formato'
 import {
@@ -116,6 +123,8 @@ export function FaixaDaJornada({
         )}
       </div>
 
+      {etapa !== 'orcamento' ? null : <ResumoDoOrcamento tarefa={t} />}
+
       {emForm === null ? (
         acoes.length === 0 ? null : (
           <div className="jornada-acoes">
@@ -174,6 +183,69 @@ export function FaixaDaJornada({
 
       <Evolucao tarefa={t} />
     </div>
+  )
+}
+
+/**
+ * O que quem vai fazer o contato precisa saber SEM abrir nada: o que foi
+ * orçado (nota do orçamento vigente e itens do programa proposto) e o valor.
+ * O valor já chega `null` sem a permissão `valores` — nenhum `if` de permissão
+ * aqui; a nota e a contagem de itens não são dinheiro.
+ */
+function ResumoDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
+  const vigente = orcamentoVigente(t.historico)
+  const nota = vigente?.nota ?? ''
+  const itens = t.programaOrcado?.length ?? 0
+  // Nomes pelo catálogo da clínica. Sem permissão (403) ou sem rede, cai na
+  // contagem: o resumo nunca depende do catálogo para existir.
+  const catalogo = useDados<ListaDeProcedimentos>(itens > 0 ? 'v1/procedimentos' : null)
+  const nomes = new Map((catalogo.dados?.itens ?? []).map((p) => [p.id, p.nome]))
+  const nomesDosItens = (t.programaOrcado ?? [])
+    .map((i) => nomes.get(i.procedimentoId))
+    .filter((n): n is string => n !== undefined)
+  if (nota === '' && itens === 0 && t.valorOrcamento === null) return null
+  return (
+    <p className="nota resumo-orcamento">
+      <b>Orçamento</b>
+      {t.valorOrcamento === null ? null : (
+        <span className="num"> · {formatarDinheiro(BigInt(t.valorOrcamento))}</span>
+      )}
+      {itens === 0 ? null : nomesDosItens.length === itens ? (
+        <span> · {nomesDosItens.join(', ')}</span>
+      ) : (
+        <span>
+          {' '}
+          · programa com {itens} {itens === 1 ? 'procedimento' : 'procedimentos'}
+        </span>
+      )}
+      {t.contatoNome === null ? null : <span> · contato: {t.contatoNome}</span>}
+      {nota === '' ? null : <span> · {nota}</span>}
+    </p>
+  )
+}
+
+/** "Quem faz o contato" — opcional; vazio mantém responsável/solicitante da consulta. */
+function SeletorDeContato({
+  valor,
+  aoEscolher,
+}: {
+  valor: string
+  aoEscolher: (id: string) => void
+}) {
+  const equipe = useDados<ListaDaEquipe>('v1/equipe')
+  const ativos = (equipe.dados?.equipe ?? []).filter((x) => x.ativo)
+  return (
+    <label className="campo">
+      Quem faz o contato <small>(opcional)</small>
+      <select value={valor} onChange={(e) => aoEscolher(e.target.value)}>
+        <option value="">Quem atendeu</option>
+        {ativos.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.nome}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 
@@ -313,6 +385,7 @@ function FormularioDaAcao({
   const [valor, setValor] = useState(
     corrigindo && t.valorOrcamento !== null ? textoDeCentavos(BigInt(t.valorOrcamento)) : '',
   )
+  const [contatoId, setContatoId] = useState(t.contatoId ?? '')
   const [quando, setQuando] = useState(
     corrigindo && t.proximoPassoEm !== null
       ? t.proximoPassoEm
@@ -399,6 +472,7 @@ function FormularioDaAcao({
           // `number` perderia o centavo que a regra 1 existe para guardar.
           valor: centavos.toString(),
           retomarEm: quando,
+          ...(contatoId === '' ? {} : { contatoId }),
           ...(ehPrograma
             ? {
                 programa: montagem.itens.map((x) => ({
@@ -435,7 +509,7 @@ function FormularioDaAcao({
       }
       case 'followUp':
         if (nota.trim() === '') return 'Conte como foi o contato.'
-        return { acao, retomarEm: quando, ...comNota }
+        return { acao, retomarEm: quando, ...(contatoId === '' ? {} : { contatoId }), ...comNota }
       case 'perder':
         if (motivoId === '') return 'Escolha o motivo.'
         return { acao, motivoId, ...comNota }
@@ -564,6 +638,10 @@ function FormularioDaAcao({
           Próximo contato em
           <input type="date" value={quando} onChange={(e) => setQuando(e.target.value)} />
         </label>
+      ) : null}
+
+      {acao === 'registrarOrcamento' || acao === 'followUp' ? (
+        <SeletorDeContato valor={contatoId} aoEscolher={setContatoId} />
       ) : null}
 
       {acao === 'perder' ? <SeletorDeMotivo valor={motivoId} aoEscolher={setMotivoId} /> : null}

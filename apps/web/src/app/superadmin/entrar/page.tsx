@@ -1,6 +1,5 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { ICONE_OLHO_ABERTO, ICONE_OLHO_FECHADO } from '@/lib/icones'
@@ -27,7 +26,6 @@ import { ICONE_OLHO_ABERTO, ICONE_OLHO_FECHADO } from '@/lib/icones'
  * produto, que pede clínica + usuário + senha.
  */
 export default function EntrarNoPainel() {
-  const router = useRouter()
   const [usuario, setUsuario] = useState('')
   const [senha, setSenha] = useState('')
   /**
@@ -52,7 +50,7 @@ export default function EntrarNoPainel() {
         body: JSON.stringify({ usuario, senha }),
       })
       // D-23 item 6: a porta do painel abre a Visão geral (ADR 0024).
-      router.push('/superadmin')
+      window.location.assign('/superadmin')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
     } finally {

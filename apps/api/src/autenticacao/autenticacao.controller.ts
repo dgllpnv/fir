@@ -23,6 +23,7 @@ import { AutenticacaoService, CredencialInvalida, LimiteDeTentativas } from './a
 import { FilaCheia, RETRY_AFTER_FILA_CHEIA } from './concorrencia'
 import { LimitePorOrigem } from './limite-por-origem'
 import { NOME_DO_COOKIE } from './sessao.guard'
+import { limparCookieDeSessao } from './limpar-cookie'
 
 /**
  * Uma frase só para toda falha de credencial — usuário inexistente, senha
@@ -177,7 +178,7 @@ export class AutenticacaoController {
   ): Promise<void> {
     const token = req.cookies?.[NOME_DO_COOKIE]
     if (token) await this.auth.sair(token)
-    res.clearCookie(NOME_DO_COOKIE, { path: '/' })
+    limparCookieDeSessao(res, NOME_DO_COOKIE)
   }
 
   // Sem `@UseGuards(SessaoGuard)`: o guard é global desde a correção final da

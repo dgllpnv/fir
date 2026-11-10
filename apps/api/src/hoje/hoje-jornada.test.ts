@@ -286,6 +286,123 @@ describe('RETOMAR — os orçamentos cujo passo venceu', () => {
   })
 })
 
+/* ------------------------------------------------- retomada como tarefa do dia */
+
+describe('RETOMADA AGENDADA — o "retomar em 12/11" é uma tarefa NO DIA 12', () => {
+  it('aparece na lista do dia da retomada e na bolinha daquele dia', async () => {
+    const dia = maisDias(HOJE, 3)
+    const id = await orcado(dia)
+
+    const h = await abrirHoje({ dia })
+    expect(idsDe(h.tarefas)).toContain(id)
+    expect(h.semana.find((d) => d.dia === dia)?.abertas).toBe(1)
+
+    // Em nenhum outro dia futuro.
+    const outro = await abrirHoje({ dia: maisDias(HOJE, 4) })
+    expect(idsDe(outro.tarefas)).not.toContain(id)
+  })
+
+  it('no dia da retomada (hoje) vale o bloco retomar, SEM duplicar na lista do dia', async () => {
+    const id = await orcado(HOJE)
+    const h = await abrirHoje()
+    expect(idsDe(h.retomar)).toContain(id)
+    expect(idsDe(h.tarefas)).not.toContain(id)
+  })
+
+  it('é idempotente: follow-up move a tarefa, não cria outra', async () => {
+    const dia = maisDias(HOJE, 3)
+    const id = await orcado(dia)
+    const novo = maisDias(HOJE, 5)
+    await mover(id, { acao: 'followUp', nota: 'vai decidir', retomarEm: novo }).expect(200)
+    expect(idsDe((await abrirHoje({ dia })).tarefas)).not.toContain(id)
+    const h = await abrirHoje({ dia: novo })
+    expect(idsDe(h.tarefas).filter((x) => x === id)).toHaveLength(1)
+  })
+
+  it('sem `valores` a tarefa da retomada chega com o valor apagado', async () => {
+    const dia = maisDias(HOJE, 3)
+    const id = await orcado(dia)
+    const h = await abrirHoje({ dia }, 'juliana')
+    expect(h.tarefas.find((t) => t.id === id)?.valorOrcamento).toBeNull()
+  })
+})
+
+describe('QUEM FAZ O CONTATO — o orçamento cai no "Para mim" de quem foi escolhido', () => {
+  const orcarCom = async (retomarEm: string, contatoId?: string) => {
+    const r = await postar(
+      c,
+      '/v1/tarefas',
+      {
+        vinculo: 'paciente',
+        pacienteId: c.pacientes['ana'],
+        tipo: 'Consulta agendada',
+        responsavelId: c.pessoas['juliana'],
+        quando: { modo: 'retroativo', em: HOJE },
+      },
+      'juliana',
+    )
+    const id = r.body.tarefa.id as string
+    const m = await mover(id, {
+      acao: 'registrarOrcamento',
+      valor: '360000',
+      retomarEm,
+      ...(contatoId === undefined ? {} : { contatoId }),
+    })
+    return { id, m }
+  }
+
+  it('sem o campo, quem não é responsável nem solicitante NÃO vê (comportamento anterior)', async () => {
+    const { id } = await orcarCom(maisDias(HOJE, 3))
+    const h = await abrirHoje({ dia: maisDias(HOJE, 3), escopo: 'meu' }, 'nara')
+    expect(idsDe(h.tarefas)).not.toContain(id)
+  })
+
+  it('com o campo, a pessoa vê na lista do dia e na bolinha; o resumo traz o nome', async () => {
+    const dia = maisDias(HOJE, 3)
+    const { id, m } = await orcarCom(dia, c.pessoas['beatriz'])
+    expect(m.statusCode, JSON.stringify(m.body)).toBe(200)
+    const h = await abrirHoje({ dia, escopo: 'meu' }, 'beatriz')
+    expect(idsDe(h.tarefas)).toContain(id)
+    expect(h.semana.find((d) => d.dia === dia)?.abertas).toBe(1)
+    const t = h.tarefas.find((x) => x.id === id) as unknown as { contatoNome: string }
+    expect(t.contatoNome).toBe('Beatriz')
+  })
+
+  it('no dia da retomada (hoje) vale o bloco retomar para quem foi escolhido', async () => {
+    const { id } = await orcarCom(HOJE, c.pessoas['beatriz'])
+    const h = await abrirHoje({ escopo: 'meu' }, 'beatriz')
+    expect(idsDe(h.retomar)).toContain(id)
+  })
+
+  it('follow-up sem o campo mantém quem fazia o contato', async () => {
+    const { id } = await orcarCom(maisDias(HOJE, 3), c.pessoas['beatriz'])
+    await mover(id, { acao: 'followUp', nota: 'vai decidir', retomarEm: maisDias(HOJE, 6) }).expect(200)
+    const h = await abrirHoje({ dia: maisDias(HOJE, 6), escopo: 'meu' }, 'beatriz')
+    expect(idsDe(h.tarefas)).toContain(id)
+  })
+
+  it('ABUSO: pessoa de OUTRA clínica é recusada (400) e nada é gravado', async () => {
+    const r = await c.migrate.query<{ id: string }>(
+      'SELECT id FROM pessoas WHERE clinica_id = $1 LIMIT 1',
+      [c.outraClinica],
+    )
+    const { m, id } = await orcarCom(maisDias(HOJE, 3), r.rows[0]!.id)
+    expect(m.statusCode).toBe(400)
+    const g = await c.migrate.query('SELECT contato_id FROM tarefas WHERE id = $1', [id])
+    expect(g.rows[0].contato_id).toBeNull()
+  })
+
+  it('ABUSO: pessoa INATIVA é recusada (400)', async () => {
+    const { m } = await orcarCom(maisDias(HOJE, 3), c.pessoas['marta'])
+    expect(m.statusCode).toBe(400)
+  })
+
+  it('ABUSO: id que não é uuid é recusado na borda (400)', async () => {
+    const { m } = await orcarCom(maisDias(HOJE, 3), 'nao-e-uuid')
+    expect(m.statusCode).toBe(400)
+  })
+})
+
 /* ------------------------------------------- escopo, dia navegado e permissão */
 
 describe('os três blocos são do HOJE do servidor, e do filtro de pessoa', () => {

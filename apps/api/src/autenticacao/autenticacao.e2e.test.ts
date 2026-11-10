@@ -184,6 +184,25 @@ describe('POST /v1/entrar', () => {
     await request(app.getHttpServer()).get('/v1/eu').set('Cookie', cookie).expect(401)
   })
 
+  it('sair apaga o cookie com os MESMOS atributos de quando foi criado (__Host- exige Secure)', async () => {
+    // Sem `Secure` o navegador IGNORA o Set-Cookie de um cookie `__Host-`: o
+    // cookie velho continua no aparelho depois do "Sair".
+    const r = await entrar('senha-de-teste').expect(200)
+    const criado = cookieDaResposta(r).join()
+    const s = await request(app.getHttpServer())
+      .post('/v1/sair')
+      .set('Cookie', cookieDaResposta(r))
+      .expect(204)
+    const apagado = cookieDaResposta(s).join()
+    expect(apagado).toMatch(/__Host-fir-sessao=;/)
+    expect(apagado).toMatch(/Max-Age=0/i)
+    for (const attr of [/;\s*Secure/i, /;\s*HttpOnly/i, /;\s*Path=\//i, /SameSite=Lax/i]) {
+      expect(criado).toMatch(attr)
+      expect(apagado).toMatch(attr)
+    }
+    expect(apagado).not.toMatch(/Domain=/i)
+  })
+
   it('entrar e sair deixam na trilha o nome de quem agiu, não "sistema"', async () => {
     /**
      * A prova POSITIVA do ator, pelo caminho HTTP de verdade — e a única que

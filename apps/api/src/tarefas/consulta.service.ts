@@ -88,7 +88,8 @@ function filtroDePasso(escopo: Escopo, eu: string, p: Parametros): string | null
   if (escopo === 'meu') {
     if (eu === '') return SEM_PESSOA
     const quem = p.prox(eu)
-    return `(t.responsavel_id = ${quem} OR t.solicitante_id = ${quem})`
+    // `contato_id`: quem foi escolhido para fazer o contato da retomada do orçamento.
+    return `(t.responsavel_id = ${quem} OR t.solicitante_id = ${quem} OR t.contato_id = ${quem})`
   }
   if (escopo === 'solicitei') return eu === '' ? SEM_PESSOA : `t.solicitante_id = ${p.prox(eu)}`
   return null
@@ -107,6 +108,10 @@ function filtroDePasso(escopo: Escopo, eu: string, p: Parametros): string | null
  * ocultas NÃO exclui o recontato (`ocultas = …filter(…)` sem `emRecontato`),
  * então o aviso promete cartões que a tela do dia não mostra.
  */
+/** Orçamento em aberto cuja retomada ainda não venceu ($2 = hoje do servidor). */
+const RETOMADA_FUTURA = `t.etapa = 'orcamento' AND t.status <> 'cancelada'
+                       AND t.proximo_passo_em IS NOT NULL AND t.proximo_passo_em > $2::date`
+
 const FORA_DO_RECONTATO = `t.etapa IS DISTINCT FROM 'faltou'
                        AND t.etapa IS DISTINCT FROM 'desmarcou'
                        -- E A SESSÃO DE PROGRAMA, pela MESMA razão (épico 5).
@@ -384,10 +389,18 @@ export class ConsultaDeTarefasService {
         `t.status = 'aberta' AND t.prazo < $2::date AND ${FORA_DO_RECONTATO}`,
         [],
       )
-      const tarefas = await ler(
+      const doDia = await ler(
         `t.status = 'aberta' AND t.prazo = $3::date AND ${FORA_DO_RECONTATO}`,
         [dia],
       )
+      // A retomada de orçamento é uma tarefa NO DIA em que o contato deve
+      // acontecer. De hoje para trás é o bloco `retomar` (abaixo); aqui só o
+      // futuro, para o mesmo cartão não aparecer duas vezes no mesmo dia.
+      const retomadasDoDia =
+        dia > hoje && autor.podeJornada
+          ? await ler(`${RETOMADA_FUTURA} AND t.proximo_passo_em = $3::date`, [dia], 't.hora NULLS LAST, t.criada_em', true)
+          : []
+      const tarefas = [...doDia, ...retomadasDoDia]
       // As concluídas não precisam da cláusula: `faltou` e `desmarcou` têm
       // `status = 'aberta'` por `CHECK` (0007), então não há como cair aqui.
       const concluidas = await ler(`t.status = 'concluida' AND t.prazo = $3::date`, [dia])
@@ -481,6 +494,27 @@ export class ConsultaDeTarefasService {
       p.valores,
     )
     const porDia = new Map(r.rows.map((x) => [x.dia, x]))
+    if (autor.podeJornada) {
+      const q = new Parametros(clinicaId, hoje, inicio, somarDias(inicio, 7))
+      const doPasso = filtroDePasso(escopo, autor.id, q)
+      const futuras = await c.query<{ dia: string; abertas: string }>(
+        `SELECT t.proximo_passo_em::text AS dia, count(*)::text AS abertas
+           FROM tarefas t
+          WHERE t.clinica_id = $1 AND t.excluida_em IS NULL AND ${RETOMADA_FUTURA}
+            AND t.proximo_passo_em >= $3::date AND t.proximo_passo_em < $4::date
+            ${doPasso === null ? '' : `AND ${doPasso}`}
+          GROUP BY t.proximo_passo_em`,
+        q.valores,
+      )
+      for (const f of futuras.rows) {
+        const antes = porDia.get(f.dia)
+        porDia.set(f.dia, {
+          dia: f.dia,
+          abertas: String(Number(antes?.abertas ?? 0) + Number(f.abertas)),
+          atrasadas: antes?.atrasadas ?? '0',
+        })
+      }
+    }
     return [0, 1, 2, 3, 4, 5, 6].map((i) => {
       const dia = somarDias(inicio, i)
       const achado = porDia.get(dia)
