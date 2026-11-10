@@ -48,6 +48,8 @@ export type CampoDaPlanilha = {
   readonly chave: string
   /** O título da PERGUNTA no Forms, literal do protótipo — é ele que casa com o cabeçalho da coluna. */
   readonly titulo: string
+  /** Todos os títulos de pergunta aceitos para a coluna; o primeiro é sempre `titulo`. A comparação é pelo nome normalizado. */
+  readonly titulos: readonly string[]
   readonly tipo: TipoDeCampoDaPlanilha
   readonly opcional: boolean
 }
@@ -96,9 +98,16 @@ const inteiroDe = (v: ValoresDaLinha, chave: string): bigint | null => {
 const ouZero = (v: ValoresDaLinha, chave: string): bigint => inteiroDe(v, chave) ?? 0n
 const inteiroComoRacional = (n: bigint | null): RacionalDaPlanilha | null => (n === null ? null : { num: n, den: 1n })
 
-const campo = (chave: string, titulo: string, tipo: TipoDeCampoDaPlanilha, opcional = false): CampoDaPlanilha => ({
+const campo = (
+  chave: string,
+  titulo: string,
+  tipo: TipoDeCampoDaPlanilha,
+  opcional = false,
+  apelidos: readonly string[] = [],
+): CampoDaPlanilha => ({
   chave,
   titulo,
+  titulos: [titulo, ...apelidos],
   tipo,
   opcional,
 })
@@ -130,11 +139,11 @@ export const PLANILHA_DE_INDICADORES: Readonly<Record<FrenteDaPlanilha, Especifi
       campo('leads_site', 'Quantos leads chegaram do site?', 'inteiro'),
       campo('leads_google', 'Quantos leads chegaram do google?', 'inteiro'),
       campo('leads_insta', 'Quantos leads chegaram do Instagram?', 'inteiro'),
-      campo('conv_site', 'Leads do site convertidos', 'inteiro'),
-      campo('conv_google', 'Leads do google convertidos', 'inteiro'),
-      campo('conv_insta', 'Leads do Instagram convertidos', 'inteiro'),
-      campo('frios', 'Leads frios ou fora de perfil', 'inteiro'),
-      campo('analise', 'Análise estratégica do comercial', 'texto', true),
+      campo('conv_site', 'Leads do site convertidos', 'inteiro', false, ['Quantos leads do site foram convertidos essa semana?']),
+      campo('conv_google', 'Leads do google convertidos', 'inteiro', false, ['Quantos leads do google foram convertidos essa semana?']),
+      campo('conv_insta', 'Leads do Instagram convertidos', 'inteiro', false, ['Quantos leads do instagram foram convertidos essa semana?']),
+      campo('frios', 'Leads frios ou fora de perfil', 'inteiro', false, ['Quantos leads frios fora de perfil de plano chegaram essa semana?']),
+      campo('analise', 'Análise estratégica do comercial', 'texto', true, ['Faça uma análise estratégica sobre o desempenho do comercial durante essa semana']),
     ],
     metricas: [
       {
@@ -169,10 +178,10 @@ export const PLANILHA_DE_INDICADORES: Readonly<Record<FrenteDaPlanilha, Especifi
     apelidos: ['Tráfego', 'Trafego pago'],
     provisoria: false,
     campos: [
-      campo('campanhas', 'Quantas campanhas rodaram na semana?', 'inteiro'),
-      campo('google', 'Dados da campanha do Google', 'texto'),
-      campo('meta', 'Dados da campanha do Meta', 'texto'),
-      campo('analise', 'Análise estratégica do tráfego', 'texto', true),
+      campo('campanhas', 'Quantas campanhas rodaram na semana?', 'inteiro', false, ['Quantas campanhas rodaram na semana em questão?']),
+      campo('google', 'Dados da campanha do Google', 'texto', false, ['Descreva os dados referente a campanha do Google']),
+      campo('meta', 'Dados da campanha do Meta', 'texto', false, ['Descreva os dados referente a campanha do Meta']),
+      campo('analise', 'Análise estratégica do tráfego', 'texto', true, ['Faça uma análise estratégica sobre o tráfego pago desse cliente durante essa semana']),
     ],
     metricas: [
       { chave: 'campanhas', nome: 'Campanhas na semana', unidade: 'un', calcular: (v) => inteiroComoRacional(inteiroDe(v, 'campanhas')) },
@@ -184,10 +193,10 @@ export const PLANILHA_DE_INDICADORES: Readonly<Record<FrenteDaPlanilha, Especifi
     apelidos: [],
     provisoria: false,
     campos: [
-      campo('seguidores', 'Novos seguidores na semana', 'inteiro'),
-      campo('criativos', 'Criativos publicados', 'inteiro'),
-      campo('melhor', 'Criativo de melhor performance', 'texto'),
-      campo('alcance', 'Alcance total da semana', 'inteiro'),
+      campo('seguidores', 'Novos seguidores na semana', 'inteiro', false, ['Quantos novos seguidores chegaram durante esta semana?']),
+      campo('criativos', 'Criativos publicados', 'inteiro', false, ['Quantos criativos foram publicados na semana?']),
+      campo('melhor', 'Criativo de melhor performance', 'texto', false, ['Qual criativo teve maior performance durante a semana?']),
+      campo('alcance', 'Alcance total da semana', 'inteiro', false, ['Informe o alcance total da semana']),
     ],
     metricas: [
       { chave: 'seguidores', nome: 'Novos seguidores', unidade: 'un', calcular: (v) => inteiroComoRacional(inteiroDe(v, 'seguidores')) },
@@ -281,9 +290,10 @@ export function escolherAbasDaPlanilha(titulos: readonly string[]): readonly Esc
   })
 }
 
-const TITULOS_DO_CARIMBO = ['carimbo de data hora', 'carimbo de data e hora', 'timestamp', 'data e hora']
-/** A semana a que o parceiro diz que a resposta se refere — opcional; sem ela, vale o carimbo. A confirmar com a planilha real. */
-const TITULOS_DA_SEMANA = [
+export const TITULOS_DO_CARIMBO = ['carimbo de data hora', 'carimbo de data e hora', 'timestamp', 'data e hora']
+/** A semana a que o parceiro diz que a resposta se refere — opcional; sem ela, vale o carimbo. */
+export const TITULOS_DA_SEMANA = [
+  'qual o primeiro dia da semana analisada',
   'semana',
   'data da semana',
   'semana de referencia',
@@ -291,7 +301,7 @@ const TITULOS_DA_SEMANA = [
   'inicio da semana',
   'data de inicio da semana',
 ]
-const TITULOS_DO_MES = ['mes', 'mes de referencia', 'mes referente']
+export const TITULOS_DO_MES = ['mes', 'qual mes sera analisado', 'que mes sera analisado', 'mes de referencia', 'mes referente']
 
 // ---------------------------------------------------------------------------
 // 4 · Células, números e datas
@@ -517,6 +527,15 @@ export type AbaInterpretada = {
   /** Títulos de pergunta esperados e não achados no cabeçalho. */
   readonly colunasFaltando: readonly string[]
   readonly semCarimbo: boolean
+  /**
+   * Perguntas que aparecem em mais de uma coluna. O título é o da ESPECIFICAÇÃO,
+   * nunca o texto da planilha. `informativa`: campo de texto, que só registra
+   * "preenchido" e por isso não perde dado; nos demais, a linha fica inválida.
+   * Ausente em leituras gravadas antes deste campo existir.
+   */
+  readonly colunasDuplicadas?: readonly { readonly titulo: string; readonly informativa: boolean }[]
+  /** O cabeçalho passou do teto de colunas ou de caracteres: a aba não foi lida. */
+  readonly cabecalhoRecusado?: true
   readonly linhas: readonly LinhaDaFrente[]
 }
 
@@ -526,12 +545,33 @@ export type AbaLida = { readonly titulo: string; readonly linhas: readonly (read
 
 /** Teto de linhas guardadas por aba: um ano e meio de semanas, com folga para reenvios. */
 export const MAXIMO_DE_LINHAS_POR_ABA = 400
+/** Tetos do cabeçalho, conferidos antes de normalizar: a normalização roda regex sobre texto do usuário. */
+export const MAXIMO_DE_COLUNAS_DO_CABECALHO = 200
+export const MAXIMO_DE_CARACTERES_DO_CABECALHO = 2000
+
+const comprimentoDaCelula = (c: CelulaDaPlanilha): number => (typeof c === 'string' ? c.length : c.numeroDecimal.length)
+
+/** O mês (`01`..`12`) de uma célula de data formatada `mmmm yyyy`, que chega como número de série. */
+const mesDoSerial = (c: CelulaDaPlanilha): string | null => {
+  if (typeof c === 'string') return null
+  const x = deSerial(c.numeroDecimal)
+  return x === null ? null : x.dia.slice(5, 7)
+}
 
 function valorDoCampo(c: CelulaDaPlanilha | undefined, tipo: TipoDeCampoDaPlanilha): ValorDeCampoDaPlanilha {
   if (c === undefined || celulaVazia(c)) return { estado: 'vazio' }
   if (tipo === 'texto') return { estado: 'preenchido' }
   const v = tipo === 'dinheiro' ? centavosDaCelula(c) : inteiroDaCelula(c)
   return v === null ? { estado: 'invalido' } : { estado: 'numero', inteiro: v.toString() }
+}
+
+/** Pergunta repetida: texto vale se qualquer coluna tiver resposta; número não se escolhe por posição. */
+function valorDeCampoRepetido(
+  celulas: readonly (CelulaDaPlanilha | undefined)[],
+  tipo: TipoDeCampoDaPlanilha,
+): ValorDeCampoDaPlanilha {
+  if (celulas.every((c) => c === undefined || celulaVazia(c))) return { estado: 'vazio' }
+  return tipo === 'texto' ? { estado: 'preenchido' } : { estado: 'invalido' }
 }
 
 const ordemDaLinha = (a: LinhaDaFrente, b: LinhaDaFrente): number => {
@@ -569,12 +609,45 @@ export function interpretarPlanilha(entrada: {
           linhas: [],
         }
       }
-      const cabecalho = (aba.linhas[0] ?? []).map((c) => normalizarNomeDaPlanilha(textoDaCelula(c)))
-      const coluna = (nomes: readonly string[]): number => cabecalho.findIndex((h) => h !== '' && nomes.includes(h))
-      const colCarimbo = coluna(TITULOS_DO_CARIMBO)
-      const colSemana = coluna(TITULOS_DA_SEMANA)
-      const colMes = coluna(TITULOS_DO_MES)
-      const colCampos = spec.campos.map((c) => ({ campo: c, col: coluna([normalizarNomeDaPlanilha(c.titulo)]) }))
+      const cabecalhoCru = aba.linhas[0] ?? []
+      if (
+        cabecalhoCru.length > MAXIMO_DE_COLUNAS_DO_CABECALHO ||
+        cabecalhoCru.some((c) => comprimentoDaCelula(c) > MAXIMO_DE_CARACTERES_DO_CABECALHO)
+      ) {
+        return {
+          frente: escolha.frente,
+          titulo: aba.titulo,
+          candidatas: [],
+          colunasFaltando: [],
+          semCarimbo: false,
+          cabecalhoRecusado: true,
+          linhas: [],
+        }
+      }
+      const cabecalho = cabecalhoCru.map((c) => normalizarNomeDaPlanilha(textoDaCelula(c)))
+      const colunas = (nomes: readonly string[]): number[] => {
+        const comparaveis = nomes.map(normalizarNomeDaPlanilha)
+        return cabecalho.flatMap((h, i) => (h !== '' && comparaveis.includes(h) ? [i] : []))
+      }
+      const colsCarimbo = colunas(TITULOS_DO_CARIMBO)
+      const colsSemana = colunas(TITULOS_DA_SEMANA)
+      const colsMes = colunas(TITULOS_DO_MES)
+      // Pergunta repetida não escolhe coluna por posição: só a coluna única vale.
+      const unica = (cols: readonly number[]): number => (cols.length === 1 ? cols[0]! : -1)
+      const colCarimbo = unica(colsCarimbo)
+      const colSemana = unica(colsSemana)
+      const colMes = unica(colsMes)
+      const colCampos = spec.campos.map((c) => {
+        const cols = colunas(c.titulos)
+        return { campo: c, col: unica(cols), cols }
+      })
+      const colunasDuplicadas: { titulo: string; informativa: boolean }[] = []
+      if (colsCarimbo.length > 1) colunasDuplicadas.push({ titulo: 'Carimbo de data/hora', informativa: false })
+      if (colsSemana.length > 1) colunasDuplicadas.push({ titulo: 'Primeiro dia da semana', informativa: false })
+      if (colsMes.length > 1) colunasDuplicadas.push({ titulo: 'Mês analisado', informativa: false })
+      for (const x of colCampos) {
+        if (x.cols.length > 1) colunasDuplicadas.push({ titulo: x.campo.titulo, informativa: x.campo.tipo === 'texto' })
+      }
 
       const linhas: LinhaDaFrente[] = []
       for (const bruta of aba.linhas.slice(1)) {
@@ -588,22 +661,32 @@ export function interpretarPlanilha(entrada: {
         const semanaCelula = colSemana >= 0 ? bruta[colSemana] : undefined
         const informada =
           semanaCelula === undefined || celulaVazia(semanaCelula) ? null : dataInformada(semanaCelula, diaDoEnvio)
+        // Data informada repetida não cai no carimbo: o carimbo daria uma semana palpitada.
         const semana =
-          informada !== null
-            ? semanaDaDataInformada(informada.dia)
-            : diaDoEnvio !== null
-              ? semanaDoEnvio(diaDoEnvio)
-              : null
+          colsSemana.length > 1
+            ? null
+            : informada !== null
+              ? semanaDaDataInformada(informada.dia)
+              : diaDoEnvio !== null
+                ? semanaDoEnvio(diaDoEnvio)
+                : null
         const mesCelula = colMes >= 0 ? bruta[colMes] : undefined
         let mesConfere: boolean | null = null
         if (mesCelula !== undefined && !celulaVazia(mesCelula) && informada !== null) {
-          const mes = normalizarNomeDaPlanilha(textoDaCelula(mesCelula))
-          mesConfere = mes.startsWith(MESES[Number(informada.dia.slice(5, 7)) - 1]!)
+          const mesDaData = informada.dia.slice(5, 7)
+          const doSerial = mesDoSerial(mesCelula)
+          mesConfere =
+            doSerial !== null
+              ? doSerial === mesDaData
+              : normalizarNomeDaPlanilha(textoDaCelula(mesCelula)).startsWith(MESES[Number(mesDaData) - 1]!)
         }
         const valores: Record<string, ValorDeCampoDaPlanilha> = {}
         let preenchidas = 0
-        for (const { campo: c, col } of colCampos) {
-          const v = valorDoCampo(col >= 0 ? bruta[col] : undefined, c.tipo)
+        for (const { campo: c, col, cols } of colCampos) {
+          const v =
+            cols.length > 1
+              ? valorDeCampoRepetido(cols.map((i) => bruta[i]), c.tipo)
+              : valorDoCampo(col >= 0 ? bruta[col] : undefined, c.tipo)
           valores[c.chave] = v
           if (v.estado !== 'vazio') preenchidas++
         }
@@ -622,8 +705,9 @@ export function interpretarPlanilha(entrada: {
         frente: escolha.frente,
         titulo: aba.titulo,
         candidatas: [],
-        colunasFaltando: colCampos.filter((x) => x.col < 0 && !x.campo.opcional).map((x) => x.campo.titulo),
-        semCarimbo: colCarimbo < 0,
+        colunasFaltando: colCampos.filter((x) => x.cols.length === 0 && !x.campo.opcional).map((x) => x.campo.titulo),
+        semCarimbo: colsCarimbo.length === 0,
+        colunasDuplicadas,
         linhas: linhas.slice(-MAXIMO_DE_LINHAS_POR_ABA),
       }
     }),
@@ -640,6 +724,8 @@ export type CodigoDoProblemaDaPlanilha =
   | 'aba_nao_encontrada'
   | 'aba_ambigua'
   | 'coluna_nao_encontrada'
+  | 'coluna_duplicada'
+  | 'cabecalho_fora_do_limite'
   | 'sem_carimbo'
   | 'sem_linha'
   | 'semana_repetida'
@@ -714,7 +800,26 @@ export function situacaoDaFrente(aba: AbaInterpretada | undefined, frente: Frent
       envios: 0,
     }
   }
+  if (aba.cabecalhoRecusado === true) {
+    return {
+      ...base,
+      status: 'atencao',
+      problemas: [
+        {
+          codigo: 'cabecalho_fora_do_limite',
+          mensagem: `O cabeçalho da aba ${spec.aba} tem colunas demais ou um título longo demais; a aba não foi lida.`,
+        },
+      ],
+      linha: null,
+      envios: 0,
+    }
+  }
   const estrutura: ProblemaDaPlanilha[] = []
+  const informativos: ProblemaDaPlanilha[] = []
+  for (const d of aba.colunasDuplicadas ?? []) {
+    const problema: ProblemaDaPlanilha = { codigo: 'coluna_duplicada', mensagem: `Pergunta repetida na aba: ${d.titulo}.` }
+    ;(d.informativa ? informativos : estrutura).push(problema)
+  }
   if (aba.semCarimbo) {
     estrutura.push({ codigo: 'sem_carimbo', mensagem: `A aba ${spec.aba} não tem a coluna "Carimbo de data/hora".` })
   }
@@ -727,7 +832,7 @@ export function situacaoDaFrente(aba: AbaInterpretada | undefined, frente: Frent
     return {
       ...base,
       status: 'pendente',
-      problemas: [{ codigo: 'sem_linha', mensagem: `Nenhuma linha desta semana na aba ${spec.aba}.` }, ...estrutura],
+      problemas: [{ codigo: 'sem_linha', mensagem: `Nenhuma linha desta semana na aba ${spec.aba}.` }, ...estrutura, ...informativos],
       linha: null,
       envios: 0,
     }
@@ -745,6 +850,8 @@ export function situacaoDaFrente(aba: AbaInterpretada | undefined, frente: Frent
   const anteriores = aba.linhas.filter((l) => l.semana !== null && l.semana < semana).slice(-8)
   for (const c of spec.campos) {
     if (aba.colunasFaltando.includes(c.titulo)) continue
+    // Já avisado como pergunta repetida; "não é número" por cima diria a mesma coisa duas vezes.
+    if (c.tipo !== 'texto' && aba.colunasDuplicadas?.some((d) => !d.informativa && d.titulo === c.titulo)) continue
     const v = r.valores[c.chave] ?? { estado: 'vazio' }
     const rotulo = c.titulo
     if (v.estado === 'vazio') {
@@ -775,7 +882,7 @@ export function situacaoDaFrente(aba: AbaInterpretada | undefined, frente: Frent
   return {
     ...base,
     status: pb.length > 0 ? 'atencao' : 'ok',
-    problemas: pb,
+    problemas: [...pb, ...informativos],
     linha: { carimbo: r.carimbo, preenchidas: r.preenchidas, total: r.total },
     envios: achadas.length,
   }
