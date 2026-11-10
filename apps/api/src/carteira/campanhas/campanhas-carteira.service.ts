@@ -29,6 +29,7 @@ import { BancoService } from '../../banco/banco.service'
 import { RELOGIO, type Relogio } from '../../comum/relogio'
 import { gravarAuditoriaDaCarteira } from '../financeiro/auditoria-da-carteira'
 import { FUSO_DA_CARTEIRA } from '../fuso-da-carteira'
+import { umPorClinica, umaPorCampanhaEMes } from '../um-por-clinica'
 
 export class ClienteDaCampanhaNaoEncontrado extends Error {}
 export class CampanhaCarteiraNaoEncontrada extends Error {}
@@ -66,6 +67,7 @@ type ClienteVisivel = {
   nome: string
   status: string
   clinica_id: string | null
+  conta_na_receita: boolean
   sincronizado_em: Date | null
 }
 
@@ -186,7 +188,7 @@ export class CampanhasCarteiraService {
 
   private clientesVisiveis(c: pg.PoolClient, usuario: UsuarioDeGestaoPublico): Promise<pg.QueryResult<ClienteVisivel>> {
     return c.query<ClienteVisivel>(
-      `SELECT cl.id::text AS id, cl.nome, cl.status, cl.clinica_id::text AS clinica_id, s.sincronizado_em
+      `SELECT cl.id::text AS id, cl.nome, cl.status, cl.clinica_id::text AS clinica_id, cl.conta_na_receita, s.sincronizado_em
          FROM clientes_carteira cl
          LEFT JOIN sincronizacao_campanhas_carteira s ON s.cliente_carteira_id = cl.id
         WHERE cl.excluido_em IS NULL AND ${DO_GRUPO}
@@ -202,9 +204,9 @@ export class CampanhasCarteiraService {
   ): Promise<ComparativoDeCampanhasSaida> {
     const periodo = this.periodo(consulta)
     const anterior = mesAnterior(periodo.mesAtual)
-    const { linhas, clientes } = await this.noEscopo(usuario, async (c) => {
-      const linhas = await c.query<Linha>(
-        `SELECT ${COLUNAS}
+    const { linhas: todasAsLinhas, clientes: todosOsClientes } = await this.noEscopo(usuario, async (c) => {
+      const linhas = await c.query<Linha & { dono_conta_na_receita: boolean }>(
+        `SELECT ${COLUNAS}, cl.conta_na_receita AS dono_conta_na_receita
            FROM campanhas_carteira cc
            JOIN clientes_carteira cl ON cl.id = cc.cliente_carteira_id
           WHERE cl.excluido_em IS NULL AND ${DO_GRUPO}
@@ -214,10 +216,16 @@ export class CampanhasCarteiraService {
       )
       return { linhas: linhas.rows, clientes: (await this.clientesVisiveis(c, usuario)).rows }
     })
-
+    // A clínica em 2+ grupos tem um Cliente Firmare por grupo, e a MESMA
+    // campanha real pode estar nos dois (0068): no `geral` ela entra uma vez
+    // por (campanha, mês), preferindo a cópia do cliente que conta na receita —
+    // senão valor gerado, investimento e ROI saem em dobro. As contagens de
+    // clientes são por clínica.
+    const linhas = umaPorCampanhaEMes(todasAsLinhas)
+    const clientes = umPorClinica(todosOsClientes)
     const supressao = suprimirCampanhas(linhas.map(celula))
     const r = resumirCampanhas(supressao, { de: periodo.de, ate: periodo.ate, mesAtual: periodo.mesAtual, mesAnterior: anterior })
-    const porId = new Map(clientes.map((x) => [x.id, x]))
+    const porId = new Map(todosOsClientes.map((x) => [x.id, x]))
     const rotuloPorId = new Map(linhas.map((l) => [l.id, l.rotulo_da_metrica]))
     const ligados = clientes.filter((x) => x.status === 'ativo' || x.status === 'onboarding')
 

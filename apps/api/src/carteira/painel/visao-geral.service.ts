@@ -16,6 +16,7 @@ import { BancoService } from '../../banco/banco.service'
 import { RELOGIO, type Relogio } from '../../comum/relogio'
 import { type LinhaAcao, SELECT_ACAO, acaoParaContrato } from '../acoes-do-plano/acoes-do-plano.service'
 import { FUSO_DA_CARTEIRA } from '../fuso-da-carteira'
+import { umPorClinica } from '../um-por-clinica'
 import { LeadsService } from '../prospeccao/leads.service'
 import { RotinaInternaService } from '../prospeccao/rotina-interna.service'
 
@@ -30,6 +31,8 @@ type LinhaCliente = {
   responsavel_nome: string | null
   reuniao_dia_semana: number | null
   reuniao_hora: string | null
+  clinica_id: string | null
+  conta_na_receita: boolean
 }
 
 /**
@@ -86,7 +89,8 @@ export class VisaoGeralService {
       const clientes = await c.query<LinhaCliente>(
         `SELECT c.id, c.nome, c.status, c.mensalidade_centavos::text AS mensalidade_centavos,
                 c.responsavel_usuario_gestao_id, u.nome AS responsavel_nome,
-                c.reuniao_dia_semana, to_char(c.reuniao_hora, 'HH24:MI') AS reuniao_hora
+                c.reuniao_dia_semana, to_char(c.reuniao_hora, 'HH24:MI') AS reuniao_hora,
+                c.clinica_id, c.conta_na_receita
            FROM clientes_carteira c
            LEFT JOIN usuarios_gestao u ON u.id = c.responsavel_usuario_gestao_id
           WHERE c.excluido_em IS NULL
@@ -94,6 +98,11 @@ export class VisaoGeralService {
           ORDER BY c.nome`,
         [minha],
       )
+      // A clínica em 2+ grupos aparece 2+ vezes no `geral` (0068): conta-se por
+      // clínica, preferindo o cliente que conta na receita. `idsVisiveis` guarda
+      // todos, só para o filtro dos aniversários.
+      const idsVisiveis = clientes.rows.map((x) => x.id)
+      clientes.rows = umPorClinica(clientes.rows)
       const ids = clientes.rows.map((x) => x.id)
       const saudes = await saudesDosClientes(c, ids)
       const resumos = await c.query<{ cliente_carteira_id: string; resumo: string | null }>(
@@ -121,7 +130,7 @@ export class VisaoGeralService {
           WHERE ativo AND NOT administrar AND escopo = 'geral'
           ORDER BY nome`,
       )
-      return { clientes: clientes.rows, saudes, resumos: resumos.rows, acoes: acoes.rows, tarefas: tarefas.rows, pessoas: pessoas.rows }
+      return { clientes: clientes.rows, idsVisiveis, saudes, resumos: resumos.rows, acoes: acoes.rows, tarefas: tarefas.rows, pessoas: pessoas.rows }
     })
 
     const resumoDe = new Map(lido.resumos.map((r) => [r.cliente_carteira_id, r.resumo]))
@@ -134,7 +143,8 @@ export class VisaoGeralService {
           id: x.id,
           nome: x.nome,
           status: x.status,
-          mensalidade: Dinheiro.deCentavos(BigInt(x.mensalidade_centavos)),
+          // Só o cliente que conta na receita entra em MRR e ticket médio.
+          mensalidade: x.conta_na_receita ? Dinheiro.deCentavos(BigInt(x.mensalidade_centavos)) : Dinheiro.zero(),
           saude: lido.saudes.get(x.id) ?? null,
           responsavelId: x.responsavel_usuario_gestao_id,
           responsavelNome: x.responsavel_nome,
@@ -150,7 +160,7 @@ export class VisaoGeralService {
     )
 
     const acaoPorId = new Map(acoes.map((a) => [a.id, a]))
-    const visiveis = new Set(lido.clientes.map((x) => x.id))
+    const visiveis = new Set(lido.idsVisiveis)
     const podeParabenizar = temPermCarteira(sessao, 'rotina')
     const aniversarios = (await this.rotina.aniversarios(sessao))
       .filter((a) => a.tipo === 'equipe' || visiveis.has(a.id))

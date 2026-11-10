@@ -49,6 +49,7 @@ import type pg from 'pg'
 import { BancoService } from '../../banco/banco.service'
 import { RELOGIO, type Relogio } from '../../comum/relogio'
 import { FUSO_DA_CARTEIRA } from '../fuso-da-carteira'
+import { type LinhaDeClinica, umPorClinica } from '../um-por-clinica'
 import {
   FK_VIOLADA,
   GrupoCruzado,
@@ -641,12 +642,23 @@ export class RotinaInternaService {
   async aniversarios(sessao: Sessao): Promise<AniversarioNaLista[]> {
     const hoje = this.hoje()
     return this.banco.nasTabelasDaCarteiraComoUsuarioDeGestao(sessao, async (c) => {
-      const clientes = await c.query<{ id: string; nome: string; decisor: string | null; dia: number; mes: number; tem_telefone: boolean }>(
+      const clientesDb = await c.query<{
+        id: string
+        nome: string
+        decisor: string | null
+        dia: number
+        mes: number
+        tem_telefone: boolean
+        clinica_id: string | null
+        conta_na_receita: boolean
+      }>(
         `SELECT id, nome, decisor, aniversario_decisor_dia AS dia, aniversario_decisor_mes AS mes,
-                (telefone IS NOT NULL) AS tem_telefone
+                (telefone IS NOT NULL) AS tem_telefone, clinica_id, conta_na_receita
            FROM clientes_carteira
           WHERE excluido_em IS NULL AND status <> 'encerrado' AND aniversario_decisor_dia IS NOT NULL`,
       )
+      // A clínica em 2+ grupos tem um cliente por grupo: o decisor é o mesmo, parabeniza-se uma vez.
+      const clientes = { rows: umPorClinica(clientesDb.rows) }
       const equipe = await c.query<{ id: string; nome: string; dia: number; mes: number }>(
         `SELECT id, nome, aniversario_dia AS dia, aniversario_mes AS mes FROM usuarios_gestao
           WHERE ativo AND mostrar_aniversario AND aniversario_dia IS NOT NULL
@@ -850,6 +862,8 @@ type LinhaClienteParaRotina = {
   reuniao_dia_semana: number | null
   dia_vencimento: number | null
   tem_mensalidade: boolean
+  clinica_id: string | null
+  conta_na_receita: boolean
   servicos: string[]
   tem_meta: boolean
   responsavel_usuario_gestao_id: string | null
@@ -860,12 +874,14 @@ type LinhaClienteParaRotina = {
  * mensalidade (`> 0`) sai daqui, nunca o valor. O início é o do contrato ou,
  * sem ele, o dia (no fuso da carteira) em que o cliente foi criado.
  */
-async function carregarClientesParaRotina(c: pg.PoolClient): Promise<(ClienteParaRotina & { grupoId: string })[]> {
+async function carregarClientesParaRotina(
+  c: pg.PoolClient,
+): Promise<(ClienteParaRotina & { grupoId: string } & LinhaDeClinica)[]> {
   const r = await c.query<LinhaClienteParaRotina>(
     `SELECT cc.id, cc.nome, cc.grupo_id, cc.status,
             coalesce(cc.data_inicio, (cc.criado_em AT TIME ZONE $1)::date)::text AS inicio,
             cc.reunioes_inicio::text, cc.reuniao_dia_semana, cc.dia_vencimento,
-            (cc.mensalidade_centavos > 0) AS tem_mensalidade, cc.servicos,
+            (cc.mensalidade_centavos > 0) AS tem_mensalidade, cc.servicos, cc.clinica_id, cc.conta_na_receita,
             EXISTS (SELECT 1 FROM metas_comerciais m
                      WHERE m.cliente_carteira_id = cc.id AND m.status = 'em_andamento'
                        AND m.excluido_em IS NULL AND m.fonte = 'lancamento') AS tem_meta,
@@ -888,12 +904,15 @@ async function carregarClientesParaRotina(c: pg.PoolClient): Promise<(ClientePar
     servicos: x.servicos,
     temMetaEmAndamento: x.tem_meta,
     responsavelId: x.responsavel_usuario_gestao_id,
+    clinica_id: x.clinica_id,
+    conta_na_receita: x.conta_na_receita,
   }))
 }
 
 /** A rotina de um grupo alcança só os clientes dele; a da Firmare (grupo NULL), todos. */
-const clientesDaRotina = <C extends { grupoId: string }>(r: { grupo_id: string | null }, clientes: readonly C[]): C[] =>
-  r.grupo_id === null ? [...clientes] : clientes.filter((x) => x.grupoId === r.grupo_id)
+// A da Firmare vê a clínica em 2+ grupos uma vez só (0068): o trabalho é da clínica, não de cada cópia.
+const clientesDaRotina = <C extends { grupoId: string } & LinhaDeClinica>(r: { grupo_id: string | null }, clientes: readonly C[]): C[] =>
+  r.grupo_id === null ? umPorClinica(clientes) : clientes.filter((x) => x.grupoId === r.grupo_id)
 
 async function gerarParaRotinas(c: pg.PoolClient, rotinas: readonly LinhaRotina[], hoje: string): Promise<number> {
   let geradas = 0

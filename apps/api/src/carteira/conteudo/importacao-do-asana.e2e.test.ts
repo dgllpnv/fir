@@ -4,7 +4,12 @@ import { HttpException } from '@nestjs/common'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { BancoService } from '../../banco/banco.service'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../../banco/limpeza-de-teste'
 import { perfilPadraoDoBanco } from '../perfil-do-usuario-de-gestao'
 import { validarImportacaoDoAsana } from './conteudo.controller'
 import { NaoEncontrado } from './conteudo-comum'
@@ -85,13 +90,15 @@ beforeAll(async () => {
   clinicaX = (
     await migrate.query<{ id: string }>(`INSERT INTO clinicas (codigo, nome) VALUES ($1, 'Clínica X') RETURNING id`, [codigo])
   ).rows[0]!.id
-  const cliente = async (g: string, clinica: string | null, nome: string) =>
-    (
+  const cliente = async (g: string, clinica: string | null, nome: string) => {
+  if (clinica) await participarDoGrupoDeTeste(migrate, clinica, g)
+  return (
       await migrate.query<{ id: string }>(
         `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto) VALUES ($1, $2, $3, 'Consultoria') RETURNING id`,
         [g, clinica, nome],
       )
     ).rows[0]!.id
+}
   clienteX = await cliente(grupoA, clinicaX, 'Cliente X')
   clienteX2 = await cliente(grupoA, null, 'Cliente X2')
   clienteY = await cliente(grupoB, null, 'Cliente Y')

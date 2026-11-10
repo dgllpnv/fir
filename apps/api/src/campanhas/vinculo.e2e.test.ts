@@ -12,7 +12,12 @@ import { hashDeSenha } from '../autenticacao/senha'
 import { SISTEMA } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import { clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../banco/limpeza-de-teste'
 import { executarSincronizacaoDeCampanhas } from '../carteira/campanhas/sincronizar-campanhas'
 import { RELOGIO } from '../comum/relogio'
 import { registrarCookie } from '../main'
@@ -317,6 +322,7 @@ beforeAll(async () => {
       `Grupo ${codigo}`,
     ])
   ).rows[0]!.id
+  await participarDoGrupoDeTeste(migrate, clinica, grupoCarteira)
   clienteCarteira = (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto, status)
@@ -356,6 +362,7 @@ afterAll(async () => {
     [clienteCarteira],
   )
   await migrate.query('DELETE FROM clientes_carteira WHERE id = $1', [clienteCarteira])
+  await apagarHistoricoGrupoDeTeste(migrate, clinica)
   await migrate.query('DELETE FROM grupos WHERE id = $1', [grupoCarteira])
   await apagarClinicaDeTeste(migrate, clinica)
   await apagarClinicaDeTeste(migrate, clinicaB)

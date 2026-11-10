@@ -2,7 +2,12 @@ import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { UsuarioDeGestaoPublico } from '@fir/contracts'
 import { BancoService } from '../../banco/banco.service'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../../banco/limpeza-de-teste'
 import { IndicadorCarteiraNaoEncontrado, IndicadoresCarteiraService } from './indicadores.service'
 import { EntradaInvalidaNaMeta, SemPermissaoDeValoresNaMeta } from './metas-comum'
 
@@ -45,6 +50,7 @@ beforeAll(async () => {
       'Clínica de teste',
     ])
   ).rows[0]!.id
+  await participarDoGrupoDeTeste(migrate, clinica, grupo)
   cliente = (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto) VALUES ($1, $2, 'Cliente', 'Consultoria') RETURNING id`,
@@ -67,6 +73,7 @@ afterAll(async () => {
   await migrate.query('DELETE FROM indicadores_carteira WHERE grupo_id = $1', [grupo])
   await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [usuario.id])
   await migrate.query('DELETE FROM clientes_carteira WHERE id = $1', [cliente])
+  await apagarHistoricoGrupoDeTeste(migrate, clinica)
   await migrate.query('DELETE FROM grupos WHERE id = $1', [grupo])
   await apagarClinicaDeTeste(migrate, clinica)
   await migrate.end()

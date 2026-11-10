@@ -2,7 +2,12 @@ import type { UsuarioDeGestaoPublico } from '@fir/contracts'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { BancoService } from '../../banco/banco.service'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../../banco/limpeza-de-teste'
 import { BeneficiosDeIndicacaoService, ClienteCarteiraNaoEncontradoParaBeneficio } from './beneficios.service'
 import { perfilPadraoDoBanco } from '../perfil-do-usuario-de-gestao'
 
@@ -64,6 +69,7 @@ beforeAll(async () => {
   // `executarGeracaoDeCobrancas`, então nunca precisa de um `Cliente Firmare`
   // ATIVO, e um ativo aqui seria varrido pelo job de OUTRO arquivo em
   // paralelo (ver o comentário do topo).
+  await participarDoGrupoDeTeste(migrate, clinica, grupo)
   cliente = (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto, mensalidade_centavos)
@@ -94,6 +100,7 @@ afterAll(async () => {
   await migrate.query('DELETE FROM beneficios_de_indicacao WHERE cliente_carteira_id = $1', [cliente])
   await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [usuario.id])
   await migrate.query('DELETE FROM clientes_carteira WHERE id = $1', [cliente])
+  await apagarHistoricoGrupoDeTeste(migrate, clinica)
   await migrate.query('DELETE FROM grupos WHERE id = $1', [grupo])
   await apagarClinicaDeTeste(migrate, clinica)
   await migrate.end()

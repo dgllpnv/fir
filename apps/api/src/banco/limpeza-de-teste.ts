@@ -190,6 +190,10 @@ export async function apagarHistoricoGrupoDeTeste(cliente: pg.Client, clinicaId:
       'ALTER TABLE historico_grupo_da_clinica DISABLE TRIGGER historico_grupo_da_clinica_sem_update',
     )
     await cliente.query('DELETE FROM historico_grupo_da_clinica WHERE clinica_id = $1', [clinicaId])
+    // A participação também é append-only (0068): só o teste a apaga.
+    await cliente.query('ALTER TABLE participacao_clinica_grupo DISABLE TRIGGER participacao_regras')
+    await cliente.query('DELETE FROM participacao_clinica_grupo WHERE clinica_id = $1', [clinicaId])
+    await cliente.query('ALTER TABLE participacao_clinica_grupo ENABLE TRIGGER participacao_regras')
     await cliente.query(
       'ALTER TABLE historico_grupo_da_clinica ENABLE TRIGGER historico_grupo_da_clinica_sem_update',
     )
@@ -347,4 +351,40 @@ async function soltarCiclosDoPrograma(cliente: pg.Client, clinicaId: string): Pr
    * `ON DELETE SET NULL` mudaria o comportamento de produção.
    */
   await cliente.query('UPDATE pacientes SET campanha_id = NULL WHERE clinica_id = $1', [clinicaId])
+}
+
+/**
+ * Desde a 0068 um Cliente Firmare com clínica exige a clínica PARTICIPANDO do
+ * grupo. Fixture de teste que insere `clientes_carteira (grupo_id, clinica_id)`
+ * na mão chama isto ANTES, com o `migrate` (dono do banco). Idempotente.
+ * Usa um operador de teste fixo; o gatilho exige operador como autor.
+ */
+export async function participarDoGrupoDeTeste(
+  cliente: pg.Client,
+  clinicaId: string,
+  grupoId: string,
+): Promise<void> {
+  let op = (await cliente.query<{ id: string }>(`SELECT id FROM operadores WHERE usuario = 'participacao-de-teste'`)).rows[0]?.id
+  if (!op) {
+    op = (
+      await cliente.query<{ id: string }>(
+        `INSERT INTO operadores (usuario, nome, senha_hash) VALUES ('participacao-de-teste', 'Participação de teste', 'x') RETURNING id`,
+      )
+    ).rows[0]!.id
+  }
+  await cliente.query('BEGIN')
+  try {
+    await cliente.query(`SELECT set_config('app.pessoa_id', $1, true)`, [`operador:${op}`])
+    await cliente.query(
+      `INSERT INTO participacao_clinica_grupo (clinica_id, grupo_id, adicionado_por, motivo)
+       SELECT $1, $2, $3, 'fixture de teste'
+        WHERE NOT EXISTS (SELECT 1 FROM participacao_clinica_grupo
+                           WHERE clinica_id = $1 AND grupo_id = $2 AND ate IS NULL)`,
+      [clinicaId, grupoId, op],
+    )
+    await cliente.query('COMMIT')
+  } catch (e) {
+    await cliente.query('ROLLBACK')
+    throw e
+  }
 }

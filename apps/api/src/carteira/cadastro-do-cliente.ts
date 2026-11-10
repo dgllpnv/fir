@@ -374,6 +374,8 @@ export const TABELAS_COM_GRUPO_QUE_NAO_MUDAM: Readonly<Record<string, string>> =
   usuarios_do_portal:
     'Escopo cliente tem grupo_id NULL (acompanha pelo cliente_carteira_id); escopo grupo é do grupo, não do cliente. As sessões do cliente são revogadas.',
   rotinas_internas: 'Configuração de rotina do GRUPO, sem cliente.',
+  participacao_clinica_grupo:
+    'Fato de tenancy da CLÍNICA (0068): segue a clínica, nunca o cliente; append-only.',
 }
 
 /**

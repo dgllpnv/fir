@@ -22,11 +22,12 @@ import { BancoService } from '../../banco/banco.service'
 import { clinicaIdDeFonteConfiavel } from '../../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../../comum/relogio'
 import { diaDaClinica } from '../../estoque/dia-da-clinica'
+import { umPorClinica } from '../um-por-clinica'
 import { COLUNAS_DE_USO, type LinhaDeUsoDb, linhaDeUso } from './linha-de-uso'
 
 export class ClienteSemUsoVisivel extends Error {}
 
-type ClienteDb = { id: string; nome: string; clinica_id: string | null }
+type ClienteDb = { id: string; nome: string; clinica_id: string | null; conta_na_receita: boolean }
 
 const metricasNaSaida = (m: MetricasDeUso): MetricasDeUsoSaida => ({
   comDados: m.comDados,
@@ -207,18 +208,19 @@ export class UsoCarteiraService {
     const r =
       clienteId === null
         ? await c.query<ClienteDb>(
-            `SELECT id, nome, clinica_id FROM clientes_carteira
+            `SELECT id, nome, clinica_id, conta_na_receita FROM clientes_carteira
               WHERE excluido_em IS NULL AND clinica_id IS NOT NULL
                 AND status IN ('ativo', 'onboarding') AND ${this.filtroDeGrupo(1)}
               ORDER BY nome`,
             [this.grupoDoFiltro(usuario)],
           )
         : await c.query<ClienteDb>(
-            `SELECT id, nome, clinica_id FROM clientes_carteira
+            `SELECT id, nome, clinica_id, conta_na_receita FROM clientes_carteira
               WHERE id = $2 AND excluido_em IS NULL AND ${this.filtroDeGrupo(1)}`,
             [this.grupoDoFiltro(usuario), clienteId],
           )
-    return r.rows
+    // A clínica em 2+ grupos aparece 2+ vezes no `geral`: uma linha por clínica.
+    return clienteId === null ? umPorClinica(r.rows) : r.rows
   }
 
   /** A segunda camada (regra 19): `escopo = 'geral'` passa `NULL` e vê tudo, como a RLS. */

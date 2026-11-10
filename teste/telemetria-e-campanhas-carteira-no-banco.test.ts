@@ -1,6 +1,11 @@
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { apagarClinicaDeTeste, declararAtorSistema } from '@fir/api/banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '@fir/api/banco/limpeza-de-teste'
 
 /**
  * `uso_diario_cliente` e `campanhas_carteira` — migration 0028 (G4). ADRs
@@ -60,6 +65,8 @@ beforeAll(async () => {
     await migrate.query<{ id: string }>(`INSERT INTO grupos (nome) VALUES ('Grupo Tel B') RETURNING id`)
   ).rows[0]!.id
 
+  await participarDoGrupoDeTeste(migrate, clinicaA, grupoA)
+  await participarDoGrupoDeTeste(migrate, clinicaB, grupoB)
   clienteA = (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto)
@@ -99,6 +106,8 @@ afterAll(async () => {
     [clienteA, clienteB],
   ])
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [[clienteA, clienteB]])
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaA)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaB)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB]])
   await apagarClinicaDeTeste(migrate, clinicaA)
   await apagarClinicaDeTeste(migrate, clinicaB)

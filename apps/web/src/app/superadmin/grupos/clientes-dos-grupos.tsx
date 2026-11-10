@@ -4,6 +4,7 @@ import {
   type ClienteCarteiraNoPainel,
   type ClienteCarteiraNoPainelSaida,
   type GrupoNaLista,
+  type GruposDaClinicaSaida,
   type ListaDeClientesCarteiraNoPainelSaida,
   type StatusDoClienteFirmare,
 } from '@fir/contracts'
@@ -125,6 +126,10 @@ export function ClientesDosGrupos({
           cliente={editando}
           grupos={grupos}
           aoFechar={() => setEditando(null)}
+          aoMudouGrupos={() => {
+            setTentativa((n) => n + 1)
+            aoMudar('Os grupos da clínica foram atualizados.')
+          }}
           aoSalvar={(c) => {
             setEditando(null)
             setTentativa((n) => n + 1)
@@ -141,11 +146,14 @@ function EdicaoDoCliente({
   grupos,
   aoFechar,
   aoSalvar,
+  aoMudouGrupos,
 }: {
   cliente: ClienteCarteiraNoPainel
   grupos: readonly GrupoNaLista[]
   aoFechar: () => void
   aoSalvar: (c: ClienteCarteiraNoPainel) => void
+  /** A clínica ganhou ou perdeu um grupo: a lista de clientes precisa reler. */
+  aoMudouGrupos: () => void
 }) {
   const [status, setStatus] = useState<StatusDoClienteFirmare>(cliente.status)
   const [grupoId, setGrupoId] = useState(cliente.grupoId)
@@ -195,6 +203,9 @@ function EdicaoDoCliente({
           </select>
         </label>
 
+        {cliente.clinicaId !== null ? (
+          <GruposDaClinica clinicaId={cliente.clinicaId} grupos={grupos} aoMudar={aoMudouGrupos} />
+        ) : (
         <label className="campo">
           Grupo
           <select value={grupoId} onChange={(e) => setGrupoId(e.target.value)}>
@@ -206,6 +217,7 @@ function EdicaoDoCliente({
             ))}
           </select>
         </label>
+        )}
 
         {mudandoDeGrupo ? (
           <>
@@ -234,5 +246,114 @@ function EdicaoDoCliente({
         </div>
       </form>
     </Modal>
+  )
+}
+
+/**
+ * **Os grupos da clínica** (0068): uma clínica fica no Firmare e em quantos
+ * outros o operador designar. Adicionar cria o Cliente Firmare do grupo (vazio);
+ * remover encerra o dele e o grupo perde a leitura. O Firmare não sai.
+ */
+function GruposDaClinica({
+  clinicaId,
+  grupos,
+  aoMudar,
+}: {
+  clinicaId: string
+  grupos: readonly GrupoNaLista[]
+  aoMudar: () => void
+}) {
+  const [atuais, setAtuais] = useState<GruposDaClinicaSaida['grupos'] | null>(null)
+  const [novo, setNovo] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [tentativa, setTentativa] = useState(0)
+
+  useEffect(() => {
+    let valeu = true
+    chamar<GruposDaClinicaSaida>(`v1/superadmin/clinicas/${clinicaId}/grupos`)
+      .then((r) => {
+        if (valeu) setAtuais(r.grupos)
+      })
+      .catch((x: unknown) => {
+        if (valeu) setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+      })
+    return () => {
+      valeu = false
+    }
+  }, [clinicaId, tentativa])
+
+  const daClinica = new Set((atuais ?? []).map((g) => g.grupoId))
+  const livres = grupos.filter((g) => g.ativo && !daClinica.has(g.id))
+
+  async function enviar(caminho: string, grupoId: string) {
+    if (motivo.trim().length < 3) {
+      setErro('Informe o motivo (sem dado de paciente).')
+      return
+    }
+    setErro('')
+    setEnviando(true)
+    try {
+      await chamar(`v1/superadmin/clinicas/${clinicaId}/grupos${caminho}`, {
+        method: 'POST',
+        body: JSON.stringify({ grupoId, motivo: motivo.trim() }),
+      })
+      setNovo('')
+      setMotivo('')
+      setTentativa((n) => n + 1)
+      aoMudar()
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <fieldset className="campo">
+      <legend>Grupos da clínica</legend>
+      {atuais === null ? (
+        <Carregando />
+      ) : (
+        <ul>
+          {atuais.map((g) => (
+            <li key={g.grupoId}>
+              {g.nome}
+              {g.padrao ? null : (
+                <>
+                  {' '}
+                  <button type="button" className="link" disabled={enviando} onClick={() => enviar('/remover', g.grupoId)}>
+                    Remover
+                  </button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      <label className="campo">
+        Motivo
+        <input value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={300} />
+      </label>
+      {livres.length === 0 ? null : (
+        <label className="campo">
+          Adicionar a outro grupo
+          <select value={novo} onChange={(e) => setNovo(e.target.value)}>
+            <option value="">Escolha…</option>
+            {livres.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.nome}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn ghost" disabled={enviando || novo === ''} onClick={() => enviar('', novo)}>
+            Adicionar
+          </button>
+        </label>
+      )}
+      <p className="nota">Remover tira o cliente daquele grupo; o Firmare sempre fica.</p>
+      {erro === '' ? null : <p role="alert" className="erro-do-painel">{erro}</p>}
+    </fieldset>
   )
 }

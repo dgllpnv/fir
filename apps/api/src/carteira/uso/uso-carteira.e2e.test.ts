@@ -8,7 +8,12 @@ import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { AppModule } from '../../app.module'
 import { hashDeSenha } from '../../autenticacao/senha'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../../banco/limpeza-de-teste'
 import { registrarCookie } from '../../main'
 
 /**
@@ -67,14 +72,16 @@ const novaClinica = async (nome: string, fuso: string): Promise<string> =>
     )
   ).rows[0]!.id
 
-const novoCliente = async (grupo: string, clinica: string | null, nome: string, status = 'ativo') =>
-  (
+const novoCliente = async (grupo: string, clinica: string | null, nome: string, status = 'ativo') => {
+  if (clinica) await participarDoGrupoDeTeste(migrate, clinica, grupo)
+  return (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto, status)
        VALUES ($1, $2, $3, 'FIR Clinic', $4) RETURNING id`,
       [grupo, clinica, nome, status],
     )
   ).rows[0]!.id
+}
 
 const novoUsuario = async (usuario: string, escopo: 'grupo' | 'geral', grupo: string | null) => {
   const id = (
@@ -159,6 +166,9 @@ afterAll(async () => {
   await migrate.query('DELETE FROM tentativas_de_carteira WHERE identificador = ANY($1)', [[USUARIO_A, USUARIO_GERAL]])
   await migrate.query('DELETE FROM usuarios_gestao WHERE id = ANY($1)', [usuarios])
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [clientes])
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaA)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaB)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaVazia)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB]])
   for (const c of [clinicaA, clinicaB, clinicaVazia]) await apagarClinicaDeTeste(migrate, c)
   await migrate.end()

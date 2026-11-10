@@ -19,10 +19,18 @@ import { BancoService } from '../../banco/banco.service'
 import { RELOGIO, type Relogio } from '../../comum/relogio'
 import { registrarAcessoAsAtas } from '../conteudo/conteudo-comum'
 import { FUSO_DA_CARTEIRA } from '../fuso-da-carteira'
+import { umPorClinica } from '../um-por-clinica'
 
 type Sessao = UsuarioDeGestaoPublico
 
-type ClienteDb = { id: string; nome: string; status: string; mensalidade_centavos: string }
+type ClienteDb = {
+  id: string
+  nome: string
+  status: string
+  mensalidade_centavos: string
+  clinica_id: string | null
+  conta_na_receita: boolean
+}
 
 type CampanhaDb = {
   id: string
@@ -79,17 +87,21 @@ export class ResumoSemanalService {
     const responsavel = responsavelImpostoPeloPerfil(sessao)
 
     return this.banco.nasTabelasDaCarteiraComoUsuarioDeGestao(sessao, async (c) => {
-      const clientesDb = (
-        await c.query<ClienteDb>(
-          `SELECT id, nome, status, mensalidade_centavos::text AS mensalidade_centavos
-             FROM clientes_carteira
-            WHERE excluido_em IS NULL
-              AND ($1::uuid IS NULL OR grupo_id = $1::uuid)
-              AND ($2::uuid IS NULL OR responsavel_usuario_gestao_id = $2::uuid)
-            ORDER BY nome, id`,
-          [grupo, responsavel],
-        )
-      ).rows
+      // A clínica em 2+ grupos aparece 2+ vezes no `geral` (0068): "N clientes
+      // ativos" conta por clínica, e só o cliente que conta na receita entra no MRR.
+      const clientesDb = umPorClinica(
+        (
+          await c.query<ClienteDb>(
+            `SELECT id, nome, status, mensalidade_centavos::text AS mensalidade_centavos, clinica_id, conta_na_receita
+               FROM clientes_carteira
+              WHERE excluido_em IS NULL
+                AND ($1::uuid IS NULL OR grupo_id = $1::uuid)
+                AND ($2::uuid IS NULL OR responsavel_usuario_gestao_id = $2::uuid)
+              ORDER BY nome, id`,
+            [grupo, responsavel],
+          )
+          ).rows,
+      )
       const ids = clientesDb.map((x) => x.id)
 
       const saudes = await this.saudes(c, ids)
@@ -98,7 +110,7 @@ export class ResumoSemanalService {
         nome: x.nome,
         ativo: x.status === 'ativo' || x.status === 'onboarding',
         saude: saudes.get(x.id) ?? null,
-        mensalidade: Dinheiro.deCentavos(BigInt(x.mensalidade_centavos)),
+        mensalidade: x.conta_na_receita ? Dinheiro.deCentavos(BigInt(x.mensalidade_centavos)) : Dinheiro.zero(),
       }))
       const atas = await this.ultimasAtas(c, semAta.filter(clienteEmRisco).map((x) => x.id))
       const clientes: ClienteNoResumo[] = semAta.map((x) => ({ ...x, ultimaReuniao: atas.get(x.id) ?? null }))

@@ -734,3 +734,18 @@ export type EditarClienteCarteiraNoPainelEntrada = z.infer<typeof EditarClienteC
 
 export const ClienteCarteiraNoPainelSaida = z.object({ cliente: ClienteCarteiraNoPainel })
 export type ClienteCarteiraNoPainelSaida = z.infer<typeof ClienteCarteiraNoPainelSaida>
+
+
+/** 0068: adicionar a clínica a um grupo, ou removê-la dele. Motivo obrigatório, sem dado pessoal. */
+export const GrupoDaClinicaEntrada = z
+  .object({
+    grupoId: z.string().uuid(),
+    motivo: z.string().trim().min(3).max(300),
+  })
+  .strict()
+export type GrupoDaClinicaEntrada = z.infer<typeof GrupoDaClinicaEntrada>
+
+export const GruposDaClinicaSaida = z.object({
+  grupos: z.array(z.object({ grupoId: z.string().uuid(), nome: z.string(), desde: z.string(), padrao: z.boolean() })),
+})
+export type GruposDaClinicaSaida = z.infer<typeof GruposDaClinicaSaida>

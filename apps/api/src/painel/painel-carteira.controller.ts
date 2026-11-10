@@ -17,6 +17,7 @@ import {
   EditarUsuarioDeGestaoEntrada,
   RedefinirSenhaDoUsuarioDeGestaoEntrada,
   type SenhaDoUsuarioDeGestaoRedefinida,
+  GrupoDaClinicaEntrada,
 } from '@fir/contracts'
 import {
   BadRequestException,
@@ -48,6 +49,9 @@ import {
   GrupoDesativado,
   GrupoNaoExiste,
   PainelCarteiraService,
+  ClienteComClinicaNaoMudaDeGrupo,
+  ClinicaJaEstaNoGrupo,
+  ClinicaNaoEstaNoGrupo,
   GrupoPadraoNaoMuda,
   UsuarioDeGestaoJaExiste,
   UsuarioDeGestaoNaoExiste,
@@ -191,6 +195,40 @@ export class PainelCarteiraController {
     }
   }
 
+  /** 0068: os grupos em que a clínica está. */
+  @Get('clinicas/:id/grupos')
+  async gruposDaClinica(@Param('id') id: string, @Req() req: RequisicaoComPainel) {
+    if (!Uuid.safeParse(id).success) throw new NotFoundException('Clínica não encontrada.')
+    return { grupos: await this.servico.gruposDaClinica(req.painel!.ator, id) }
+  }
+
+  /** 0068: adiciona a clínica a um grupo (cria o Cliente Firmare vazio dele). */
+  @Post('clinicas/:id/grupos')
+  async adicionarGrupoDaClinica(@Param('id') id: string, @Body() corpo: unknown, @Req() req: RequisicaoComPainel) {
+    if (!Uuid.safeParse(id).success) throw new NotFoundException('Clínica não encontrada.')
+    const dados = GrupoDaClinicaEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(mensagemDeValidacao(dados.error.issues))
+    try {
+      return await this.servico.adicionarGrupoDaClinica(req.painel!.ator, id, dados.data.grupoId, dados.data.motivo)
+    } catch (e) {
+      throw traduzirGrupoDaClinica(e)
+    }
+  }
+
+  /** 0068: remove a clínica de um grupo (o grupo perde a leitura; o dado fica retido). */
+  @Post('clinicas/:id/grupos/remover')
+  @HttpCode(204)
+  async removerGrupoDaClinica(@Param('id') id: string, @Body() corpo: unknown, @Req() req: RequisicaoComPainel): Promise<void> {
+    if (!Uuid.safeParse(id).success) throw new NotFoundException('Clínica não encontrada.')
+    const dados = GrupoDaClinicaEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(mensagemDeValidacao(dados.error.issues))
+    try {
+      await this.servico.removerGrupoDaClinica(req.painel!.ator, id, dados.data.grupoId, dados.data.motivo)
+    } catch (e) {
+      throw traduzirGrupoDaClinica(e)
+    }
+  }
+
   /** Todos os `Cliente Firmare`, para mostrar quem pertence a cada grupo. */
   @Get('clientes-carteira')
   async listarClientesCarteira(@Req() req: RequisicaoComPainel): Promise<ListaDeClientesCarteiraNoPainelSaida> {
@@ -224,8 +262,8 @@ export class PainelCarteiraController {
       if (e instanceof ClinicaJaTemClienteFirmare) {
         throw new ConflictException('Esta clínica já tem um Cliente Firmare.')
       }
-      if (e instanceof ClinicaDeOutroGrupo) {
-        throw new ConflictException('Esta clínica pertence a outro grupo. Mude o grupo dela antes.')
+      if (e instanceof ClienteComClinicaNaoMudaDeGrupo) {
+        throw new ConflictException('Este cliente é de uma clínica: para mudar, adicione o novo grupo à clínica e remova o antigo.')
       }
       const traduzido = traduzirErroDoBanco(e)
       if (traduzido) throw new HttpException(traduzido.mensagem, traduzido.status)
@@ -252,4 +290,17 @@ export class PainelCarteiraController {
       throw e
     }
   }
+}
+
+
+const traduzirGrupoDaClinica = (e: unknown): unknown => {
+  if (e instanceof ClinicaOuGrupoNaoExiste) return new NotFoundException('Clínica ou grupo não encontrado.')
+  if (e instanceof GrupoNaoExiste) return new NotFoundException('Grupo não encontrado.')
+  if (e instanceof GrupoDesativado) return new HttpException('Este grupo está desativado.', HttpStatus.UNPROCESSABLE_ENTITY)
+  if (e instanceof ClinicaJaEstaNoGrupo) return new ConflictException('A clínica já está neste grupo.')
+  if (e instanceof ClinicaNaoEstaNoGrupo) return new ConflictException('A clínica não está neste grupo.')
+  if (e instanceof GrupoPadraoNaoMuda) return new ConflictException('A clínica não sai do grupo Firmare.')
+  const x = e as { code?: string; constraint?: string }
+  if (x.constraint === 'participacao_motivo_obrigatorio') return new BadRequestException('Informe o motivo.')
+  return e
 }

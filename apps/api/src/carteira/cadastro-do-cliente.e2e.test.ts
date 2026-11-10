@@ -11,6 +11,7 @@ import {
   apagarHistoricoGrupoDeTeste,
   apagarOperadorDeTeste,
   declararAtorSistema,
+  participarDoGrupoDeTeste,
 } from '../banco/limpeza-de-teste'
 import { registrarCookie } from '../main'
 import {
@@ -108,6 +109,7 @@ beforeAll(async () => {
       `cadastro-${sufixo}`,
     ])
   ).rows[0]!.id
+  await participarDoGrupoDeTeste(migrate, clinica, grupoA)
   clienteA = (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto, mensalidade_centavos)
@@ -170,6 +172,7 @@ afterAll(async () => {
   await migrate.query('DELETE FROM tentativas_de_carteira WHERE identificador LIKE $1', [`cad.%.${sufixo}`])
   await migrate.query('DELETE FROM sessoes_de_carteira WHERE usuario_gestao_id = ANY($1)', [ugs])
   await migrate.query('DELETE FROM usuarios_gestao WHERE id = ANY($1)', [ugs])
+  await apagarHistoricoGrupoDeTeste(migrate, clinica)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB, grupoC]])
   await apagarClinicaDeTeste(migrate, clinica)
   await migrate.query('DELETE FROM tentativas_de_operador WHERE identificador = $1', [`dono.cad.${sufixo}`])
@@ -500,7 +503,7 @@ describe('Operador — PATCH /v1/superadmin/clientes-carteira/:id', () => {
     expect(trilha.rows[0]!.para.vencimento).toBe('2099-04-30')
   })
 
-  it('mover de grupo: grava o histórico da clínica, leva as filhas e o portal cai', async () => {
+  it('remover o grupo da clínica: encerra o cliente, leva as filhas ao arquivo e o grupo perde a leitura', async () => {
     const reuniao = (
       await migrate.query<{ id: string }>(
         `INSERT INTO reunioes_comerciais (cliente_carteira_id, grupo_id, data, resumo, por_usuario_gestao_id)
@@ -524,20 +527,33 @@ describe('Operador — PATCH /v1/superadmin/clientes-carteira/:id', () => {
       )
     ).rows[0]!.id
 
-    const r = await http()
+    // Cliente com clínica não muda de grupo: a mudança é adicionar um grupo e remover o outro.
+    await http()
       .patch(`/v1/superadmin/clientes-carteira/${clienteA}`)
       .set('Cookie', cookiePainel)
       .send({ grupoId: grupoC, motivo: 'Entrou na rede C' })
-      .expect(200)
-    expect(r.body.cliente.grupoId).toBe(grupoC)
+      .expect(409)
 
-    const h = await migrate.query<{ grupo_anterior_id: string | null; grupo_novo_id: string; mudado_por: string; motivo: string }>(
-      `SELECT grupo_anterior_id, grupo_novo_id, mudado_por, motivo FROM historico_grupo_da_clinica
+    await http()
+      .post(`/v1/superadmin/clinicas/${clinica}/grupos/remover`)
+      .set('Cookie', cookiePainel)
+      .send({ grupoId: grupoA, motivo: 'Saiu da rede A' })
+      .expect(204)
+
+    const arquivo = (await migrate.query<{ id: string }>('SELECT id FROM grupos WHERE arquivo')).rows[0]!.id
+    const h = await migrate.query<{ grupo_anterior_id: string | null; mudado_por: string; motivo: string }>(
+      `SELECT grupo_anterior_id, mudado_por, motivo FROM historico_grupo_da_clinica
         WHERE clinica_id = $1 ORDER BY mudado_em DESC, id DESC`,
       [clinica],
     )
-    expect(h.rows[0]).toEqual({ grupo_anterior_id: null, grupo_novo_id: grupoC, mudado_por: operador, motivo: 'Entrou na rede C' })
+    expect(h.rows[0]).toEqual({ grupo_anterior_id: grupoA, mudado_por: operador, motivo: 'grupo removido: Saiu da rede A' })
 
+    // O cliente foi encerrado e as filhas foram para o arquivo: tudo some para o grupo A.
+    const cli = await migrate.query<{ g: string; ex: boolean; conta: boolean }>(
+      'SELECT grupo_id AS g, excluido_em IS NOT NULL AS ex, conta_na_receita AS conta FROM clientes_carteira WHERE id = $1',
+      [clienteA],
+    )
+    expect(cli.rows[0]).toEqual({ g: arquivo, ex: true, conta: false })
     const filhas = await migrate.query<{ g: string }>(
       `SELECT grupo_id AS g FROM reunioes_comerciais WHERE id = $1
        UNION ALL SELECT grupo_id FROM parceiros_do_cliente WHERE cliente_carteira_id = $2
@@ -546,40 +562,33 @@ describe('Operador — PATCH /v1/superadmin/clientes-carteira/:id', () => {
       [reuniao, clienteA, tarefa, item],
     )
     expect(filhas.rows.length).toBeGreaterThan(3)
-    expect(new Set(filhas.rows.map((x) => x.g))).toEqual(new Set([grupoC]))
+    expect(new Set(filhas.rows.map((x) => x.g))).toEqual(new Set([arquivo]))
 
-    // O responsável do grupo A não serve ao grupo C: solto, nunca deixado inválido.
-    const resp = await migrate.query<{ r: string | null }>(
-      'SELECT responsavel_usuario_gestao_id AS r FROM clientes_carteira WHERE id = $1',
-      [clienteA],
-    )
-    expect(resp.rows[0]!.r).toBeNull()
-
-    // O grupo A deixou de ver o cliente.
     await http().get(`/v1/carteira/clientes/${clienteA}`).set('Cookie', cookieA).expect(404)
+    // A participação foi encerrada, e a clínica voltou a poder entrar no grupo.
+    const p = await migrate.query('SELECT 1 FROM participacao_clinica_grupo WHERE clinica_id = $1 AND grupo_id = $2 AND ate IS NULL', [clinica, grupoA])
+    expect(p.rowCount).toBe(0)
   })
 
-  it('invariante de grupo (A-8): cliente do grupo X não liga clínica do grupo Y', async () => {
-    // A clínica agora é do grupo C (histórico acima); o cliente B é do grupo B.
-    await migrate.query('UPDATE clientes_carteira SET clinica_id = NULL WHERE id = $1', [clienteA])
-    await http()
-      .patch(`/v1/superadmin/clientes-carteira/${clienteB}`)
-      .set('Cookie', cookiePainel)
-      .send({ clinicaId: clinica })
-      .expect(409)
-    const r = await migrate.query<{ c: string | null }>('SELECT clinica_id AS c FROM clientes_carteira WHERE id = $1', [
-      clienteB,
-    ])
-    expect(r.rows[0]!.c).toBeNull()
-
-    // E o banco recusa por conta própria, se o service deixasse passar.
+  it('invariante de vínculo (0068): o banco recusa ligar cliente a clínica sem participação; o service designa', async () => {
+    // O cliente B (grupo B, sem clínica): o banco, sozinho, recusa (a clínica não participa do grupo B).
     await expect(
       migrate.query(`SELECT set_config('app.pessoa_id', 'operador:' || $1, false)`, [operador]).then(() =>
         migrate.query('UPDATE clientes_carteira SET clinica_id = $2 WHERE id = $1', [clienteB, clinica]),
       ),
-    ).rejects.toThrow(/outro grupo/)
+    ).rejects.toThrow(/não participa/)
     await declararAtorSistema(migrate)
-    await migrate.query('UPDATE clientes_carteira SET clinica_id = $2 WHERE id = $1', [clienteA, clinica])
+
+    // Pelo painel, o Operador liga: a participação nasce junto (e o cliente B não conta na receita, se outro conta).
+    await http()
+      .patch(`/v1/superadmin/clientes-carteira/${clienteB}`)
+      .set('Cookie', cookiePainel)
+      .send({ clinicaId: clinica })
+      .expect(200)
+    const r = await migrate.query<{ c: string | null }>('SELECT clinica_id AS c FROM clientes_carteira WHERE id = $1', [clienteB])
+    expect(r.rows[0]!.c).toBe(clinica)
+    const p = await migrate.query('SELECT 1 FROM participacao_clinica_grupo WHERE clinica_id = $1 AND grupo_id = $2 AND ate IS NULL', [clinica, grupoB])
+    expect(p.rowCount).toBe(1)
   })
 
   it('o Usuário de Gestão não muda grupo nem clínica nem pelo banco (trigger, 42501)', async () => {

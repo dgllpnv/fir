@@ -304,7 +304,7 @@ async function gravar(
            nome, periodo_inicio, periodo_fim, metrica, meta, resultado,
            mes_referencia, receita_centavos, orcamentos_pagos, categoria, status, rotulo_da_metrica
          ) VALUES ($1, $2, $3, 'sincronizada', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-         ON CONFLICT (campanha_origem_id, mes_referencia) WHERE campanha_origem_id IS NOT NULL
+         ON CONFLICT (cliente_carteira_id, campanha_origem_id, mes_referencia) WHERE campanha_origem_id IS NOT NULL
          DO UPDATE SET
            nome              = EXCLUDED.nome,
            periodo_inicio    = EXCLUDED.periodo_inicio,
@@ -352,8 +352,8 @@ async function gravar(
         // outro cliente. Só o segundo é falha.
         const dono = await c.query<{ cliente_carteira_id: string }>(
           `SELECT cliente_carteira_id::text AS cliente_carteira_id FROM campanhas_carteira
-            WHERE campanha_origem_id = $1 AND mes_referencia = $2`,
-          [x.campanhaOrigemId, x.mes],
+            WHERE campanha_origem_id = $1 AND mes_referencia = $2 AND cliente_carteira_id = $3`,
+          [x.campanhaOrigemId, x.mes, cliente.id],
         )
         if (dono.rows[0]?.cliente_carteira_id !== cliente.id) throw new CampanhaDeOutroCliente(x.campanhaOrigemId)
       } else {

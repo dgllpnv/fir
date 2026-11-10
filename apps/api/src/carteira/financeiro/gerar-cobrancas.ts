@@ -81,6 +81,9 @@ export async function executarGeracaoDeCobrancas(
           -- CE-1 (gate de números G8): mensalidade 0 não gera cobrança — e,
           -- portanto, não queima o benefício numa cobrança de R$ 0.
           AND mensalidade_centavos > 0
+          -- 0068: a clínica em 2+ grupos tem um cliente por grupo e UM deles
+          -- paga. Sem isto a clínica seria cobrada em cada grupo.
+          AND conta_na_receita
           -- Sem dia de vencimento não há quando cobrar (PP-4, L880).
           AND dia_vencimento IS NOT NULL
           AND ($1::uuid[] IS NULL OR grupo_id = ANY($1::uuid[]))

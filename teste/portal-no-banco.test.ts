@@ -1,6 +1,11 @@
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { apagarClinicaDeTeste, declararAtorSistema } from '@fir/api/banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '@fir/api/banco/limpeza-de-teste'
 
 /**
  * O PORTAL DO GRUPO NO BANCO — migration 0034 (G6). ADRs 0017, 0018.
@@ -99,6 +104,9 @@ beforeAll(async () => {
   grupoB = (await migrate.query<{ id: string }>(`INSERT INTO grupos (nome) VALUES ('Grupo Portal B') RETURNING id`))
     .rows[0]!.id
 
+  await participarDoGrupoDeTeste(migrate, clinicaA, grupoA)
+  await participarDoGrupoDeTeste(migrate, clinicaB, grupoA)
+  await participarDoGrupoDeTeste(migrate, clinicaC, grupoB)
   clienteX = (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto) VALUES ($1, $2, 'Cliente X', 'Acelerador FIR') RETURNING id`,
@@ -126,6 +134,7 @@ afterAll(async () => {
     [clienteX, clienteY, clienteZ],
   ])
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [[clienteX, clienteY, clienteZ]])
+  for (const c of [clinicaA, clinicaB, clinicaC]) await apagarHistoricoGrupoDeTeste(migrate, c)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB]])
   await apagarClinicaDeTeste(migrate, clinicaA)
   await apagarClinicaDeTeste(migrate, clinicaB)

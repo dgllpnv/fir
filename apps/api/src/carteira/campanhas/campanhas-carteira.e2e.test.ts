@@ -11,7 +11,12 @@ import { hashDeSenha } from '../../autenticacao/senha'
 import { SISTEMA } from '../../banco/ator'
 import { BancoService } from '../../banco/banco.service'
 import { clinicaIdDeFonteConfiavel } from '../../banco/clinica-id'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../../banco/limpeza-de-teste'
 import { CampanhasService } from '../../campanhas/campanhas.service'
 import { registrarCookie } from '../../main'
 import {
@@ -186,8 +191,9 @@ beforeAll(async () => {
   grupoA = await novoGrupo(`Grupo A ${codigo}`)
   grupoB = await novoGrupo(`Grupo B ${codigo}`)
 
-  const novoCliente = async (grupo: string, clinicaId: string | null, nome: string) =>
-    (
+  const novoCliente = async (grupo: string, clinicaId: string | null, nome: string) => {
+  if (clinicaId) await participarDoGrupoDeTeste(migrate, clinicaId!, grupo)
+  return (
       await migrate.query<{ id: string }>(
         `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto, status)
          VALUES ($1, $2, $3, 'FIR Clinic', $4) RETURNING id`,
@@ -195,6 +201,7 @@ beforeAll(async () => {
         [grupo, clinicaId, nome, clinicaId === null ? 'onboarding' : 'ativo'],
       )
     ).rows[0]!.id
+}
   clienteLigado = await novoCliente(grupoA, clinica, 'Clínica Ligada')
   clienteManual = await novoCliente(grupoA, null, 'Consultoria Manual')
   clienteDoB = await novoCliente(grupoB, null, 'Cliente do grupo B')
@@ -224,6 +231,7 @@ afterAll(async () => {
   ])
   await migrate.query('DELETE FROM usuarios_gestao WHERE id = ANY($1)', [[usuarioA.id, usuarioB.id]])
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [ids()])
+  await apagarHistoricoGrupoDeTeste(migrate, clinica)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB]])
   await apagarClinicaDeTeste(migrate, clinica)
   await migrate.end()

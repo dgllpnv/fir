@@ -776,7 +776,7 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
  * texto da policy — esta lista tem o exame equivalente, trocando
  * `app_clinica_id` por `app_pode_ver_grupo`.
  */
-export const ENTIDADES_COM_CLINICA_POR_GRUPO: readonly string[] = ['clientes_carteira']
+export const ENTIDADES_COM_CLINICA_POR_GRUPO: readonly string[] = ['clientes_carteira', 'participacao_clinica_grupo']
 
 /**
  * G5 (migration 0032, ADR 0016): tabelas da carteira cuja RLS também é por

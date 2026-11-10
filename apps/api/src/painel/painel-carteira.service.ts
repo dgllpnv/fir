@@ -41,6 +41,9 @@ export class UsuarioDeGestaoNaoExiste extends Error {}
 export class ClienteCarteiraNaoExiste extends Error {}
 /** A clínica já está, pela trilha de tenancy, em OUTRO grupo (A-8). */
 export class ClinicaDeOutroGrupo extends Error {}
+export class ClinicaJaEstaNoGrupo extends Error {}
+export class ClinicaNaoEstaNoGrupo extends Error {}
+export class ClienteComClinicaNaoMudaDeGrupo extends Error {}
 export class ClienteJaTemClinica extends Error {}
 export class GrupoDesativado extends Error {}
 /**
@@ -140,7 +143,7 @@ export class PainelCarteiraService {
   async listarGrupos(): Promise<GrupoNaLista[]> {
     const r = await this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(SISTEMA, (c) =>
       c.query<{ id: string; nome: string; ativo: boolean }>(
-        'SELECT id, nome, ativo FROM grupos ORDER BY nome',
+        'SELECT id, nome, ativo FROM grupos WHERE NOT arquivo ORDER BY nome',
       ),
     )
     return r.rows
@@ -269,8 +272,10 @@ export class PainelCarteiraService {
       }
       try {
         const r = await c.query<typeof linha>(
-          `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto)
-           VALUES ($1, $2, $3, $4)
+          `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto, conta_na_receita)
+           VALUES ($1, $2, $3, $4,
+                   NOT EXISTS (SELECT 1 FROM clientes_carteira o
+                                WHERE o.clinica_id = $2 AND o.excluido_em IS NULL AND o.conta_na_receita))
            RETURNING id, grupo_id, clinica_id, nome, produto, status`,
           [dados.grupoId, dados.clinicaId, dados.nome, dados.produto],
         )
@@ -299,12 +304,10 @@ export class PainelCarteiraService {
   }
 
   /**
-   * A-8 (0047): a clínica `clinicaId` passa a ser (ou continua) do grupo
-   * `grupoId`. O grupo de uma clínica, enquanto `clinicas.grupo_id` não
-   * existe (G1b), é a linha mais recente de `historico_grupo_da_clinica`:
-   *  - trilha aponta outro grupo e `podeMover` é falso → 409 (a clínica é de
-   *    outra rede; mudar isso é a operação "mudar de grupo", com motivo);
-   *  - sem trilha, ou a mudança é a pedida → grava a linha nova (append-only).
+   * 0068: a clínica `clinicaId` PARTICIPA do grupo `grupoId` (uma clínica pode
+   * estar em vários). Já participa: não faz nada. Senão grava a participação
+   * e a linha de histórico (append-only). O gatilho do banco só aceita o
+   * Operador como autor.
    */
   private async prenderClinicaAoGrupo(
     c: PoolClient,
@@ -312,17 +315,115 @@ export class PainelCarteiraService {
     clinicaId: string,
     grupoId: string,
     motivo: string | null,
-    podeMover = false,
   ): Promise<void> {
     try {
-      const atual = await grupoDaClinica(c, clinicaId)
-      if (atual === grupoId) return
-      if (atual !== null && !podeMover) throw new ClinicaDeOutroGrupo()
-      await registrarGrupoDaClinica(c, { clinicaId, anterior: atual, novo: grupoId, operadorId: ator.id, motivo })
+      const ja = await c.query(
+        `SELECT 1 FROM participacao_clinica_grupo WHERE clinica_id = $1 AND grupo_id = $2 AND ate IS NULL`,
+        [clinicaId, grupoId],
+      )
+      if ((ja.rowCount ?? 0) > 0) return
+      await registrarGrupoDaClinica(c, { clinicaId, anterior: null, novo: grupoId, operadorId: ator.id, motivo })
+      await c.query(
+        `INSERT INTO participacao_clinica_grupo (clinica_id, grupo_id, adicionado_por, motivo)
+         VALUES ($1, $2, $3, $4)`,
+        [clinicaId, grupoId, ator.id, motivo ?? 'cliente ligado à clínica'],
+      )
     } catch (e) {
       if ((e as { code?: string }).code === FK_VIOLADA) throw new ClinicaOuGrupoNaoExiste()
       throw e
     }
+  }
+
+  /**
+   * 0068: adiciona a clínica a um grupo. A função do banco cria a
+   * participação, o histórico e um Cliente Firmare VAZIO no grupo
+   * (mensalidade 0, não conta na receita).
+   */
+  async adicionarGrupoDaClinica(
+    ator: OperadorId,
+    clinicaId: string,
+    grupoId: string,
+    motivo: string,
+  ): Promise<{ clienteId: string }> {
+    return this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
+      const g = await c.query<{ ativo: boolean; arquivo: boolean }>('SELECT ativo, arquivo FROM grupos WHERE id = $1', [grupoId])
+      if (!g.rows[0] || g.rows[0].arquivo) throw new GrupoNaoExiste()
+      if (!g.rows[0].ativo) throw new GrupoDesativado()
+      try {
+        const r = await c.query<{ id: string }>('SELECT adicionar_clinica_ao_grupo($1, $2, $3) AS id', [clinicaId, grupoId, motivo])
+        return { clienteId: r.rows[0]!.id }
+      } catch (e) {
+        const x = e as { code?: string; constraint?: string }
+        if (x.code === FK_VIOLADA || x.code === '23503') throw new ClinicaOuGrupoNaoExiste()
+        if (x.code === UNICIDADE_VIOLADA) throw new ClinicaJaEstaNoGrupo()
+        throw e
+      }
+    })
+  }
+
+  /**
+   * 0068: remove a clínica de um grupo. Encerra a participação, encerra o
+   * Cliente Firmare daquele grupo e o leva, com todas as filhas, ao grupo de
+   * ARQUIVO: o grupo perde a leitura na hora (RLS por `grupo_id`) e o dado
+   * fica retido só para a Firmare (retencao.md). O grupo Firmare não sai.
+   */
+  async removerGrupoDaClinica(ator: OperadorId, clinicaId: string, grupoId: string, motivo: string): Promise<void> {
+    await this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
+      const arquivo = (await c.query<{ id: string }>('SELECT id FROM grupos WHERE arquivo')).rows[0]?.id
+      if (!arquivo) throw new Error('grupo de arquivo ausente')
+      try {
+        await c.query('SELECT encerrar_participacao_da_clinica($1, $2, $3)', [clinicaId, grupoId, motivo])
+      } catch (e) {
+        const x = e as { code?: string; constraint?: string }
+        if (x.constraint === 'grupo_padrao_fixo') throw new GrupoPadraoNaoMuda()
+        if (x.constraint === 'participacao_inexistente') throw new ClinicaNaoEstaNoGrupo()
+        throw e
+      }
+      const cli = await c.query<{ id: string }>(
+        `SELECT id FROM clientes_carteira
+          WHERE clinica_id = $1 AND grupo_id = $2 AND excluido_em IS NULL FOR UPDATE`,
+        [clinicaId, grupoId],
+      )
+      const clienteId = cli.rows[0]?.id
+      if (clienteId === undefined) return
+      // O responsável do grupo antigo não serve ao arquivo: solto, nunca deixado inválido.
+      await c.query(
+        `UPDATE clientes_carteira
+            SET excluido_em = now(), conta_na_receita = false, responsavel_usuario_gestao_id = NULL
+          WHERE id = $1`,
+        [clienteId],
+      )
+      const movidas = await moverClienteDeGrupo(c, clienteId, arquivo)
+      const revogadas = await c.query(
+        `UPDATE sessoes_do_portal SET revogada_em = now()
+          WHERE revogada_em IS NULL
+            AND usuario_portal_id IN (SELECT id FROM usuarios_do_portal WHERE cliente_carteira_id = $1)`,
+        [clienteId],
+      )
+      await registrarNoPainel(c, {
+        atorTipo: 'operador',
+        atorId: ator.id,
+        acao: 'alterou',
+        entidade: 'clientes_carteira',
+        entidadeId: clienteId,
+        de: { grupo_id: grupoId },
+        para: { encerrado: true, linhas_movidas: movidas, sessoes_do_portal_revogadas: revogadas.rowCount ?? 0 },
+        motivo,
+      })
+    })
+  }
+
+  /** Os grupos em que a clínica está agora (só o Operador lê; vê todos). */
+  async gruposDaClinica(ator: OperadorId, clinicaId: string): Promise<Array<{ grupoId: string; nome: string; desde: string; padrao: boolean }>> {
+    return this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
+      const r = await c.query<{ grupo_id: string; nome: string; desde: Date; padrao: boolean }>(
+        `SELECT p.grupo_id, g.nome, p.desde, g.padrao FROM participacao_clinica_grupo p
+           JOIN grupos g ON g.id = p.grupo_id
+          WHERE p.clinica_id = $1 AND p.ate IS NULL ORDER BY p.desde, g.nome`,
+        [clinicaId],
+      )
+      return r.rows.map((x) => ({ grupoId: x.grupo_id, nome: x.nome, desde: x.desde.toISOString(), padrao: x.padrao }))
+    })
   }
 
   /**
@@ -372,13 +473,16 @@ export class PainelCarteiraService {
         if (cliente.clinica_id !== null) throw new ClienteJaTemClinica()
       }
 
+      if (grupoFinal !== cliente.grupo_id && cliente.clinica_id !== null) {
+        throw new ClienteComClinicaNaoMudaDeGrupo()
+      }
       if (grupoFinal !== cliente.grupo_id) {
         const g = await c.query<{ ativo: boolean }>('SELECT ativo FROM grupos WHERE id = $1', [grupoFinal])
         if (!g.rows[0]) throw new GrupoNaoExiste()
         if (!g.rows[0].ativo) throw new GrupoDesativado()
 
         if (cliente.clinica_id !== null) {
-          await this.prenderClinicaAoGrupo(c, ator, cliente.clinica_id, grupoFinal, motivo, true)
+          await this.prenderClinicaAoGrupo(c, ator, cliente.clinica_id, grupoFinal, motivo)
         }
         if (
           cliente.responsavel_usuario_gestao_id !== null &&

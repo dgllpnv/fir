@@ -651,8 +651,8 @@ a mesma função no servidor e na tela:
 
 ### `Grupo Firmare`
 A linha **padrão** de `grupos` (`padrao = true`, migration 0067, ADR 2026-11-10): onde toda clínica
-nova nasce, com o `Cliente Firmare` criado junto. **Uma clínica continua em um grupo só** (ADR 0011);
-mudar de grupo é a operação existente, com motivo. Não confundir com o escopo `geral`, que vê **todos**
+nova nasce, com o `Cliente Firmare` criado junto. **A clínica está no Firmare e em quantos grupos o Operador designar** (ADR 2026-11-10-clinica-em-varios-grupos):
+adicionar e remover são operações com motivo; cada grupo tem o seu Cliente Firmare, e só um deles "conta na receita". Não confundir com o escopo `geral`, que vê **todos**
 os grupos. Nenhum `Usuário de Gestão` de escopo `grupo` pode ser do Grupo Firmare (o banco recusa): quem
 vê a carteira inteira é o escopo `geral`.
 

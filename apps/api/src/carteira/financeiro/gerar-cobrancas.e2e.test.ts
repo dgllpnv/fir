@@ -3,7 +3,12 @@ import type { UsuarioDeGestaoPublico } from '@fir/contracts'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { BancoService } from '../../banco/banco.service'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../../banco/limpeza-de-teste'
 import { BeneficiosDeIndicacaoService } from './beneficios.service'
 import { executarGeracaoDeCobrancas } from './gerar-cobrancas'
 import { CobrancaCarteiraNaoEncontrada, CobrancasCarteiraService } from './cobrancas.service'
@@ -73,14 +78,16 @@ const novoCliente = async (
   status: 'onboarding' | 'ativo' | 'pausado' | 'encerrado' = 'ativo',
   diaVencimento: number | null = 10,
   nome = 'Cliente de teste',
-) =>
-  (
+) => {
+  if (clinicaId) await participarDoGrupoDeTeste(migrate, clinicaId, grupoId)
+  return (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto, status, mensalidade_centavos, dia_vencimento)
        VALUES ($1, $2, $3, 'Consultoria', $4, $5, $6) RETURNING id`,
       [grupoId, clinicaId, nome, status, mensalidadeCentavos, diaVencimento],
     )
   ).rows[0]!.id
+}
 
 /**
  * A varredura do job restrita aos grupos DESTE arquivo (`soDosGrupos`). Desde
@@ -130,6 +137,8 @@ afterAll(async () => {
     await migrate.query(`DELETE FROM ${t} WHERE cliente_carteira_id = ANY($1)`, [[clienteA, clienteOnboarding]])
   }
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [[clienteA, clienteOnboarding]])
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaA)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaB)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB]])
   await apagarClinicaDeTeste(migrate, clinicaA)
   await apagarClinicaDeTeste(migrate, clinicaB)

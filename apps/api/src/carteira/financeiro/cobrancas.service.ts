@@ -96,6 +96,8 @@ export class CobrancasCarteiraService {
              FROM cobrancas_do_cliente_firmare cb
              JOIN clientes_carteira cl ON cl.id = cb.cliente_carteira_id
             WHERE cb.competencia = $1::date AND cb.status <> 'cancelado'
+              -- Só o cliente que conta na receita (0068): a clínica em 2+ grupos não entra duas vezes.
+              AND cl.conta_na_receita
               AND ($2::uuid IS NULL OR cb.grupo_id = $2::uuid)
               AND ($3::uuid IS NULL OR cl.responsavel_usuario_gestao_id = $3::uuid)
             ORDER BY cb.vencimento, cl.nome, cb.id`,
@@ -107,6 +109,7 @@ export class CobrancasCarteiraService {
           `SELECT mensalidade_centavos::text AS mensalidade_centavos
              FROM clientes_carteira
             WHERE status IN ('ativo', 'onboarding') AND excluido_em IS NULL
+              AND conta_na_receita
               AND ($1::uuid IS NULL OR grupo_id = $1::uuid)
               AND ($2::uuid IS NULL OR responsavel_usuario_gestao_id = $2::uuid)`,
           [grupo, minha],

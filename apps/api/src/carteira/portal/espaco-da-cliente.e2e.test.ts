@@ -6,7 +6,12 @@ import request from 'supertest'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { AppModule } from '../../app.module'
 import { hashDeSenha } from '../../autenticacao/senha'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../../banco/limpeza-de-teste'
 import { registrarCookie } from '../../main'
 
 /**
@@ -126,6 +131,7 @@ beforeAll(async () => {
   gestaoValores = await novoGestao('valores', 'geral', null, { valores: true, administrar: true })
   gestaoGeralSemAdministrar = await novoGestao('geral', 'geral', null, { administrar: false })
 
+  await participarDoGrupoDeTeste(migrate, clinicaX, grupoA)
   clienteX = await umId(
     `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto, status, decisor, area_foco, data_inicio, data_fim,
                                     reuniao_dia_semana, reuniao_hora, responsavel_usuario_gestao_id, observacoes, pagador)
@@ -294,6 +300,7 @@ afterAll(async () => {
   await migrate.query('DELETE FROM tentativas_de_carteira WHERE identificador LIKE $1', [`p3d.%.${sufixo}`]).catch(() => undefined)
   await migrate.query('DELETE FROM usuarios_gestao WHERE id = ANY($1)', [gestao])
   await migrate.query('DELETE FROM historico_grupo_da_clinica WHERE clinica_id = $1', [clinicaX]).catch(() => undefined)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaX)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB]]).catch(() => undefined)
   await apagarClinicaDeTeste(migrate, clinicaX)
   await migrate.end()

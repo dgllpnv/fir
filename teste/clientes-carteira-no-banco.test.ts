@@ -1,6 +1,11 @@
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { apagarClinicaDeTeste, declararAtorSistema } from '@fir/api/banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '@fir/api/banco/limpeza-de-teste'
 
 /**
  * `clientes_carteira` — migration 0026 (G2). ADRs 0011, 0012.
@@ -62,6 +67,8 @@ beforeAll(async () => {
     await migrate.query<{ id: string }>(`INSERT INTO grupos (nome) VALUES ('Grupo B') RETURNING id`)
   ).rows[0]!.id
 
+  await participarDoGrupoDeTeste(migrate, clinicaA, grupoA)
+  await participarDoGrupoDeTeste(migrate, clinicaB, grupoB)
   clienteA = (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto)
@@ -81,6 +88,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await declararAtorSistema(migrate)
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [[clienteA, clienteB]])
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaA)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaB)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB]])
   await apagarClinicaDeTeste(migrate, clinicaA)
   await apagarClinicaDeTeste(migrate, clinicaB)
@@ -160,14 +169,14 @@ describe('P-12: isolamento por grupo é real, não só desenhado', () => {
 })
 
 describe('invariantes de `clientes_carteira`', () => {
-  it('uma Clinica tem no máximo um Cliente Firmare — UNIQUE em clinica_id', async () => {
+  it('uma clínica tem no máximo um Cliente Firmare POR GRUPO — UNIQUE (grupo_id, clinica_id)', async () => {
     await expect(
       migrate.query(
         `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto)
          VALUES ($1, $2, 'Duplicata', 'Consultoria')`,
         [grupoA, clinicaA],
       ),
-    ).rejects.toThrow(/clientes_carteira_clinica_id_key|duplicate key/)
+    ).rejects.toThrow(/clientes_carteira_grupo_clinica_unico|duplicate key/)
   })
 
   it('status fora da lista é recusado', async () => {

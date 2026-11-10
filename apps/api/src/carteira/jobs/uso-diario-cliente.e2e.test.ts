@@ -2,7 +2,12 @@ import type { Relogio } from '@fir/domain'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { BancoService } from '../../banco/banco.service'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../../banco/limpeza-de-teste'
 import { executarUsoDiarioCliente } from './uso-diario-cliente'
 
 /**
@@ -71,14 +76,16 @@ const novoClienteCarteira = async (
   grupoId: string,
   clinicaId: string,
   status: 'onboarding' | 'ativo' | 'pausado' | 'encerrado' = 'ativo',
-): Promise<string> =>
-  (
+): Promise<string> => {
+  await participarDoGrupoDeTeste(migrate, clinicaId, grupoId)
+  return (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto, status)
        VALUES ($1, $2, 'Cliente de teste', 'FIR Clinic', $3) RETURNING id`,
       [grupoId, clinicaId, status],
     )
   ).rows[0]!.id
+}
 
 beforeAll(async () => {
   migrate = new pg.Client({ connectionString: URL_MIG })
@@ -327,6 +334,10 @@ afterAll(async () => {
     await migrate.query(`DELETE FROM ${t} WHERE cliente_carteira_id = ANY($1)`, [todos])
   }
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [todos])
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaA)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaB)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaC)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaD)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupoA, grupoB]])
   await apagarClinicaDeTeste(migrate, clinicaA)
   await apagarClinicaDeTeste(migrate, clinicaB)

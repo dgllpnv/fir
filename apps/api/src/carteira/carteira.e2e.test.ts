@@ -7,7 +7,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { AppModule } from '../app.module'
 import { PISO_DE_RESPOSTA_MS } from '../autenticacao/autenticacao.service'
 import { hashDeSenha } from '../autenticacao/senha'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../banco/limpeza-de-teste'
 import { registrarCookie } from '../main'
 import { DURACAO_SESSAO_CARTEIRA_MS } from './carteira.guard'
 
@@ -203,6 +208,8 @@ describe('GET /v1/carteira/clientes — P-12, isolamento de DADO, não só ident
         [`ccb-${sufixo}`],
       )
     ).rows[0]!.id
+    await participarDoGrupoDeTeste(migrate, clinicaA, grupo)
+    await participarDoGrupoDeTeste(migrate, clinicaB, grupoB)
     await migrate.query(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto) VALUES ($1, $2, 'Cliente A e2e', 'Acelerador FIR')`,
       [grupo, clinicaA],

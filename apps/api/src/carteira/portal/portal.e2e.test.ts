@@ -7,7 +7,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { AppModule } from '../../app.module'
 import { PISO_DE_RESPOSTA_MS } from '../../autenticacao/autenticacao.service'
 import { hashDeSenha } from '../../autenticacao/senha'
-import { apagarClinicaDeTeste, apagarOperadorDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  apagarOperadorDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../../banco/limpeza-de-teste'
 import { registrarCookie } from '../../main'
 import { DURACAO_SESSAO_PORTAL_MS } from './portal.guard'
 
@@ -97,6 +103,9 @@ beforeAll(async () => {
     )
   ).rows[0]!.id
 
+  await participarDoGrupoDeTeste(migrate, clinicaX, grupo)
+  await participarDoGrupoDeTeste(migrate, clinicaY, grupo)
+  await participarDoGrupoDeTeste(migrate, clinicaZ, grupoB)
   clienteX = (
     await migrate.query<{ id: string }>(
       `INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto) VALUES ($1, $2, 'Cliente Portal X', 'Acelerador FIR') RETURNING id`,
@@ -170,6 +179,9 @@ afterAll(async () => {
   await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [usuarioDeGestao])
   await migrate.query('DELETE FROM campanhas_carteira WHERE cliente_carteira_id = $1', [clienteX])
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [[clienteX, clienteY, clienteZ]])
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaX)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaY)
+  await apagarHistoricoGrupoDeTeste(migrate, clinicaZ)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [[grupo, grupoB]])
   await apagarClinicaDeTeste(migrate, clinicaX)
   await apagarClinicaDeTeste(migrate, clinicaY)

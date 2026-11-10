@@ -8,7 +8,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { AppModule } from '../../app.module'
 import { hashDeSenha } from '../../autenticacao/senha'
 import { BancoService } from '../../banco/banco.service'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../../banco/limpeza-de-teste'
+import {
+  apagarClinicaDeTeste,
+  apagarHistoricoGrupoDeTeste,
+  declararAtorSistema,
+  participarDoGrupoDeTeste,
+} from '../../banco/limpeza-de-teste'
 import { RELOGIO } from '../../comum/relogio'
 import { registrarCookie } from '../../main'
 import { LeituraDePlanilhas } from './ler-planilhas'
@@ -81,6 +86,7 @@ beforeAll(async () => {
       'Clínica',
     ])
     clinicas.push(clinica)
+    await participarDoGrupoDeTeste(migrate, clinica, grupo)
     return um(`INSERT INTO clientes_carteira (grupo_id, clinica_id, nome, produto) VALUES ($1, $2, 'Cliente', 'Consultoria') RETURNING id`, [
       grupo,
       clinica,
@@ -127,6 +133,7 @@ afterAll(async () => {
   await migrate.query('DELETE FROM tentativas_de_carteira WHERE identificador = ANY($1)', [[`geral.${sufixo}`, `grupoa.${sufixo}`]])
   await migrate.query('DELETE FROM usuarios_gestao WHERE id = ANY($1)', [usuarios])
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [clientes])
+  for (const c of clinicas) await apagarHistoricoGrupoDeTeste(migrate, c)
   await migrate.query('DELETE FROM grupos WHERE id = ANY($1)', [grupos])
   for (const c of clinicas) await apagarClinicaDeTeste(migrate, c)
   await migrate.end()
