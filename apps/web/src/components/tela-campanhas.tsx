@@ -560,6 +560,11 @@ function Importar({
           ))}
         </select>
       </label>
+      {linhas.length > 0 && responsavelId === '' ? (
+        <p className="nota" role="status">
+          Falta escolher o responsável acima para liberar o botão Importar.
+        </p>
+      ) : null}
       <div className="acoes-de-tela">
         <button
           type="button"

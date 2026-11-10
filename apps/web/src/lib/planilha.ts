@@ -100,7 +100,9 @@ export async function lerTabela(
     const bytes = await arquivo.arrayBuffer()
     const ehCsv = /\.(csv|txt)$/i.test(arquivo.name) || arquivo.type === 'text/csv'
     const livro = ehCsv
-      ? X.read(textoDoCsv(bytes), { type: 'string', cellDates: true })
+      ? // raw: o CSV é texto. Sem isso o SheetJS converte "2001-05-14" em Date e
+        // devolve "5/13/01" (mês e dia trocados, e um dia a menos pelo fuso).
+        X.read(textoDoCsv(bytes), { type: 'string', raw: true })
       : X.read(bytes, { type: 'array', cellDates: true })
     const primeira = livro.SheetNames[0]
     if (primeira === undefined) return null
