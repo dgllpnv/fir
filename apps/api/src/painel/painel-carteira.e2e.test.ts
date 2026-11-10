@@ -193,7 +193,7 @@ describe('POST /v1/superadmin/clientes-carteira', () => {
     expect(t.rows[0]!.ator_tipo).toBe('operador')
   })
 
-  it('clínica que já tem Cliente Firmare é 409', async () => {
+  it('clínica que já tem Cliente Firmare NESTE grupo é 409; em outro grupo é permitido (0068)', async () => {
     const g = await http()
       .post('/v1/superadmin/grupos')
       .set('Cookie', painel)
@@ -201,11 +201,19 @@ describe('POST /v1/superadmin/clientes-carteira', () => {
       .expect(201)
     criadosGrupos.push(g.body.grupo.id)
 
-    // A clínica principal deste arquivo já foi vinculada no teste anterior.
-    await http()
+    // A clínica principal deste arquivo já tem cliente em outro grupo: entrar neste é permitido.
+    const primeiro = await http()
       .post('/v1/superadmin/clientes-carteira')
       .set('Cookie', painel)
       .send({ grupoId: g.body.grupo.id, clinicaId: clinica, nome: 'Outra Vez', produto: 'Gestão' })
+      .expect(201)
+    expect(primeiro.body.cliente.conta_na_receita ?? primeiro.body.cliente.contaNaReceita ?? false).toBe(false)
+
+    // Duas vezes no MESMO grupo, não.
+    await http()
+      .post('/v1/superadmin/clientes-carteira')
+      .set('Cookie', painel)
+      .send({ grupoId: g.body.grupo.id, clinicaId: clinica, nome: 'Outra Vez 2', produto: 'Gestão' })
       .expect(409)
   })
 

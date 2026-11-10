@@ -36,3 +36,11 @@ sem nome de funcionária, sem investimento, supressão abaixo de 5).
 - **Bloqueante antes do backfill em produção:** cláusula P-3/DPA de cada clínica prevendo mais de um
   grupo, com os grupos como destinatários, e aviso à clínica na primeira designação.
 - `claude-security:scan` no diff e ensaio da migration num dump de produção antes do deploy.
+
+## Atualização depois do gate (2026-11-10)
+Não altera a decisão; registra o que a construção e o gate acrescentaram.
+- **0069:** o índice das campanhas sincronizadas inclui o cliente; cada grupo recebe a sua cópia e o `geral` deduplica por campanha e mês. O painel de metas do `geral` deduplica por clínica.
+- **Remover o grupo pagador é recusado (409)** até existir a ação "trocar pagador" (ticket pendente; recomendação no spec §8). Alternativa rejeitada: transferir o pagador automaticamente na remoção, porque move receita entre grupos sem decisão do Operador.
+- **Remoção desativa os usuários do portal** do cliente encerrado: o portal decide por cliente, não por grupo.
+- **0070, em fechamento** (`apps/api/migrations/0070_endurecimento_clinica_em_varios_grupos.sql`): só o Operador altera `conta_na_receita`; portal nunca no grupo de arquivo; `search_path` com `pg_temp`; operador inativo não designa; cliente arquivado não volta; clínica inativa gera cliente `pausado`.
+- **Bloqueantes antes do backfill em produção:** transparência à clínica (rota, tela com motivo, aviso na primeira designação), trilha de acesso dos novos destinatários, nota no ROPA e guarda do backfill por hash de `(id, grupo_id)` com contagem antes e depois.

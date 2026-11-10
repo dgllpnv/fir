@@ -158,6 +158,8 @@ afterAll(async () => {
   // O cliente B fica `onboarding` com mensalidade e vencimento (desde a 1F o
   // job diário cobra isso): a cobrança que o job — ou o teste do ajuste 6 —
   // gerar para ele, no grupo B deste arquivo, sai antes do cliente.
+  await migrate.query('DELETE FROM sessoes_do_portal WHERE usuario_portal_id IN (SELECT id FROM usuarios_do_portal WHERE cliente_carteira_id = ANY($1))', [todos])
+  await migrate.query('DELETE FROM usuarios_do_portal WHERE cliente_carteira_id = ANY($1)', [todos])
   await migrate.query('DELETE FROM beneficios_de_indicacao WHERE cliente_carteira_id = ANY($1)', [todos])
   await migrate.query('DELETE FROM cobrancas_do_cliente_firmare WHERE cliente_carteira_id = ANY($1)', [todos])
   await migrate.query('DELETE FROM parceiros_do_cliente WHERE cliente_carteira_id = ANY($1)', [todos])
@@ -534,11 +536,33 @@ describe('Operador — PATCH /v1/superadmin/clientes-carteira/:id', () => {
       .send({ grupoId: grupoC, motivo: 'Entrou na rede C' })
       .expect(409)
 
+    // Quem paga não sai: sem troca de pagador o MRR da clínica sumiria em silêncio.
+    const pagador = await migrate.query<{ conta: boolean }>('SELECT conta_na_receita AS conta FROM clientes_carteira WHERE id = $1', [clienteA])
+    expect(pagador.rows[0]!.conta).toBe(true)
+    await http()
+      .post(`/v1/superadmin/clinicas/${clinica}/grupos/remover`)
+      .set('Cookie', cookiePainel)
+      .send({ grupoId: grupoA, motivo: 'Saiu da rede A' })
+      .expect(409)
+    // O pagador passa a ser outro cliente da clínica (decisão do Operador, aqui por SQL de teste).
+    await migrate.query(`SELECT set_config('app.pessoa_id', 'operador:' || $1, false)`, [operador])
+    await migrate.query('UPDATE clientes_carteira SET conta_na_receita = false WHERE id = $1', [clienteA])
+    await declararAtorSistema(migrate)
+    const usuarioPortal = (
+      await migrate.query<{ id: string }>(
+        `INSERT INTO usuarios_do_portal (usuario, nome, senha_hash, escopo, cliente_carteira_id, ativo, ve_valores)
+         VALUES ($1, 'Portal da remocao', 'x', 'cliente', $2, true, false) RETURNING id`,
+        [`portal-remocao-${Date.now()}`, clienteA],
+      )
+    ).rows[0]!.id
+
     await http()
       .post(`/v1/superadmin/clinicas/${clinica}/grupos/remover`)
       .set('Cookie', cookiePainel)
       .send({ grupoId: grupoA, motivo: 'Saiu da rede A' })
       .expect(204)
+    const portal = await migrate.query<{ ativo: boolean }>('SELECT ativo FROM usuarios_do_portal WHERE id = $1', [usuarioPortal])
+    expect(portal.rows[0]!.ativo).toBe(false)
 
     const arquivo = (await migrate.query<{ id: string }>('SELECT id FROM grupos WHERE arquivo')).rows[0]!.id
     const h = await migrate.query<{ grupo_anterior_id: string | null; mudado_por: string; motivo: string }>(

@@ -584,6 +584,8 @@ com o dono (duas rodadas), revisado por `arquiteto-dominio`, `arquiteto-solucao`
 0011, 0012, 0013.
 
 ### `Grupo`
+> Nota (2026-11-10): "exatamente um grupo por vez" abaixo é o texto original; foi substituído, a clínica pode estar em vários grupos (ver `Grupo Firmare` e a ADR 2026-11-10-clinica-em-varios-grupos).
+
 Vínculo comercial **estável** entre a Firmare e um conjunto de `Clinica`s da mesma
 rede, franquia ou grupo médico — fato de tenancy, não concessão. **Toda `Clinica`
 tem `grupo_id NOT NULL`** e pertence a **exatamente um grupo por vez** (nunca dois
@@ -652,7 +654,7 @@ a mesma função no servidor e na tela:
 ### `Grupo Firmare`
 A linha **padrão** de `grupos` (`padrao = true`, migration 0067, ADR 2026-11-10): onde toda clínica
 nova nasce, com o `Cliente Firmare` criado junto. **A clínica está no Firmare e em quantos grupos o Operador designar** (ADR 2026-11-10-clinica-em-varios-grupos):
-adicionar e remover são operações com motivo; cada grupo tem o seu Cliente Firmare, e só um deles "conta na receita". Não confundir com o escopo `geral`, que vê **todos**
+adicionar e remover são operações com motivo; cada grupo tem o seu Cliente Firmare, e só um deles "conta na receita". O grupo que é o pagador (`conta_na_receita`) não pode ser removido (409) até existir a ação "trocar pagador"; remover um grupo desativa os usuários do portal do cliente encerrado. Não confundir com o escopo `geral`, que vê **todos**
 os grupos. Nenhum `Usuário de Gestão` de escopo `grupo` pode ser do Grupo Firmare (o banco recusa): quem
 vê a carteira inteira é o escopo `geral`.
 

@@ -26,6 +26,7 @@ import type pg from 'pg'
 import { BancoService } from '../../banco/banco.service'
 import { RELOGIO, type Relogio } from '../../comum/relogio'
 import { FUSO_DA_CARTEIRA } from '../fuso-da-carteira'
+import { umPorClinica } from '../um-por-clinica'
 import { gravarAuditoriaDaCarteira } from './auditoria-da-carteira'
 import { PESO_DO_DETALHE, SELECT_META, avaliarMetas, carregarContexto, rotuloDaFonte, type LinhaDaMeta } from './metas-avaliacao'
 import {
@@ -87,8 +88,11 @@ export class MetasDoClienteService {
         produto: string
         area_foco: string | null
         responsavel_nome: string | null
+        clinica_id: string | null
+        conta_na_receita: boolean
       }>(
-        `SELECT cl.id, cl.nome, cl.produto, cl.area_foco, u.nome AS responsavel_nome
+        `SELECT cl.id, cl.nome, cl.produto, cl.area_foco, u.nome AS responsavel_nome,
+                cl.clinica_id, cl.conta_na_receita
            FROM clientes_carteira cl
            LEFT JOIN usuarios_gestao u ON u.id = cl.responsavel_usuario_gestao_id
           WHERE cl.excluido_em IS NULL AND cl.status IN ('ativo', 'onboarding')
@@ -97,7 +101,9 @@ export class MetasDoClienteService {
           ORDER BY cl.nome`,
         [grupo, responsavelId],
       )
-      const ids = clientes.rows.map((x) => x.id)
+      // A clínica em 2+ grupos aparece uma vez só no `geral` (0068): fica o cliente que paga.
+      const lista = umPorClinica(clientes.rows)
+      const ids = lista.map((x) => x.id)
       const linhas =
         ids.length === 0
           ? []
@@ -123,7 +129,7 @@ export class MetasDoClienteService {
       }
 
       const porPeso = (a: MetaAvaliada, b: MetaAvaliada) => PESO_DO_DETALHE[a.avaliacao.detalhe] - PESO_DO_DETALHE[b.avaliacao.detalhe]
-      const grupos = clientes.rows
+      const grupos = lista
         .map((cl) => {
           const metas = avaliadas.filter((m) => m.clienteCarteiraId === cl.id).sort(porPeso)
           return {
@@ -145,7 +151,7 @@ export class MetasDoClienteService {
       return {
         hoje: this.hoje(),
         clientes: grupos,
-        semMeta: clientes.rows.filter((cl) => !linhas.some((m) => m.cliente_carteira_id === cl.id)).map((cl) => ({ id: cl.id, nome: cl.nome })),
+        semMeta: lista.filter((cl) => !linhas.some((m) => m.cliente_carteira_id === cl.id)).map((cl) => ({ id: cl.id, nome: cl.nome })),
         contagens,
         responsaveis: await equipeDoGrupo(c, grupo),
       }

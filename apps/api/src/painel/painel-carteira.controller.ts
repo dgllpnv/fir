@@ -41,7 +41,6 @@ import { mensagemDeValidacao, traduzirErroDoBanco } from '../carteira/cadastro-d
 import {
   ClienteCarteiraNaoExiste,
   ClienteJaTemClinica,
-  ClinicaDeOutroGrupo,
   ClinicaJaTemClienteFirmare,
   ClinicaOuGrupoNaoExiste,
   ContaDeGestaoDoOperadorFixa,
@@ -52,6 +51,7 @@ import {
   ClienteComClinicaNaoMudaDeGrupo,
   ClinicaJaEstaNoGrupo,
   ClinicaNaoEstaNoGrupo,
+  PagadorNaoSaiDoGrupo,
   GrupoPadraoNaoMuda,
   UsuarioDeGestaoJaExiste,
   UsuarioDeGestaoNaoExiste,
@@ -188,9 +188,6 @@ export class PainelCarteiraController {
       if (e instanceof ClinicaOuGrupoNaoExiste) {
         throw new NotFoundException('Clínica ou grupo não encontrado.')
       }
-      if (e instanceof ClinicaDeOutroGrupo) {
-        throw new ConflictException('Esta clínica pertence a outro grupo. Mude o grupo dela antes.')
-      }
       throw e
     }
   }
@@ -299,6 +296,9 @@ const traduzirGrupoDaClinica = (e: unknown): unknown => {
   if (e instanceof GrupoDesativado) return new HttpException('Este grupo está desativado.', HttpStatus.UNPROCESSABLE_ENTITY)
   if (e instanceof ClinicaJaEstaNoGrupo) return new ConflictException('A clínica já está neste grupo.')
   if (e instanceof ClinicaNaoEstaNoGrupo) return new ConflictException('A clínica não está neste grupo.')
+  if (e instanceof PagadorNaoSaiDoGrupo) {
+    return new ConflictException('Este grupo é quem paga pela clínica. Troque o pagador antes de remover.')
+  }
   if (e instanceof GrupoPadraoNaoMuda) return new ConflictException('A clínica não sai do grupo Firmare.')
   const x = e as { code?: string; constraint?: string }
   if (x.constraint === 'participacao_motivo_obrigatorio') return new BadRequestException('Informe o motivo.')

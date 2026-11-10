@@ -58,3 +58,19 @@ Appsec: com ressalvas. LGPD: com ressalvas. Números: com ressalvas. Nenhum veto
 - **Backfill**: inclui clínicas inativas; não copia contato, parceiros, observações, responsável nem campanhas; idempotente por índice; operador explícito (falha alto); guarda por hash de `(id, grupo_id)`; **só sobe com o DPA das clínicas confirmado pelo dono**.
 - **Transparência**: a clínica vê a lista de grupos que a recebem (nome e motivo) e a auditoria registra adição/remoção/backfill.
 - **Antes do deploy**: ADR nova primeiro; `claude-security:scan`; ensaio num dump de produção; retenção e ROPA.
+
+## 8. Depois do gate: o que mudou na construção (2026-11-10)
+O texto acima fica como histórico. Valem estas correções.
+
+- **0069, campanhas sincronizadas.** O índice único das campanhas sincronizadas passa a incluir o cliente: cada grupo da clínica recebe a sua cópia. O `geral` deduplica por campanha e mês (uma por clínica), nunca soma as cópias.
+- **Painel de metas do `geral`** deduplica por clínica (índice `um-por-clinica`): a clínica em três grupos conta uma vez.
+- **Remover o grupo que é o pagador é recusado (409)** até existir a ação "trocar pagador". Ticket pendente (T8): ação do Operador, com motivo e histórico, que move `conta_na_receita` para o cliente de outro grupo da mesma clínica, numa transação, mantendo exatamente um pagador. Recomendação: fazer antes de designar o primeiro grupo externo em produção; até lá a recusa é o comportamento correto, não um defeito.
+- **Remoção desativa os usuários do portal do cliente encerrado.** O portal de escopo cliente decide por cliente, não por grupo: encerrado o cliente, o acesso cai junto (estado `ativo = false`, nunca exclusão).
+- **Migration 0070, em fechamento** (arquivo `apps/api/migrations/0070_endurecimento_clinica_em_varios_grupos.sql`, teste `teste/endurecimento-0070.test.ts`; ainda não commitada). Fecha achados do appsec: só o Operador altera `conta_na_receita`; usuário do portal não pode ser do grupo de arquivo (nem do padrão); `search_path` com `pg_temp` por último nas funções SECURITY DEFINER novas; operador inativo não designa; cliente arquivado não é reativado; cliente de clínica inativa nasce `pausado`, fora do job de uso.
+
+### Pendências de transparência, antes do backfill em produção (bloqueantes)
+1. Rota e tela para a clínica ver os grupos que a recebem (hoje só a função SQL; falta mostrar o motivo).
+2. Aviso à clínica na primeira designação a um grupo.
+3. Trilha de acesso (regra 18) dos novos destinatários: quando cada grupo leu o agregado da clínica.
+4. Nota no ROPA: grupos designados como destinatários.
+5. Guarda do backfill por hash de `(id, grupo_id)` e contagem antes/depois (hoje só conta).

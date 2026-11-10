@@ -253,6 +253,12 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'tenants, não dado de nenhum deles.',
   },
   {
+    caminho: '/v1/superadmin/clinicas/:id/grupos',
+    razao:
+      'Os grupos da carteira comercial em que a clínica participa (nome, desde, ' +
+      'se é o padrão), vistos só pelo Operador. Nenhum valor, nenhum caixa, nenhum dia.',
+  },
+  {
     caminho: '/v1/superadmin/clinicas/:clinicaId/pessoas',
     razao:
       'As pessoas de uma clínica, vistas pelo painel: usuário, nome, função, ' +

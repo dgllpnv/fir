@@ -18,7 +18,6 @@ import { SISTEMA, type OperadorId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import {
   gravarCampos,
-  grupoDaClinica,
   moverClienteDeGrupo,
   registrarGrupoDaClinica,
   reprogramarCobrancasAbertas,
@@ -39,8 +38,8 @@ export class UsuarioDeGestaoJaExiste extends Error {}
 export class GrupoNaoExiste extends Error {}
 export class UsuarioDeGestaoNaoExiste extends Error {}
 export class ClienteCarteiraNaoExiste extends Error {}
-/** A clínica já está, pela trilha de tenancy, em OUTRO grupo (A-8). */
-export class ClinicaDeOutroGrupo extends Error {}
+/** O Cliente que paga (conta_na_receita) não sai do grupo enquanto não houver troca de pagador. */
+export class PagadorNaoSaiDoGrupo extends Error {}
 export class ClinicaJaEstaNoGrupo extends Error {}
 export class ClinicaNaoEstaNoGrupo extends Error {}
 export class ClienteComClinicaNaoMudaDeGrupo extends Error {}
@@ -371,6 +370,14 @@ export class PainelCarteiraService {
     await this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
       const arquivo = (await c.query<{ id: string }>('SELECT id FROM grupos WHERE arquivo')).rows[0]?.id
       if (!arquivo) throw new Error('grupo de arquivo ausente')
+      // Quem paga não sai: sem troca de pagador, o MRR e as cobranças da clínica sumiriam em silêncio.
+      const paga = await c.query(
+        `SELECT 1 FROM clientes_carteira
+          WHERE clinica_id = $1 AND grupo_id = $2 AND excluido_em IS NULL AND conta_na_receita
+            AND NOT EXISTS (SELECT 1 FROM grupos g WHERE g.id = $2 AND g.padrao)`,
+        [clinicaId, grupoId],
+      )
+      if ((paga.rowCount ?? 0) > 0) throw new PagadorNaoSaiDoGrupo()
       try {
         await c.query('SELECT encerrar_participacao_da_clinica($1, $2, $3)', [clinicaId, grupoId, motivo])
       } catch (e) {
@@ -394,6 +401,8 @@ export class PainelCarteiraService {
         [clienteId],
       )
       const movidas = await moverClienteDeGrupo(c, clienteId, arquivo)
+      // O portal do cliente decide por cliente, não por grupo: sem desativar o usuário, ele refaria o login e leria o arquivo.
+      await c.query('UPDATE usuarios_do_portal SET ativo = false WHERE cliente_carteira_id = $1 AND ativo', [clienteId])
       const revogadas = await c.query(
         `UPDATE sessoes_do_portal SET revogada_em = now()
           WHERE revogada_em IS NULL
