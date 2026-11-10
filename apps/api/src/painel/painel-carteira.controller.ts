@@ -18,6 +18,8 @@ import {
   RedefinirSenhaDoUsuarioDeGestaoEntrada,
   type SenhaDoUsuarioDeGestaoRedefinida,
   GrupoDaClinicaEntrada,
+  TrocarPagadorEntrada,
+  type PagadorTrocadoSaida,
 } from '@fir/contracts'
 import {
   BadRequestException,
@@ -52,6 +54,7 @@ import {
   ClinicaJaEstaNoGrupo,
   ClinicaNaoEstaNoGrupo,
   PagadorNaoSaiDoGrupo,
+  NovoPagadorInvalido,
   GrupoPadraoNaoMuda,
   UsuarioDeGestaoJaExiste,
   UsuarioDeGestaoNaoExiste,
@@ -226,6 +229,30 @@ export class PainelCarteiraController {
     }
   }
 
+  /**
+   * T8: troca quem paga pela clínica entre os clientes ativos dela. Idempotente
+   * (já é o pagador: 200, `trocou: false`). A mensalidade não acompanha.
+   */
+  @Post('clinicas/:id/pagador')
+  @HttpCode(200)
+  async trocarPagador(@Param('id') id: string, @Body() corpo: unknown, @Req() req: RequisicaoComPainel): Promise<PagadorTrocadoSaida> {
+    if (!Uuid.safeParse(id).success) throw new NotFoundException('Clínica não encontrada.')
+    const dados = TrocarPagadorEntrada.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(mensagemDeValidacao(dados.error.issues))
+    try {
+      const r = await this.servico.trocarPagadorDaClinica(req.painel!.ator, id, dados.data.clienteId, dados.data.motivo)
+      return {
+        ...r,
+        aviso: 'A mensalidade não é copiada: o MRR da clínica passa a ser o da mensalidade do novo pagador. Lance-a no cadastro dele.',
+      }
+    } catch (e) {
+      if (e instanceof NovoPagadorInvalido) {
+        throw new ConflictException('O novo pagador precisa ser um cliente ativo desta clínica.')
+      }
+      throw e
+    }
+  }
+
   /** Todos os `Cliente Firmare`, para mostrar quem pertence a cada grupo. */
   @Get('clientes-carteira')
   async listarClientesCarteira(@Req() req: RequisicaoComPainel): Promise<ListaDeClientesCarteiraNoPainelSaida> {
@@ -297,7 +324,7 @@ const traduzirGrupoDaClinica = (e: unknown): unknown => {
   if (e instanceof ClinicaJaEstaNoGrupo) return new ConflictException('A clínica já está neste grupo.')
   if (e instanceof ClinicaNaoEstaNoGrupo) return new ConflictException('A clínica não está neste grupo.')
   if (e instanceof PagadorNaoSaiDoGrupo) {
-    return new ConflictException('Este grupo é quem paga pela clínica. Troque o pagador antes de remover.')
+    return new ConflictException('Este grupo é quem paga pela clínica. Troque o pagador (Tornar pagador, em outro grupo da clínica) antes de remover.')
   }
   if (e instanceof GrupoPadraoNaoMuda) return new ConflictException('A clínica não sai do grupo Firmare.')
   const x = e as { code?: string; constraint?: string }

@@ -311,6 +311,7 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'fechado (competência faturada), nunca um dia em aberto.',
   },
   { caminho: '/v1/clinica', razao: 'Nome, código e fuso da clínica.' },
+  { caminho: '/v1/clinica/grupos', razao: 'Os grupos da carteira que recebem a clínica: nome, desde e motivo da designação (transparência, spec clinica-em-varios-grupos). Nenhum valor, nenhum cliente, nenhum dia de caixa.' },
   { caminho: '/v1/equipe', razao: 'As pessoas ativas, para os seletores. Nenhum valor.' },
   { caminho: '/v1/carteira/resumo/semanal', razao: 'Resumo semanal da carteira (G8 3C, S1): texto com contagens de clientes, ações, campanhas e tarefas internas, e o MRR (soma de mensalidades de contrato) só com valores. Nenhum dado de caixa de clínica, nenhum esperado.' },
   { caminho: '/v1/carteira/uso', razao:'Uso diário da FIR Clinic na carteira (G8 1D): lê só dias ANTERIORES a hoje no fuso de cada clínica; a receita é o dinheiro que entrou (painel), nunca o esperado do caixa por forma, e sai redigida.' },

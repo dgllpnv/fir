@@ -41,6 +41,8 @@ export class ClienteCarteiraNaoExiste extends Error {}
 /** O Cliente que paga (conta_na_receita) não sai do grupo enquanto não houver troca de pagador. */
 export class PagadorNaoSaiDoGrupo extends Error {}
 export class ClinicaJaEstaNoGrupo extends Error {}
+/** O novo pagador não é um cliente ativo desta clínica (outra clínica, excluído ou arquivado). */
+export class NovoPagadorInvalido extends Error {}
 export class ClinicaNaoEstaNoGrupo extends Error {}
 export class ClienteComClinicaNaoMudaDeGrupo extends Error {}
 export class ClienteJaTemClinica extends Error {}
@@ -422,16 +424,70 @@ export class PainelCarteiraService {
     })
   }
 
-  /** Os grupos em que a clínica está agora (só o Operador lê; vê todos). */
-  async gruposDaClinica(ator: OperadorId, clinicaId: string): Promise<Array<{ grupoId: string; nome: string; desde: string; padrao: boolean }>> {
+  /**
+   * T8: troca quem paga pela clínica. A função do banco desliga o pagador
+   * atual e liga o novo numa transação e grava o histórico; a mensalidade NÃO
+   * é copiada: o MRR passa a ser a do novo pagador, e o dono a lança à mão.
+   */
+  async trocarPagadorDaClinica(
+    ator: OperadorId,
+    clinicaId: string,
+    clienteId: string,
+    motivo: string,
+  ): Promise<{ pagadorId: string; anteriorId: string | null; trocou: boolean }> {
     return this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
-      const r = await c.query<{ grupo_id: string; nome: string; desde: Date; padrao: boolean }>(
-        `SELECT p.grupo_id, g.nome, p.desde, g.padrao FROM participacao_clinica_grupo p
+      const atual = await c.query<{ id: string }>(
+        `SELECT id FROM clientes_carteira WHERE clinica_id = $1 AND excluido_em IS NULL AND conta_na_receita`,
+        [clinicaId],
+      )
+      const anteriorId = atual.rows[0]?.id ?? null
+      try {
+        await c.query('SELECT trocar_pagador_da_clinica($1, $2, $3)', [clinicaId, clienteId, motivo])
+      } catch (e) {
+        const x = e as { code?: string; constraint?: string }
+        if (x.constraint === 'pagador_cliente_invalido') throw new NovoPagadorInvalido()
+        throw e
+      }
+      const trocou = anteriorId !== clienteId
+      if (trocou) {
+        await registrarNoPainel(c, {
+          atorTipo: 'operador',
+          atorId: ator.id,
+          acao: 'alterou',
+          entidade: 'clientes_carteira',
+          entidadeId: clienteId,
+          de: { pagador_id: anteriorId },
+          para: { pagador_id: clienteId, clinica_id: clinicaId },
+          motivo,
+        })
+      }
+      return { pagadorId: clienteId, anteriorId, trocou }
+    })
+  }
+
+  /** Os grupos em que a clínica está agora (só o Operador lê; vê todos). */
+  async gruposDaClinica(
+    ator: OperadorId,
+    clinicaId: string,
+  ): Promise<Array<{ grupoId: string; nome: string; desde: string; padrao: boolean; clienteId: string | null; paga: boolean }>> {
+    return this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
+      const r = await c.query<{ grupo_id: string; nome: string; desde: Date; padrao: boolean; cliente_id: string | null; paga: boolean }>(
+        `SELECT p.grupo_id, g.nome, p.desde, g.padrao, cc.id AS cliente_id, coalesce(cc.conta_na_receita, false) AS paga
+           FROM participacao_clinica_grupo p
            JOIN grupos g ON g.id = p.grupo_id
+           LEFT JOIN clientes_carteira cc
+             ON cc.clinica_id = p.clinica_id AND cc.grupo_id = p.grupo_id AND cc.excluido_em IS NULL
           WHERE p.clinica_id = $1 AND p.ate IS NULL ORDER BY p.desde, g.nome`,
         [clinicaId],
       )
-      return r.rows.map((x) => ({ grupoId: x.grupo_id, nome: x.nome, desde: x.desde.toISOString(), padrao: x.padrao }))
+      return r.rows.map((x) => ({
+        grupoId: x.grupo_id,
+        nome: x.nome,
+        desde: x.desde.toISOString(),
+        padrao: x.padrao,
+        clienteId: x.cliente_id,
+        paga: x.paga,
+      }))
     })
   }
 

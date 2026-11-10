@@ -220,6 +220,15 @@ export const MENU: readonly ItemDeMenu[] = [
       'O link iCal da agenda do sistema da clínica, que cria e reagenda os cartões da jornada sozinho.',
   },
   {
+    href: '/grupos-da-clinica',
+    rotulo: 'Grupos que recebem a clínica',
+    grupo: 'Gestão',
+    /** `config`, o mesmo que `GET /v1/clinica/grupos` exige. Transparência: quem recebe o uso agregado da clínica. */
+    perm: 'config',
+    epico: null,
+    promessa: 'Quais grupos recebem os números agregados da clínica, desde quando e por quê.',
+  },
+  {
     href: '/ajuda',
     rotulo: 'Ajuda e manual',
     grupo: 'Gestão',

@@ -104,6 +104,13 @@ const ICONES: Readonly<Record<string, ReactElement>> = {
     <circle key="c" cx="17.5" cy="15.5" r="2.2" />,
     <path key="d" d="M19.2 17.2 22 20M20 18.4l1-1" />,
   ),
+  /* Três círculos ligados: a rede de grupos que recebe a clínica. */
+  '/grupos-da-clinica': svg(
+    <circle key="a" cx="12" cy="5.5" r="2.5" />,
+    <circle key="b" cx="5.5" cy="17.5" r="2.5" />,
+    <circle key="c" cx="18.5" cy="17.5" r="2.5" />,
+    <path key="d" d="M10.8 7.7 6.7 15.3M13.2 7.7l4.1 7.6M8 17.5h8" />,
+  ),
   /* Frasco com gota: procedimento consome insumo — é o que liga ao estoque. */
   '/procedimentos': svg(
     <path key="a" d="M10 2.5h4M11 2.5v5.2L6.6 16a3 3 0 0 0 2.6 4.5h5.6a3 3 0 0 0 2.6-4.5L13 7.7V2.5" />,

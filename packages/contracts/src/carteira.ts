@@ -745,7 +745,35 @@ export const GrupoDaClinicaEntrada = z
   .strict()
 export type GrupoDaClinicaEntrada = z.infer<typeof GrupoDaClinicaEntrada>
 
+/** T8: trocar quem paga pela clínica entre os clientes ativos dela. A mensalidade NÃO acompanha. */
+export const TrocarPagadorEntrada = z
+  .object({
+    clienteId: z.string().uuid(),
+    motivo: z.string().trim().min(3).max(300),
+  })
+  .strict()
+export type TrocarPagadorEntrada = z.infer<typeof TrocarPagadorEntrada>
+
+export const PagadorTrocadoSaida = z.object({
+  pagadorId: z.string().uuid(),
+  anteriorId: z.string().uuid().nullable(),
+  /** false quando o cliente já era o pagador: nada foi gravado. */
+  trocou: z.boolean(),
+  aviso: z.string(),
+})
+export type PagadorTrocadoSaida = z.infer<typeof PagadorTrocadoSaida>
+
 export const GruposDaClinicaSaida = z.object({
-  grupos: z.array(z.object({ grupoId: z.string().uuid(), nome: z.string(), desde: z.string(), padrao: z.boolean() })),
+  grupos: z.array(
+    z.object({
+      grupoId: z.string().uuid(),
+      nome: z.string(),
+      desde: z.string(),
+      padrao: z.boolean(),
+      /** O Cliente Firmare da clínica neste grupo (null se não há) e se ele é quem paga. */
+      clienteId: z.string().uuid().nullable(),
+      paga: z.boolean(),
+    }),
+  ),
 })
 export type GruposDaClinicaSaida = z.infer<typeof GruposDaClinicaSaida>

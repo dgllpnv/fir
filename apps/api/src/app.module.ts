@@ -9,6 +9,7 @@ import { AutorizacaoGuard } from './autorizacao/autorizacao.guard'
 import { BancoModule } from './banco/banco.module'
 import { AgendaModule } from './agenda/agenda.module'
 import { ClinicaModule } from './clinica/clinica.module'
+import { ClinicaGruposModule } from './clinica-grupos/clinica-grupos.module'
 import { EstoqueModule } from './estoque/estoque.module'
 import { FinanceiroModule } from './financeiro/financeiro.module'
 import { HojeModule } from './hoje/hoje.module'
@@ -73,6 +74,7 @@ import { TarefasModule } from './tarefas/tarefas.module'
     TarefasModule,
     JornadaModule,
     ClinicaModule,
+    ClinicaGruposModule,
     // A agenda do sistema da clínica (ADR 0019).
     AgendaModule,
     FinanceiroModule,

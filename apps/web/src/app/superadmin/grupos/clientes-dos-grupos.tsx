@@ -6,6 +6,7 @@ import {
   type GrupoNaLista,
   type GruposDaClinicaSaida,
   type ListaDeClientesCarteiraNoPainelSaida,
+  type PagadorTrocadoSaida,
   type StatusDoClienteFirmare,
 } from '@fir/contracts'
 import { useEffect, useState } from 'react'
@@ -269,6 +270,7 @@ function GruposDaClinica({
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [tentativa, setTentativa] = useState(0)
+  const [aviso, setAviso] = useState('')
 
   useEffect(() => {
     let valeu = true
@@ -310,6 +312,29 @@ function GruposDaClinica({
     }
   }
 
+  async function tornarPagador(clienteId: string) {
+    if (motivo.trim().length < 3) {
+      setErro('Informe o motivo (sem dado de paciente).')
+      return
+    }
+    setErro('')
+    setEnviando(true)
+    try {
+      const r = await chamar<PagadorTrocadoSaida>(`v1/superadmin/clinicas/${clinicaId}/pagador`, {
+        method: 'POST',
+        body: JSON.stringify({ clienteId, motivo: motivo.trim() }),
+      })
+      setMotivo('')
+      setAviso(r.aviso)
+      setTentativa((n) => n + 1)
+      aoMudar()
+    } catch (x) {
+      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
   return (
     <fieldset className="campo">
       <legend>Grupos da clínica</legend>
@@ -320,6 +345,15 @@ function GruposDaClinica({
           {atuais.map((g) => (
             <li key={g.grupoId}>
               {g.nome}
+              {g.paga ? <span className="muted"> (paga)</span> : null}
+              {g.paga || g.clienteId === null ? null : (
+                <>
+                  {' '}
+                  <button type="button" className="link" disabled={enviando} onClick={() => tornarPagador(g.clienteId!)}>
+                    Tornar pagador
+                  </button>
+                </>
+              )}
               {g.padrao ? null : (
                 <>
                   {' '}
@@ -352,7 +386,8 @@ function GruposDaClinica({
           </button>
         </label>
       )}
-      <p className="nota">Remover tira o cliente daquele grupo; o Firmare sempre fica.</p>
+      <p className="nota">Remover tira o cliente daquele grupo; o Firmare sempre fica. Quem paga é o único que entra no MRR e na cobrança; a mensalidade não acompanha a troca.</p>
+      {aviso === '' ? null : <p className="nota">{aviso}</p>}
       {erro === '' ? null : <p role="alert" className="erro-do-painel">{erro}</p>}
     </fieldset>
   )

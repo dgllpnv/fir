@@ -59,3 +59,5 @@ export * from './resumo-semanal-carteira'
 export * from './visao-geral-carteira'
 // G8 3D — biblioteca geral (personalizados) e a regra do benefício de indicação.
 export * from './biblioteca-e-beneficio-carteira'
+// Transparência: os grupos que recebem a clínica.
+export * from './grupos-da-clinica'

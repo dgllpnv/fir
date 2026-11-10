@@ -8,7 +8,7 @@ const href = (u: { admin: boolean; perfilId: string | null }) =>
 
 describe('menu por permissão', () => {
   it('administrador vê tudo', () => {
-    expect(href({ admin: true, perfilId: null })).toHaveLength(22)
+    expect(href({ admin: true, perfilId: null })).toHaveLength(23)
   })
 
   it('enfermagem vê programas e estoque, não vê financeiro', () => {
