@@ -8,6 +8,7 @@ URL para `127.0.0.1:<porta>` (o carregador não sabe, e não deve saber, que o o
     tsx infra/migracao-supabase/cli.ts --dump <dump.csv>                      # --dry-run (padrão), sem banco
     tsx infra/migracao-supabase/cli.ts --dump <dump.csv> --correspondencia <proposta.json>  # SÓ LÊ o banco
     tsx infra/migracao-supabase/cli.ts --dump <dump.csv> --aplicar            # carga + conferência, uma transação
+    ... --excluir <lista.txt>             # registros retidos p/ leitura da dona (colecao;id), fora do repo
     ... --saida <arquivo>                 # relatório COM valores (centavos)
     ... --metas-para-decisao <arquivo>    # CSV das metas rejeitadas por regra do domínio
     (os arquivos de saída só podem estar FORA do repositório: `saida_dentro_do_repositorio`)

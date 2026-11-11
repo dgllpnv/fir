@@ -11,7 +11,7 @@ import { resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { executarCarga, gerarCorrespondencia, relatorioDaCarga, validarDestino, ErroDeCarga, type ClienteSql } from './banco'
-import { ErroDeDump, lerDump, metasParaDecisaoCsv, planejar, relatorioDoPlano, type Plano } from './nucleo'
+import { ErroDeDump, lerDump, lerListaDeExclusao, metasParaDecisaoCsv, planejar, relatorioDoPlano, retirarDoDump, type Plano } from './nucleo'
 
 function argumento(nome: string): string | undefined {
   const i = process.argv.indexOf(nome)
@@ -77,7 +77,13 @@ async function principal(): Promise<number> {
     const v = argumento(f)
     if (v) destinoForaDoRepo(v)
   }
-  const dump = lerDump(argumento('--dump') ?? process.env['FIR_MIGRACAO_DUMP'] ?? '')
+  const dumpCru = lerDump(argumento('--dump') ?? process.env['FIR_MIGRACAO_DUMP'] ?? '')
+  const arquivoDeExclusao = argumento('--excluir')
+  const retirada = arquivoDeExclusao
+    ? retirarDoDump(dumpCru, lerListaDeExclusao(readFileSync(arquivoDeExclusao, 'utf8')))
+    : { dump: dumpCru, retirados: 0 }
+  const dump = retirada.dump
+  if (arquivoDeExclusao) console.log(`RETIDOS PARA LEITURA DA DONA: ${retirada.retirados} registros fora desta carga (--excluir)`)
   if (tem('--correspondencia')) return correspondencia(dump)
   if (!tem('--aplicar')) {
     const p = planejar(dump, {

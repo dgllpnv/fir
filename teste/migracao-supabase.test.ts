@@ -9,9 +9,11 @@ import {
   idDe,
   LiteralNumerico,
   lerDumpDeTexto,
+  lerListaDeExclusao,
   metasParaDecisaoCsv,
   planejar,
   relatorioDoPlano,
+  retirarDoDump,
   segundaDaSemanaIso,
   uuidV5,
   type Dump,
@@ -241,6 +243,28 @@ describe('dry-run sobre dado sintético', () => {
     const plano = planejar(dump, opcoes)
     expect(plano.resultados.find((r) => r.colecao === 'metas' && r.idOrigem === `${p}-m4`)?.motivo).toBe('percentual_com_soma')
     expect(plano.resultados.find((r) => r.colecao === 'checkins' && r.idOrigem === `${p}-k4`)?.motivo).toBe('meta_nao_carregavel')
+  })
+})
+
+describe('--excluir: registros retidos para leitura da dona (decisão 4.5)', () => {
+  const opcoes = { grupoId: '00000000-0000-0000-0000-000000000000', usuarioCargaId: '00000000-0000-0000-0000-000000000000', mapaUsuarios: {}, instanteDaCarga: '2026-11-10T00:00:00Z', decisoesCliente: {} }
+  const alvoDe = () => dump.registros.find((r) => r.colecao === 'tarefas')!
+  it('lê colecao;id, ignora cabeçalho e comentário, e recusa excluir cliente', () => {
+    const alvo = alvoDe()
+    const lista = lerListaDeExclusao(`﻿colecao;id;padroes\n${alvo.colecao};${alvo.id};paciente\n(comentario solto)\n\n`)
+    expect(lista).toEqual([`${alvo.colecao};${alvo.id}`])
+    expect(() => lerListaDeExclusao('clientes;abc123')).toThrow(ErroDeDump)
+  })
+  it('retira só o listado, conta, e a origem recalculada do dump continua fechando', () => {
+    const alvo = alvoDe()
+    const r = retirarDoDump(dump, [`${alvo.colecao};${alvo.id}`])
+    expect(r.retirados).toBe(1)
+    expect(r.dump.registros.length).toBe(dump.registros.length - 1)
+    expect(planejar(r.dump, opcoes).resultados.length).toBe(r.dump.registros.length)
+    expect(planejar(r.dump, opcoes).resultados.some((x) => x.idOrigem === alvo.id)).toBe(false)
+  })
+  it('id que não existe no dump é erro (um typo carregaria o registro que devia ficar fora)', () => {
+    expect(() => retirarDoDump(dump, ['tarefas;nao-existe'])).toThrow('exclusao_nao_encontrada')
   })
 })
 

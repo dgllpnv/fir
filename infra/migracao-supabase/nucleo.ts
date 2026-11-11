@@ -137,6 +137,41 @@ export function lerDump(caminho: string): Dump {
   return lerDumpDeTexto(readFileSync(caminho, 'utf8'))
 }
 
+/**
+ * Lista de registros que a dona precisa ler antes de irem para o sistema (decisão 4.5 da ADR).
+ * Formato `colecao;id[;qualquer coisa]`, uma por linha; cabeçalho e linhas de comentário são ignorados.
+ * O arquivo mora FORA do repositório: ids de origem identificam registros reais.
+ */
+export function lerListaDeExclusao(texto: string): string[] {
+  const chaves = new Set<string>()
+  for (const linha of texto.replace(/^﻿/, '').split(/\r?\n/)) {
+    const [colecao, id] = linha.split(';').map((s) => s.trim())
+    if (!colecao || !id || colecao === 'colecao') continue
+    if (!/^[a-z_]+$/.test(colecao) || !/^[A-Za-z0-9_-]+$/.test(id)) continue
+    if (colecao === 'clientes') throw new ErroDeDump('exclusao_de_cliente_proibida')
+    chaves.add(`${colecao};${id}`)
+  }
+  return [...chaves]
+}
+
+/**
+ * Tira do dump, ANTES de planejar, os registros retidos. Como a origem da conferência é recalculada
+ * deste dump, a equação segue fechando; a contagem retirada vai no relatório e nunca some em silêncio.
+ * Chave que não existe no dump é erro: um typo carregaria justamente o registro que devia ficar de fora.
+ */
+export function retirarDoDump(dump: Dump, chaves: readonly string[]): { dump: Dump; retirados: number } {
+  const alvo = new Set(chaves)
+  const achados = new Set<string>()
+  const registros = dump.registros.filter((r) => {
+    const k = `${r.colecao};${r.id}`
+    if (!alvo.has(k)) return true
+    achados.add(k)
+    return false
+  })
+  if (achados.size !== alvo.size) throw new ErroDeDump('exclusao_nao_encontrada')
+  return { dump: { ...dump, registros }, retirados: achados.size }
+}
+
 // ---------------------------------------------------------------------------
 // Conversões (valor, data) — pelos dígitos, nunca por Number
 // ---------------------------------------------------------------------------

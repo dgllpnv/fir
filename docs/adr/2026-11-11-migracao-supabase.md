@@ -76,9 +76,10 @@ do COMMIT; divergência é ROLLBACK.
 3. **As 9 metas** (`%` com `soma`): continuam fora. O domínio não muda. A dona recria à mão, ou decide por
    outra agregação, usando a lista fora do repo.
 4. **Texto de pagamento do mês (P-18):** não vira cobrança nem receita, como já decidido. Fica na origem.
-5. **Os 10 registros com "paciente/tratamento":** retidos da carga real até a dona ler. Hoje o carregador
-   não tem opção para excluir ids; essa opção (`--excluir`, arquivo fora do repo) precisa existir e ser
-   testada antes da carga real.
+5. **Os registros com "paciente/tratamento":** retidos da carga real até a dona ler. Opção `--excluir
+   <arquivo>` (lista `colecao;id`, fora do repo): tira os ids do dump antes de planejar, imprime a
+   contagem retida, recusa excluir cliente e falha se um id não existir. A equação de conferência segue
+   fechando. Ensaiado no dump real (9 retidos, equação OK) e em teste sintético.
 6. **Supabase não é desligado.** Nenhum passo desta migração desliga, pausa, apaga ou escreve no Supabase:
    o carregador só lê o dump baixado. Ele continua em uso e como fonte da verdade até o dono decidir o
    contrário. Fica **sem data** de desligamento, e a revogação da chave de acesso **não é feita**. A
