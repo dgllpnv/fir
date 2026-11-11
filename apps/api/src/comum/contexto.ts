@@ -1,4 +1,4 @@
-import type { ChaveDePermissao, Perfil } from '@fir/domain'
+import type { AtorDeAcesso, ChaveDePermissao, Perfil } from '@fir/domain'
 import type { OperadorPublico, PessoaPublica } from '@fir/contracts'
 import type { Ator } from '../banco/ator'
 import type { ClinicaId } from '../banco/clinica-id'
@@ -65,3 +65,21 @@ export type ContextoDaRequisicao = {
 export type PerfilComChave = Perfil & { readonly chave: string }
 
 export type RequisicaoComContexto = { contexto?: ContextoDaRequisicao }
+
+/**
+ * O ator como a FRONTEIRA DE PRIVILÉGIO de pessoas o enxerga (`AtorDeAcesso`).
+ *
+ * **De onde vem `admin`:** da `pessoa` que o guard leu do banco NESTA
+ * requisição (nunca do cookie, que só carrega o hash da sessão) — ou `true`
+ * para o `operador` da sessão de suporte (D-13), que é administradora por
+ * construção. Serve a PRÉ-CHECAGENS baratas, feitas antes de uma operação
+ * cara (Argon2). A decisão que vale é a releitura DENTRO da transação, depois
+ * do lock da clínica (`pessoas/acesso-do-ator.ts`): entre o guard e a escrita
+ * a pessoa pode ter sido rebaixada por outra aba.
+ */
+export function atorDeAcessoDoContexto(c: ContextoDaRequisicao): AtorDeAcesso {
+  if (c.pessoa !== null) {
+    return { tipo: 'pessoa', id: c.pessoa.id, admin: c.pessoa.admin, perfilId: c.pessoa.perfilId }
+  }
+  return { tipo: 'operador', admin: true }
+}

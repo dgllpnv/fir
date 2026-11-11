@@ -1,3 +1,4 @@
+import { type ChaveDePermissao, type Perfil, temPerm } from './permissoes'
 import { erro, erroDe, ok, type Result } from './resultado'
 
 /**
@@ -237,6 +238,176 @@ export function podeRemoverPerfis(
       `Há pessoas usando um perfil que seria excluído: ${presos
         .map((p) => nomeDe(p.id))
         .join(', ')}. Troque o perfil delas antes.`,
+    ),
+  )
+}
+
+// ---------------------------------------------------------------------------
+// A FRONTEIRA DE PRIVILÉGIO — quem pode mexer em quem
+// ---------------------------------------------------------------------------
+
+/**
+ * Quem está agindo, no que a fronteira de privilégio precisa saber.
+ *
+ * `admin` NÃO vem do cookie: para `pessoa` o servidor o relê do banco dentro da
+ * transação, depois do lock da clínica; para `operador` é `true` por construção
+ * (sessão de suporte, D-13). O operador não tem id de pessoa nem perfil.
+ */
+export type AtorDeAcesso =
+  | {
+      readonly tipo: 'pessoa'
+      readonly id: string
+      readonly admin: boolean
+      readonly perfilId: string | null
+    }
+  | { readonly tipo: 'operador'; readonly admin: true }
+
+/**
+ * Códigos de RECUSA DE PRIVILÉGIO — a borda os traduz em 403, e a recusa de
+ * ESTADO (`MOTIVO_PESSOA`, última administradora) continua 422.
+ */
+export const MOTIVO_PRIVILEGIO = {
+  SO_ADMIN_CONCEDE: 'SoAdministradoraConcedeAdministracao',
+  NAO_AGE_SOBRE_ADMIN: 'NaoAgeSobreAdministradora',
+  NAO_AGE_SOBRE_PERFIL_MAIS_RICO: 'NaoAgeSobrePessoaDePerfilMaisRico',
+  CHAVE_QUE_NAO_TEM: 'NaoConcedeChaveQueNaoTem',
+  AUTO_ATRIBUICAO: 'AutoAtribuicaoDePerfil',
+  SENHA_DE_ADMIN_SO_GERADA: 'SenhaDeAdministradoraSoGerada',
+  SO_ADMIN_EDITA_PERFIS: 'SoAdministradoraEditaPerfis',
+} as const
+
+const CODIGOS_DE_PRIVILEGIO: ReadonlySet<string> = new Set(Object.values(MOTIVO_PRIVILEGIO))
+
+/** `true` quando o código é recusa de privilégio (403), `false` quando é de estado (422). */
+export const ehRecusaDePrivilegio = (codigo: string): boolean => CODIGOS_DE_PRIVILEGIO.has(codigo)
+
+/**
+ * **Criar, promover e rebaixar administradora: só administradora** (ou operador).
+ *
+ * `config` abre a tela e NÃO basta — sem esta função uma supervisão com
+ * Configurações liberada se promove. `alvo = null` é a criação. Quando nada
+ * muda (promover quem já é admin) é no-op e passa: o clique duplo não vira
+ * erro nem escrita.
+ */
+export function podeConcederAdministracao(
+  ator: AtorDeAcesso,
+  alvo: { readonly admin: boolean } | null,
+  novoAdmin: boolean,
+): Result<void> {
+  if ((alvo?.admin ?? false) === novoAdmin) return ok(undefined)
+  if (ator.admin) return ok(undefined)
+  return erro(
+    erroDe(
+      MOTIVO_PRIVILEGIO.SO_ADMIN_CONCEDE,
+      'Só uma administradora da clínica cria, promove ou rebaixa administradoras.',
+    ),
+  )
+}
+
+/**
+ * Não-admin só concede chave que ele próprio tem — `temPerm`, com as
+ * dependências da tabela (`finmes` sem `valores` não vale).
+ */
+export function podeConcederChave(
+  ator: AtorDeAcesso,
+  perfis: readonly Perfil[],
+  chaves: readonly ChaveDePermissao[],
+): Result<void> {
+  if (ator.admin) return ok(undefined)
+  const quem = { admin: false, perfilId: ator.perfilId ?? '' }
+  if (chaves.every((k) => temPerm(quem, perfis, k))) return ok(undefined)
+  return erro(
+    erroDe(
+      MOTIVO_PRIVILEGIO.CHAVE_QUE_NAO_TEM,
+      'Você só pode dar acesso ao que você mesma tem. Esse perfil libera mais do que o seu.',
+    ),
+  )
+}
+
+const permsDoPerfil = (perfis: readonly Perfil[], id: string | null): readonly ChaveDePermissao[] =>
+  id === null ? [] : (perfis.find((p) => p.id === id)?.perms ?? [])
+
+/**
+ * Atribuir o perfil `perfilId` a alguém (criar pessoa, trocar acesso).
+ *
+ * `alvoId` é a pessoa que o recebe, ou `null` na criação: quando é o próprio
+ * ator, a recusa carrega o código de **auto-atribuição** (A-19), que a tela e
+ * a trilha distinguem de dar o perfil a outra pessoa.
+ */
+export function podeAtribuirPerfil(
+  ator: AtorDeAcesso,
+  perfis: readonly Perfil[],
+  perfilId: string,
+  alvoId: string | null,
+): Result<void> {
+  const r = podeConcederChave(ator, perfis, permsDoPerfil(perfis, perfilId))
+  if (!ehErroDe(r)) return r
+  if (ator.tipo === 'pessoa' && alvoId === ator.id) {
+    return erro(
+      erroDe(
+        MOTIVO_PRIVILEGIO.AUTO_ATRIBUICAO,
+        'Você não pode dar a si mesma um perfil com mais acesso do que o seu.',
+      ),
+    )
+  }
+  return r
+}
+
+const ehErroDe = (r: Result<void>): boolean => r.tipo === 'erro'
+
+/**
+ * **Quem não é administradora não age sobre administradora**, nem sobre quem
+ * tem perfil mais rico que o dela — editar nome/função, redefinir senha,
+ * desativar, **reativar**, excluir. Redefinir a senha de uma admin é tomar a
+ * conta dela; reativar uma admin inativa é devolver acesso total.
+ */
+export function podeAgirSobre(
+  ator: AtorDeAcesso,
+  alvo: PessoaDaClinica,
+  perfis: readonly Perfil[],
+): Result<void> {
+  if (ator.admin) return ok(undefined)
+  if (alvo.admin) {
+    return erro(
+      erroDe(
+        MOTIVO_PRIVILEGIO.NAO_AGE_SOBRE_ADMIN,
+        'Só uma administradora age sobre outra administradora.',
+      ),
+    )
+  }
+  if (podeConcederChave(ator, perfis, permsDoPerfil(perfis, alvo.perfilId)).tipo === 'erro') {
+    return erro(
+      erroDe(
+        MOTIVO_PRIVILEGIO.NAO_AGE_SOBRE_PERFIL_MAIS_RICO,
+        'Essa pessoa tem acesso a mais do que você tem. Peça a uma administradora.',
+      ),
+    )
+  }
+  return ok(undefined)
+}
+
+/**
+ * Redefinir a senha de uma administradora: a provisória é SEMPRE gerada.
+ * Escolher a senha de outra admin é conhecer a credencial dela. O operador
+ * mantém a escolha — é a saída do "esqueci a senha".
+ */
+export function podeEscolherSenhaDe(ator: AtorDeAcesso, alvo: PessoaDaClinica): Result<void> {
+  if (ator.tipo === 'operador' || !alvo.admin) return ok(undefined)
+  return erro(
+    erroDe(
+      MOTIVO_PRIVILEGIO.SENHA_DE_ADMIN_SO_GERADA,
+      'A senha de uma administradora é sempre gerada pelo sistema. Deixe o campo em branco.',
+    ),
+  )
+}
+
+/** A matriz de perfis (`PUT /perfis`) é só da administradora — P-1, decidida. */
+export function podeEditarMatrizDePerfis(ator: AtorDeAcesso): Result<void> {
+  if (ator.admin) return ok(undefined)
+  return erro(
+    erroDe(
+      MOTIVO_PRIVILEGIO.SO_ADMIN_EDITA_PERFIS,
+      'Só uma administradora edita os perfis de acesso da clínica.',
     ),
   )
 }

@@ -43,7 +43,12 @@ const porChave = new Map(PERMS.map((p) => [p[1] as ChaveDePermissao, p]))
 
 export const infoDaPermissao = (chave: ChaveDePermissao) => porChave.get(chave)
 
-/** Cinco perfis prontos, criados com a clínica. Editáveis pela própria clínica. */
+/**
+ * Seis perfis prontos, criados com a clínica. Editáveis pela própria clínica.
+ *
+ * `pf_ges` NÃO está no protótipo (decisão do dono, ADR 2026-11-11): só `pessoas.gerir`, que
+ * **inclui salário** — o texto da tela diz isso. Dívida: separar `pessoas.salario`.
+ */
 export function perfisPadrao(): Perfil[] {
   return [
     { id: 'pf_sup', nome: 'Supervisão / gestão', perms: ['tarefas.equipe', 'jornada', 'pacientes', 'pacientes.gerir', 'programas', 'programas.gerir', 'campanhas', 'campanhas.gerir', 'valores', 'receber', 'caixa', 'contas', 'cobrancas', 'estoque', 'estoque.gerir', 'painel'] },
@@ -51,6 +56,7 @@ export function perfisPadrao(): Perfil[] {
     { id: 'pf_com', nome: 'Comercial', perms: ['jornada', 'pacientes', 'programas', 'campanhas', 'cobrancas'] },
     { id: 'pf_enf', nome: 'Enfermagem', perms: ['programas', 'estoque'] },
     { id: 'pf_fin', nome: 'Financeiro', perms: ['valores', 'receber', 'caixa', 'contas', 'contas.gerir', 'cobrancas', 'finmes'] },
+    { id: 'pf_ges', nome: 'Gestão de pessoas', perms: ['pessoas.gerir'] },
   ]
 }
 

@@ -1,6 +1,7 @@
 'use client'
 
 import type { MinhasMetas } from '@fir/contracts'
+import Link from 'next/link'
 import { useState } from 'react'
 import { useDados } from '@/lib/dados'
 import { rotuloDoMes } from '@/lib/financeiro'
@@ -28,7 +29,13 @@ import { Carregando, Erro, Vazio } from './estados'
  * **390 px:** um cartão por meta, empilhados, com a média no topo. É a tela
  * que a recepcionista abre no celular entre dois atendimentos.
  */
-export function TelaMinhasMetas({ hoje }: { hoje: string }) {
+export function TelaMinhasMetas({
+  hoje,
+  podeGerirEquipe,
+}: {
+  hoje: string
+  podeGerirEquipe: boolean
+}) {
   const [mes, setMes] = useState(hoje.slice(0, 7))
   const dados = useDados<MinhasMetas>(`v1/minhas-metas/${mes}`)
   const d = dados.dados
@@ -75,11 +82,15 @@ export function TelaMinhasMetas({ hoje }: { hoje: string }) {
           "sem metas" aqui seria mentira, porque não há nem onde defini-las.
         */
         <Vazio>
-          <p style={{ margin: 0, color: 'var(--ink)' }}>Sua ficha ainda não foi criada.</p>
+          <p style={{ margin: 0, color: 'var(--ink)' }}>Você ainda não tem ficha de RH.</p>
           <p className="nota">
-            As metas são ligadas à <b>ficha de pessoa</b>, que é outra tela e outra permissão.
-            Fale com o administrativo para criar a sua.
+            Quem cuida da equipe na clínica precisa criar a sua ficha para as metas aparecerem.
           </p>
+          {podeGerirEquipe ? (
+            <Link className="btn ghost" href="/equipe">
+              Ir para Equipe
+            </Link>
+          ) : null}
         </Vazio>
       ) : d.metas.length === 0 ? (
         <Vazio>

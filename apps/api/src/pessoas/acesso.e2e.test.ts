@@ -255,13 +255,15 @@ describe('PATCH /v1/pessoas/:id — a invariante da última admin, pelos DOIS ca
     expect(r.body.codigo).toBe('NaoPodeDesativarASiMesma')
   })
 
-  it('DESATIVAR a última admin por quem NÃO é ela é 422 ULTIMA_ADMIN', async () => {
-    // Sofia não é admin e TEM `config`. Helena é a única admin ativa.
-    // `EU_MESMA` não entra no caminho, então o que responde é a invariante
-    // que importa — e é ela que o protótipo não tem neste caminho.
+  it('DESATIVAR a admin por quem NÃO é admin é 403 — e a invariante da última admin pelo Operador está em admin-da-clinica.e2e.test.ts', async () => {
+    // Sofia não é admin e TEM `config`. ANTES do ADR 2026-11-11 isto chegava à
+    // invariante (422); agora a fronteira de privilégio recusa primeiro: quem
+    // não é administradora não age sobre administradora. A invariante de
+    // última admin só se alcança por outra admin (e aí não é a última) ou pelo
+    // Operador — medida no arquivo novo.
     const r = await editar(comConfig, helenaId, { ativo: false })
-    expect(r.status).toBe(422)
-    expect(r.body.codigo).toBe('UltimaAdministradoraAtiva')
+    expect(r.status).toBe(403)
+    expect(r.body.codigo).toBe('NaoAgeSobreAdministradora')
 
     // E Helena continua de pé: a recusa não escreveu nada.
     const l = await migrate.query<{ ativo: boolean }>('SELECT ativo FROM pessoas WHERE id = $1', [
@@ -270,15 +272,14 @@ describe('PATCH /v1/pessoas/:id — a invariante da última admin, pelos DOIS ca
     expect(l.rows[0]!.ativo).toBe(true)
   })
 
-  it('REBAIXAR a última admin por quem NÃO é ela é 422 pela MESMA invariante', async () => {
-    // O segundo caminho, com o mesmo código de erro — porque é a mesma função
-    // do domínio. No protótipo os dois caminhos são dois `if` diferentes, e um
-    // deles não existe.
+  it('REBAIXAR admin por quem NÃO é admin é 403 (o 422 da última admin é do Operador)', async () => {
     const r = await editar(comConfig, helenaId, {
       acesso: { admin: false, perfilId: perfilRec },
     })
-    expect(r.status).toBe(422)
-    expect(r.body.codigo).toBe('UltimaAdministradoraAtiva')
+    expect(r.status).toBe(403)
+    expect(['NaoAgeSobreAdministradora', 'SoAdministradoraConcedeAdministracao']).toContain(
+      r.body.codigo,
+    )
   })
 
   it('com DUAS admins, desativar uma passa — e a sessão dela CAI', async () => {
@@ -589,9 +590,10 @@ describe('excluir pessoa é SOFT DELETE, e a clínica não fica sem administrado
      * vermelho — a clínica perde a única administradora ativa e ninguém mais
      * abre Configurações. A única saída seria o painel.
      */
-    const r = await excluir(comConfig, helenaId).expect(422)
-    expect(r.body.codigo).toBe('UltimaAdministradoraAtiva')
-    expect(r.body.message).toContain('excluir')
+    // ADR 2026-11-11: Sofia (config, não admin) leva 403 antes de chegar à
+    // invariante; a invariante pelo Operador está em admin-da-clinica.e2e.test.ts.
+    const r = await excluir(comConfig, helenaId).expect(403)
+    expect(r.body.codigo).toBe('NaoAgeSobreAdministradora')
     expect((await linhaDe(helenaId))!.excluida_em).toBeNull()
     await entrar('helena', SENHA).expect(200)
   })

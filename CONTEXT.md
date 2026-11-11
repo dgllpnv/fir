@@ -121,7 +121,7 @@ chave estável dele volta a ser usável (o índice único é parcial).
 
 **Um login só para a Firmare** (D-23 item 6, ADR 0024): todo operador tem uma `Conta de gestão do operador`, e entrar no painel abre também a carteira — `/superadmin` é a Visão geral. O operador continua sem perfil e sem dinheiro nas rotas do painel; o que ele vê da carteira, vê como aquele `Usuário de Gestão`.
 
-A **cadeia de criação** (D-10): superadmin → cria a clínica e a administradora dela; admin → cria a equipe. A cadeia de **"esqueci a senha"** é a mesma, ao contrário: pessoa → o admin redefine; admin → o superadmin redefine; superadmin → **comando na VPS**, por quem tem SSH, gravado na trilha.
+A **cadeia de criação** (D-10, **ajustada pelo ADR 2026-11-11**): superadmin → cria a clínica e a primeira administradora dela; **a administradora da clínica cria e promove administradoras da SUA clínica e cria a equipe**. Quem concede ou retira administração é só administradora (ou o Operador em sessão de suporte) — `config` abre a tela e **não basta** (`podeConcederAdministracao`); quem não é administradora só age sobre pessoa cujo perfil ela própria tem (`podeAgirSobre`, `podeConcederChave`), e só a administradora edita a matriz de perfis. A clínica é controladora e responde pelas administradoras que cria. O perfil padrão **`Gestão de pessoas`** (`pf_ges`) tem só `pessoas.gerir`, que inclui salário. A cadeia de **"esqueci a senha"** é a mesma, ao contrário: pessoa → o admin redefine; admin → o superadmin redefine; superadmin → **comando na VPS**, por quem tem SSH, gravado na trilha.
 
 ### `Sessão de suporte`
 

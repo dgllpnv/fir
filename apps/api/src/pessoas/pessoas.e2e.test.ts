@@ -132,7 +132,7 @@ beforeEach(async () => {
   agora = new Date(INICIO)
   await migrate.query(
     `DELETE FROM sessoes WHERE pessoa_id IN
-       (SELECT id FROM pessoas WHERE clinica_id = $1 AND usuario LIKE 'ana%' OR usuario = 'bia')`,
+       (SELECT id FROM pessoas WHERE clinica_id = $1 AND (usuario LIKE 'ana%' OR usuario = 'bia'))`,
     [clinica],
   )
   await migrate.query(

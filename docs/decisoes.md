@@ -157,6 +157,8 @@ O `CHECK (valor > 0)` de `recebimentos` impedia isso: sem entrada não havia lin
 
 ## D-10 · Usuário e senha, sem e-mail. O superadmin cria os admins · 2026-10-27
 
+> **SUBSTITUÍDA EM PARTE, em 2026-11-11, pela ADR `docs/adr/2026-11-11-admin-da-clinica.md`** (spec `docs/specs/admin-da-clinica.md`; pedido da cliente, dono mandou seguir). **Deixa de valer:** "só o superadmin cria os admins" e "admin da clínica esquece a senha → o superadmin redefine" como única via — a administradora da clínica passa a criar, promover e rebaixar administradoras da própria clínica (outra admin redefine; o superadmin segue como saída quando a clínica perde todas). **Continua valendo:** login por clínica + usuário + senha, sem e-mail; o superadmin cria a clínica e a primeira administradora; senha provisória; o superadmin como `Operador`, nunca `Pessoa`; "o acesso é total; o registro é obrigatório".
+
 **Substitui a D-3 na parte do identificador.** O login passa a ser **clínica + usuário + senha**. Não há e-mail em lugar nenhum.
 
 **A cadeia de criação:**

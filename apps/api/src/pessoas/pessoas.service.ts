@@ -1,11 +1,25 @@
 import type { CriarPessoaEntrada, PessoaCriada, SenhaRedefinida } from '@fir/contracts'
+import {
+  podeAgirSobre,
+  podeAtribuirPerfil,
+  podeConcederAdministracao,
+  podeEscolherSenhaDe,
+  type PessoaDaClinica,
+} from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../banco/banco.service'
 import { RELOGIO, type Relogio } from '../comum/relogio'
-import type { ContextoDaRequisicao } from '../comum/contexto'
+import { atorDeAcessoDoContexto, type ContextoDaRequisicao } from '../comum/contexto'
+import {
+  exigirDominio,
+  lerAtorDeAcesso,
+  lerPerfisDoDominio,
+  travarAcessoDaClinica,
+} from './acesso-do-ator'
 import {
   gerarProvisoria,
   inserirPessoa,
+  PessoaNaoExiste,
   provisoriaEscolhida,
   redefinirSenhaDePessoa,
 } from './escrita-de-pessoa'
@@ -31,28 +45,40 @@ export class PessoasService {
    * resposta, e acaba. Nenhuma coluna a guarda, nenhum log a vê, e a denylist
    * de `auditoria_sem_segredos` já cobre `senha_hash`.
    *
-   * `perfilId` é obrigatório no contrato: o admin da clínica cria a EQUIPE
-   * dela. Quem cria ADMIN é o superadmin (D-10, cadeia de criação).
+   * **Quem cria administradora é administradora** (ou o Operador): o contrato
+   * aceita `acesso: { admin: true }`, e `podeConcederAdministracao` decide —
+   * `config` sozinho não basta. Quem não é admin só atribui perfil cujas
+   * chaves ela própria tem (`podeAtribuirPerfil`). O ator é relido DENTRO da
+   * transação, depois do lock da clínica (`travarAcessoDaClinica`).
    */
   async criar(contexto: ContextoDaRequisicao, dados: CriarPessoaEntrada): Promise<PessoaCriada> {
     const provisoria = await gerarProvisoria(this.relogio.agora())
 
-    const linha = await this.banco.naClinica(contexto.clinicaId, contexto.ator, (c) =>
-      inserirPessoa(c, {
+    const linha = await this.banco.naClinica(contexto.clinicaId, contexto.ator, async (c) => {
+      await travarAcessoDaClinica(c, contexto.clinicaId)
+      const ator = await lerAtorDeAcesso(c, contexto.ator)
+      exigirDominio(podeConcederAdministracao(ator, null, dados.acesso.admin))
+      if (!dados.acesso.admin) {
+        exigirDominio(
+          podeAtribuirPerfil(ator, await lerPerfisDoDominio(c), dados.acesso.perfilId, null),
+        )
+      }
+      return inserirPessoa(c, {
         clinicaId: contexto.clinicaId,
         nome: dados.nome,
         usuario: dados.usuario,
         funcao: dados.funcao,
-        perfilId: dados.perfilId,
+        perfilId: dados.acesso.admin ? null : dados.acesso.perfilId,
         provisoria,
-      }),
-    )
+      })
+    })
 
     return {
       id: linha.id,
       nome: linha.nome,
       usuario: linha.usuario,
       funcao: linha.funcao,
+      admin: linha.admin,
       perfilId: linha.perfil_id,
       senhaProvisoria: provisoria.senha,
       senhaProvisoriaExpiraEm: provisoria.expiraEm.toISOString(),
@@ -82,18 +108,44 @@ export class PessoasService {
     escolhida?: string,
   ): Promise<SenhaRedefinida> {
     const agora = this.relogio.agora()
+    const alvoLido = await this.contextoDaPessoa(contexto, pessoaId)
+
+    // PRÉ-CHECAGEM barata: escolher a senha de uma admin é recusado ANTES do
+    // Argon2 (que custa 19 MiB). A decisão que vale é a de dentro da transação.
+    if (escolhida !== undefined && alvoLido !== null) {
+      const atorDoGuard = atorDeAcessoDoContexto(contexto)
+      // Sem perfis: só a metade "alvo é administradora" é decidível aqui, e é
+      // a que importa para não gastar Argon2 com quem vai levar 403.
+      exigirDominio(podeAgirSobre(atorDoGuard, alvoLido.pessoa, []))
+      exigirDominio(podeEscolherSenhaDe(atorDoGuard, alvoLido.pessoa))
+    }
+
     const provisoria =
       escolhida === undefined
         ? await gerarProvisoria(agora)
         : await provisoriaEscolhida(agora, escolhida, [
             contexto.clinicaCodigo,
             contexto.clinicaNome,
-            ...(await this.contextoDaPessoa(contexto, pessoaId)),
+            ...(alvoLido === null ? [] : [alvoLido.nome, alvoLido.usuario]),
           ])
 
-    await this.banco.naClinica(contexto.clinicaId, contexto.ator, (c) =>
-      redefinirSenhaDePessoa(c, pessoaId, provisoria),
-    )
+    await this.banco.naClinica(contexto.clinicaId, contexto.ator, async (c) => {
+      await travarAcessoDaClinica(c, contexto.clinicaId)
+      const ator = await lerAtorDeAcesso(c, contexto.ator)
+      const perfis = await lerPerfisDoDominio(c)
+      const r = await c.query<{ id: string; admin: boolean; perfil_id: string | null; ativo: boolean }>(
+        'SELECT id, admin, perfil_id, ativo FROM pessoas WHERE id = $1 AND excluida_em IS NULL FOR UPDATE',
+        [pessoaId],
+      )
+      const l = r.rows[0]
+      if (l === undefined) throw new PessoaNaoExiste()
+      const alvo = { id: l.id, admin: l.admin, perfilId: l.perfil_id, ativo: l.ativo }
+      // Redefinir a senha de uma admin é tomar a conta dela: só admin, e só
+      // gerada. Pessoa de perfil mais rico que o do ator: também recusada.
+      exigirDominio(podeAgirSobre(ator, alvo, perfis))
+      if (escolhida !== undefined) exigirDominio(podeEscolherSenhaDe(ator, alvo))
+      await redefinirSenhaDePessoa(c, pessoaId, provisoria)
+    })
 
     return {
       id: pessoaId,
@@ -103,25 +155,38 @@ export class PessoasService {
   }
 
   /**
-   * Nome e usuário da pessoa-alvo, para a regra de força.
+   * Nome, usuário e estado de acesso da pessoa-alvo — para a regra de força e
+   * para a pré-checagem. **Não é a decisão**: a transação relê tudo sob o lock.
    *
    * `excluida_em IS NULL` aqui também: sem o filtro, redefinir a senha de quem
    * a clínica excluiu LERIA o nome dela para montar o contexto, e a recusa
-   * seguinte viria de `redefinirSenhaDePessoa`. Devolver vazio e deixar o
-   * `UPDATE` recusar mantém o 404 como a única resposta desse caminho.
+   * seguinte viria de `redefinirSenhaDePessoa`. Devolver `null` e deixar a
+   * transação recusar mantém o 404 como a única resposta desse caminho.
    */
   private async contextoDaPessoa(
     contexto: ContextoDaRequisicao,
     pessoaId: string,
-  ): Promise<string[]> {
+  ): Promise<{ nome: string; usuario: string; pessoa: PessoaDaClinica } | null> {
     const r = await this.banco.naClinica(contexto.clinicaId, contexto.ator, (c) =>
-      c.query<{ nome: string; usuario: string }>(
-        'SELECT nome, usuario FROM pessoas WHERE id = $1 AND excluida_em IS NULL',
+      c.query<{
+        id: string
+        nome: string
+        usuario: string
+        admin: boolean
+        perfil_id: string | null
+        ativo: boolean
+      }>(
+        'SELECT id, nome, usuario, admin, perfil_id, ativo FROM pessoas WHERE id = $1 AND excluida_em IS NULL',
         [pessoaId],
       ),
     )
     const l = r.rows[0]
-    return l === undefined ? [] : [l.nome, l.usuario]
+    if (l === undefined) return null
+    return {
+      nome: l.nome,
+      usuario: l.usuario,
+      pessoa: { id: l.id, admin: l.admin, perfilId: l.perfil_id, ativo: l.ativo },
+    }
   }
 }
 

@@ -1,3 +1,4 @@
+import { temPerm } from '@fir/domain'
 import { TelaMinhasMetas } from '@/components/tela-minhas-metas'
 import { sessaoAtual } from '@/lib/sessao'
 
@@ -21,6 +22,9 @@ import { sessaoAtual } from '@/lib/sessao'
  * data errada abriria o mês que não é.
  */
 export default async function MinhasMetasPage() {
-  const { eu } = await sessaoAtual()
-  return <TelaMinhasMetas hoje={eu.hoje} />
+  const { eu, perfis, quem } = await sessaoAtual()
+  // O atalho "Ir para Equipe" é conveniência de quem tem `pessoas.gerir`.
+  return (
+    <TelaMinhasMetas hoje={eu.hoje} podeGerirEquipe={temPerm(quem, perfis, 'pessoas.gerir')} />
+  )
 }

@@ -6,24 +6,27 @@ import type {
   SalvarPerfis,
 } from '@fir/contracts'
 import {
-  type ErroDeDominio,
   type PessoaDaClinica,
-  type Result,
+  podeAgirSobre,
+  podeAtribuirPerfil,
+  podeConcederAdministracao,
   podeDesativar,
+  podeEditarMatrizDePerfis,
   podeExcluirPessoa,
   podeRemoverPerfis,
   podeTrocarAcesso,
 } from '@fir/domain'
-import {
-  Inject,
-  Injectable,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common'
+import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import type pg from 'pg'
 import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
+import {
+  exigirDominio,
+  lerAtorDeAcesso,
+  lerPerfisDoDominio,
+  travarAcessoDaClinica,
+} from './acesso-do-ator'
 import { editarPessoa, excluirPessoa } from './escrita-de-pessoa'
 
 /**
@@ -89,11 +92,17 @@ export class AcessoService {
       const r = await c.query<LinhaDePessoa>(
         `${SELECT_PESSOA} ORDER BY ativo DESC, admin DESC, nome`,
       )
+      const avisos = await avisosDeAdministradora(c)
       // `''` na SESSÃO DE SUPORTE (D-13): o operador não é nenhuma destas
       // pessoas, então `euMesma` é falso em todas — e a tela não esconde
       // ação nenhuma dele. Emprestar um id marcaria a linha de uma
       // funcionária como "você".
-      return { pessoas: r.rows.map((l) => paraSaida(l, pessoaDoAtor(ctx.ator) ?? '')) }
+      return {
+        pessoas: r.rows.map((l) => ({
+          ...paraSaida(l, pessoaDoAtor(ctx.ator) ?? ''),
+          avisoDeAdministradora: l.admin && l.ativo ? (avisos.get(l.id) ?? null) : null,
+        })),
+      }
     })
   }
 
@@ -110,21 +119,39 @@ export class AcessoService {
    */
   async editar(ctx: Contexto, pessoaId: string, dados: EditarPessoa): Promise<PessoaNaLista> {
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      // `FOR UPDATE` na pessoa alvo: duas abas rebaixando a mesma última admin
-      // seriam duas leituras concordando que há duas. A RLS já limita à
-      // clínica, então não há cláusula de clínica aqui.
+      /**
+       * A ORDEM É A INVARIANTE: lock da clínica → ator relido → alvo → equipe →
+       * privilégio → estado → escrita. O lock vem ANTES de qualquer leitura:
+       * `FOR UPDATE` no alvo não serializa A rebaixando B com B rebaixando A
+       * (linhas diferentes), e a releitura do ator depois do lock é o que faz a
+       * segunda recusar — ela já não é administradora.
+       */
+      await travarAcessoDaClinica(c, ctx.clinicaId)
+      const ator = await lerAtorDeAcesso(c, ctx.ator)
+      const perfisDaClinica = await lerPerfisDoDominio(c)
       const alvo = await umaPessoa(c, pessoaId)
       const equipe = await equipeDaClinica(c)
+
+      // PRIVILÉGIO primeiro (403), ESTADO depois (422): quem não pode agir
+      // sobre o alvo não descobre, pela mensagem, o estado da clínica.
+      // Vale para nome, função, acesso, desativar e REATIVAR.
+      exigirDominio(podeAgirSobre(ator, alvo, perfisDaClinica))
 
       if (dados.acesso !== undefined) {
         const novo = dados.acesso.admin
           ? { admin: true, perfilId: null }
           : { admin: false, perfilId: dados.acesso.perfilId }
+        exigirDominio(podeConcederAdministracao(ator, alvo, novo.admin))
+        if (novo.perfilId !== null) {
+          exigirDominio(podeAtribuirPerfil(ator, perfisDaClinica, novo.perfilId, alvo.id))
+        }
         // `''` quando é o operador: ele não é o alvo, então a guarda "não
         // rebaixe a si mesma" não o alcança — e a de "a clínica nunca fica
         // sem administradora ativa" continua valendo para ele como para
         // qualquer um.
-        exigirDominio(podeTrocarAcesso(alvo, pessoaDoAtor(ctx.ator) ?? '', novo, equipe))
+        exigirDominio(
+          podeTrocarAcesso(alvo, ator.tipo === 'pessoa' ? ator.id : '', novo, equipe),
+        )
 
         if (novo.perfilId !== null) {
           /**
@@ -144,7 +171,9 @@ export class AcessoService {
       }
 
       if (dados.ativo !== undefined && dados.ativo !== alvo.ativo) {
-        exigirDominio(podeDesativar(alvo, pessoaDoAtor(ctx.ator) ?? '', equipe, dados.ativo))
+        exigirDominio(
+          podeDesativar(alvo, ator.tipo === 'pessoa' ? ator.id : '', equipe, dados.ativo),
+        )
       }
 
       /**
@@ -190,9 +219,13 @@ export class AcessoService {
    */
   async excluir(ctx: Contexto, pessoaId: string): Promise<void> {
     await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      await travarAcessoDaClinica(c, ctx.clinicaId)
+      const ator = await lerAtorDeAcesso(c, ctx.ator)
+      const perfisDaClinica = await lerPerfisDoDominio(c)
       const alvo = await umaPessoa(c, pessoaId)
       const equipe = await equipeDaClinica(c)
-      exigirDominio(podeExcluirPessoa(alvo, pessoaDoAtor(ctx.ator) ?? '', equipe))
+      exigirDominio(podeAgirSobre(ator, alvo, perfisDaClinica))
+      exigirDominio(podeExcluirPessoa(alvo, ator.tipo === 'pessoa' ? ator.id : '', equipe))
       await excluirPessoa(c, pessoaId)
       // Nada de `registrar()` à mão: o trigger `registrar_auditoria` (0004) já
       // gravou quem, quando e de → para.
@@ -215,6 +248,11 @@ export class AcessoService {
    */
   async salvarPerfis(ctx: Contexto, dados: SalvarPerfis): Promise<ListaDePerfis> {
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      // P-1: a matriz é só da administradora. Quem edita a matriz concede
+      // chave a qualquer perfil — inclusive ao próprio —, e "só o que você tem"
+      // não é testável sobre um conjunto inteiro reescrito de uma vez.
+      await travarAcessoDaClinica(c, ctx.clinicaId)
+      exigirDominio(podeEditarMatrizDePerfis(await lerAtorDeAcesso(c, ctx.ator)))
       const vivos = await lerPerfis(c)
       const mantidos = new Set(
         dados.perfis.map((p) => p.id).filter((id): id is string => id !== undefined),
@@ -266,6 +304,57 @@ export class AcessoService {
   }
 }
 
+/**
+ * A janela do aviso de administradora nova (P-3). Passou disso, o aviso some;
+ * a trilha (`auditoria`) permanece, e é dela que o aviso nasce.
+ */
+const DIAS_DO_AVISO = 30
+
+/**
+ * **Quem criou ou promoveu cada administradora, nos últimos 30 dias** — só nome
+ * e data, lidos da trilha (nenhuma coluna nova). A rota que chama é `config`:
+ * outros perfis não chegam aqui. O Operador aparece como "Firmare (suporte)",
+ * nunca por nome ou usuário.
+ */
+async function avisosDeAdministradora(
+  c: pg.PoolClient,
+): Promise<Map<string, NonNullable<PessoaNaLista['avisoDeAdministradora']>>> {
+  const r = await c.query<{
+    pessoa_id: string
+    em: Date
+    acao: string
+    ator_tipo: string
+    nome: string | null
+  }>(
+    `SELECT DISTINCT ON (a.entidade_id)
+            a.entidade_id AS pessoa_id, a.em, a.acao, a.ator_tipo, p.nome
+       FROM auditoria a
+       LEFT JOIN pessoas p ON a.ator_tipo = 'pessoa' AND p.id = a.ator_id
+      WHERE a.entidade = 'pessoas'
+        AND a.em >= now() - make_interval(days => $1)
+        AND ( (a.acao = 'criou'   AND a.para ->> 'admin' = 'true')
+           OR (a.acao = 'alterou' AND a.para ->> 'admin' = 'true'
+                                  AND a.de   ->> 'admin' = 'false') )
+      ORDER BY a.entidade_id, a.em DESC, a.id DESC`,
+    [DIAS_DO_AVISO],
+  )
+  return new Map(
+    r.rows.map((l) => [
+      l.pessoa_id,
+      {
+        acao: l.acao === 'criou' ? ('criada' as const) : ('promovida' as const),
+        por:
+          l.ator_tipo === 'operador'
+            ? 'Firmare (suporte)'
+            : l.ator_tipo === 'sistema'
+              ? 'Sistema'
+              : (l.nome ?? 'Alguém da clínica'),
+        em: l.em.toISOString(),
+      },
+    ]),
+  )
+}
+
 /** A equipe inteira na forma que o DOMÍNIO espera — nada de HTTP aqui. */
 async function equipeDaClinica(c: pg.PoolClient): Promise<PessoaDaClinica[]> {
   const r = await c.query<{ id: string; admin: boolean; perfil_id: string | null; ativo: boolean }>(
@@ -298,25 +387,6 @@ async function lerPerfis(c: pg.PoolClient): Promise<ListaDePerfis['perfis']> {
   return r.rows
 }
 
-/**
- * `Result` do domínio → exceção de borda (CLAUDE.md: *erros são valores no
- * domínio, exceções na borda*).
- *
- * **422, não 400 nem 409.** O corpo está bem formado e a permissão existe: o
- * que o servidor recusa é o ESTADO resultante. 400 diria "você escreveu
- * errado" a quem escreveu certo, e 409 sugeriria "tente de novo" numa recusa
- * que não muda sozinha. O `codigo` viaja para que a tela case código, nunca
- * texto.
- */
-function exigirDominio(r: Result<void, ErroDeDominio>): void {
-  if (r.tipo !== 'erro') return
-  throw new UnprocessableEntityException({
-    statusCode: 422,
-    codigo: r.erro.codigo,
-    message: r.erro.mensagem,
-  })
-}
-
 const paraSaida = (l: LinhaDePessoa, euId: string): PessoaNaLista => ({
   id: l.id,
   nome: l.nome,
@@ -328,4 +398,5 @@ const paraSaida = (l: LinhaDePessoa, euId: string): PessoaNaLista => ({
   aguardandoPrimeiroAcesso: l.senha_provisoria,
   provisoriaExpiraEm: l.senha_provisoria_expira_em?.toISOString() ?? null,
   euMesma: l.id === euId,
+  avisoDeAdministradora: null,
 })

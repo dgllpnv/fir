@@ -283,6 +283,28 @@ describe('os espaços de identidade são disjuntos', () => {
     await http().post('/v1/entrar').send({ clinica: 'demo', usuario: USUARIO, senha: SENHA }).expect(401)
   })
 
+  it('o Usuário de Gestão não tem caminho para Usuários e acessos — nenhuma rota, nenhum verbo', async () => {
+    // ADR 2026-11-11: a administradora da clínica cria administradoras; o
+    // espaço de identidade da carteira continua disjunto. Cobre TODAS as rotas
+    // de `/v1/pessoas`, inclusive DELETE e `:id/senha`.
+    const sessao = paresDe(cookies(await entrar().expect(200)))
+    const id = '11111111-1111-4111-8111-111111111111'
+    const rotas: [string, string, object?][] = [
+      ['get', '/v1/pessoas'],
+      ['get', '/v1/pessoas/perfis'],
+      ['post', '/v1/pessoas', { nome: 'Ana', usuario: 'ana.x', acesso: { admin: true } }],
+      ['patch', `/v1/pessoas/${id}`, { acesso: { admin: true } }],
+      ['delete', `/v1/pessoas/${id}`],
+      ['post', `/v1/pessoas/${id}/senha`, {}],
+      ['put', '/v1/pessoas/perfis', { perfis: [] }],
+    ]
+    for (const [verbo, caminho, corpo] of rotas) {
+      const req = (http() as unknown as Record<string, (u: string) => import('supertest').Test>)[verbo]!(caminho).set('Cookie', sessao)
+      const r = await (corpo === undefined ? req : req.send(corpo))
+      expect(r.status, `${verbo.toUpperCase()} ${caminho}`).toBe(401)
+    }
+  })
+
   it('o cookie da carteira não abre rota de superadmin', async () => {
     const sessao = paresDe(cookies(await entrar().expect(200)))
     await http().get('/v1/superadmin/eu').set('Cookie', sessao).expect(404)

@@ -28,6 +28,7 @@ import {
   provisoriaEscolhida,
   redefinirSenhaDePessoa,
 } from '../pessoas/escrita-de-pessoa'
+import { travarAcessoDaClinica } from '../pessoas/acesso-do-ator'
 import type { ClinicaResolvida } from './painel-clinicas.service'
 
 /**
@@ -112,16 +113,18 @@ export class PainelPessoasService {
   ): Promise<PessoaCriadaNoPainel> {
     const provisoria = await gerarProvisoria(this.relogio.agora())
 
-    const linha = await this.banco.comoPainel(clinica.id, ator, (c) =>
-      inserirPessoa(c, {
+    const linha = await this.banco.comoPainel(clinica.id, ator, async (c) => {
+      // Mesmo lock da clínica: criar serializa com editar/excluir (ADR 2026-11-11).
+      await travarAcessoDaClinica(c, clinica.id)
+      return inserirPessoa(c, {
         clinicaId: clinica.id,
         nome: dados.nome,
         usuario: dados.usuario,
         funcao: dados.funcao,
         perfilId: dados.perfilId,
         provisoria,
-      }),
-    )
+      })
+    })
 
     return {
       id: linha.id,
@@ -215,6 +218,7 @@ export class PainelPessoasService {
     dados: EditarPessoaNoPainelEntrada,
   ): Promise<PessoaNoPainel> {
     const linha = await this.banco.comoPainel(clinica.id, ator, async (c) => {
+      await travarAcessoDaClinica(c, clinica.id)
       const alvo = await alvoTravado(c, pessoaId)
       const equipe = await equipeDaClinica(c)
 
@@ -260,6 +264,7 @@ export class PainelPessoasService {
    */
   async excluir(clinica: ClinicaResolvida, ator: OperadorId, pessoaId: string): Promise<void> {
     await this.banco.comoPainel(clinica.id, ator, async (c) => {
+      await travarAcessoDaClinica(c, clinica.id)
       const alvo = await alvoTravado(c, pessoaId)
       const equipe = await equipeDaClinica(c)
       exigirDominio(podeExcluirPessoa(alvo, '', equipe))

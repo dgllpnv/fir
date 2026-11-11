@@ -124,8 +124,9 @@ export type LinhaDePessoaCriada = {
  *
  * `perfilId: null` é **administradora da clínica** — a restrição
  * `pessoa_tem_acesso_definido` (0002) diz que admin não tem perfil e quem não
- * é admin precisa de um. Quem passa `null` aqui está criando uma admin, e só
- * o superadmin tem rota para isso (D-10, cadeia de criação).
+ * é admin precisa de um. Quem passa `null` aqui está criando uma admin; **quem
+ * pode** é decidido por `podeConcederAdministracao` (administradora da clínica
+ * ou Operador — ADR 2026-11-11), nunca aqui: esta função escreve, não julga.
  */
 export async function inserirPessoa(
   c: pg.PoolClient,
@@ -301,6 +302,26 @@ export async function editarPessoa(
     readonly ativo?: boolean | undefined
   },
 ): Promise<LinhaDePessoaEditada> {
+  /**
+   * O estado ANTES, com `FOR UPDATE`: o `UPDATE` precisa saber se isto é um
+   * REBAIXAMENTO (admin → perfil) para derrubar as sessões, e o `RETURNING`
+   * só devolve o depois. O chamador já travou a clínica; reler a linha aqui
+   * é barato e mantém esta função correta sozinha.
+   */
+  const antes = await c.query<{ admin: boolean }>(
+    'SELECT admin FROM pessoas WHERE id = $1 AND excluida_em IS NULL FOR UPDATE',
+    [pessoaId],
+  )
+  const estavaAdmin = antes.rows[0]?.admin
+  if (estavaAdmin === undefined) throw new PessoaNaoExiste()
+
+  /**
+   * `WHERE … IS DISTINCT FROM`: o `UPDATE` só escreve se algo MUDA. Promover
+   * quem já é admin, salvar o mesmo nome ou reenviar o mesmo acesso não toca a
+   * linha — nem a trilha, nem o `desativada_em`. É o que torna o clique duplo
+   * e o replay inofensivos (A-14); sem isto o `coalesce($6, ativo)` reescrevia
+   * a linha inteira a cada chamada.
+   */
   const r = await c.query<LinhaDePessoaEditada>(
     `UPDATE pessoas
         SET nome      = coalesce($2, nome),
@@ -312,6 +333,13 @@ export async function editarPessoa(
             desativada_em = CASE WHEN coalesce($6, ativo) THEN NULL
                                  ELSE coalesce(desativada_em, now()) END
       WHERE id = $1 AND excluida_em IS NULL
+        AND (nome, funcao, admin, perfil_id, ativo) IS DISTINCT FROM (
+              coalesce($2, nome),
+              coalesce($3, funcao),
+              coalesce($4, admin),
+              CASE WHEN $4::boolean IS NULL THEN perfil_id
+                   WHEN $4 THEN NULL ELSE $5::uuid END,
+              coalesce($6, ativo))
       RETURNING id, nome, usuario, funcao, admin, perfil_id, ativo,
                 senha_provisoria, senha_provisoria_expira_em`,
     [
@@ -323,18 +351,32 @@ export async function editarPessoa(
       dados.ativo ?? null,
     ],
   )
-  const linha = r.rows[0]
+  // Zero linhas aqui é "nada mudou" (a pessoa existe: lida acima). A saída é o
+  // estado atual, sem escrever.
+  const linha =
+    r.rows[0] ??
+    (
+      await c.query<LinhaDePessoaEditada>(
+        `SELECT id, nome, usuario, funcao, admin, perfil_id, ativo,
+                senha_provisoria, senha_provisoria_expira_em
+           FROM pessoas WHERE id = $1`,
+        [pessoaId],
+      )
+    ).rows[0]
   if (linha === undefined) throw new PessoaNaoExiste()
 
   /**
-   * Desativar **DERRUBA AS SESSÕES**, e isto não é zelo.
+   * **Desativar e REBAIXAR derrubam as sessões**, e isto não é zelo.
    *
-   * Sem isto, a pessoa desativada continua trabalhando até o cookie vencer.
-   * "Tirei o acesso dela" tem de ser verdade no instante em que o admin toca o
-   * botão, senão a clínica que demitiu alguém às 14h descobre às 18h que ela
-   * esteve na ferramenta a tarde inteira.
+   * Sem isto, a pessoa desativada continua trabalhando até o cookie vencer, e
+   * a ex-administradora continua com a sessão na mão (A-6). "Tirei o acesso
+   * dela" tem de ser verdade no instante em que o admin toca o botão, senão a
+   * clínica que demitiu alguém às 14h descobre às 18h que ela esteve na
+   * ferramenta a tarde inteira. O rebaixamento foi o caso esquecido: só
+   * desativar derrubava.
    */
-  if (dados.ativo === false) {
+  const rebaixou = estavaAdmin && dados.admin === false
+  if (dados.ativo === false || rebaixou) {
     await c.query(
       'UPDATE sessoes SET revogada_em = now() WHERE pessoa_id = $1 AND revogada_em IS NULL',
       [pessoaId],

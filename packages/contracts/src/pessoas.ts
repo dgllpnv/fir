@@ -27,12 +27,14 @@ import { Uuid } from './comum'
  * Não há `clinicaId`: a clínica vem da SESSÃO. Acrescentá-lo é exatamente a
  * forma de errar o isolamento de tenant.
  *
- * Não há `admin`: quem cria o administrador de uma clínica é o superadmin
- * (D-10, cadeia de criação). O admin da clínica cria a EQUIPE dela, e por
- * isso `perfilId` é obrigatório — a restrição `pessoa_tem_acesso_definido` do
- * banco diz a mesma coisa de outro jeito.
+ * **O acesso é DISCRIMINADO** (ADR 2026-11-11): `acesso: { admin: true }` cria
+ * administradora (só quem é administradora pode — o servidor confere, não o
+ * contrato), `acesso: { admin: false, perfilId }` cria pessoa de perfil. O
+ * `perfilId` solto é o formato LEGADO, aceito até o web migrar (expand/contract)
+ * e removido por ticket próprio. `acesso` e `perfilId` juntos, ou nenhum dos
+ * dois, é 400: corpo ambíguo é onde mass assignment se esconde (A-13).
  */
-export const CriarPessoaEntrada = z
+const CorpoDeCriarPessoa = z
   .object({
     nome: z.string().trim().min(2, 'Informe o nome.').max(120),
     /**
@@ -52,10 +54,32 @@ export const CriarPessoaEntrada = z
         if (ehErro(r)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: r.erro.mensagem })
       }),
     funcao: z.string().trim().max(120).default(''),
-    perfilId: Uuid,
+    acesso: z
+      .discriminatedUnion('admin', [
+        z.object({ admin: z.literal(true) }).strict(),
+        z.object({ admin: z.literal(false), perfilId: Uuid }).strict(),
+      ])
+      .optional(),
+    perfilId: Uuid.optional(),
   })
   .strict()
-export type CriarPessoaEntrada = z.infer<typeof CriarPessoaEntrada>
+
+export const CriarPessoaEntrada = CorpoDeCriarPessoa.superRefine((d, ctx) => {
+  if ((d.acesso === undefined) === (d.perfilId === undefined)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Escolha o acesso: administradora ou um perfil — um dos dois, nunca ambos.',
+    })
+  }
+}).transform((d) => ({
+  nome: d.nome,
+  usuario: d.usuario,
+  funcao: d.funcao,
+  // O `superRefine` acima garante que, sem `acesso`, há `perfilId`.
+  acesso: d.acesso ?? { admin: false as const, perfilId: d.perfilId ?? '' },
+}))
+/** O corpo JÁ VALIDADO e normalizado: `acesso` sempre presente. */
+export type CriarPessoaEntrada = z.output<typeof CriarPessoaEntrada>
 
 /**
  * O ÚNICO lugar do produto onde uma senha trafega em claro, e só no sentido
@@ -74,6 +98,7 @@ export const PessoaCriada = z.object({
   nome: z.string(),
   usuario: z.string(),
   funcao: z.string(),
+  admin: z.boolean(),
   perfilId: Uuid.nullable(),
   /** A senha provisória EM CLARO. Aparece aqui, uma vez, e em lugar nenhum mais. */
   senhaProvisoria: z.string(),
@@ -156,6 +181,21 @@ export const PessoaNaLista = z.object({
   provisoriaExpiraEm: z.string().nullable(),
   /** `true` para quem está pedindo a lista — a tela esconde as ações sobre si. */
   euMesma: z.boolean(),
+  /**
+   * **Aviso de administradora nova** (P-3): criada ou promovida nos últimos 30
+   * dias. SÓ o que a clínica precisa para reconhecer um acesso que não pediu —
+   * quem fez e quando —, e nada além (`.strict()`). `por` é o nome da pessoa, ou
+   * "Firmare (suporte)" quando foi o Operador; nunca o usuário dele. A trilha
+   * continua depois de o aviso sumir. `null` na maioria das linhas.
+   */
+  avisoDeAdministradora: z
+    .object({
+      acao: z.enum(['criada', 'promovida']),
+      por: z.string(),
+      em: z.string(),
+    })
+    .strict()
+    .nullable(),
 })
 export type PessoaNaLista = z.infer<typeof PessoaNaLista>
 

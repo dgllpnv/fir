@@ -45,7 +45,13 @@ import { SenhaProvisoria } from './senha-provisoria'
 
 type Aba = 'pessoas' | 'perfis'
 
-export function TelaUsuarios() {
+/**
+ * `souAdmin` é **conveniência**: o servidor é a barreira (ADR 2026-11-11). Quem
+ * não é administradora não vê a opção "Administradora" e não abre a ficha de
+ * uma — mas, se forçar, leva 403 de `podeConcederAdministracao`/`podeAgirSobre`.
+ * Na sessão de suporte `souAdmin` é `true`, pela mesma função que o servidor usa.
+ */
+export function TelaUsuarios({ souAdmin }: { souAdmin: boolean }) {
   const [aba, setAba] = useState<Aba>('pessoas')
   const pessoas = useDados<ListaDePessoas>('v1/pessoas')
   const perfis = useDados<ListaDePerfis>('v1/pessoas/perfis')
@@ -79,13 +85,14 @@ export function TelaUsuarios() {
 
       {aba === 'pessoas' ? (
         <AbaPessoas
+          souAdmin={souAdmin}
           pessoas={pessoas}
           perfis={perfis.dados?.perfis ?? []}
           aoAvisar={setRecado}
           aoVerPerfis={() => setAba('perfis')}
         />
       ) : (
-        <AbaPerfis perfis={perfis} aoAvisar={setRecado} />
+        <AbaPerfis souAdmin={souAdmin} perfis={perfis} aoAvisar={setRecado} />
       )}
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
@@ -98,11 +105,13 @@ export function TelaUsuarios() {
  * ====================================================================== */
 
 function AbaPessoas({
+  souAdmin,
   pessoas,
   perfis,
   aoAvisar,
   aoVerPerfis,
 }: {
+  souAdmin: boolean
   pessoas: ReturnType<typeof useDados<ListaDePessoas>>
   perfis: readonly PerfilPublico[]
   aoAvisar: (recado: string) => void
@@ -158,6 +167,7 @@ function AbaPessoas({
 
       {editando === 'nova' ? (
         <FormularioDePessoa
+          souAdmin={souAdmin}
           perfis={perfis}
           aoFechar={() => setEditando(null)}
           aoVerPerfis={aoVerPerfis}
@@ -184,6 +194,7 @@ function AbaPessoas({
           {d.pessoas.map((p) => (
             <LinhaDePessoa
               key={p.id}
+              souAdmin={souAdmin}
               p={p}
               perfis={perfis}
               aberto={editando === p.id}
@@ -225,6 +236,7 @@ function AbaPessoas({
 const inicial = (nome: string) => (nome.trim()[0] ?? '?').toUpperCase()
 
 function LinhaDePessoa({
+  souAdmin,
   p,
   perfis,
   aberto,
@@ -233,6 +245,7 @@ function LinhaDePessoa({
   aoMudar,
   aoRedefinir,
 }: {
+  souAdmin: boolean
   p: PessoaNaLista
   perfis: readonly PerfilPublico[]
   aberto: boolean
@@ -245,9 +258,18 @@ function LinhaDePessoa({
     ? 'Administradora'
     : (perfis.find((x) => x.id === p.perfilId)?.nome ?? 'Sem perfil')
 
+  // Conveniência: o servidor recusa (403) quem não é administradora e age sobre uma.
+  const somenteLeitura = p.admin && !souAdmin
+
   return (
     <div style={{ display: 'grid' }}>
-      <button className="linha" type="button" onClick={aoAbrir} aria-expanded={aberto}>
+      <button
+        className="linha"
+        type="button"
+        onClick={somenteLeitura ? undefined : aoAbrir}
+        aria-expanded={aberto}
+        disabled={somenteLeitura}
+      >
         <span className="avatar" aria-hidden="true">
           {inicial(p.nome)}
         </span>
@@ -262,6 +284,7 @@ function LinhaDePessoa({
               p.funcao === '' ? null : p.funcao,
               p.ativo ? null : 'inativa',
               p.aguardandoPrimeiroAcesso ? 'ainda não entrou' : null,
+              p.avisoDeAdministradora === null ? null : textoDoAviso(p.avisoDeAdministradora),
             ]
               .filter((x) => x !== null)
               .join(' · ')}
@@ -279,11 +302,12 @@ function LinhaDePessoa({
           o botão de editar.
         */}
         <span className="abrir" aria-hidden="true">
-          {aberto ? 'fechar' : 'editar'}
+          {somenteLeitura ? 'só administradora' : aberto ? 'fechar' : 'editar'}
         </span>
       </button>
       {aberto ? (
         <FormularioDePessoa
+          souAdmin={souAdmin}
           p={p}
           perfis={perfis}
           aoFechar={aoAbrir}
@@ -296,7 +320,21 @@ function LinhaDePessoa({
   )
 }
 
+/**
+ * "Criada por Helena em 10/11" — só quem fez e quando, por 30 dias (P-3). O
+ * servidor decide a janela; aqui só se formata. "Firmare (suporte)" vem pronto.
+ */
+function textoDoAviso(a: NonNullable<PessoaNaLista['avisoDeAdministradora']>): string {
+  const d = new Date(a.em)
+  const dia = Number.isNaN(d.getTime())
+    ? ''
+    : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(d)
+  const o = a.acao === 'criada' ? 'administradora criada' : 'promovida a administradora'
+  return `${o} por ${a.por}${dia === '' ? '' : ` em ${dia}`}`
+}
+
 function FormularioDePessoa({
+  souAdmin,
   p,
   perfis,
   aoFechar,
@@ -305,6 +343,7 @@ function FormularioDePessoa({
   aoMudar,
   aoRedefinir,
 }: {
+  souAdmin: boolean
   p?: PessoaNaLista
   perfis: readonly PerfilPublico[]
   aoFechar: () => void
@@ -332,6 +371,14 @@ function FormularioDePessoa({
    */
   const [senhaEscolhida, setSenhaEscolhida] = useState('')
   const [confirmandoExclusao, setConfirmandoExclusao] = useState(false)
+  /**
+   * Conceder ou retirar ADMINISTRAÇÃO pede confirmação que diz o que muda
+   * (spec 3.2): é acesso total ao dado de saúde da clínica, e a clínica
+   * responde por quem escolhe (DPA). `null` = nada a confirmar.
+   */
+  const [confirmandoAcesso, setConfirmandoAcesso] = useState<'conceder' | 'retirar' | null>(null)
+  const concedendo = acesso === '__admin' && !(p?.admin ?? false)
+  const retirando = acesso !== '__admin' && (p?.admin ?? false)
 
   /**
    * O usuário é sugerido do nome, e a canonização é a **do domínio** —
@@ -358,26 +405,21 @@ function FormularioDePessoa({
       return
     }
 
+    if ((concedendo || retirando) && confirmandoAcesso === null) {
+      setConfirmandoAcesso(concedendo ? 'conceder' : 'retirar')
+      return
+    }
+
     setOcupado(true)
     try {
       if (p === undefined) {
-        if (acesso === '__admin') {
-          // O contrato de criação **não tem** `admin`: quem cria a
-          // administradora de uma clínica é o superadmin (D-10, cadeia de
-          // criação). A opção aparece na lista por causa da edição, e a tela
-          // explica em vez de mandar um corpo que levaria 400.
-          setErro(
-            'Quem cria uma administradora é o suporte da Firmare. Escolha um perfil; depois, se precisar, mude o acesso desta pessoa aqui mesmo.',
-          )
-          return
-        }
         const criada = await chamar<PessoaCriada>('v1/pessoas', {
           method: 'POST',
           body: JSON.stringify({
             nome: nome.trim(),
             usuario,
             funcao: funcao.trim(),
-            perfilId: acesso,
+            acesso: acesso === '__admin' ? { admin: true } : { admin: false, perfilId: acesso },
           }),
         })
         aoCriar?.(criada)
@@ -415,6 +457,7 @@ function FormularioDePessoa({
       setErro(e instanceof Error ? e.message : 'Não consegui salvar.')
     } finally {
       setOcupado(false)
+      setConfirmandoAcesso(null)
     }
   }
 
@@ -500,7 +543,9 @@ function FormularioDePessoa({
         Perfil de acesso
         <select value={acesso} onChange={(e) => setAcesso(e.target.value)}>
           <option value="">Selecione</option>
-          <option value="__admin">Administradora (acesso total)</option>
+          {souAdmin || (p?.admin ?? false) ? (
+            <option value="__admin">Administradora (acesso total)</option>
+          ) : null}
           {perfis.map((x) => (
             <option key={x.id} value={x.id}>
               {x.nome}
@@ -513,6 +558,33 @@ function FormularioDePessoa({
           </button>
         </small>
       </label>
+
+      {confirmandoAcesso === null ? null : (
+        <p className="nota" role="alert">
+          {confirmandoAcesso === 'conceder' ? (
+            <>
+              <b>Administradora tem acesso total</b>: valores, salários, dados de pacientes e a
+              configuração de quem entra. A clínica responde por quem escolhe. Confirme só se for
+              uma pessoa de confiança — o nome de quem concedeu e a data ficam na trilha e aparecem
+              aqui por 30 dias.
+            </>
+          ) : (
+            <>
+              Retirar a administração <b>derruba as sessões abertas</b> dela agora, e ela passa a
+              ter só o que o perfil escolhido libera.
+            </>
+          )}{' '}
+          Toque em <b>{p === undefined ? 'Adicionar' : 'Salvar alterações'}</b> de novo para
+          confirmar.
+        </p>
+      )}
+
+      {acesso !== '' && perfis.find((x) => x.id === acesso)?.perms.includes('pessoas.gerir') ? (
+        <p className="nota">
+          <b>Este perfil enxerga salário e dados de RH da equipe</b> (Equipe: fichas, metas,
+          conversas 1:1 e banco de horas).
+        </p>
+      ) : null}
 
       {p === undefined ? (
         <p className="nota">
@@ -614,17 +686,25 @@ function FormularioDePessoa({
       </div>
       {confirmandoSenha ? (
         <>
-          <label className="campo">
-            Senha nova <small>(deixe vazio para o sistema gerar)</small>
-            <input
-              type="text"
-              autoComplete="off"
-              maxLength={200}
-              value={senhaEscolhida}
-              placeholder="Em branco = o sistema gera e mostra aqui"
-              onChange={(e) => setSenhaEscolhida(e.target.value)}
-            />
-          </label>
+          {p?.admin ? (
+            <p className="nota">
+              A senha de uma administradora é <b>sempre gerada pelo sistema</b> e aparece aqui uma
+              vez.
+            </p>
+          ) : null}
+          {p?.admin ? null : (
+            <label className="campo">
+              Senha nova <small>(deixe vazio para o sistema gerar)</small>
+              <input
+                type="text"
+                autoComplete="off"
+                maxLength={200}
+                value={senhaEscolhida}
+                placeholder="Em branco = o sistema gera e mostra aqui"
+                onChange={(e) => setSenhaEscolhida(e.target.value)}
+              />
+            </label>
+          )}
           <p className="nota">
             A senha atual deixa de valer e <b>as sessões abertas dela caem</b>.
             {senhaEscolhida.trim() === '' ? (
@@ -679,9 +759,11 @@ type Rascunho = { readonly chaveLocal: string; id?: string; nome: string; perms:
  * Enfermagem na Recepção sem ver.
  */
 function AbaPerfis({
+  souAdmin,
   perfis,
   aoAvisar,
 }: {
+  souAdmin: boolean
   perfis: ReturnType<typeof useDados<ListaDePerfis>>
   aoAvisar: (recado: string) => void
 }) {
@@ -739,6 +821,11 @@ function AbaPerfis({
 
   return (
     <>
+      {souAdmin ? null : (
+        <p className="nota" role="status">
+          Só uma <b>administradora</b> edita os perfis de acesso. Aqui você apenas consulta.
+        </p>
+      )}
       <p className="nota">
         Cada perfil libera o que estiver marcado, pilar por pilar. <b>Administradora</b> tem acesso
         total e não aparece aqui. Mude os perfis e escolha o de cada pessoa na aba <b>Pessoas</b>.

@@ -14,5 +14,7 @@ import { sessaoAtual } from '@/lib/sessao'
 export default async function Usuarios() {
   const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'config')) return <SemAcesso tela="Usuários e acessos" />
-  return <TelaUsuarios />
+  // `quem.admin` é `true` também na sessão de suporte (D-13). Conveniência: o
+  // servidor decide quem concede administração (`podeConcederAdministracao`).
+  return <TelaUsuarios souAdmin={quem.admin} />
 }
