@@ -65,6 +65,25 @@ em contagem e em valor, com a origem recalculada do dump cru. Colisão de chave 
 soma de propósito: é destino não contabilizado e reprova. A conferência roda dentro da transação, antes
 do COMMIT; divergência é ROLLBACK.
 
+## Decisão 4: as pendências que sobraram (2026-11-11, regra "protótipo, depois recomendado")
+1. **Os 3 clientes já em produção (P-19):** vale o relatório `--correspondencia`, só leitura. Cliente que
+   casa com um de produção por CNPJ ou nome é o mesmo e nada dele é atualizado. Cliente com casamento
+   duvidoso fica retido, com os dependentes, até o dono olhar. A hipótese de que os 3 marcados `migrado`
+   são os 3 de produção só vale se o relatório confirmar; não se presume.
+2. **Equipe:** a carga não cria conta. Sem o mapa de usuários, responsável e solicitante entram vazios
+   (aceito: é melhor vazio do que errado). O mapa se aplica numa segunda passada, depois que a equipe
+   existir na clínica, e só preenche campo vazio.
+3. **As 9 metas** (`%` com `soma`): continuam fora. O domínio não muda. A dona recria à mão, ou decide por
+   outra agregação, usando a lista fora do repo.
+4. **Texto de pagamento do mês (P-18):** não vira cobrança nem receita, como já decidido. Fica na origem.
+5. **Os 10 registros com "paciente/tratamento":** retidos da carga real até a dona ler. Hoje o carregador
+   não tem opção para excluir ids; essa opção (`--excluir`, arquivo fora do repo) precisa existir e ser
+   testada antes da carga real.
+6. **Supabase não é desligado.** Nenhum passo desta migração desliga, pausa, apaga ou escreve no Supabase:
+   o carregador só lê o dump baixado. Ele continua em uso e como fonte da verdade até o dono decidir o
+   contrário. Fica **sem data** de desligamento, e a revogação da chave de acesso **não é feita**. A
+   conferência e o ensaio de volta atrás valem com o Supabase ligado, como segunda cópia.
+
 ## Consequências
 - Nenhuma tabela nova de negócio para a migração; duas migrations pequenas (`0073`, `0074`), expand-only.
 - A idempotência depende de a namespace e do formato do nome ficarem imutáveis (esta ADR).
