@@ -9,6 +9,45 @@ import {
 
 const TODAS_COM_CLINICA = [...ENTIDADES_COM_CLINICA, ...ENTIDADES_COM_CLINICA_POR_GRUPO]
 
+/**
+ * Papel TEMPORÁRIO da migração do Supabase (ADR 2026-11-11-migracao-supabase).
+ * Suas policies ficam `TO migracao_carteira` e não podem passar pelo exame de
+ * "toda policy é de fir_carteira" — mas a isenção é ESTREITA: só roles exatamente
+ * ['migracao_carteira'], só SELECT ou INSERT, só nas tabelas da carga (cobranças só
+ * SELECT, para provar receita zero), e ainda com `app_pode_ver_grupo`. Qualquer
+ * UPDATE/DELETE/ALL, papel misturado ou tabela fora da lista reprova aqui.
+ */
+const TABELAS_DA_CARGA_DA_MIGRACAO = new Set([
+  'clientes_carteira', 'parceiros_do_cliente', 'planilhas_do_cliente', 'indicadores_carteira',
+  'metas_comerciais', 'lancamentos_de_indicador', 'reunioes_comerciais',
+  'itens_de_tarefa_interna', 'materiais_carteira', 'cobrancas_do_cliente_firmare',
+  // já têm policy PUBLIC própria (por grupo); o papel só recebe GRANT de SELECT e INSERT
+  'tarefas_internas', 'rotinas_internas',
+])
+const PAPEL_DA_MIGRACAO = 'migracao_carteira'
+
+type PoliticaLida = {
+  policyname: string
+  cmd: string
+  roles: string[]
+  qual: string | null
+  with_check: string | null
+}
+
+/** Valida as policies do papel da migração e devolve só as que NÃO são dele. */
+function semPoliticasDoPapelDaMigracao<T extends PoliticaLida>(t: string, linhas: T[]): T[] {
+  const dele = linhas.filter((p) => p.roles.includes(PAPEL_DA_MIGRACAO))
+  for (const p of dele) {
+    const quem = `${t}: policy "${p.policyname}" do papel da migração`
+    expect(p.roles, `${quem} mistura outro papel`).toEqual([PAPEL_DA_MIGRACAO])
+    expect(['SELECT', 'INSERT'], `${quem} tem cmd ${p.cmd}: só SELECT e INSERT`).toContain(p.cmd)
+    expect(TABELAS_DA_CARGA_DA_MIGRACAO.has(t), `${quem} em tabela fora da lista da carga`).toBe(true)
+    if (t === 'cobrancas_do_cliente_firmare') expect(p.cmd, `${quem}: cobranças só SELECT`).toBe('SELECT')
+    expect(`${p.qual ?? ''}${p.with_check ?? ''}`, `${quem} sem app_pode_ver_grupo`).toContain('app_pode_ver_grupo')
+  }
+  return linhas.filter((p) => !p.roles.includes(PAPEL_DA_MIGRACAO))
+}
+
 const URL_MIG =
   process.env['DATABASE_URL_MIGRATE'] ?? 'postgresql://fir_migrate:fir_local_dev@127.0.0.1:4832/fir'
 
@@ -238,13 +277,8 @@ describe('toda tabela de negócio está protegida', () => {
     // grupo vê só o próprio) para que a CLÁUSULA DA POLICY nunca precise de
     // `OR` — é a mesma defesa, um nível abaixo.
     for (const t of ENTIDADES_COM_CLINICA_POR_GRUPO) {
-      const r = await migrate.query<{
-        policyname: string
-        qual: string | null
-        with_check: string | null
-        roles: string[]
-      }>(
-        'SELECT policyname, qual, with_check, roles::text[] AS roles FROM pg_policies WHERE schemaname = $1 AND tablename = $2',
+      const r = await migrate.query<PoliticaLida>(
+        'SELECT policyname, cmd, qual, with_check, roles::text[] AS roles FROM pg_policies WHERE schemaname = $1 AND tablename = $2',
         ['public', t],
       )
       expect(r.rows.length, `${t} sem policy`).toBeGreaterThan(0)
@@ -275,7 +309,7 @@ describe('toda tabela de negócio está protegida', () => {
       // devolve, não o texto da policy) mora em
       // `teste/portal-no-banco.test.ts`, describe "REGRESSÃO: fir_portal com
       // app.escopo=geral" — é o teste que teria pego este bug antes do merge.
-      const doFirCarteira = r.rows.filter((p) => !p.roles.includes('fir_portal'))
+      const doFirCarteira = semPoliticasDoPapelDaMigracao(t, r.rows).filter((p) => !p.roles.includes('fir_portal'))
       expect(doFirCarteira.length, `${t} sem policy de fir_carteira`).toBeGreaterThan(0)
 
       for (const p of doFirCarteira) {
@@ -303,6 +337,25 @@ describe('toda tabela de negócio está protegida', () => {
     }
   })
 
+  it('o papel temporário da migração só tem policy SELECT/INSERT nas tabelas da carga e nenhum privilégio fora delas', async () => {
+    const pol = await migrate.query<PoliticaLida & { tablename: string }>(
+      'SELECT tablename, policyname, cmd, qual, with_check, roles::text[] AS roles FROM pg_policies WHERE schemaname = $1',
+      ['public'],
+    )
+    for (const p of pol.rows.filter((x) => x.roles.includes(PAPEL_DA_MIGRACAO))) {
+      semPoliticasDoPapelDaMigracao(p.tablename, [p])
+    }
+    const priv = await migrate.query<{ table_name: string; privilege_type: string }>(
+      `SELECT table_name, privilege_type FROM information_schema.table_privileges
+        WHERE table_schema = 'public' AND grantee = $1`,
+      [PAPEL_DA_MIGRACAO],
+    )
+    for (const g of priv.rows) {
+      expect(TABELAS_DA_CARGA_DA_MIGRACAO.has(g.table_name), `${PAPEL_DA_MIGRACAO} tem ${g.privilege_type} em ${g.table_name}, fora da lista da carga`).toBe(true)
+      expect(['SELECT', 'INSERT'], `${PAPEL_DA_MIGRACAO} tem ${g.privilege_type} em ${g.table_name}`).toContain(g.privilege_type)
+    }
+  })
+
   it('as tabelas da carteira SEM clinica_id (G5) têm RLS forçada e policy por grupo, sem OR', async () => {
     // Mesmo exame dos dois `it` acima, para `ENTIDADES_DA_CARTEIRA_SEM_CLINICA`
     // (registro.ts) — a varredura por `clinica_id` do `it` do topo NUNCA
@@ -318,12 +371,12 @@ describe('toda tabela de negócio está protegida', () => {
       expect(rls.rows[0]!.relrowsecurity, `${t} sem RLS habilitada`).toBe(true)
       expect(rls.rows[0]!.relforcerowsecurity, `${t} sem RLS forçada`).toBe(true)
 
-      const r = await migrate.query<{ policyname: string; qual: string | null; with_check: string | null }>(
-        'SELECT policyname, qual, with_check FROM pg_policies WHERE schemaname = $1 AND tablename = $2',
+      const r = await migrate.query<PoliticaLida>(
+        'SELECT policyname, cmd, qual, with_check, roles::text[] AS roles FROM pg_policies WHERE schemaname = $1 AND tablename = $2',
         ['public', t],
       )
       expect(r.rows.length, `${t} sem policy`).toBeGreaterThan(0)
-      for (const p of r.rows) {
+      for (const p of semPoliticasDoPapelDaMigracao(t, r.rows)) {
         expect(p.qual, `${t}: policy "${p.policyname}" sem USING por grupo`).toContain('app_pode_ver_grupo')
         expect(p.qual?.toUpperCase(), `${t}: policy "${p.policyname}" tem OR no USING`).not.toMatch(/\bOR\b/)
         expect(
@@ -371,13 +424,8 @@ describe('toda tabela de negócio está protegida', () => {
       expect(rls.rows[0]!.relrowsecurity, `${t} sem RLS habilitada`).toBe(true)
       expect(rls.rows[0]!.relforcerowsecurity, `${t} sem RLS forçada`).toBe(true)
 
-      const r = await migrate.query<{
-        policyname: string
-        qual: string | null
-        with_check: string | null
-        roles: string[]
-      }>(
-        'SELECT policyname, qual, with_check, roles::text[] AS roles FROM pg_policies WHERE schemaname = $1 AND tablename = $2',
+      const r = await migrate.query<PoliticaLida>(
+        'SELECT policyname, cmd, qual, with_check, roles::text[] AS roles FROM pg_policies WHERE schemaname = $1 AND tablename = $2',
         ['public', t],
       )
       expect(r.rows.length, `${t} sem policy`).toBeGreaterThan(0)
@@ -403,7 +451,7 @@ describe('toda tabela de negócio está protegida', () => {
         'metas_comerciais',
         'cobrancas_do_cliente_firmare',
       ])
-      const doFirCarteira = r.rows.filter((p) => !p.roles.includes('fir_portal'))
+      const doFirCarteira = semPoliticasDoPapelDaMigracao(t, r.rows).filter((p) => !p.roles.includes('fir_portal'))
       expect(doFirCarteira.length, `${t} sem policy de fir_carteira`).toBeGreaterThan(0)
 
       for (const p of doFirCarteira) {
