@@ -954,7 +954,11 @@ export function planejar(dump: Dump, o: Opcoes): Plano {
   }
 
   // --------------------------------------------------------------- tarefas
-  for (const r of por('tarefas')) {
+  // O banco admite UMA tarefa por (rotina, cliente, competência) fora das canceladas. A origem repete
+  // algumas; a concluída vence (é trabalho feito) e a repetida é rejeitada e relatada, nunca fundida.
+  const lembretesVistos = new Set<string>()
+  const tarefasDaOrigem = [...por('tarefas')].sort((x, y) => Number(cheio(y.data, 'status') === 'concluida') - Number(cheio(x.data, 'status') === 'concluida'))
+  for (const r of tarefasDaOrigem) {
     const d = r.data
     if (temNul(r)) { rejeitar(r, 'caractere_nulo'); continue }
     const cid = cheio(d, 'cliente_id')
@@ -1033,6 +1037,11 @@ export function planejar(dump: Dump, o: Opcoes): Plano {
       prazo, prioridade: prio, status: status!, concluida_em: concluidaDia ? instanteDeData(concluidaDia) : null,
       rotina_interna_id: rotina, recorrencia: rec, vencimento, competencia,
       mensagem: msg !== null && MENSAGENS.includes(msg) ? msg : null, contrato,
+    }
+    if (rotina !== null && competencia !== null) {
+      const chaveDoLembrete = `${rotina}|${dep.id}|${competencia}`
+      if (lembretesVistos.has(chaveDoLembrete)) { rejeitar(r, 'tarefa_repetida_na_origem_mesma_rotina_cliente_competencia', cid); continue }
+      lembretesVistos.add(chaveDoLembrete)
     }
     alvos.tarefasPorStatus[status!] = (alvos.tarefasPorStatus[status!] ?? 0) + 1
     registrar(r, 'carregavel', undefined, linha('tarefas_internas', id, cols), filhas, cid)

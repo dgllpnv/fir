@@ -17,6 +17,7 @@ import {
   segundaDaSemanaIso,
   uuidV5,
   type Dump,
+  type Registro,
 } from '../infra/migracao-supabase/nucleo'
 
 /**
@@ -238,6 +239,17 @@ describe('dry-run sobre dado sintético', () => {
     expect(plano.alvos.arredondamentos).toBe(0)
     expect(plano.alvos.checkinsPorMeta[`${p}-m1`]).toBe(125050n) // 1250.50 reais
     expect(plano.alvos.checkinsPorMeta[`${p}-m5`]).toBe(725n) // 7.25 % = 725 centésimos
+  })
+  it('lembrete repetido na origem (mesma rotina, cliente e competência): a concluída vence e a repetida é rejeitada com motivo', () => {
+    const t = (id: string, status: string): Registro => ({
+      id, colecao: 'tarefas', clienteId: `${p}-c3`,
+      data: { titulo: S(`Lembrete ${id}`), descricao: '', cliente_id: `${p}-c3`, prazo: '2026-11-20', status, prioridade: 'normal', recorrencia: 'nenhuma', concluida_em: status === 'concluida' ? '2026-11-21' : '', rotina_id: `${p}-r1`, msg: 'pagamento', vencimento: '2026-11-23', responsavel_id: 'u1', solicitante_id: 'u1' },
+    })
+    const plano = planejar({ ...dump, registros: [...dump.registros, t(`${p}-d1`, 'pendente'), t(`${p}-d2`, 'concluida')] }, opcoes)
+    const e = (id: string) => plano.resultados.find((r) => r.colecao === 'tarefas' && r.idOrigem === id)
+    expect(e(`${p}-d2`)?.estado).toBe('carregavel')
+    expect(e(`${p}-d1`)?.estado).toBe('rejeitado')
+    expect(e(`${p}-d1`)?.motivo).toBe('tarefa_repetida_na_origem_mesma_rotina_cliente_competencia')
   })
   it('% com soma é rejeitada (a regra do domínio), e meta e check-in dela caem juntos, com motivo', () => {
     const plano = planejar(dump, opcoes)
