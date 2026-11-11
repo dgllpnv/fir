@@ -10,7 +10,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
-import { executarCarga, gerarCorrespondencia, relatorioDaCarga, validarDestino, ErroDeCarga, type ClienteSql } from './banco'
+import { conferirAlvoDeProducao, executarCarga, gerarCorrespondencia, relatorioDaCarga, validarDestino, ErroDeCarga, type ClienteSql } from './banco'
 import { ErroDeDump, lerDump, lerListaDeExclusao, metasParaDecisaoCsv, planejar, relatorioDoPlano, retirarDoDump, type Plano } from './nucleo'
 
 function argumento(nome: string): string | undefined {
@@ -108,6 +108,15 @@ async function principal(): Promise<number> {
   const cli = new pg.Client({ connectionString: url })
   await cli.connect()
   try {
+    if (tem('--producao')) {
+      const q = (await cli.query('SELECT current_database() AS banco, current_user AS usuario')).rows[0] ?? {}
+      conferirAlvoDeProducao({
+        banco: String(q['banco']),
+        usuario: String(q['usuario']),
+        confirmaBanco: process.env['FIR_MIGRACAO_CONFIRMA_BANCO'],
+        incluirGlobais: process.env['FIR_MIGRACAO_INCLUIR_GLOBAIS'] === '1',
+      })
+    }
     const grupo = process.env['FIR_MIGRACAO_GRUPO'] ?? String((await cli.query('SELECT id::text AS id FROM grupos WHERE padrao')).rows[0]?.['id'] ?? '')
     const carga = process.env['FIR_MIGRACAO_USUARIO_CARGA'] ?? ''
     const r = await executarCarga(cli, dump, {

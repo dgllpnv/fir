@@ -244,14 +244,22 @@ describe('POST /v1/entrar', () => {
   it('tentativas_login guarda o USUÁRIO, nunca um e-mail', async () => {
     // D-10: menos PII na trilha. É o ganho de graça desta decisão, e vale
     // registrar que ele está de pé.
+    // Filtra pela tentativa DESTE teste (identificador e instante): a linha de uma entrada
+    // anterior do mesmo arquivo pode ser gravada depois, e "a última da clínica" já falhou assim.
+    const t0 = (await migrate.query<{ t: Date }>(`SELECT clock_timestamp() AS t`)).rows[0]!.t
     await entrarComo('conta.b', 'chute-errado-aqui').expect(401)
     const r = await migrate.query<{ identificador: string }>(
       `SELECT identificador FROM tentativas_login
-        WHERE clinica_id = $1 ORDER BY em DESC, id DESC LIMIT 1`,
-      [clinica],
+        WHERE clinica_id = $1 AND em >= $2 AND identificador = 'conta.b'
+        ORDER BY em DESC, id DESC LIMIT 1`,
+      [clinica, t0],
     )
-    expect(r.rows[0]!.identificador).toBe('conta.b')
-    expect(r.rows[0]!.identificador).not.toMatch(/@/)
+    expect(r.rows[0]?.identificador).toBe('conta.b')
+    const emails = await migrate.query(
+      `SELECT 1 FROM tentativas_login WHERE clinica_id = $1 AND em >= $2 AND identificador LIKE '%@%'`,
+      [clinica, t0],
+    )
+    expect(emails.rowCount).toBe(0)
   })
 
   it('o limite por conta conta pelo CANÔNICO, não pelo que foi digitado', async () => {

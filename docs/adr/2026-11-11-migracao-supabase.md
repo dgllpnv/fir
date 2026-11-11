@@ -85,6 +85,16 @@ do COMMIT; divergência é ROLLBACK.
    contrário. Fica **sem data** de desligamento, e a revogação da chave de acesso **não é feita**. A
    conferência e o ensaio de volta atrás valem com o Supabase ligado, como segunda cópia.
 
+## Decisão 5: como a carga chega à produção e quem a assina (2026-11-11)
+1. **Túnel SSH, não conexão remota.** O carregador continua recusando qualquer host que não seja
+   loopback; o dono abre um túnel até o container do Postgres (que não publica porta). `--producao`
+   acrescenta duas travas de quem digita: o nome do banco repetido em `FIR_MIGRACAO_CONFIRMA_BANCO` e a
+   conexão obrigatoriamente do papel `migracao_carteira` (exceção: as globais do Operador).
+2. **Sem conta nova em produção.** O autor da carga é o id de um `usuarios_gestao` ativo de escopo `geral`
+   (o Operador que roda). Em vez de uma linha técnica "Carga do sistema anterior", a trilha diz quem
+   realmente rodou. O usuário inativo continua só no ensaio local.
+3. **Ensaio antes:** a mesma carga, sem `--producao`, numa cópia restaurada do backup.
+
 ## Consequências
 - Nenhuma tabela nova de negócio para a migração; duas migrations pequenas (`0073`, `0074`), expand-only.
 - A idempotência depende de a namespace e do formato do nome ficarem imutáveis (esta ADR).

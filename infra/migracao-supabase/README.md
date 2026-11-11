@@ -54,3 +54,28 @@ ele, esses documentos ficam **retidos** (`tabela_global_exige_administrar_fora_d
 
 `teste/migracao-supabase.test.ts` e `teste/migracao-supabase-correspondencia.test.ts` (Postgres local, dados sintéticos;
 o papel precisa existir: `docker exec -i fir-postgres psql -U fir -d fir -v senha="'<senha>'" < infra/migracao-supabase/criar-papel-migracao-carteira.sql`).
+
+## Carga em produção (só com o "pode" do dono; quem digita senha é o dono)
+
+O carregador só fala com `127.0.0.1`. Para a VPS, o dono abre um túnel SSH e a porta local leva ao
+Postgres do container (que não publica porta). Nada disto roda sem o deploy das migrations `0073` a `0075`.
+
+1. **Papel de carga** (uma vez, o dono digita a senha): `criar-papel-migracao-carteira.sql` como dono do esquema.
+2. **Túnel** (janela própria, fica aberta):
+   `ssh -i <chave> -N -L 127.0.0.1:4843:<IP do container postgres>:5432 root@<VPS>`
+   O IP sai de `docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' <container postgres>`.
+   Porta local livre qualquer (4843 evita o Postgres local, 4832, e a 4833, que costuma estar ocupada).
+3. **Autor da carga: um usuário que já existe.** Não se cria conta em produção. Use o id de um
+   `usuarios_gestao` ativo de escopo `geral` (o Operador que roda a carga):
+   `SELECT id, usuario FROM usuarios_gestao WHERE escopo = 'geral' AND ativo`. A trilha de auditoria
+   passa a dizer, com verdade, quem rodou a carga. Vai em `FIR_MIGRACAO_USUARIO_CARGA`.
+4. **Ensaio primeiro**, numa cópia restaurada do backup no Postgres local (mesmo comando, sem `--producao`).
+5. **Variáveis:** `FIR_MIGRACAO_DATABASE_URL=postgresql://migracao_carteira:<senha>@127.0.0.1:4843/<banco>`,
+   `FIR_MIGRACAO_CONFIRMA_BANCO=<banco>` (repetido de propósito), `FIR_MIGRACAO_GRUPO`,
+   `FIR_MIGRACAO_USUARIO_CARGA`, `FIR_MIGRACAO_CORRESPONDENCIA` (aprovações do passo de casamento).
+6. **Casamento dos clientes** (só lê): `--correspondencia <proposta.json>`; aprovar como `NOVO` ou `EXISTENTE:<uuid>`.
+7. **Carga:** `... --dump <dump.csv> --excluir <retidos.txt> --aplicar --producao`. `--producao` recusa
+   se o nome do banco não for repetido em `FIR_MIGRACAO_CONFIRMA_BANCO` e se a conexão não for do papel
+   `migracao_carteira` (as globais do Operador, `FIR_MIGRACAO_INCLUIR_GLOBAIS=1`, são a única exceção).
+   A conferência roda antes do COMMIT; divergência desfaz tudo.
+8. **Depois:** fechar o túnel, remover o papel (`remover-papel-migracao-carteira.sql`). O Supabase não é tocado.

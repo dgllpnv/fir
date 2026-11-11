@@ -69,6 +69,18 @@ export function validarDestino(url: string): void {
   }
 }
 
+/**
+ * Guarda da carga em PRODUÇÃO por túnel SSH (o destino continua sendo 127.0.0.1, mas a porta leva à VPS).
+ * Três travas, todas de quem digita: (1) o nome do banco tem de ser repetido em
+ * `FIR_MIGRACAO_CONFIRMA_BANCO`, para um túnel esquecido apontando para o banco errado não passar;
+ * (2) a conexão tem de ser do papel `migracao_carteira` (sem dono, sem BYPASSRLS), salvo as globais do Operador;
+ * (3) só vale com `--producao` explícito, que ainda exige `--aplicar`.
+ */
+export function conferirAlvoDeProducao(a: { banco: string; usuario: string; confirmaBanco: string | undefined; incluirGlobais: boolean }): void {
+  if (!a.confirmaBanco || a.confirmaBanco !== a.banco) throw new ErroDeCarga('producao_sem_confirmar_o_nome_do_banco')
+  if (a.usuario !== 'migracao_carteira' && !a.incluirGlobais) throw new ErroDeCarga('producao_exige_o_papel_migracao_carteira')
+}
+
 export async function carregarExistentes(cli: ClienteSql): Promise<ClienteExistente[]> {
   const r = await cli.query(
     'SELECT id::text AS id, grupo_id::text AS grupo, nome, cnpj FROM clientes_carteira WHERE excluido_em IS NULL',

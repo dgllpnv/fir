@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { conferir, executarCarga, relatorioDaCarga, reduzir, validarDestino, type ClienteSql, type ResultadoDaCarga } from '../infra/migracao-supabase/banco'
+import { conferirAlvoDeProducao, conferir, executarCarga, relatorioDaCarga, reduzir, validarDestino, type ClienteSql, type ResultadoDaCarga } from '../infra/migracao-supabase/banco'
 import {
   dataCivil,
   ErroDeDump,
@@ -243,6 +243,18 @@ describe('dry-run sobre dado sintético', () => {
     const plano = planejar(dump, opcoes)
     expect(plano.resultados.find((r) => r.colecao === 'metas' && r.idOrigem === `${p}-m4`)?.motivo).toBe('percentual_com_soma')
     expect(plano.resultados.find((r) => r.colecao === 'checkins' && r.idOrigem === `${p}-k4`)?.motivo).toBe('meta_nao_carregavel')
+  })
+})
+
+describe('--producao: as travas de quem digita (túnel SSH até a VPS)', () => {
+  it('recusa sem repetir o nome do banco, ou com nome diferente', () => {
+    expect(() => conferirAlvoDeProducao({ banco: 'fir', usuario: 'migracao_carteira', confirmaBanco: undefined, incluirGlobais: false })).toThrow('producao_sem_confirmar_o_nome_do_banco')
+    expect(() => conferirAlvoDeProducao({ banco: 'fir', usuario: 'migracao_carteira', confirmaBanco: 'outro', incluirGlobais: false })).toThrow('producao_sem_confirmar_o_nome_do_banco')
+  })
+  it('recusa conexão que não seja do papel migracao_carteira, salvo as globais do Operador', () => {
+    expect(() => conferirAlvoDeProducao({ banco: 'fir', usuario: 'fir', confirmaBanco: 'fir', incluirGlobais: false })).toThrow('producao_exige_o_papel_migracao_carteira')
+    expect(() => conferirAlvoDeProducao({ banco: 'fir', usuario: 'migracao_carteira', confirmaBanco: 'fir', incluirGlobais: false })).not.toThrow()
+    expect(() => conferirAlvoDeProducao({ banco: 'fir', usuario: 'fir_migrate', confirmaBanco: 'fir', incluirGlobais: true })).not.toThrow()
   })
 })
 
