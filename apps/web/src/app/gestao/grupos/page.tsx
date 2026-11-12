@@ -6,8 +6,6 @@ import type {
   GrupoNaLista,
   GrupoNoPainel,
   ListaDeGruposSaida,
-  ListaDeUsuariosDeGestaoSaida,
-  UsuarioDeGestaoNaLista,
   UsuarioDoPortalCriadoSaida,
 } from '@fir/contracts'
 import { useEffect, useState } from 'react'
@@ -56,8 +54,6 @@ export default function Grupos() {
   const [mudandoEstado, setMudandoEstado] = useState<GrupoNoPainel | null>(null)
   const [verDesativados, setVerDesativados] = useState(false)
   /** Quem tem o grupo Firmare (escopo `geral`). `null` = carregando. */
-  const [daFirmare, setDaFirmare] = useState<UsuarioDeGestaoNaLista[] | null>(null)
-  const [erroFirmare, setErroFirmare] = useState('')
   /** Sobe quando um vínculo cria um cliente — a lista por grupo relê. */
   const [versaoDosClientes, setVersaoDosClientes] = useState(0)
 
@@ -76,20 +72,6 @@ export default function Grupos() {
       valeu = false
     }
   }, [tentativa])
-
-  useEffect(() => {
-    let valeu = true
-    chamar<ListaDeUsuariosDeGestaoSaida>('v1/superadmin/usuarios-gestao')
-      .then((r) => {
-        if (valeu) setDaFirmare(r.usuariosDeGestao.filter((u) => u.escopo === 'geral'))
-      })
-      .catch((x: unknown) => {
-        if (valeu) setErroFirmare(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
-      })
-    return () => {
-      valeu = false
-    }
-  }, [])
 
   const recarregarGrupos = () => {
     setGrupos(null)
@@ -121,7 +103,6 @@ export default function Grupos() {
         </button>
       </div>
 
-      <GrupoFirmare usuarios={daFirmare} erro={erroFirmare} />
 
       {erro !== '' ? (
         <ErroDoPainel mensagem={erro} recarregar={recarregarGrupos} />
@@ -343,46 +324,6 @@ export default function Grupos() {
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
-  )
-}
-
-/**
- * O GRUPO FIRMARE, fixo. Não é uma linha de `grupos`: é o escopo `geral` dos
- * usuários de gestão, mostrado onde a pergunta "quem vê o quê" está em cena.
- * A lista vem do servidor; a tela só separa quem tem o escopo.
- */
-function GrupoFirmare({ usuarios, erro }: { usuarios: UsuarioDeGestaoNaLista[] | null; erro: string }) {
-  return (
-    <div className="superadmin-grupo-firmare" role="group" aria-label="Grupo Firmare">
-      <div className="grupo-firmare-linha">
-        <span className="grupo-firmare-nome">Firmare</span>
-        <span className="pill dourado">vê todas as clínicas automaticamente</span>
-      </div>
-      {erro !== '' ? (
-        <p className="nota erro-do-painel">Não consegui listar quem tem este grupo: {erro}</p>
-      ) : usuarios === null ? (
-        <p className="nota">Carregando quem tem este grupo…</p>
-      ) : usuarios.filter((u) => u.ativo).length === 0 ? (
-        <p className="nota">
-          Ninguém ainda. Dê o grupo Firmare a um usuário em <b>Usuários de gestão</b>.
-        </p>
-      ) : (
-        <>
-          <ul aria-label="Usuários do grupo Firmare">
-            {usuarios
-              .filter((u) => u.ativo)
-              .map((u) => (
-                <li key={u.id}>
-                  <span className="pill">{u.nome}</span>
-                </li>
-              ))}
-          </ul>
-          {usuarios.some((u) => !u.ativo) ? (
-            <p className="nota">Os desativados aparecem em Usuários de gestão, em "Mostrar desativados".</p>
-          ) : null}
-        </>
-      )}
-    </div>
   )
 }
 
