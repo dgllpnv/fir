@@ -218,9 +218,9 @@ export class PainelCarteiraService {
     id: string,
     dados: EditarGrupoEntrada,
   ): Promise<GrupoNaLista> {
-    return this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(ator, async (c) => {
+    const grupo = await this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(ator, async (c) => {
       const antes = await c.query<{ nome: string; ativo: boolean }>(
-        'SELECT nome, ativo FROM grupos WHERE id = $1',
+        'SELECT nome, ativo FROM grupos WHERE id = $1 FOR UPDATE',
         [id],
       )
       const de = antes.rows[0]
@@ -261,6 +261,21 @@ export class PainelCarteiraService {
       })
       return grupo
     })
+    // `fir_painel` não escreve no portal; a revogação vai pela conexão do Operador
+    // na carteira (a mesma de `encerrarCliente`). Roda sempre que o grupo está
+    // desativado, não só na transição: é idempotente e um retry fecha uma falha
+    // entre as duas transações — reativar nunca ressuscita sessão de portal.
+    if (!grupo.ativo) {
+      await this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
+        await c.query(
+          `UPDATE sessoes_do_portal SET revogada_em = now()
+            WHERE revogada_em IS NULL
+              AND usuario_portal_id IN (SELECT id FROM usuarios_do_portal WHERE grupo_id = $1)`,
+          [id],
+        )
+      })
+    }
+    return grupo
   }
 
   async criarGrupo(ator: OperadorId, dados: CriarGrupoEntrada): Promise<GrupoNaLista> {

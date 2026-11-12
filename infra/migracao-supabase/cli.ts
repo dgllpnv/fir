@@ -11,6 +11,7 @@ import { resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import { conferirAlvoDeProducao, executarCarga, gerarCorrespondencia, relatorioDaCarga, validarDestino, ErroDeCarga, type ClienteSql } from './banco'
+import { aplicarMapaDeUsuarios, conferirAlvoDaSegundaPassadaEmProducao, relatorioDoMapaDeUsuarios } from './mapa-de-usuarios'
 import { ErroDeDump, lerDump, lerListaDeExclusao, metasParaDecisaoCsv, planejar, relatorioDoPlano, retirarDoDump, type Plano } from './nucleo'
 
 function argumento(nome: string): string | undefined {
@@ -72,6 +73,32 @@ async function correspondencia(dump: ReturnType<typeof lerDump>): Promise<number
   }
 }
 
+/**
+ * `--aplicar-mapa-de-usuarios` (grava) / `--simular-mapa-de-usuarios` (mesma transação, sempre ROLLBACK).
+ * Só preenche NULL. Atualiza, então NÃO roda com o papel `migracao_carteira`: ver README.
+ */
+async function mapaDeUsuarios(dump: ReturnType<typeof lerDump>): Promise<number> {
+  const mapa = json(process.env['FIR_MIGRACAO_MAPA_USUARIOS'])
+  const cli = await conectar()
+  try {
+    if (tem('--producao')) {
+      const q = (await cli.query('SELECT current_database() AS banco, current_user AS usuario')).rows[0] ?? {}
+      conferirAlvoDaSegundaPassadaEmProducao({
+        banco: String(q['banco']),
+        usuario: String(q['usuario']),
+        confirmaBanco: process.env['FIR_MIGRACAO_CONFIRMA_BANCO'],
+      })
+    }
+    const grupo = process.env['FIR_MIGRACAO_GRUPO'] ?? String((await cli.query('SELECT id::text AS id FROM grupos WHERE padrao')).rows[0]?.['id'] ?? '')
+    const r = await aplicarMapaDeUsuarios(cli, dump, { grupoId: grupo, mapaUsuarios: mapa, simular: tem('--simular-mapa-de-usuarios') })
+    console.log(`MODO: ${tem('--simular-mapa-de-usuarios') ? '--simular-mapa-de-usuarios' : '--aplicar-mapa-de-usuarios'}`)
+    for (const l of relatorioDoMapaDeUsuarios(r)) console.log(l)
+    return r.commitado || (r.simulacao && r.colunas.every((c) => c.ok)) ? 0 : 1
+  } finally {
+    await cli.end()
+  }
+}
+
 async function principal(): Promise<number> {
   for (const f of ['--saida', '--metas-para-decisao']) {
     const v = argumento(f)
@@ -85,6 +112,10 @@ async function principal(): Promise<number> {
   const dump = retirada.dump
   if (arquivoDeExclusao) console.log(`RETIDOS PARA LEITURA DA DONA: ${retirada.retirados} registros fora desta carga (--excluir)`)
   if (tem('--correspondencia')) return correspondencia(dump)
+  if (tem('--aplicar-mapa-de-usuarios') || tem('--simular-mapa-de-usuarios')) {
+    if (tem('--aplicar') || (tem('--aplicar-mapa-de-usuarios') && tem('--simular-mapa-de-usuarios'))) throw new ErroDeCarga('modos_exclusivos')
+    return mapaDeUsuarios(dump)
+  }
   if (!tem('--aplicar')) {
     const p = planejar(dump, {
       grupoId: '00000000-0000-0000-0000-000000000000',

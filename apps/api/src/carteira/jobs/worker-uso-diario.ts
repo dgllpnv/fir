@@ -49,6 +49,8 @@ async function main(): Promise<void> {
     NOME_DA_FILA_USO_DIARIO,
     async (job) => {
       // `dia` (AAAA-MM-DD) é só para reprocessar um dia à mão (UPSERT: seguro repetir).
+      // `as`: o BullMQ tipa `job.data` como `any`; aqui é só estreitado para `unknown` e
+      // validado pelo regex logo abaixo, nunca confiado.
       const dia: unknown = (job.data as { dia?: unknown } | undefined)?.dia
       await rodar(typeof dia === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dia) ? dia : undefined)
     },

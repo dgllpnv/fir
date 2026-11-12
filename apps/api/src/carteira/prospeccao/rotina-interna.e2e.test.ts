@@ -9,9 +9,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { BancoModule } from '../../banco/banco.module'
 import { declararAtorSistema } from '../../banco/limpeza-de-teste'
 import { hashDeSenha } from '../../autenticacao/senha'
+import { novoToken } from '../../autenticacao/sessao'
 import { RELOGIO } from '../../comum/relogio'
 import { registrarCookie } from '../../main'
-import { CarteiraGuard } from '../carteira.guard'
+import { CarteiraGuard, NOME_DO_COOKIE_CARTEIRA } from '../carteira.guard'
 import { CarteiraModule } from '../carteira.module'
 import { ProspeccaoCarteiraModule } from './prospeccao-carteira.module'
 import { RotinaInternaService } from './rotina-interna.service'
@@ -415,6 +416,40 @@ describe('carga e redistribuir — só escopo geral (A-5, A-9: carteira.administ
     } finally {
       await migrate.query('DELETE FROM operadores WHERE id = $1', [op])
       await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [contaDoOperador])
+    }
+  })
+
+  it('o operador logado na carteira VÊ a própria conta na equipe (a exceção u.id = sessão)', async () => {
+    const op = (
+      await migrate.query<{ id: string }>(
+        `INSERT INTO operadores (usuario, nome, senha_hash) VALUES ($1, 'Dono Logado', $2) RETURNING id`,
+        [`opv.${sufixo}`, await hashDeSenha(SENHA)],
+      )
+    ).rows[0]!.id
+    const conta = (
+      await migrate.query<{ usuario_gestao_id: string }>(
+        'SELECT usuario_gestao_id FROM contas_de_gestao_do_operador WHERE operador_id = $1',
+        [op],
+      )
+    ).rows[0]!.usuario_gestao_id
+    try {
+      // A conta do operador não tem senha: a sessão nasce como o painel a abre (token + hash).
+      const { token, hash } = novoToken()
+      await migrate.query(
+        `INSERT INTO sessoes_de_carteira (usuario_gestao_id, token_hash, expira_em)
+         VALUES ($1, $2, now() + interval '1 hour')`,
+        [conta, hash],
+      )
+      const dele = `${NOME_DO_COOKIE_CARTEIRA}=${token}`
+      const vista = await http().get('/v1/carteira/equipe-da-rotina').set('Cookie', dele).expect(200)
+      expect(vista.body.eu).toBe(conta)
+      expect(vista.body.pessoas.map((p: { id: string }) => p.id)).toContain(conta)
+      // E a colega comum, que não é conta de operador, continua à vista dele.
+      expect(vista.body.pessoas.map((p: { id: string }) => p.id)).toContain(geral)
+    } finally {
+      await migrate.query('DELETE FROM sessoes_de_carteira WHERE usuario_gestao_id = $1', [conta])
+      await migrate.query('DELETE FROM operadores WHERE id = $1', [op])
+      await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [conta])
     }
   })
 

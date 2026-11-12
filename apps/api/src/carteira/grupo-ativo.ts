@@ -9,5 +9,5 @@
  * Fragmento SQL estático (sem entrada de usuário): `alias` é uma constante do
  * chamador, nunca um valor vindo da requisição.
  */
-export const grupoAtivoDe = (alias: string): string =>
+export const grupoAtivoDe = (alias: 'u' | 'usuarios_gestao'): string =>
   `(${alias}.grupo_id IS NULL OR EXISTS (SELECT 1 FROM grupos gx WHERE gx.id = ${alias}.grupo_id AND gx.ativo))`

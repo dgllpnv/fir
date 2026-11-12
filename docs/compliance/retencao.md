@@ -162,3 +162,6 @@ O que torna o vazamento **detectável** — sem isso, o prazo de comunicação �
 
 ## 7. Operador e controlador
 A clínica é controladora; nós somos operadores. A minuta de DPA e o que ela precisa cobrir. Ver pendência P-3 em `docs/decisoes.md`.
+
+## 8. Conta de equipe desativada (`/carteira/equipe`)
+Complementa as linhas 37, 124 e 131-134. Base: art. 7º, V e IX (sem art. 11). **Prazo:** vínculo + 5 anos. **Ao desativar:** anular `telefone`, aniversário, `mostrar_aniversario` e `funcao`; reativar exige reinformar. **Depois do prazo:** `nome` vira `ex-pessoa-<8 hex>` (dívida D9, gatilho: 1º desligamento real). Desativar é estado, nunca exclusão. **Enquanto o Supabase não for desligado, desativar aqui exige desativar lá** (checklist em `docs/decisoes.md`). A trilha da equipe grava "nome alterado"/"telefone alterado", sem valor.

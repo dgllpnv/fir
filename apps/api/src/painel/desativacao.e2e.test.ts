@@ -252,7 +252,14 @@ describe('(b) grupo desativado', () => {
     await entrar().expect(401)
 
     await desativar(true)
-    const nova = paresDe(cookies(await entrar().expect(200)))
+    // Reativar o grupo devolve a PESSOA, não a sessão aberta antes (revogada na desativação).
+    await http().get('/v1/portal/eu').set('Cookie', sessao).expect(404)
+    const viva = await migrate.query(
+      'SELECT count(*)::int AS n FROM sessoes_do_portal WHERE usuario_portal_id = $1 AND revogada_em IS NULL',
+      [p.rows[0]!.id],
+    )
+    expect(viva.rows[0].n).toBe(0)
+    const nova =paresDe(cookies(await entrar().expect(200)))
     await http().get('/v1/portal/eu').set('Cookie', nova).expect(200)
   })
 
