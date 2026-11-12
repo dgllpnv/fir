@@ -33,7 +33,7 @@ import { instanteEmTexto } from '@/lib/instante'
  * cálculo no rodapé — na ordem do protótipo. A tabela de nove colunas vira
  * linhas empilhadas (390 px, `docs/design.md` §1).
  *
- * **Duas fontes, uma tela** (ADR 0011): cliente ligado à Gestão de Rotina tem
+ * **Duas fontes, uma tela** (ADR 0011): cliente ligado à FIR Clinic tem
  * as campanhas sincronizadas, e aqui só se lança o INVESTIMENTO e as
  * observações (D-22 item 9); cliente sem clínica lança a campanha inteira à
  * mão (K3). Quem decide o que é editável é o servidor (`editavel`).
@@ -131,12 +131,12 @@ export default function CampanhasDoCliente({ clienteId }: { clienteId: string })
           <h2 id="camp-do-cliente">Campanhas</h2>
           <span className="nota">
             {d.cliente.ligadoAClinica
-              ? `Ligada à Gestão de Rotina · atualizada ${
+              ? `Ligada à FIR Clinic · atualizada ${
                   d.cliente.sincronizadoEm === null
                     ? 'nunca'
                     : (instanteEmTexto(d.cliente.sincronizadoEm, d.periodo.fuso, d.periodo.hoje) ?? 'nunca')
                 }. Aqui se lança o investimento de cada campanha.`
-              : 'Lançamento manual. Ligue a cliente à Gestão de Rotina para atualizar sozinho.'}
+              : 'Lançamento manual. Ligue a cliente à FIR Clinic para atualizar sozinho.'}
           </span>
           {d.cliente.ligadoAClinica ? null : (
             <button type="button" className="btn" onClick={() => setEditando('nova')}>
@@ -357,7 +357,7 @@ function FormularioDeCampanha({
   return (
     <form className="carteira-form camp-form" onSubmit={enviar}>
       {soInvestimento ? (
-        <p className="nota">Campanha sincronizada da clínica: o resultado e o valor vêm da Gestão de Rotina.</p>
+        <p className="nota">Campanha sincronizada da clínica: o resultado e o valor vêm da FIR Clinic.</p>
       ) : (
         <>
           <label className="campo camp-cheio">

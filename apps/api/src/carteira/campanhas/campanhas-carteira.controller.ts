@@ -98,7 +98,7 @@ async function traduzir<T>(fn: () => Promise<T>): Promise<T> {
     if (e instanceof CampanhaCarteiraNaoEncontrada) throw new NotFoundException('Campanha não encontrada.')
     if (e instanceof ClienteComCampanhasDaClinica) {
       throw new ConflictException(
-        'Este cliente está ligado à Gestão de Rotina: as campanhas vêm da clínica. Lance só o investimento na campanha.',
+        'Este cliente está ligado à FIR Clinic: as campanhas vêm da clínica. Lance só o investimento na campanha.',
       )
     }
     if (e instanceof CampoDaCampanhaSincronizada) {

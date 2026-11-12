@@ -27,7 +27,7 @@ export function FaixaDoPortal() {
       <div className="portal-faixa-barra">
         <div className="portal-aqui">
           Portal do grupo
-          <small>Firmare · Gestão de Rotina</small>
+          <small>Firmare · FIR Clinic</small>
         </div>
 
         <p className="portal-onde">{escopoTexto(sessao)}</p>

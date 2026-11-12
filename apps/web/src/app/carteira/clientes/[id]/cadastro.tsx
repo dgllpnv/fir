@@ -35,7 +35,7 @@ import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
  *
  * **O que NÃO está aqui, e por quê:** Saúde (derivada, CONTEXT.md); os
  * quatro links (já têm a seção própria na ficha); planilha de indicadores
- * (ticket 4A); "Código da Gestão de Rotina" (não atravessa — o vínculo com a
+ * (ticket 4A); "Código da FIR Clinic" (não atravessa — o vínculo com a
  * clínica é do Operador, ADR 0012 item 4).
  */
 

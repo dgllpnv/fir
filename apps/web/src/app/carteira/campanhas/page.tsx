@@ -29,7 +29,7 @@ import { ErroDaCarteira } from '../pecas'
  *
  * Mesma ordem do protótipo: filtro de período, quatro indicadores, "Valor
  * gerado por cliente", "Campanhas que mais geraram valor", "Por tipo de
- * campanha" e "Atualização automática pela Gestão de Rotina". O botão
+ * campanha" e "Atualização automática pela FIR Clinic". O botão
  * "Atualizar agora" do protótipo só existe no modo de demonstração (L1972,
  * `MODE==="live"?""`): aqui a leitura roda sozinha todo dia.
  *
@@ -261,7 +261,7 @@ export default function CampanhasDaCarteira() {
 
       <section className="camp-painel" aria-labelledby="camp-auto">
         <header className="camp-painel-cabeca">
-          <h2 id="camp-auto">Atualização automática pela Gestão de Rotina</h2>
+          <h2 id="camp-auto">Atualização automática pela FIR Clinic</h2>
           <span className="nota">
             As campanhas, os resultados e os valores pagos já são registrados pela equipe de cada clínica
           </span>
@@ -275,7 +275,7 @@ export default function CampanhasDaCarteira() {
                 <span className="camp-nome">{c.nome}</span>
                 {c.ligadoAClinica ? (
                   <>
-                    <span className="pill bom">Ligada à Gestão de Rotina</span>
+                    <span className="pill bom">Ligada à FIR Clinic</span>
                     <span className="nota">
                       Última atualização:{' '}
                       {c.sincronizadoEm === null
@@ -295,7 +295,7 @@ export default function CampanhasDaCarteira() {
           em que foram pagos. O valor continuado ainda não é lido da clínica.
         </p>
         <p className="camp-aviso">
-          A atualização roda sozinha todos os dias, direto da Gestão de Rotina de cada clínica, sem lançamento manual.
+          A atualização roda sozinha todos os dias, direto da FIR Clinic de cada clínica, sem lançamento manual.
         </p>
       </section>
     </section>

@@ -33,6 +33,7 @@
   --gold-ink: var(--clinic-gold-ink);
   --gold-soft: var(--clinic-gold-soft);
   --sunk: var(--clinic-sunk);
+  --display: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif;
   --bad-soft: var(--clinic-bad-soft);
   background: var(--bg);
 }
@@ -2116,49 +2117,80 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
 .rot-int-aba-atual { color: var(--ink); border-bottom-color: var(--gold); }
 
 /* Minhas · Todas · por pessoa: quebra em linhas, nunca rola de lado. */
-.rot-int-filtros { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
-.rot-int-filtro {
-  min-height: 40px;
-  padding: 6px 14px;
+.rot-int-filtros {
+  display: inline-flex;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 14px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 10px;
   background: var(--surface);
-  color: var(--ink);
+  scrollbar-width: none;
+}
+.rot-int-filtros::-webkit-scrollbar { display: none; }
+.rot-int-filtro {
+  flex: none;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
 }
-.rot-int-filtro:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-.rot-int-filtro-atual { background: var(--gold-soft); color: var(--on-gold-soft); border-color: var(--gold); font-weight: 600; }
+.rot-int-filtro:hover { color: var(--ink); }
+.rot-int-filtro:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+.rot-int-filtro-atual { background: var(--gold-soft); color: var(--gold-ink); font-weight: 600; }
 
-.rot-int-secao { display: grid; gap: 6px; margin: 0 0 18px; min-width: 0; }
+/* O quadro do protótipo: quatro colunas em cartões quando o CONTEÚDO tem
+   largura (a lateral come 232 px da janela), duas no meio, uma só no celular.
+   Mesmo desenho, nunca rolagem horizontal. */
+.rot-int-quadro { display: grid; gap: 14px; align-items: start; margin: 0 0 18px; }
+@container carteira-tela (min-width: 640px) { .rot-int-quadro { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container carteira-tela (min-width: 980px) { .rot-int-quadro { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.rot-int-secao {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  margin: 0 0 14px;
+  min-width: 0;
+  padding: 16px 16px 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.rot-int-quadro > .rot-int-secao { margin: 0; }
 .rot-int-secao-titulo {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin: 0;
-  font-family: var(--display);
-  font-size: 17px;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-family: var(--body);
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-ink);
 }
-.rot-int-secao-titulo .num { font-family: var(--body); font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rot-int-secao-titulo .num { font-family: var(--body); font-size: 12px; font-weight: 700; letter-spacing: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
 .rot-int-secao-atrasada > .rot-int-secao-titulo { color: var(--bad); }
 
 /* Uma tarefa: círculo · corpo · prazo. Densa — a equipe prefere ver dez a rolar por três. */
 .rot-int-tarefa {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
-  gap: 4px 10px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 4px 8px;
   align-items: start;
-  padding: 8px 10px 8px 4px;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  background: var(--surface);
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
 }
+.rot-int-secao-titulo + .rot-int-tarefa { border-top: 1px solid var(--line); }
 .rot-int-tarefa-feita .rot-int-titulo { color: var(--muted); text-decoration: line-through; }
 .rot-int-check {
-  width: 44px;
-  height: 44px;
+  width: 28px;
+  height: 28px;
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -2168,36 +2200,38 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
 }
 .rot-int-check::before {
   content: "";
-  width: 22px;
-  height: 22px;
-  border: 2px solid var(--gold);
-  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--muted);
+  border-radius: 5px;
   box-sizing: border-box;
 }
-.rot-int-check-feito::before { background: var(--gold); box-shadow: inset 0 0 0 3px var(--surface); }
+.rot-int-check:hover::before { border-color: var(--gold); }
+.rot-int-check-feito::before { background: var(--ok); border-color: var(--ok); box-shadow: inset 0 0 0 3px var(--surface); }
+@media (pointer: coarse) { .rot-int-check { width: 44px; height: 44px; } .rot-int-tarefa { grid-template-columns: 44px minmax(0, 1fr) auto; } }
 .rot-int-check:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: -2px; }
-.rot-int-corpo { min-width: 0; display: grid; gap: 4px; padding-top: 10px; }
+.rot-int-corpo { min-width: 0; display: grid; gap: 2px; padding-top: 3px; }
 .rot-int-titulo {
   text-align: left;
   border: 0;
   background: transparent;
   padding: 0;
   font: inherit;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ink);
   cursor: pointer;
   overflow-wrap: anywhere;
 }
 .rot-int-titulo:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-.rot-int-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; font-size: 13px; color: var(--muted); }
+.rot-int-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; font-size: 12.5px; color: var(--muted); }
 .rot-int-meta .num { font-variant-numeric: tabular-nums; }
 .rot-int-ouro { color: var(--gold-ink); }
 .rot-int-alta { color: var(--bad); font-weight: 600; }
 .rot-int-ok { color: var(--ok); }
 .rot-int-mini { font-size: 13px; min-height: 32px; color: var(--muted); }
 .rot-int-quando {
-  padding-top: 12px;
-  font-size: 13px;
+  padding-top: 3px;
+  font-size: 12.5px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

@@ -53,7 +53,7 @@ export function FaixaDoPainel() {
             lê "painel interno" primeiro, não "Firmare". */}
         <div className="aqui">
           Painel interno
-          <small>Firmare · Gestão de Rotina</small>
+          <small>Firmare · FIR Clinic</small>
         </div>
 
         <p className="onde">{ondeEstou(clinicaAberta, caminho)}</p>

@@ -31,6 +31,15 @@ describe('a marca da ferramenta das clínicas é FIR Clinic', () => {
   })
 })
 
+describe('o nome antigo da ferramenta não volta a aparecer nas telas da gestão', () => {
+  it.each([['campanhas', ['..', 'app', 'carteira', 'campanhas', 'page.tsx']], ['faixa da gestão', ['..', 'app', 'gestao', 'faixa.tsx']], ['faixa do portal', ['..', 'app', 'portal', 'faixa.tsx']], ['campanhas do cliente', ['carteira', 'campanhas-do-cliente.tsx']]] as const)(
+    '%s não diz "Gestão de Rotina"',
+    (_n, caminho) => {
+      expect(semComentarios(ler(...caminho))).not.toMatch(/Gestão de Rotina/)
+    },
+  )
+})
+
 describe('o atalho para o painel de gestão', () => {
   it('só renderiza quando a sessão é de suporte, e leva a /gestao', () => {
     expect(SHELL).toMatch(/\{suporte \? \(\s*<div className="navgrupo">[\s\S]*?href="\/gestao"/)
