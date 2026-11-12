@@ -160,7 +160,7 @@ export default function BibliotecaDeMateriais() {
       : { material: null, destino: { tag: 'cliente', clienteId: clientes[0]!.id } }
 
   return (
-    <section>
+    <section className="bib-pagina">
       {cabecalho}
       <div className="conteudo-filtros">
         <div className="conteudo-segmentos" role="group" aria-label="Filtrar a biblioteca">

@@ -3194,6 +3194,7 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
 @media (min-width: 900px) {
   .carteira-principal:has(.visao),
   .carteira-principal:has(.rot-minhas),
+  .carteira-principal:has(.bib-pagina),
   .carteira-principal:has(.uso) {
     max-width: calc(1180px + 32px);
     padding: 26px calc(16px + clamp(0px, 2vw, 18px)) 60px;
@@ -3240,3 +3241,59 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
 .visao .visao-duas { gap: 16px; }
 .visao .visao-painel { padding: 16px 18px; gap: 12px; box-shadow: var(--sombra); }
 .visao .visao-painel-cabeca h2 { font-size: 23px; line-height: 1.2; }
+
+/* ===========================================================================
+   BIBLIOTECA DE MATERIAIS NO PADRÃO DO APP DA CLIENTE (só esta tela: `.bib-pagina`;
+   o mesmo cartão aparece na ficha do cliente e lá não muda). Medido no app dela:
+   3 colunas, cards da mesma altura por linha, 14 px de padding, canto de 14 px,
+   título em Cormorant 20 px, ações no rodapé do card.
+   =========================================================================== */
+.bib-pagina {
+  --line: var(--clinic-line);
+  --muted: var(--clinic-muted);
+  --gold-ink: var(--clinic-gold-ink);
+  --gold-soft: var(--clinic-gold-soft);
+  --sunk: var(--clinic-sunk);
+  --sombra: 0 1px 2px rgba(46, 31, 14, 0.04), 0 4px 14px rgba(46, 31, 14, 0.04);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .bib-pagina { --sombra: none; } }
+:root[data-theme='dark'] .bib-pagina { --sombra: none; }
+.bib-pagina .titulo { font-family: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif; font-weight: 600; font-size: clamp(30px, 3.4vw, 40px); line-height: 1.1; }
+
+/* Filtro como controle segmentado (o do app dela), sem rolagem horizontal da página. */
+.bib-pagina .conteudo-segmentos {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  scrollbar-width: none;
+}
+.bib-pagina .conteudo-segmentos::-webkit-scrollbar { display: none; }
+.bib-pagina .conteudo-segmentos button { flex: none; min-height: 40px; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 6px 12px; }
+.bib-pagina .conteudo-segmentos button:hover { color: var(--ink); }
+.bib-pagina .conteudo-segmentos button[aria-pressed='true'] { background: var(--gold-soft); color: var(--gold-ink); font-weight: 600; border: 0; }
+
+.bib-pagina .conteudo-grade { grid-template-columns: minmax(0, 1fr); gap: 12px; align-items: stretch; }
+@container carteira-tela (min-width: 640px) { .bib-pagina .conteudo-grade { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container carteira-tela (min-width: 980px) { .bib-pagina .conteudo-grade { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.bib-pagina .conteudo-material {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 14px;
+  box-shadow: var(--sombra);
+}
+.bib-pagina .conteudo-material-chips { gap: 5px; }
+.bib-pagina .conteudo-chip { border: 0; background: var(--sunk); color: var(--muted); font-size: 12px; padding: 2px 9px; border-radius: 99px; }
+.bib-pagina .conteudo-chip-ouro { background: var(--gold-soft); color: var(--gold-ink); }
+.bib-pagina .conteudo-material-titulo { font-family: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif; font-size: 20px; font-weight: 600; line-height: 1.2; }
+.bib-pagina .conteudo-material .conteudo-mudo { margin: 0; font-size: 13px; line-height: 1.5; }
+.bib-pagina .conteudo-material-texto { background: var(--sunk); border-radius: 10px; padding: 10px 14px; line-height: 1.5; }
+/* As ações descem para o rodapé do card: numa linha de cards, "Abrir" e "Editar" ficam no mesmo nível. */
+.bib-pagina .conteudo-material-acoes { margin-top: auto; gap: 6px 12px; padding-top: 4px; }
+.bib-pagina .conteudo-material-acoes .link { color: var(--gold-ink); }
