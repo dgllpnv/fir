@@ -95,6 +95,7 @@ export const CAMPOS_MONETARIOS = [
   'valor',
   'valorAberto',
   'valorOrcamento',
+  'valorFechado',
   'valorPago',
   'valorTotal',
   'valorEntrada',

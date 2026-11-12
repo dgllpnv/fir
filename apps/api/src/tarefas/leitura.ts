@@ -1,5 +1,5 @@
 import type { ItemOrcadoNaSaida, TarefaNaLista } from '@fir/contracts'
-import type { Autor, Etapa, EventoDeJornada } from '@fir/domain'
+import { type Autor, type Etapa, type EventoDeJornada, situacaoDoFechamento } from '@fir/domain'
 import { ForbiddenException } from '@nestjs/common'
 import type pg from 'pg'
 import { exigePessoa, pessoaDoAtor, type PessoaId } from '../banco/ator'
@@ -145,7 +145,8 @@ export const SELECT_TAREFA = `
          -- string de qualquer jeito, mas explicitar impede que uma mudança de
          -- configuração o traga como number — e number perto de dinheiro é a
          -- regra 1 quebrada.
-         t.valor_orcamento::text AS valor_orcamento, t.programa_orcado,
+         t.valor_orcamento::text AS valor_orcamento, t.valor_fechado::text AS valor_fechado,
+         t.programa_orcado,
          t.motivo_perda_id, t.proximo_passo_em::text AS proximo_passo_em,
          t.confirmacao_enviada_em,
          -- ATRASADA é contra o HOJE DO SERVIDOR ($2), nunca contra o dia que
@@ -189,6 +190,7 @@ export type LinhaDeTarefa = {
   etapa: string | null
   historico: EventoDeJornada[]
   valor_orcamento: string | null
+  valor_fechado: string | null
   programa_orcado: ItemOrcadoNaSaida[] | null
   motivo_perda_id: string | null
   proximo_passo_em: string | null
@@ -251,6 +253,12 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   etapa: l.etapa as Etapa | null,
   historico: l.historico,
   valorOrcamento: l.valor_orcamento,
+  valorFechado: l.valor_fechado,
+  orcamentoParcial:
+    situacaoDoFechamento(
+      l.valor_orcamento === null ? null : BigInt(l.valor_orcamento),
+      l.valor_fechado === null ? null : BigInt(l.valor_fechado),
+    ) === 'parcial',
   programaOrcado: l.programa_orcado,
   motivoPerdaId: l.motivo_perda_id,
   proximoPassoEm: l.proximo_passo_em,

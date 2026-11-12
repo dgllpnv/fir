@@ -6,6 +6,7 @@ import {
   anexar,
   type AcaoDeJornada,
   ehDaJornada,
+  situacaoDoFechamento,
   type Etapa,
   ETAPAS,
   ETAPA_AO_CANCELAR,
@@ -477,5 +478,27 @@ describe('propriedades — exemplo a dedo não prova tabela de transições', ()
         expect(h).toEqual(vistos)
       }),
     )
+  })
+})
+
+describe('situacaoDoFechamento — orçamento parcial', () => {
+  it('fechou menos que o oferecido é parcial', () => {
+    expect(situacaoDoFechamento(2_500_000n, 1_500_000n)).toBe('parcial')
+  })
+  it('fechou o oferecido, ou mais, é completo', () => {
+    expect(situacaoDoFechamento(2_500_000n, 2_500_000n)).toBe('completo')
+    expect(situacaoDoFechamento(2_500_000n, 3_000_000n)).toBe('completo')
+  })
+  it('sem orçamento registrado, o fechamento é completo', () => {
+    expect(situacaoDoFechamento(null, 100n)).toBe('completo')
+  })
+  it('sem o valor fechado (anterior à coluna) não afirma nada', () => {
+    expect(situacaoDoFechamento(2_500_000n, null)).toBeNull()
+    expect(situacaoDoFechamento(null, null)).toBeNull()
+  })
+  it('um centavo a menos já é parcial, em valores acima de 2^53', () => {
+    const grande = 9_007_199_254_740_993n
+    expect(situacaoDoFechamento(grande, grande - 1n)).toBe('parcial')
+    expect(situacaoDoFechamento(grande, grande)).toBe('completo')
   })
 })

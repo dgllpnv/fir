@@ -17,7 +17,16 @@ import { describe, expect, it, vi } from 'vitest'
 // A Jornada busca os dados por `useDados`; aqui eles chegam prontos.
 const resposta: { atual: RespostaDaJornada | FichaDoPaciente | null } = { atual: null }
 vi.mock('@/lib/dados', () => ({
-  useDados: () => ({ dados: resposta.atual, carregando: false, erro: null, recarregar: () => {} }),
+  // Cada rota pede o seu: a de orçamentos por atendente não é a da jornada.
+  useDados: (caminho: string | null) => ({
+    dados:
+      caminho !== null && caminho.startsWith('v1/jornada/orcamentos')
+        ? { de: '2026-09-25', ate: '2026-10-24', itens: [] }
+        : resposta.atual,
+    carregando: false,
+    erro: null,
+    recarregar: () => {},
+  }),
   consultaEmTexto: () => '',
 }))
 
@@ -51,6 +60,8 @@ const tarefa: TarefaNaLista = {
   etapa: null,
   historico: [],
   valorOrcamento: null,
+  valorFechado: null,
+  orcamentoParcial: false,
   programaOrcado: null,
   motivoPerdaId: null,
   proximoPassoEm: null,

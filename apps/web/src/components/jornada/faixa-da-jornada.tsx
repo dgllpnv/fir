@@ -121,9 +121,15 @@ export function FaixaDaJornada({
         !(['orcamento', 'fechado', 'perdido'] as readonly Etapa[]).includes(etapa) ? null : (
           <span className="muted num">orçado {formatarDinheiro(BigInt(t.valorOrcamento))}</span>
         )}
+        {etapa !== 'fechado' || t.valorFechado === null ? null : (
+          <span className="muted num">fechado {formatarDinheiro(BigInt(t.valorFechado))}</span>
+        )}
+        {etapa === 'fechado' && t.orcamentoParcial ? (
+          <span className="pill alerta">Orçamento parcial</span>
+        ) : null}
       </div>
 
-      {etapa !== 'orcamento' ? null : <ResumoDoOrcamento tarefa={t} />}
+      {etapa !== 'orcamento' && etapa !== 'fechado' ? null : <ResumoDoOrcamento tarefa={t} />}
 
       {emForm === null ? (
         acoes.length === 0 ? null : (

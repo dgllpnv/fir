@@ -64,7 +64,7 @@ export type RotaRegistrada = {
  * Uma constante, e não a lista repetida sete vezes: a sétima é a que esquece
  * o campo novo.
  */
-const DINHEIRO_DA_TAREFA = ['valor', 'valorAberto', 'valorOrcamento'] as const
+const DINHEIRO_DA_TAREFA = ['valor', 'valorAberto', 'valorOrcamento', 'valorFechado'] as const
 
 /**
  * Os dois nomes monetários da META DE PESSOA — ver a nota no fim da lista.

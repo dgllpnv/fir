@@ -586,6 +586,16 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     razao:
       'O funil por etapa. Soma valor de ORÇAMENTO, que não é receita e não está na gaveta (regra 4).',
   },
+  {
+    caminho: '/v1/superadmin/atividades',
+    razao:
+      'O log de atividades do painel do superadmin: quem, quando, onde e o nome dos campos que mudaram. Nunca valores (de/para ficam de fora), nenhum caixa, nenhum agregado de dia.',
+  },
+  {
+    caminho: '/v1/jornada/orcamentos',
+    razao:
+      'Contagens de orçamentos por atendente (lançados, fechados completos e parciais). Só números inteiros de cartões: nenhum valor, nenhum caixa, nenhum agregado de dia.',
+  },
   // ---------------------------------------------------------------------
   // G5 — funil de prospecção e rotina interna da equipe Firmare.
   { caminho: '/v1/carteira/leads', razao: 'O funil de prospecção. O único dinheiro é o potencial (valor ESTIMADO de quem ainda não é cliente, regra 4), redigido sem valores; nenhum caixa, nenhum agregado de dia.' },

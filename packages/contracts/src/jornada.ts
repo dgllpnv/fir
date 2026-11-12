@@ -341,3 +341,34 @@ export const RespostaDaJornada = z.object({
   colunas: z.array(ColunaDaJornadaNaSaida),
 })
 export type RespostaDaJornada = z.infer<typeof RespostaDaJornada>
+
+/**
+ * **ORÇAMENTOS POR ATENDENTE** — quantos lançou, quantos fechou completos e
+ * quantos fechou parciais. Só contagens: nenhum centavo, então a resposta é a
+ * mesma com ou sem a permissão `valores`.
+ *
+ * O período é o do funil (`periodo`, e `de`/`ate` com `per`).
+ */
+export const ConsultaDeOrcamentos = ConsultaDaJornada.pick({ periodo: true, de: true, ate: true })
+export type ConsultaDeOrcamentos = z.infer<typeof ConsultaDeOrcamentos>
+
+export const OrcamentosDeUmaPessoa = z.object({
+  pessoaId: Uuid,
+  nome: z.string(),
+  /** Orçamentos enviados no período (evento `registrarOrcamento`). */
+  lancados: z.number().int().nonnegative(),
+  /** Fechados no período por inteiro: fechou o valor oferecido, ou mais. */
+  fechadosCompletos: z.number().int().nonnegative(),
+  /** Fechados no período por menos do que foi oferecido. */
+  fechadosParciais: z.number().int().nonnegative(),
+  /** Fechados antes de o sistema guardar o valor fechado: não dá para classificar. */
+  fechadosSemClassificacao: z.number().int().nonnegative(),
+})
+export type OrcamentosDeUmaPessoa = z.infer<typeof OrcamentosDeUmaPessoa>
+
+export const RespostaDeOrcamentos = z.object({
+  de: DiaCivil,
+  ate: DiaCivil,
+  itens: z.array(OrcamentosDeUmaPessoa),
+})
+export type RespostaDeOrcamentos = z.infer<typeof RespostaDeOrcamentos>

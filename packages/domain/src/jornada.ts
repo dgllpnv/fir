@@ -755,3 +755,27 @@ export function corrigirOrcamento(x: {
     trocaOPrograma: p.programa !== undefined,
   })
 }
+
+/**
+ * **ORÇAMENTO PARCIAL** — a regra, uma vez só.
+ *
+ * `valorOrcamento` é o que a clínica OFERECEU; `valorFechado` é o que a
+ * paciente fechou (entrada + saldo em aberto). Fechou MENOS que o oferecido =
+ * parcial. Sem os dois números não há como afirmar nada: `null` em qualquer um
+ * dá `null` ("sem informação"), nunca "completo" nem "parcial" por palpite —
+ * orçamentos fechados antes da coluna existir ficam assim.
+ *
+ * Fechar ACIMA do oferecido (a paciente acrescentou procedimento) é completo.
+ * Comparação de `bigint` com `bigint`: nenhum `Number` perto de dinheiro.
+ */
+export type SituacaoDoFechamento = 'completo' | 'parcial'
+
+export function situacaoDoFechamento(
+  valorOrcamento: bigint | null,
+  valorFechado: bigint | null,
+): SituacaoDoFechamento | null {
+  if (valorFechado === null) return null
+  // Fechou direto, sem orçamento registrado: não há oferta para ficar aquém.
+  if (valorOrcamento === null) return 'completo'
+  return valorFechado < valorOrcamento ? 'parcial' : 'completo'
+}

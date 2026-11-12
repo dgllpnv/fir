@@ -211,6 +211,8 @@ export class FechamentoService {
 
     return {
       ...(cartao.valorOrcamento === negocio ? {} : { valorOrcamento: negocio }),
+      // O que a paciente fechou de fato. `> 0` porque a coluna recusa zero.
+      ...(doFechamento > 0n ? { valorFechado: doFechamento } : {}),
       // O cartão para de pedir ação: a paciente decidiu.
       proximoPassoEm: null,
       // O evento guarda o valor do NEGÓCIO, não o da entrada: é ele que o

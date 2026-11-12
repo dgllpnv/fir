@@ -414,6 +414,10 @@ export const TarefaNaLista = z.object({
    * `valores`: a forma da resposta não muda com a permissão.
    */
   valorOrcamento: centavosNaSaida,
+  /** Centavos que a paciente fechou (entrada + saldo). Redigido como o resto do dinheiro. */
+  valorFechado: centavosNaSaida,
+  /** Fechou menos do que foi oferecido. Não é dinheiro: aparece para todos. */
+  orcamentoParcial: z.boolean(),
   programaOrcado: z.array(ItemOrcadoNaSaida).nullable(),
   motivoPerdaId: Uuid.nullable(),
   /** O dia a partir do qual este cartão volta a pedir ação (D-3). */

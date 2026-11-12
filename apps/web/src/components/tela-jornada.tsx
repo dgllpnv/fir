@@ -6,6 +6,7 @@ import type {
   PassoDoFunilNaSaida,
   PeriodoDoFunil,
   RespostaDaJornada,
+  RespostaDeOrcamentos,
 } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
@@ -77,7 +78,12 @@ export function TelaJornada({ podePacientes }: { readonly podePacientes: boolean
       ) : dados === null ? (
         <Carregando linhas={5} />
       ) : (
-        <Conteudo dados={dados} carregando={carregando} podePacientes={podePacientes} />
+        <Conteudo
+          dados={dados}
+          carregando={carregando}
+          podePacientes={podePacientes}
+          periodo={periodo}
+        />
       )}
     </section>
   )
@@ -87,10 +93,12 @@ function Conteudo({
   dados,
   carregando,
   podePacientes,
+  periodo,
 }: {
   dados: RespostaDaJornada
   carregando: boolean
   podePacientes: boolean
+  periodo: PeriodoDoFunil
 }) {
   const vazio = dados.funil.every((p) => p.n === 0) && dados.colunas.every((c) => c.n === 0)
   if (vazio) {
@@ -162,8 +170,62 @@ function Conteudo({
         <Colunas colunas={dados.colunas} hoje={dados.hoje} podePacientes={podePacientes} />
       </div>
 
+      <OrcamentosPorAtendente periodo={periodo} />
+
       {carregando ? <p className="nota">Atualizando…</p> : null}
     </>
+  )
+}
+
+/**
+ * Quantos orçamentos cada atendente lançou e fechou. Só contagem: vem pronta
+ * de `GET /v1/jornada/orcamentos`, e "parcial" é o fechamento por menos do que
+ * foi oferecido — não o saldo em aberto de um fechamento completo.
+ */
+function OrcamentosPorAtendente({ periodo }: { periodo: PeriodoDoFunil }) {
+  const { dados, erro } = useDados<RespostaDeOrcamentos>(
+    `v1/jornada/orcamentos${consultaEmTexto({ periodo })}`,
+  )
+  if (erro !== null || dados === null) return null
+  if (dados.itens.length === 0) return null
+  return (
+    <div className="grupo">
+      <h3>Orçamentos por atendente</h3>
+      <p className="nota">
+        Lançados e fechados no período. Parcial é quando a paciente fechou menos do que foi
+        oferecido.
+      </p>
+      <div className="tabela">
+        <table className="painel">
+          <thead>
+            <tr>
+              <th>Atendente</th>
+              <th className="direita">Lançados</th>
+              <th className="direita">Fechados completos</th>
+              <th className="direita">Fechados parciais</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dados.itens.map((l) => (
+              <tr key={l.pessoaId}>
+                <td data-rotulo="Atendente">
+                  <b>{l.nome}</b>
+                </td>
+                <td data-rotulo="Lançados" className="num direita">
+                  {l.lancados}
+                </td>
+                <td data-rotulo="Fechados completos" className="num direita">
+                  {l.fechadosCompletos}
+                </td>
+                <td data-rotulo="Fechados parciais" className="num direita">
+                  {l.fechadosParciais}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 

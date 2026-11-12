@@ -119,6 +119,7 @@ export const COLUNA_DE_EFEITO = {
   proximoPassoEm: ['proximo_passo_em', 'date'],
   confirmacaoEnviadaEm: ['confirmacao_enviada_em', 'timestamptz'],
   valorOrcamento: ['valor_orcamento', 'bigint'],
+  valorFechado: ['valor_fechado', 'bigint'],
   programaOrcado: ['programa_orcado', 'jsonb'],
   motivoPerdaId: ['motivo_perda_id', 'uuid'],
   contatoId: ['contato_id', 'uuid'],
@@ -170,6 +171,8 @@ export type Efeitos = {
   readonly confirmacaoEnviadaEm?: Date | null
   /** Centavos. Vira texto no parâmetro: o driver não serializa `bigint`. */
   readonly valorOrcamento?: bigint
+  /** Centavos fechados (entrada + saldo): o que separa orçamento parcial de completo. */
+  readonly valorFechado?: bigint
   readonly programaOrcado?: readonly ItemOrcadoNoBanco[]
   readonly motivoPerdaId?: string | null
   readonly contatoId?: string | null

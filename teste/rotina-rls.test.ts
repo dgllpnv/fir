@@ -254,6 +254,9 @@ describe('a tarefa não guarda dinheiro', () => {
      */
     expect(suspeitas, `colunas monetárias em tarefas: ${suspeitas.join(', ')}`).toEqual([
       'sessao_total',
+      // `valor_fechado` (0076): o total que a paciente fechou, para separar o
+      // orçamento parcial. Tampouco é receita (regra 4).
+      'valor_fechado',
       'valor_orcamento',
     ])
   })
