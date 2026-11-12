@@ -2191,6 +2191,7 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
 }
 .rot-int-atrasada { color: var(--bad); font-weight: 600; }
 /* Minhas tarefas no desenho do protótipo (só esta tela: `.rot-minhas`). */
+.rot-minhas .rot-int-cabeca .titulo { font-family: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif; font-weight: 600; font-size: clamp(30px, 3.4vw, 40px); line-height: 1.1; }
 .rot-minhas .rot-int-filtros {
   display: inline-flex;
   max-width: 100%;
@@ -2230,11 +2231,15 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
   align-content: start;
   margin: 0 0 14px;
   min-width: 0;
-  padding: 16px 16px 8px;
+  padding: 16px 18px;
+  gap: 12px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--surface);
+  box-shadow: 0 1px 2px rgba(46, 31, 14, 0.04), 0 4px 14px rgba(46, 31, 14, 0.04);
 }
+:root[data-theme='dark'] .rot-minhas .rot-int-secao { box-shadow: none; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .rot-minhas .rot-int-secao { box-shadow: none; } }
 .rot-minhas .rot-int-quadro > .rot-int-secao { margin: 0; }
 .rot-minhas .rot-int-secao-titulo {
   display: flex;
@@ -2255,10 +2260,13 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
 .rot-minhas .rot-int-tarefa {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
-  gap: 4px 8px;
+  gap: 4px 10px;
   align-items: start;
   padding: 10px 0;
+  border: 0;
   border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
 }
 .rot-minhas .rot-int-secao-titulo + .rot-int-tarefa { border-top: 1px solid var(--line); }
 .rot-minhas .rot-int-tarefa-feita .rot-int-titulo { color: var(--muted); text-decoration: line-through; }
@@ -3185,6 +3193,7 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
 /* ---- Moldura de largura: só nas telas Visão Geral e FIR Clinic (conteúdo 1144 px, como no app dela) ---- */
 @media (min-width: 900px) {
   .carteira-principal:has(.visao),
+  .carteira-principal:has(.rot-minhas),
   .carteira-principal:has(.uso) {
     max-width: calc(1180px + 32px);
     padding: 26px calc(16px + clamp(0px, 2vw, 18px)) 60px;
