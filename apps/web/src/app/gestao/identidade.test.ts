@@ -72,9 +72,9 @@ describe('a varredura olhou o painel inteiro', () => {
     expect(nomes).toContain('faixa.tsx')
     expect(nomes).toContain('contexto.tsx')
     expect(nomes).toContain('pecas.tsx')
-    // As seis telas: entrar, trocar-senha, clínicas, pessoas, grupos e
-    // usuários de gestão (mais a porta `/gestao`, que é a sétima).
-    expect(PAINEL.filter((f) => f.nome === 'page.tsx').length).toBe(7)
+    // As sete telas: entrar, trocar-senha, clínicas, pessoas, grupos,
+    // usuários de gestão e atividades (mais a porta `/gestao`, que é a oitava).
+    expect(PAINEL.filter((f) => f.nome === 'page.tsx').length).toBe(8)
   })
 })
 
@@ -348,10 +348,10 @@ describe('o painel vê dinheiro só pela conta de gestão (ADR 0024)', () => {
     expect(doPainel).toEqual(['v1/superadmin/eu/conta-de-gestao'])
   })
 
-  it('o menu traz a Visão geral primeiro, depois a carteira, Clínicas, Grupos e Usuários de gestão', () => {
+  it('o menu traz a Visão geral primeiro, depois a carteira, Clínicas, Grupos, Usuários de gestão e Atividades', () => {
     const pecas = PAINEL.find((f) => f.nome === 'pecas.tsx')!
     const rotulos = [...pecas.texto.matchAll(/\{ href: '[^']+', rotulo: '([^']+)' \}/g)].map((m) => m[1])
-    expect(rotulos).toEqual(['Visão geral', 'Gestão da carteira', 'Clínicas', 'Grupos', 'Usuários de gestão'])
+    expect(rotulos).toEqual(['Visão geral', 'Gestão da carteira', 'Clínicas', 'Grupos', 'Usuários de gestão', 'Atividades'])
   })
 })
 

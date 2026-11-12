@@ -1,6 +1,6 @@
 import { SENHA_MAX, canonizarUsuario, ehErro, validarUsuario } from '@fir/domain'
 import { z } from 'zod'
-import { Uuid } from './comum'
+import { DiaCivil, Uuid } from './comum'
 
 /**
  * O PAINEL DO SUPERADMIN — contratos próprios, espaço de identidade próprio.
@@ -276,3 +276,56 @@ export const TrocarSenhaDoOperadorEntrada = z
   })
   .strict()
 export type TrocarSenhaDoOperadorEntrada = z.infer<typeof TrocarSenhaDoOperadorEntrada>
+
+/**
+ * O LOG DE ATIVIDADES do painel — o que a equipe das clínicas fez, em todas
+ * elas, numa lista só.
+ *
+ * Vem da trilha `auditoria` (trigger no banco, regra 20), então nenhum caminho
+ * escapa. **Só metadados:** quem, quando, em qual clínica, que ação, em que
+ * assunto e QUAIS campos mudaram. Nunca o valor — nem o de→para —, porque a
+ * trilha carrega salário, dinheiro e dose, e o painel não é o lugar de lê-los
+ * (regras 17 e 18). O que o operador precisa para dar suporte é "a Juliana
+ * alterou a consulta às 14h12", e isso a lista diz.
+ */
+export const FiltroDeAtividades = z
+  .object({
+    clinicaId: Uuid.optional(),
+    pessoaId: Uuid.optional(),
+    quem: z.enum(['equipe', 'superadmin', 'carteira', 'portal', 'sistema']).optional(),
+    acao: z.enum(['criou', 'alterou', 'removeu', 'acessou']).optional(),
+    assunto: z.string().regex(/^[a-z_]{1,63}$/).optional(),
+    /** Dia civil, no fuso de cada clínica. Janela `[de, ate + 1 dia)`. */
+    de: DiaCivil.optional(),
+    ate: DiaCivil.optional(),
+    /** Cursor opaco: o `proximo` da página anterior. */
+    antes: z.string().max(100).optional(),
+  })
+  .strict()
+export type FiltroDeAtividades = z.infer<typeof FiltroDeAtividades>
+
+export const AtividadeDoPainel = z.object({
+  /** `clinicaId:id` — único na lista inteira. */
+  chave: z.string(),
+  em: z.string().datetime({ offset: true }),
+  clinica: z.object({ id: Uuid, codigo: z.string(), nome: z.string() }),
+  quem: z.object({
+    tipo: z.enum(['equipe', 'superadmin', 'carteira', 'portal', 'sistema']),
+    id: Uuid.nullable(),
+    /** Nome da pessoa/operador; `null` quando o cadastro já não existe. */
+    nome: z.string().nullable(),
+  }),
+  acao: z.enum(['criou', 'alterou', 'removeu', 'acessou']),
+  /** O nome da tabela, como o banco a chama. A tela traduz. */
+  assunto: z.string(),
+  /** Nomes dos campos que mudaram (só em `alterou`). Nunca valores. */
+  campos: z.array(z.string()),
+})
+export type AtividadeDoPainel = z.infer<typeof AtividadeDoPainel>
+
+export const AtividadesDoPainel = z.object({
+  itens: z.array(AtividadeDoPainel),
+  /** Cursor opaco da página seguinte; `null` = acabou. */
+  proximo: z.string().nullable(),
+})
+export type AtividadesDoPainel = z.infer<typeof AtividadesDoPainel>

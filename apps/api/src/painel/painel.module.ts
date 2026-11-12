@@ -9,6 +9,8 @@ import {
   LIMITE_DO_PAINEL,
   MAX_PAINEL_POR_ORIGEM,
 } from './limite-do-painel'
+import { PainelAtividadesController } from './painel-atividades.controller'
+import { PainelAtividadesService } from './painel-atividades.service'
 import { PainelCarteiraController } from './painel-carteira.controller'
 import { PainelCarteiraService } from './painel-carteira.service'
 import { PainelClinicasController } from './painel-clinicas.controller'
@@ -33,12 +35,18 @@ import { SessaoDeSuporteService } from './sessao-de-suporte.service'
   // gestão do operador pelo `CarteiraService` — a sessão de carteira nasce
   // só pela conexão `fir_carteira`.
   imports: [CarteiraModule],
-  controllers: [PainelController, PainelClinicasController, PainelCarteiraController],
+  controllers: [
+    PainelController,
+    PainelClinicasController,
+    PainelCarteiraController,
+    PainelAtividadesController,
+  ],
   providers: [
     PainelService,
     PainelClinicasService,
     PainelCarteiraService,
     PainelPessoasService,
+    PainelAtividadesService,
     SessaoDeSuporteService,
     PainelGuard,
     { provide: ABRIDOR_DA_CONTA_DE_GESTAO, useExisting: CarteiraService },

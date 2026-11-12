@@ -185,6 +185,7 @@ const SECOES: readonly { href: string; rotulo: string }[] = [
   { href: '/gestao/clinicas', rotulo: 'Clínicas' },
   { href: '/gestao/grupos', rotulo: 'Grupos' },
   { href: '/gestao/usuarios-gestao', rotulo: 'Usuários de gestão' },
+  { href: '/gestao/atividades', rotulo: 'Atividades' },
 ]
 
 export function NavDoPainel({ atual }: { atual: string }) {
