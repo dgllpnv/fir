@@ -2190,6 +2190,127 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
   white-space: nowrap;
 }
 .rot-int-atrasada { color: var(--bad); font-weight: 600; }
+/* Minhas tarefas no desenho do protótipo (só esta tela: `.rot-minhas`). */
+.rot-minhas .rot-int-filtros {
+  display: inline-flex;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  scrollbar-width: none;
+}
+.rot-minhas .rot-int-filtros::-webkit-scrollbar { display: none; }
+.rot-minhas .rot-int-filtro {
+  flex: none;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.rot-minhas .rot-int-filtro:hover { color: var(--ink); }
+.rot-minhas .rot-int-filtro:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+.rot-minhas .rot-int-filtro-atual { background: var(--gold-soft); color: var(--gold-ink); font-weight: 600; }
+
+/* O quadro do protótipo: quatro colunas em cartões quando o CONTEÚDO tem
+   largura (a lateral come 232 px da janela), duas no meio, uma só no celular.
+   Mesmo desenho, nunca rolagem horizontal. */
+.rot-minhas .rot-int-quadro { display: grid; gap: 14px; align-items: start; margin: 0 0 18px; }
+@container carteira-tela (min-width: 640px) { .rot-minhas .rot-int-quadro { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container carteira-tela (min-width: 980px) { .rot-minhas .rot-int-quadro { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.rot-minhas .rot-int-secao {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  margin: 0 0 14px;
+  min-width: 0;
+  padding: 16px 16px 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.rot-minhas .rot-int-quadro > .rot-int-secao { margin: 0; }
+.rot-minhas .rot-int-secao-titulo {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 4px;
+  font-family: var(--body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-ink);
+}
+.rot-minhas .rot-int-secao-titulo .num { font-family: var(--body); font-size: 12px; font-weight: 700; letter-spacing: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.rot-minhas .rot-int-secao-atrasada > .rot-int-secao-titulo { color: var(--bad); }
+
+/* Uma tarefa: círculo · corpo · prazo. Densa — a equipe prefere ver dez a rolar por três. */
+.rot-minhas .rot-int-tarefa {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  align-items: start;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.rot-minhas .rot-int-secao-titulo + .rot-int-tarefa { border-top: 1px solid var(--line); }
+.rot-minhas .rot-int-tarefa-feita .rot-int-titulo { color: var(--muted); text-decoration: line-through; }
+.rot-minhas .rot-int-check {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+.rot-minhas .rot-int-check::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--muted);
+  border-radius: 5px;
+  box-sizing: border-box;
+}
+.rot-minhas .rot-int-check:hover::before { border-color: var(--gold); }
+.rot-minhas .rot-int-check-feito::before { background: var(--ok); border-color: var(--ok); box-shadow: inset 0 0 0 3px var(--surface); }
+@media (pointer: coarse) { .rot-minhas .rot-int-check { width: 44px; height: 44px; } .rot-minhas .rot-int-tarefa { grid-template-columns: 44px minmax(0, 1fr) auto; } }
+.rot-minhas .rot-int-check:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: -2px; }
+.rot-minhas .rot-int-corpo { min-width: 0; display: grid; gap: 2px; padding-top: 3px; }
+.rot-minhas .rot-int-titulo {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.rot-minhas .rot-int-titulo:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.rot-minhas .rot-int-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; font-size: 12.5px; color: var(--muted); }
+.rot-minhas .rot-int-meta .num { font-variant-numeric: tabular-nums; }
+.rot-minhas .rot-int-ouro { color: var(--gold-ink); }
+.rot-minhas .rot-int-alta { color: var(--bad); font-weight: 600; }
+.rot-minhas .rot-int-ok { color: var(--ok); }
+.rot-minhas .rot-int-mini { font-size: 13px; min-height: 32px; color: var(--muted); }
+.rot-minhas .rot-int-quando {
+  padding-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rot-minhas .rot-int-atrasada { color: var(--bad); font-weight: 600; }
 .rot-int-itens { display: grid; gap: 2px; margin-top: 2px; }
 .rot-int-item { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 14px; }
 .rot-int-item input { width: 20px; height: 20px; accent-color: var(--gold-ink); }

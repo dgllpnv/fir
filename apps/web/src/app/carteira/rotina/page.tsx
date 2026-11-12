@@ -112,7 +112,7 @@ export default function MinhasTarefas() {
   const aoMudar = () => recarregar()
 
   return (
-    <section>
+    <section className="rot-minhas">
       {cabecalho}
 
       {painel.tag === 'escolha' ? (
@@ -168,6 +168,7 @@ export default function MinhasTarefas() {
         </Vazio>
       ) : (
         <>
+          <div className="rot-int-quadro">
           {SECOES.map((s) => {
             const daSecao = lista.tarefas.filter((t) => t.secao === s.chave)
             return (
@@ -192,6 +193,7 @@ export default function MinhasTarefas() {
               </section>
             )
           })}
+          </div>
           <section className="rot-int-secao">
             <h2 className="rot-int-secao-titulo">Concluídas recentemente</h2>
             {lista.concluidasRecentes.length === 0 ? (
