@@ -206,7 +206,11 @@ function ResumoDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
   // contagem: o resumo nunca depende do catálogo para existir.
   const catalogo = useDados<ListaDeProcedimentos>(itens > 0 ? 'v1/procedimentos' : null)
   const nomes = new Map((catalogo.dados?.itens ?? []).map((p) => [p.id, p.nome]))
-  if (nota === '' && itens === 0 && t.valorOrcamento === null) return null
+  // A observação do fechamento ("não fechou o implante") ficava só dentro da
+  // Evolução recolhida; no cartão fechado ela aparece junto do orçamento.
+  const fechou = [...t.historico].reverse().find((e) => e.acao === 'fechar')
+  const notaDoFechamento = t.etapa === 'fechado' ? (fechou?.nota ?? '') : ''
+  if (nota === '' && itens === 0 && t.valorOrcamento === null && notaDoFechamento === '') return null
   return (
     <div className="resumo-orcamento">
       <p className="nota" style={{ margin: 0 }}>
@@ -217,6 +221,11 @@ function ResumoDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
         {t.contatoNome === null ? null : <span> · contato: {t.contatoNome}</span>}
         {nota === '' ? null : <span> · {nota}</span>}
       </p>
+      {notaDoFechamento === '' ? null : (
+        <p className="nota" style={{ margin: '4px 0 0' }}>
+          <b>Observação do fechamento:</b> {notaDoFechamento}
+        </p>
+      )}
       {itens === 0 ? null : (
         <ul className="nota" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
           {(t.programaOrcado ?? []).map((i, n) => (
@@ -305,7 +314,16 @@ function Evolucao({ tarefa: t }: { tarefa: TarefaNaLista }) {
             <span className="num">{diaEmTexto(e.em.slice(0, 10))}</span>
             {e.motivo === undefined ? null : <span>{e.motivo}</span>}
             {e.nota === undefined || e.nota === '' ? null : <span className="muted">{e.nota}</span>}
-            {e.valor === null || e.valor === undefined ? null : (
+            {e.valor === null || e.valor === undefined ? null : e.acao === 'fechar' &&
+              t.orcamentoParcial &&
+              t.valorFechado !== null ? (
+              // O evento guarda o valor OFERECIDO (é o que o funil soma). Num
+              // fechamento parcial a linha diz o que foi de fato fechado.
+              <span className="num">
+                fechou {formatarDinheiro(BigInt(t.valorFechado))} de{' '}
+                {formatarDinheiro(BigInt(e.valor))}
+              </span>
+            ) : (
               <span className="num">{formatarDinheiro(BigInt(e.valor))}</span>
             )}
             {e.acao === 'corrigirOrcamento' ? <Correcao de={e.de} para={e.para} /> : null}
