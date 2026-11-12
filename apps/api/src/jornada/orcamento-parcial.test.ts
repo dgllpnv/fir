@@ -107,6 +107,23 @@ describe('FECHAR guarda o valor fechado e distingue parcial de completo', () => 
   })
 })
 
+describe('o funil soma o que foi FECHADO, não o que foi oferecido', () => {
+  it('parcial: "Fechados" sobe o valor fechado e "Orçado" sobe o oferecido', async () => {
+    const ler = async () => {
+      const r = await pegar(c, '/v1/jornada', {}, 'beatriz')
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(200)
+      const passo = (k: string) =>
+        BigInt((r.body.funil as { chave: string; valor: string | null }[]).find((p) => p.chave === k)!.valor ?? '0')
+      return { fechado: passo('fechados'), orcado: passo('orcamentosEnviados') }
+    }
+    const antes = await ler()
+    await ofertarEFechar('2500000', '1000000', '500000') // oferece 25.000, fecha 15.000
+    const depois = await ler()
+    expect(depois.orcado - antes.orcado).toBe(2_500_000n)
+    expect(depois.fechado - antes.fechado).toBe(1_500_000n)
+  })
+})
+
 describe('GET /v1/jornada/orcamentos — contagem por atendente', () => {
   it('conta lançados, fechados completos e parciais, sem nenhum valor', async () => {
     const antes = await contagemDe()

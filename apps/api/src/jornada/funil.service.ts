@@ -304,7 +304,13 @@ async function contarEventos(
   const r = await c.query<{ acao: string; n: string; valor: string; valor_do_cartao: string }>(
     `SELECT ev->>'acao' AS acao,
             count(*)::text AS n,
-            coalesce(sum((ev->>'valor')::bigint), 0)::text AS valor,
+            -- "Fechados" soma o que a paciente FECHOU. O evento guarda o valor
+            -- oferecido; num fechamento parcial o fechado é menor, e somar o
+            -- oferecido dizia "fechou 25 mil" de quem fechou 15. Os anteriores à
+            -- coluna (valor_fechado NULL) seguem pelo valor do evento.
+            coalesce(sum(CASE WHEN ev->>'acao' = 'fechar'
+                              THEN coalesce(t.valor_fechado, (ev->>'valor')::bigint)
+                              ELSE (ev->>'valor')::bigint END), 0)::text AS valor,
             coalesce(sum(t.valor_orcamento), 0)::text AS valor_do_cartao
        FROM tarefas t
        CROSS JOIN LATERAL jsonb_array_elements(t.historico) ev
@@ -443,7 +449,10 @@ async function montarColunas(
     `SELECT t.id, t.paciente_id, pa.nome AS paciente_nome, t.tipo, t.etapa::text AS etapa,
             t.prazo::text AS prazo, t.hora::text AS hora,
             t.proximo_passo_em::text AS proximo_passo_em,
-            t.valor_orcamento::text AS valor_orcamento,
+            -- No cartão FECHADO, o valor é o fechado (parcial = menor que o oferecido).
+            (CASE WHEN t.etapa = 'fechado'
+                  THEN coalesce(t.valor_fechado, t.valor_orcamento)
+                  ELSE t.valor_orcamento END)::text AS valor_orcamento,
             u.em AS ultimo_evento_em
        FROM tarefas t
        LEFT JOIN pacientes pa ON pa.id = t.paciente_id
