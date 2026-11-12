@@ -5,6 +5,7 @@ import {
   diaCivil,
   ehErro,
   ehOk,
+  ehPagamento,
   ehSessao,
   type Etapa,
   ETAPA_AO_CANCELAR,
@@ -305,6 +306,15 @@ export class ConclusaoService {
       // A autorização ANTES do estado: quem não pode mexer na tarefa não
       // merece saber em que estado ela está.
       exigirAutorizacao(podeEditar(t, autor))
+      // A tarefa "Pagamento de ..." existe para dar linha do tempo ao dinheiro:
+      // desfazê-lo é ESTORNAR em Recebimentos, que também tira a tarefa das listas.
+      // Reabri-la estornaria o dinheiro por uma segunda porta e deixaria a tarefa
+      // companheira concluída, sem o pagamento que ela conta.
+      if (ehPagamento(t.tipo)) {
+        throw new ConflictException(
+          'Este é um lançamento de dinheiro. Para desfazê-lo, use Estornar em Financeiro › Recebimentos.',
+        )
+      }
       if (t.status === 'aberta') {
         throw new ConflictException('Esta tarefa já está aberta.')
       }

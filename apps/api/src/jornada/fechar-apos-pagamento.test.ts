@@ -229,4 +229,40 @@ describe('CORRIGIR os itens do orçamento enviado', () => {
     const itens = (await tarefaCrua(c, id))!.programa_orcado as { valor?: string }[]
     expect(itens[0]!.valor).toBe('800000') // o preço do item continua lá
   })
+
+  it('o pagamento do orçamento só se desfaz em Recebimentos; a consulta fechada não some por baixo', async () => {
+    const id = await orcada()
+    await mover(id, {
+      acao: 'fechar',
+      recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '500000' },
+    }).expect(200)
+    const antes = await receitaDoDia(c)
+
+    // a tarefa companheira "Pagamento de orçamento"
+    const comp = await c.migrate.query<{ rid: string; tid: string }>(
+      `SELECT r.id AS rid, r.tarefa_id AS tid FROM recebimentos r
+        WHERE r.paciente_id = $1 AND r.tarefa_id <> $2 AND r.estornado_em IS NULL
+          AND r.tipo = 'Pagamento de orçamento'`,
+      [c.pacientes['ana'], id],
+    )
+    expect(comp.rows).toHaveLength(1)
+
+    // reabrir a companheira é recusado: a saída é Estornar
+    const rb = await postar(c, `/v1/tarefas/${comp.rows[0]!.tid}/reabrir`, {}, 'beatriz')
+    expect(rb.statusCode, JSON.stringify(rb.body)).toBe(409)
+    expect(String((rb.body as { message?: string }).message)).toMatch(/Estornar/)
+    expect(await receitaDoDia(c)).toBe(antes)
+
+    // a consulta fechada não é excluída nem reaberta enquanto houver pagamento
+    expect((await apagar(c, `/v1/tarefas/${id}`, {}, 'beatriz')).statusCode).toBe(409)
+    expect((await postar(c, `/v1/tarefas/${id}/reabrir`, {}, 'beatriz')).statusCode).toBe(409)
+
+    // Estornar (a porta certa) desfaz o dinheiro do orçamento e tira a companheira das listas
+    const est = await apagar(c, `/v1/recebimentos/${comp.rows[0]!.rid}`, {}, 'beatriz')
+    expect(est.statusCode).toBe(204)
+    expect(antes - (await receitaDoDia(c))).toBe(1_000_000n)
+    expect((await tarefaCrua(c, comp.rows[0]!.tid))!.excluida_em).not.toBeNull()
+    // o pagamento da consulta continua, uma vez só
+    expect(await vivosDe(c, id)).toHaveLength(1)
+  })
 })
