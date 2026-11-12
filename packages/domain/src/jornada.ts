@@ -695,6 +695,16 @@ export function corrigirOrcamento(x: {
       valor: i.valor === undefined || i.valor === null ? null : Dinheiro.deCentavos(i.valor),
     }))
     if (!x.podeVerValores && itens.some((i) => i.valor !== null)) return erro(CORRECAO_EXIGE_VALORES)
+    // A troca é POR INTEIRO, e quem não vê valores recebe os itens sem preço: se o
+    // orçamento atual tem preço por item, trocar apagaria esses preços em silêncio
+    // (a mensagem diz a saída, sem número — S-27).
+    if (
+      !x.podeVerValores &&
+      t.programaOrcado !== null &&
+      t.programaOrcado.some((i) => centavosDe(i.valor) !== null)
+    ) {
+      return erro(CORRECAO_EXIGE_VALORES)
+    }
     const vale = p.valor ?? t.valorOrcamento
     if (vale !== null) {
       const cabe = programaCabeNoOrcamento(Dinheiro.deCentavos(vale), itens)

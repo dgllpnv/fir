@@ -192,4 +192,41 @@ describe('CORRIGIR os itens do orçamento enviado', () => {
     })
     expect(r.statusCode, JSON.stringify(r.body)).toBe(409)
   })
+
+  it('sem `valores`, trocar os itens de um orçamento COM preço por item é recusado (nada se perde)', async () => {
+    const tirze = await idDoProcedimento('tirzepatida')
+    // a consulta é da recepção (juliana: pode editar, não vê valores)
+    const r0 = await postar(
+      c,
+      '/v1/tarefas',
+      {
+        vinculo: 'paciente',
+        pacienteId: c.pacientes['ana'],
+        tipo: 'Consulta agendada',
+        responsavelId: c.pessoas['juliana'],
+        quando: { modo: 'retroativo', em: HOJE },
+      },
+      'beatriz',
+    )
+    expect(r0.statusCode, JSON.stringify(r0.body)).toBe(201)
+    const id = r0.body.tarefa.id as string
+    await mover(id, {
+      acao: 'registrarOrcamento',
+      valor: '1500000',
+      programa: [{ procedimentoId: tirze, sessoes: 4, intervaloDias: 7, chave: 'a', valor: '800000' }],
+    }).expect(200)
+
+    const r = await mover(
+      id,
+      {
+        acao: 'corrigirOrcamento',
+        chaveIdempotencia: '33333333-3333-4333-8333-333333333333',
+        programa: [{ procedimentoId: tirze, sessoes: 6, intervaloDias: 7, chave: 'a' }],
+      },
+      'juliana',
+    )
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(403)
+    const itens = (await tarefaCrua(c, id))!.programa_orcado as { valor?: string }[]
+    expect(itens[0]!.valor).toBe('800000') // o preço do item continua lá
+  })
 })
