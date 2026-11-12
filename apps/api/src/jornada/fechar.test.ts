@@ -343,30 +343,27 @@ describe('FECHAR É UMA TRANSAÇÃO SÓ', () => {
     expect((await buscar(id)).etapa).toBe('orcamento')
   })
 
-  it('se o RECEBIMENTO falhar, a etapa NÃO anda — ou as duas escritas, ou nenhuma', async () => {
+  it('se o PROGRAMA for recusado, o recebimento rola de volta — ou as escritas todas, ou nenhuma', async () => {
     /**
      * O outro sentido da atomicidade, e o único que um teste consegue
-     * distinguir de "nunca foi inserido".
+     * distinguir de "nunca foi inserido": o dinheiro do fechamento é gravado
+     * ANTES do montador, e a recusa do montador (procedimento que não existe)
+     * o leva junto. Medimos a receita no banco: se o recebimento sobrasse, a
+     * clínica veria dinheiro sem programa e o cartão em "Orçamentos em aberto".
      *
-     * A vaga de recebimento da tarefa está ocupada (índice único
-     * `recebimento_por_tarefa`, regra 3), então a inserção do fechamento
-     * falha. Se a etapa andasse, a clínica veria "Fechado" num cartão em que
-     * o dinheiro do fechamento não entrou — e o funil contaria um negócio
-     * que não existe.
-     *
-     * Isto também é a prova que o teste do montador NÃO dá: lá, "rolou de
-     * volta" e "nunca foi inserido" produzem o mesmo resultado observável.
+     * (Antes de 2026-11-12 isto era provado ocupando a vaga do recebimento da
+     * tarefa. Agora essa vaga ocupada é um caso de SUCESSO — o dinheiro vai
+     * para uma tarefa companheira —, coberto em `fechar-apos-pagamento.test`.)
      */
-    const id = await orcado()
-    await inserirRecebimento(c, id, c.pacientes['ana']!, 5000n)
+    const id = await orcado('360000', ITEM_FANTASMA)
+    const antes = await receitaDoDia(c)
 
     const r = await mover(id, { acao: 'fechar', recebimento: ENTRADA })
     expect(r.statusCode, JSON.stringify(r.body)).toBeGreaterThanOrEqual(400)
 
     expect((await buscar(id)).etapa).toBe('orcamento')
-    const vivos = await vivosDe(c, id)
-    expect(vivos).toHaveLength(1)
-    expect(vivos[0]!.valor).toBe('5000') // o que já estava, intacto
+    expect(await vivosDe(c, id)).toHaveLength(0)
+    expect(await receitaDoDia(c)).toBe(antes)
   })
 
   it('o histórico não ganha evento quando o fechamento é recusado', async () => {

@@ -1,5 +1,5 @@
 import type { MoverEtapa } from '@fir/contracts'
-import { Dinheiro, ehErro } from '@fir/domain'
+import { Dinheiro, ehErro, TIPO_PAGAMENTO_DE_ORCAMENTO } from '@fir/domain'
 import { BadRequestException, Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
 import type { ClinicaId } from '../banco/clinica-id'
@@ -95,13 +95,48 @@ export class FechamentoService {
     // nenhuma coluna de dinheiro recebido em `tarefas`: quem garante que o
     // pagamento conta uma vez (regra 3) é o índice único parcial
     // `recebimento_por_tarefa`, não este código.
+    //
+    // **Atendimento que JÁ TEM o pagamento dele** (a consulta paga na hora, e
+    // o orçamento sai depois): o índice recusa um segundo recebimento vivo na
+    // mesma tarefa, e era isso que a recepção via como "Internal server
+    // error". O dinheiro do orçamento vai então para uma tarefa companheira
+    // "Pagamento de orçamento" — a MESMA que Recebimento › Orçamento fechado
+    // cria —, e a consulta fica com o pagamento dela, intocado (regra 3: cada
+    // pagamento conta uma vez).
+    const jaPaga = await c.query(
+      'SELECT 1 FROM recebimentos WHERE tarefa_id = $1 AND estornado_em IS NULL',
+      [x.tarefaId],
+    )
+    let tarefaDoPagamento = x.tarefaId
+    let tipoDoPagamento = cartao.tipo
+    if (jaPaga.rowCount !== 0) {
+      const companheira = await c.query<{ id: string }>(
+        `INSERT INTO tarefas
+           (clinica_id, solicitante_id, responsavel_id, descricao, prazo, prioridade,
+            status, concluida_em, paciente_id, tipo, historico, resultado, obs, unidade_id)
+         VALUES ($1,$2,$2,$3,$4,'normal','concluida',$5,$6,$7,'[]','','',$8)
+         RETURNING id`,
+        [
+          x.clinicaId,
+          x.autor.id,
+          TIPO_PAGAMENTO_DE_ORCAMENTO,
+          x.hojeDaClinica,
+          x.agora,
+          cartao.pacienteId,
+          TIPO_PAGAMENTO_DE_ORCAMENTO,
+          cartao.unidadeId,
+        ],
+      )
+      tarefaDoPagamento = companheira.rows[0]!.id
+      tipoDoPagamento = TIPO_PAGAMENTO_DE_ORCAMENTO
+    }
     const recebimentoId = await registrarPagamento(c, {
       clinicaId: x.clinicaId,
       pacienteId: cartao.pacienteId,
-      tarefaId: x.tarefaId,
+      tarefaId: tarefaDoPagamento,
       // O tipo JÁ REALIZADO da tarefa ("Consulta realizada"), que é o que
       // `aceitaPagamento` libera e o que o faturamento classifica.
-      tipo: cartao.tipo,
+      tipo: tipoDoPagamento,
       pagamento: dados.recebimento,
       // O dinheiro entrou AGORA, não no dia do atendimento: é hoje que ele
       // conta no caixa e na conferência às cegas.

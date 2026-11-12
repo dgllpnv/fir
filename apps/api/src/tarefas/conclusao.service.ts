@@ -320,7 +320,13 @@ export class ConclusaoService {
       await c.query(
         `UPDATE tarefas
             SET status = 'aberta', concluida_em = NULL,
-                etapa = $2::etapa_de_jornada, historico = $3::jsonb
+                etapa = $2::etapa_de_jornada, historico = $3::jsonb,
+                -- orcamento_so_com_etapa (0007): o valor e o programa orçados só
+                -- existem em orçamento/fechado/perdido. Reabrir um orçamento
+                -- ENVIADO os solta da coluna, e eles continuam no histórico
+                -- (append-only), que é onde a recepção os vê.
+                valor_orcamento = NULL, programa_orcado = NULL,
+                proximo_passo_em = CASE WHEN $4::text = 'orcamento' THEN NULL ELSE proximo_passo_em END
           WHERE id = $1`,
         [
           id,
@@ -330,6 +336,7 @@ export class ConclusaoService {
               ? t.historico
               : anexar(t.historico, evento('reabrir', voltaPara, this.relogio.agora(), autor.id)),
           ),
+          t.etapa,
         ],
       )
       return umaSo(await lerTarefas(c, clinicaId, hoje, [id]))

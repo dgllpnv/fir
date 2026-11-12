@@ -32,7 +32,7 @@ describe('a marcação do manual tem três regras, e só elas', () => {
   /**
    * **A MUTAÇÃO:** pôr a lista antes do parágrafo do mesmo bloco. A frase que
    * introduz a lista (*"cadastre:"*) apareceria DEPOIS do que se cadastra, em
-   * 23 das 77 seções — o manual inteiro lido de trás para frente.
+   * 23 das 78 seções — o manual inteiro lido de trás para frente.
    */
   it('dentro de um bloco, o parágrafo vem ANTES da lista', () => {
     const blocos = interpretar('Introdução:\n- um\n- dois')
@@ -116,7 +116,7 @@ describe('o destaque da busca casa SEM acento e corta no texto original', () => 
   })
 })
 
-describe('a marcação atravessa as 77 seções sem perder texto', () => {
+describe('a marcação atravessa as 78 seções sem perder texto', () => {
   /**
    * A varredura que importa: **nenhum caractere do texto dela se perde**.
    *
@@ -135,7 +135,7 @@ describe('a marcação atravessa as 77 seções sem perder texto', () => {
         expect(limpar(textoPuro(s.texto)), `${c.numero}. ${s.titulo}`).toBe(original)
       }
     }
-    expect(secoes).toBe(77)
+    expect(secoes).toBe(78)
   })
 
   it('todo negrito do manual é um par fechado', () => {

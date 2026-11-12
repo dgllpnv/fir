@@ -142,7 +142,7 @@ describe('transicao — o que é proibido, cada caso', () => {
     expect(ETAPAS.filter((e) => statusDaEtapa(e) === 'cancelada')).toEqual([ETAPA_AO_CANCELAR])
   })
 
-  it('A MATRIZ INTEIRA: 9 etapas × 14 ações, e só as 24 combinações da tabela passam', () => {
+  it('A MATRIZ INTEIRA: 9 etapas × 14 ações, e só as 25 combinações da tabela passam', () => {
     // 126 combinações, uma por uma, e as 102 restantes são recusadas. É o
     // único jeito de provar que CADA transição proibida é recusada — "de
     // faltou só saem três" prova três linhas, não as outras 123.
@@ -183,12 +183,15 @@ describe('transicao — o que é proibido, cada caso', () => {
         'orcamento -fechar-> fechado/concluida',
         'orcamento -followUp-> orcamento/concluida',
         'orcamento -perder-> perdido/concluida',
+        // 2026-11-12 (pedido 2 da cliente): o orçamento enviado ainda não tem
+        // dinheiro dele; recusar deixava o atendimento sem saída.
+        'orcamento -reabrir-> agendado/aberta',
         'realizado -fechar-> fechado/concluida',
         'realizado -reabrir-> agendado/aberta',
         'realizado -registrarOrcamento-> orcamento/concluida',
       ].sort(),
     )
-    expect(permitidas).toHaveLength(24)
+    expect(permitidas).toHaveLength(25)
   })
 
   it('nenhuma ação de agenda alcança um cartão concluído', () => {
@@ -220,8 +223,9 @@ describe('transicao — o que é proibido, cada caso', () => {
     }
   })
 
-  it('reabrir é recusado depois do orçamento — o dinheiro não pode ficar órfão', () => {
-    for (const etapa of ['orcamento', 'fechado', 'perdido'] as const) {
+  it('reabrir passa do orçamento enviado, e é recusado depois de fechado ou perdido', () => {
+    expect(ehOk(transicao(estadoDe('orcamento'), 'reabrir'))).toBe(true)
+    for (const etapa of ['fechado', 'perdido'] as const) {
       const r = transicao(estadoDe(etapa), 'reabrir')
       expect(codigoDe(r)).toBe('TRANSICAO_INVALIDA')
       expect(mensagemDe(r)).toContain('orçamento')

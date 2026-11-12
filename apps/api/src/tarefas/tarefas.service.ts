@@ -6,6 +6,7 @@ import type {
 } from '@fir/contracts'
 import {
   aceitaPagamento,
+  TIPO_PAGAMENTO_DE_ORCAMENTO,
   diaCivil,
   type EventoDeJornada,
   ehErro,
@@ -436,7 +437,9 @@ export async function registrarPagamento(
       'Só uma tarefa de paciente guarda pagamento — o dinheiro precisa de a quem pertencer.',
     )
   }
-  if (!aceitaPagamento(x.tipo)) {
+  // O "Pagamento de orçamento" não é atendimento, mas é a tarefa companheira
+  // em que o fechamento põe o dinheiro de um atendimento que já tinha o seu.
+  if (!aceitaPagamento(x.tipo) && x.tipo !== TIPO_PAGAMENTO_DE_ORCAMENTO) {
     throw new BadRequestException(
       'Este tipo de tarefa não guarda pagamento. Use Recebimento para registrar dinheiro recebido.',
     )

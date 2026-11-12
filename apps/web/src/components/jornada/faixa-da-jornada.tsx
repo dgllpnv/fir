@@ -200,27 +200,34 @@ function ResumoDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
   // contagem: o resumo nunca depende do catálogo para existir.
   const catalogo = useDados<ListaDeProcedimentos>(itens > 0 ? 'v1/procedimentos' : null)
   const nomes = new Map((catalogo.dados?.itens ?? []).map((p) => [p.id, p.nome]))
-  const nomesDosItens = (t.programaOrcado ?? [])
-    .map((i) => nomes.get(i.procedimentoId))
-    .filter((n): n is string => n !== undefined)
   if (nota === '' && itens === 0 && t.valorOrcamento === null) return null
   return (
-    <p className="nota resumo-orcamento">
-      <b>Orçamento</b>
-      {t.valorOrcamento === null ? null : (
-        <span className="num"> · {formatarDinheiro(BigInt(t.valorOrcamento))}</span>
+    <div className="resumo-orcamento">
+      <p className="nota" style={{ margin: 0 }}>
+        <b>Orçamento</b>
+        {t.valorOrcamento === null ? null : (
+          <span className="num"> · {formatarDinheiro(BigInt(t.valorOrcamento))}</span>
+        )}
+        {t.contatoNome === null ? null : <span> · contato: {t.contatoNome}</span>}
+        {nota === '' ? null : <span> · {nota}</span>}
+      </p>
+      {itens === 0 ? null : (
+        <ul className="nota" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+          {(t.programaOrcado ?? []).map((i, n) => (
+            <li key={`${i.chave ?? n}`}>
+              {nomes.get(i.procedimentoId) ?? 'Procedimento'}
+              {' · '}
+              {i.sessoes} {i.sessoes === 1 ? 'sessão' : 'sessões'}
+              {i.sessoes > 1 ? `, a cada ${i.intervaloDias} dias` : ''}
+              {i.dose === undefined || i.dose === null || i.dose === '' ? '' : ` · dose ${i.dose}`}
+              {i.valor === null || i.valor === undefined || i.valor === '' ? null : (
+                <span className="num"> · {formatarDinheiro(BigInt(i.valor))}</span>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
-      {itens === 0 ? null : nomesDosItens.length === itens ? (
-        <span> · {nomesDosItens.join(', ')}</span>
-      ) : (
-        <span>
-          {' '}
-          · programa com {itens} {itens === 1 ? 'procedimento' : 'procedimentos'}
-        </span>
-      )}
-      {t.contatoNome === null ? null : <span> · contato: {t.contatoNome}</span>}
-      {nota === '' ? null : <span> · {nota}</span>}
-    </p>
+    </div>
   )
 }
 
@@ -409,7 +416,32 @@ function FormularioDaAcao({
    * atravessa para o corpo.
    */
   const [ehPrograma, setEhPrograma] = useState(false)
-  const [montagem, setMontagem] = useState<EstadoDoMontador>(() => montadorVazio(hoje))
+  /**
+   * Na CORREÇÃO, o montador nasce com os itens que o orçamento já tem (o que
+   * foi orçado), e só viajam se a pessoa marcar "Corrigir os procedimentos".
+   */
+  const [editaItens, setEditaItens] = useState(false)
+  const [montagem, setMontagem] = useState<EstadoDoMontador>(() =>
+    corrigindo && temProposta
+      ? {
+          inicio: hoje,
+          itens: (t.programaOrcado ?? []).map((i, n) => ({
+            chave: i.chave ?? `i${n + 1}`,
+            procedimentoId: i.procedimentoId,
+            sessoes: i.sessoes,
+            intervaloDias: i.intervaloDias,
+            inicio: '',
+            depoisDe: i.depoisDe ?? '',
+            responsavelId: i.responsavelId ?? '',
+            dose: i.dose ?? '',
+            valor:
+              i.valor === null || i.valor === undefined || i.valor === ''
+                ? ''
+                : textoDeCentavos(BigInt(i.valor)),
+          })),
+        }
+      : montadorVazio(hoje),
+  )
   /**
    * O **início do programa**, no `fechar` — e só quando o cartão traz proposta.
    *
@@ -436,6 +468,20 @@ function FormularioDaAcao({
     } finally {
       setSalvando(false)
     }
+  }
+
+  /** Os itens do montador no formato do contrato (valor em string de centavos). */
+  function itensDoMontador() {
+    return montagem.itens.map((x) => ({
+      chave: x.chave,
+      procedimentoId: x.procedimentoId,
+      sessoes: x.sessoes,
+      intervaloDias: x.intervaloDias,
+      ...(x.depoisDe === '' ? {} : { depoisDe: x.depoisDe }),
+      ...(x.responsavelId === '' ? {} : { responsavelId: x.responsavelId }),
+      ...(x.dose === '' ? {} : { dose: x.dose }),
+      ...(x.valor.trim() === '' ? {} : { valor: (centavosDoTexto(x.valor) ?? 0n).toString() }),
+    }))
   }
 
   /** O corpo da ação, ou a mensagem do que falta. */
@@ -473,22 +519,7 @@ function FormularioDaAcao({
           valor: centavos.toString(),
           retomarEm: quando,
           ...(contatoId === '' ? {} : { contatoId }),
-          ...(ehPrograma
-            ? {
-                programa: montagem.itens.map((x) => ({
-                  chave: x.chave,
-                  procedimentoId: x.procedimentoId,
-                  sessoes: x.sessoes,
-                  intervaloDias: x.intervaloDias,
-                  ...(x.depoisDe === '' ? {} : { depoisDe: x.depoisDe }),
-                  ...(x.responsavelId === '' ? {} : { responsavelId: x.responsavelId }),
-                  ...(x.dose === '' ? {} : { dose: x.dose }),
-                  ...(x.valor.trim() === ''
-                    ? {}
-                    : { valor: (centavosDoTexto(x.valor) ?? 0n).toString() }),
-                })),
-              }
-            : {}),
+          ...(ehPrograma ? { programa: itensDoMontador() } : {}),
           ...comNota,
         }
       }
@@ -504,6 +535,12 @@ function FormularioDaAcao({
         }
         if (quando !== '' && quando !== (t.proximoPassoEm ?? '')) corpo['retomarEm'] = quando
         if (nota.trim() !== notaVigente) corpo['nota'] = nota.trim()
+        if (editaItens) {
+          if (montagem.itens.some((x) => x.procedimentoId === '')) {
+            return 'Escolha o procedimento de cada item do orçamento.'
+          }
+          corpo['programa'] = itensDoMontador()
+        }
         if (Object.keys(corpo).length === 2) return 'Nada mudou no orçamento.'
         return corpo
       }
@@ -604,6 +641,26 @@ function FormularioDaAcao({
               </p>
               <Montador estado={montagem} aoMudar={setMontagem} podeValores={podeValores} />
             </>
+          ) : null}
+        </>
+      ) : null}
+
+      {corrigindo ? (
+        <>
+          <label
+            className="campo"
+            style={{ display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'center' }}
+          >
+            <input
+              type="checkbox"
+              checked={editaItens}
+              style={{ width: 'auto' }}
+              onChange={(e) => setEditaItens(e.target.checked)}
+            />
+            {temProposta ? 'Corrigir os procedimentos do orçamento' : 'Informar os procedimentos do orçamento'}
+          </label>
+          {editaItens ? (
+            <Montador estado={montagem} aoMudar={setMontagem} podeValores={podeValores} />
           ) : null}
         </>
       ) : null}

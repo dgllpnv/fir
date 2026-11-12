@@ -163,7 +163,7 @@ Ao editar uma tarefa da série, é possível aplicar as alterações também às
 - **Concluir** (tocar no círculo) registra que a tarefa foi feita. É aí que entram a data de realização, o resultado do contato e o pagamento, quando houver.
 - **Editar** serve só para corrigir dados (descrição, prazo, responsável). Não conclui nada.
 
-Para registrar algo que aconteceu, use sempre **Concluir**. Se a data de realização for depois do prazo, a tarefa conta como concluída com atraso.`,
+Para registrar algo que aconteceu, use sempre **Concluir**. Precisa de um próximo passo (enviar exame, marcar retorno)? No painel de conclusão, marque **“Criar uma nova tarefa a partir desta”** e toque em **Concluir e criar nova tarefa**: a tarefa é concluída e a Nova tarefa abre já com a paciente escolhida. Vale para qualquer tarefa, inclusive as que vieram de campanha. Se a data de realização for depois do prazo, a tarefa conta como concluída com atraso.`,
       },
       {
         titulo: 'Jornada do paciente: agendamento até o fechamento',
@@ -173,10 +173,11 @@ Para registrar algo que aconteceu, use sempre **Concluir**. Se a data de realiza
 - **No-show** e **Desmarcou**: ficam registrados (no-show entra na taxa de no-show) e o cartão **continua aberto** em “Recontatar”, na tela Hoje, até alguém reagendar ou encerrar. Assim ninguém esquece de ligar para quem faltou ou desmarcou.
 - **Reagendar** devolve o cartão para Agendada com a nova data; **Encerrar** fecha sem reagendar, com motivo opcional.
 - **Realizada**: tocar no círculo conclui o atendimento (e pergunta se recebeu algum valor).
-- **Orçamento enviado**: “Registrar orçamento”, com valor e data para retomar o contato (2 dias, por padrão). Se for programa, marque “É um programa” e monte os procedimentos e sessões como a médica prescreveu: o valor sugerido já aparece. No dia de retomar, o cartão aparece em “Orçamentos para retomar”. “Registrar follow-up” anota o contato e marca o próximo.
-- **Corrigir orçamento**: digitou errado? Enquanto o orçamento está em aberto, quem pediu, quem atende ou quem acompanha a equipe corrige o valor, a data de retomar e “o que foi orçado”. A etapa não muda, a correção aparece na “Evolução” (de → para), e o funil dos meses já fechados continua igual.
-- **Fechou**: abre o Recebimento já preenchido. Informe só a entrada: o restante do orçamento vira **saldo em aberto** sozinho, e o programa orçado já vem montado para confirmar a data de início. A adesão nasce no fechamento.
+- **Orçamento enviado**: “Registrar orçamento”, com valor e data para retomar o contato (2 dias, por padrão). Se for programa, marque “É um programa” e monte os procedimentos e sessões como a médica prescreveu: o valor sugerido já aparece. O cartão mostra o que foi orçado, item por item (procedimento, sessões e intervalo). No dia de retomar, o cartão aparece em “Orçamentos para retomar”. “Registrar follow-up” anota o contato e marca o próximo.
+- **Corrigir orçamento**: digitou errado? Enquanto o orçamento está em aberto, quem pediu, quem atende ou quem acompanha a equipe corrige o valor, a data de retomar e “o que foi orçado”. Para mudar os procedimentos, marque “Corrigir os procedimentos do orçamento”: a lista já vem com o que foi orçado, e é só ajustar sessões, intervalo ou trocar itens. Quem não marcar não muda nada neles. A etapa não muda, a correção aparece na “Evolução” (de → para), e o funil dos meses já fechados continua igual.
+- **Fechou**: abre, no próprio cartão, o formulário do fechamento. Informe o **valor recebido agora**, a forma de pagamento e o **valor em aberto** (o que fica para depois, que vira **saldo em aberto** da paciente). Se o orçamento tinha programa, ele já vem montado para você confirmar a data de início. O dinheiro entra no caixa de hoje e **não se lança de novo em Recebimentos**. Se a consulta já tinha pagamento próprio, o do orçamento é registrado à parte, como “Pagamento de orçamento”, e o da consulta não muda.
 - **Perdeu**: encerra o orçamento com o motivo (preço, sem retorno, outro lugar, momento, outro).
+- **Reabrir** (círculo da tarefa concluída): volta o atendimento para a etapa anterior, e o pagamento que estava dentro dele é **estornado** (deixa de contar no caixa, mas fica registrado). Funciona até o orçamento ser fechado ou perdido. Depois de **Fechou** ou **Perdeu** não se reabre: para desfazer um fechamento, estorne o recebimento do orçamento em Financeiro › Recebimentos.
 
 Cada movimento fica em **“Evolução”**, no próprio cartão: etapa, data, quem fez e observação.`,
       },
@@ -193,7 +194,7 @@ Os números contam os movimentos registrados no período escolhido.`,
       {
         titulo: 'Cancelar e excluir',
         texto: `- **Cancelar:** a tarefa não vai mais acontecer. Fica no histórico como cancelada. Pode ser feito por quem solicitou ou pelo administrativo.
-- **Excluir** (dentro de Editar): apaga o registro, só para lançamentos feitos por engano. Em tarefas recorrentes, é possível excluir só esta ou esta e as próximas.`,
+- **Excluir** (dentro de Editar): tira a tarefa das listas, só para lançamentos feitos por engano. O histórico fica guardado. Se a tarefa tem pagamento, o sistema pede para **reabrir antes** (o que estorna o pagamento) e só então excluir. Em tarefas recorrentes, é possível excluir só esta ou esta e as próximas.`,
       },
       {
         titulo: 'Tela Tarefas: buscar e filtrar',
@@ -276,6 +277,15 @@ O formulário mostra os recebimentos do paciente nos últimos 7 dias, para evita
 - A **consulta** é o atendimento: conclua a tarefa da consulta.
 - O **dinheiro** é o recebimento. Se o paciente pagou na hora, responda **“Recebeu algum valor?”** ao concluir a consulta. Pronto: não lance de novo.
 - Se pagou em outro momento (sinal antes, ou restante depois), use **Recebimento › Consulta** ou **Sinal de consulta**.`,
+      },
+      {
+        titulo: 'Desfazer um lançamento feito por engano',
+        texto: `Nada de dinheiro é apagado: ele é **estornado**, deixa de contar no caixa e a trilha mostra quem fez e quando. O caminho depende de onde o dinheiro foi lançado:
+- **Dentro do atendimento** (“Houve pagamento?”): **reabra** o atendimento (círculo da tarefa concluída). O pagamento é estornado e a tarefa volta para a etapa anterior. Se for só um teste, depois de reabrir use **Editar › Excluir**.
+- **Em Financeiro › Recebimentos** (recebimento avulso, inclusive o “Pagamento de orçamento”): na lista **Recebimentos de hoje**, toque em **Estornar** e confirme. O recebimento sai da conta do dia.
+- **Orçamento já fechado:** estorne o recebimento do orçamento (acima). O programa que nasceu no fechamento é encerrado à parte, em Programas.
+
+Dica: antes de lançar de novo, confira a lista de recebimentos da paciente. Um pagamento não deve existir duas vezes.`,
       },
       {
         titulo: 'Programa em andamento × programa novo',

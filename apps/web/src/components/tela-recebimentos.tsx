@@ -9,7 +9,8 @@ import type {
 } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
 import { useMemo, useState } from 'react'
-import { ErroDaApi } from '@/lib/api'
+import { ehPagamento } from '@fir/domain'
+import { chamar, ErroDaApi } from '@/lib/api'
 import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { consultaEmTexto, useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
@@ -351,7 +352,24 @@ export function TelaRecebimentos({
         ) : (
           <div className="linhas">
             {doDia.dados.itens.map((r) => (
-              <LinhaDeRecebimento key={r.id} r={r} />
+              <LinhaDeRecebimento
+                key={r.id}
+                r={r}
+                aoEstornar={async () => {
+                  try {
+                    await chamar<void>(`v1/recebimentos/${r.id}`, { method: 'DELETE' })
+                    setRecado('Recebimento estornado.')
+                    doDia.recarregar()
+                    meta.recarregar()
+                    recentes.recarregar()
+                    saldo.recarregar()
+                  } catch (erro) {
+                    setRecado(
+                      erro instanceof ErroDaApi ? erro.message : 'Não consegui falar com o servidor.',
+                    )
+                  }
+                }}
+              />
             ))}
           </div>
         )}
@@ -478,7 +496,19 @@ function AvisoDeSaldo({ estado }: { estado: ReturnType<typeof useDados<SaldoDoPa
   )
 }
 
-function LinhaDeRecebimento({ r }: { r: RecebimentoNaLista }) {
+function LinhaDeRecebimento({
+  r,
+  aoEstornar,
+}: {
+  r: RecebimentoNaLista
+  aoEstornar?: () => Promise<void>
+}) {
+  const [confirmando, setConfirmando] = useState(false)
+  const [estornando, setEstornando] = useState(false)
+  // Só o recebimento AVULSO se estorna aqui. O pagamento de dentro de um
+  // atendimento ("Consulta realizada") se desfaz reabrindo o atendimento: uma
+  // segunda porta para o mesmo estorno esquece de reabrir a tarefa.
+  const avulso = ehPagamento(r.tipo) && aoEstornar !== undefined
   return (
     <div className="linha" data-estornado={r.estornado ? 'sim' : 'nao'}>
       <div className="info">
@@ -487,6 +517,35 @@ function LinhaDeRecebimento({ r }: { r: RecebimentoNaLista }) {
           {r.tipo} · {r.forma} · {diaEmTexto(r.em)} · {r.registradoPor}
           {r.estornado ? ' · estornado' : ''}
         </small>
+        {r.estornado || aoEstornar === undefined ? null : !avulso ? (
+          <small>Para desfazer, reabra o atendimento em Tarefas.</small>
+        ) : confirmando ? (
+          <small>
+            Estornar este recebimento? Ele deixa de contar no caixa e fica registrado como estornado.{' '}
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={estornando}
+              onClick={async () => {
+                setEstornando(true)
+                await aoEstornar?.()
+                setEstornando(false)
+                setConfirmando(false)
+              }}
+            >
+              {estornando ? 'Estornando…' : 'Confirmar estorno'}
+            </button>{' '}
+            <button type="button" className="btn ghost" onClick={() => setConfirmando(false)}>
+              Voltar
+            </button>
+          </small>
+        ) : (
+          <small>
+            <button type="button" className="btn ghost" onClick={() => setConfirmando(true)}>
+              Estornar
+            </button>
+          </small>
+        )}
       </div>
       <span className="valor">{formatarDinheiro(centavos(r.valor))}</span>
     </div>

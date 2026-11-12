@@ -185,6 +185,12 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
       valor: valorDeOrcamento.optional(),
       retomarEm: DiaCivil.optional(),
       nota: Nota,
+      /**
+       * Os ITENS do orçamento, trocados por inteiro (pedido 2 da cliente: ela
+       * via o que foi orçado e não conseguia corrigir). Ausente = MANTÉM.
+       * É a mesma proposta do `registrarOrcamento`, com as mesmas conferências.
+       */
+      programa: Programa.optional(),
     })
     .strict(),
 ])

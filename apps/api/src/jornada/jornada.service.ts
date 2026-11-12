@@ -264,17 +264,27 @@ export class JornadaService {
           ...(dados.valor === undefined ? {} : { valor: dados.valor }),
           ...(dados.retomarEm === undefined ? {} : { retomarEm: dados.retomarEm }),
           ...(dados.nota === undefined ? {} : { nota: dados.nota }),
+          ...(dados.programa === undefined
+            ? {}
+            : {
+                programa: dados.programa.map((i) => ({
+                  valor: i.valor === undefined ? null : i.valor,
+                })),
+              }),
         },
         hoje,
         agora,
       })
       if (ehErro(r)) throw excecaoDaCorrecao(r.erro)
+      // A MESMA conferência do registro: o responsável do item é da clínica.
+      if (dados.programa !== undefined) await conferirResponsaveis(c, dados.programa)
 
       if (r.valor.tipo === 'corrigir') {
         await c.query(
           `UPDATE tarefas
               SET valor_orcamento = $3::bigint,
                   proximo_passo_em = $4::date,
+                  programa_orcado = CASE WHEN $6::boolean THEN $7::jsonb ELSE programa_orcado END,
                   historico = historico || $5::jsonb
             WHERE id = $1 AND clinica_id = $2 AND excluida_em IS NULL`,
           [
@@ -283,6 +293,8 @@ export class JornadaService {
             paraParametro(r.valor.valorOrcamento),
             r.valor.proximoPassoEm,
             JSON.stringify([r.valor.evento]),
+            r.valor.trocaOPrograma,
+            dados.programa === undefined ? null : JSON.stringify(programaParaJsonb(dados.programa)),
           ],
         )
       }

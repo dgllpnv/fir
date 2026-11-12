@@ -189,7 +189,7 @@ const TRANSICOES_LITERAL = [
   { acao: 'followUp',           de: ['orcamento'],              para: 'orcamento',  status: 'concluida', contaNoFunil: false, exigeValor: false, exigeMotivo: false },
   { acao: 'fechar',             de: ['realizado', 'orcamento'], para: 'fechado',    status: 'concluida', contaNoFunil: true,  exigeValor: true,  exigeMotivo: false },
   { acao: 'perder',             de: ['orcamento'],              para: 'perdido',    status: 'concluida', contaNoFunil: true,  exigeValor: false, exigeMotivo: true  },
-  { acao: 'reabrir',            de: ['realizado', 'encerrado'], para: 'anterior',   status: 'aberta',    contaNoFunil: false, exigeValor: false, exigeMotivo: false },
+  { acao: 'reabrir',            de: ['realizado', 'orcamento', 'encerrado'], para: 'anterior',   status: 'aberta',    contaNoFunil: false, exigeValor: false, exigeMotivo: false },
   // A correção do orçamento já enviado (B1). `de: ['orcamento']` e nada mais:
   // fechado e perdido são terminais, e o evento `fechar` congelou o negócio no
   // instante dele. `contaNoFunil: false` — contá-la dobraria "enviados" no
@@ -335,7 +335,15 @@ const mensagemPorOrigem = (etapa: Etapa): string =>
     ? 'Essa etapa não vale para um agendamento que ainda não aconteceu.'
     : 'Essa etapa não vale para a situação atual.'
 
-const JA_TEM_ORCAMENTO = 'Este atendimento já tem orçamento registrado.'
+/**
+ * `reabrir` só é recusado de `fechado` e `perdido`. De `orcamento` ele PASSA
+ * (decisão de 2026-11-12, pedido 2 da cliente): o orçamento enviado ainda não
+ * tem dinheiro dele, e recusar deixava o atendimento de teste sem saída —
+ * excluir exige estornar, e estornar exigia reabrir. O orçamento enviado fica
+ * no histórico (append-only), que é onde a recepção o encontra.
+ */
+const JA_TEM_ORCAMENTO =
+  'Este orçamento já foi fechado ou perdido. Para desfazer, estorne o recebimento do orçamento em Financeiro › Recebimentos.'
 
 /**
  * A etapa a que `reabrir` devolve o cartão.
@@ -375,7 +383,7 @@ export function transicao(estado: EstadoDaJornada, acao: AcaoDeJornada): Result<
   const t = POR_ACAO.get(acao)
   if (t === undefined || !t.de.includes(estado.etapa)) {
     const mensagem =
-      acao === 'reabrir' && (['orcamento', 'fechado', 'perdido'] as readonly Etapa[]).includes(estado.etapa)
+      acao === 'reabrir' && (['fechado', 'perdido'] as readonly Etapa[]).includes(estado.etapa)
         ? JA_TEM_ORCAMENTO
         : mensagemPorOrigem(estado.etapa)
     return erro(erroDe('TRANSICAO_INVALIDA', mensagem))
@@ -575,6 +583,8 @@ export type PedidoDeCorrecao = {
   readonly valor?: bigint
   readonly retomarEm?: string
   readonly nota?: string
+  /** Só o valor de cada item: a regra de caber no orçamento não precisa de mais. */
+  readonly programa?: readonly { readonly valor?: bigint | null | undefined }[]
 }
 
 export type CorrecaoDeOrcamento =
@@ -586,6 +596,8 @@ export type CorrecaoDeOrcamento =
       /** As duas colunas que mudam. A etapa e o status NÃO mudam. */
       readonly valorOrcamento: bigint | null
       readonly proximoPassoEm: string | null
+      /** `true` quando os itens foram trocados: quem chama grava o `programa_orcado` novo. */
+      readonly trocaOPrograma: boolean
     }
 
 const NADA_A_CORRIGIR = erroDe('NADA_A_CORRIGIR', 'Diga o que corrigir: valor, data de retomar ou nota.')
@@ -657,7 +669,12 @@ export function corrigirOrcamento(x: {
   const destino = transicao(t, 'corrigirOrcamento')
   if (destino.tipo === 'erro') return destino
 
-  if (p.valor === undefined && p.retomarEm === undefined && p.nota === undefined) {
+  if (
+    p.valor === undefined &&
+    p.retomarEm === undefined &&
+    p.nota === undefined &&
+    p.programa === undefined
+  ) {
     return erro(NADA_A_CORRIGIR)
   }
   if (p.valor !== undefined && (p.valor <= 0n || p.valor > TETO_DO_ORCAMENTO)) {
@@ -670,7 +687,20 @@ export function corrigirOrcamento(x: {
   }
   if (p.nota !== undefined && p.nota.length > 160) return erro(NOTA_LONGA)
 
-  if (p.valor !== undefined && t.programaOrcado !== null) {
+  // Itens NOVOS: cabem no valor que vai valer (o novo, ou o vigente do cartão).
+  // Sem `valores`, o item com preço é recusado pelo ESTADO — a recepção que não
+  // vê dinheiro não grava preço por item.
+  if (p.programa !== undefined) {
+    const itens = p.programa.map((i) => ({
+      valor: i.valor === undefined || i.valor === null ? null : Dinheiro.deCentavos(i.valor),
+    }))
+    if (!x.podeVerValores && itens.some((i) => i.valor !== null)) return erro(CORRECAO_EXIGE_VALORES)
+    const vale = p.valor ?? t.valorOrcamento
+    if (vale !== null) {
+      const cabe = programaCabeNoOrcamento(Dinheiro.deCentavos(vale), itens)
+      if (cabe.tipo === 'erro') return cabe
+    }
+  } else if (p.valor !== undefined && t.programaOrcado !== null) {
     const itens = t.programaOrcado.map((i) => {
       const c = centavosDe(i.valor)
       return { valor: c === null ? null : Dinheiro.deCentavos(c) }
@@ -691,7 +721,11 @@ export function corrigirOrcamento(x: {
     nota: p.nota === undefined ? de.nota : p.nota === '' ? null : p.nota,
   }
 
-  if (mesmoRetrato(de, para) && (x.podeVerValores || p.valor === undefined)) {
+  if (
+    p.programa === undefined &&
+    mesmoRetrato(de, para) &&
+    (x.podeVerValores || p.valor === undefined)
+  ) {
     return ok({ tipo: 'nada' })
   }
 
@@ -708,5 +742,6 @@ export function corrigirOrcamento(x: {
     },
     valorOrcamento: centavosDe(para.valor),
     proximoPassoEm: para.retomarEm,
+    trocaOPrograma: p.programa !== undefined,
   })
 }

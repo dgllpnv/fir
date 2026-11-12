@@ -5,6 +5,7 @@ import { FORMAS } from '@fir/contracts'
 import { aceitaPagamento, tipoAoConcluir } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto, linkDeWhatsApp } from '@/lib/formato'
@@ -287,6 +288,11 @@ function PainelDeConclusao({
   const [forma, setForma] = useState<PagamentoEmbutido['forma']>(FORMAS[0])
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
+  // "Concluir e criar a próxima tarefa" (pedido da cliente, 12/11): concluir não
+  // encerra a conversa com a paciente — o exame a enviar, o retorno a marcar.
+  // Marcada, a tela abre a Nova tarefa já com a paciente, logo depois de concluir.
+  const [criarProxima, setCriarProxima] = useState(false)
+  const roteador = useRouter()
 
   // O tipo DEPOIS de concluir: "Consulta agendada" vira "Consulta realizada",
   // e é o segundo que aceita pagamento. Perguntar pelo primeiro esconderia o
@@ -315,6 +321,11 @@ function PainelDeConclusao({
       await aoConcluir(
         pagamento === undefined ? { em, resultado } : { em, resultado, pagamento },
       )
+      // Só chega aqui se o servidor concluiu (o erro cai no `catch`): a tarefa
+      // nova nunca nasce de uma conclusão que falhou.
+      if (criarProxima) {
+        roteador.push(t.pacienteId === null ? '/nova' : `/nova?pacienteId=${t.pacienteId}`)
+      }
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não consegui concluir a tarefa.')
     } finally {
@@ -426,6 +437,26 @@ function PainelDeConclusao({
         />
       </label>
 
+      <label
+        className="campo"
+        style={{ display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'center' }}
+      >
+        <input
+          type="checkbox"
+          checked={criarProxima}
+          style={{ width: 'auto' }}
+          onChange={(e) => setCriarProxima(e.target.checked)}
+        />
+        Criar uma nova tarefa a partir desta
+      </label>
+      {criarProxima ? (
+        <p className="nota">
+          Depois de concluir, abre a Nova tarefa
+          {t.pacienteNome === null ? '' : ` já com ${t.pacienteNome}`}. Ex.: enviar exame, marcar
+          retorno.
+        </p>
+      ) : null}
+
       {erro === null ? null : (
         <p className="campo" role="alert">
           <span className="erro">{erro}</span>
@@ -434,7 +465,7 @@ function PainelDeConclusao({
 
       <div className="botoes">
         <button type="button" className="btn" onClick={() => void salvar()} disabled={salvando}>
-          {salvando ? 'Concluindo…' : 'Concluir'}
+          {salvando ? 'Concluindo…' : criarProxima ? 'Concluir e criar nova tarefa' : 'Concluir'}
         </button>
         <button type="button" className="btn ghost" onClick={aoFechar} disabled={salvando}>
           Voltar
