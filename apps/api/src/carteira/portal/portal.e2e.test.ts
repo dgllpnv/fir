@@ -178,6 +178,7 @@ afterAll(async () => {
   await migrate.query('DELETE FROM sessoes_de_carteira WHERE usuario_gestao_id = $1', [usuarioDeGestao])
   await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [usuarioDeGestao])
   await migrate.query('DELETE FROM campanhas_carteira WHERE cliente_carteira_id = $1', [clienteX])
+  await migrate.query('DELETE FROM uso_diario_cliente WHERE cliente_carteira_id = ANY($1)', [[clienteX, clienteY, clienteZ]])
   await migrate.query('DELETE FROM clientes_carteira WHERE id = ANY($1)', [[clienteX, clienteY, clienteZ]])
   await apagarHistoricoGrupoDeTeste(migrate, clinicaX)
   await apagarHistoricoGrupoDeTeste(migrate, clinicaY)

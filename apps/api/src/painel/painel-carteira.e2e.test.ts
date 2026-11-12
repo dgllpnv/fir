@@ -109,6 +109,7 @@ afterAll(async () => {
     )
     await migrate.query('DELETE FROM usuarios_gestao WHERE id = ANY($1)', [criadosUsuarios])
   }
+  await migrate.query('DELETE FROM uso_diario_cliente WHERE cliente_carteira_id IN (SELECT id FROM clientes_carteira WHERE clinica_id = $1)', [clinica])
   await migrate.query('DELETE FROM clientes_carteira WHERE clinica_id = $1', [clinica])
   // Vincular a clínica grava `historico_grupo_da_clinica` (A-8, 0047), que
   // aponta para o grupo — sai antes dele.

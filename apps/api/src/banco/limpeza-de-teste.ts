@@ -315,6 +315,7 @@ export async function apagarClinicaDeTeste(cliente: pg.Client, clinicaId: string
   }
   // Desde a 0067 toda clínica criada por um operador nasce com Cliente Firmare
   // e linha de histórico de grupo: sem apagá-los, `clinicas` não sai.
+  await cliente.query('DELETE FROM uso_diario_cliente WHERE cliente_carteira_id IN (SELECT id FROM clientes_carteira WHERE clinica_id = $1)', [clinicaId])
   await cliente.query('DELETE FROM clientes_carteira WHERE clinica_id = $1', [clinicaId])
   await apagarHistoricoGrupoDeTeste(cliente, clinicaId)
   await apagarTrilhaDeTeste(cliente, clinicaId)
