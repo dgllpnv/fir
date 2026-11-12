@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { Carregando, Toast, Vazio } from '@/components/estados'
+import { ConfirmarEstado } from '@/components/confirmar-estado'
 import { Modal } from '@/components/modal'
 import { SenhaProvisoria } from '@/components/senha-provisoria'
 import { chamar, ErroDaApi } from '@/lib/api'
@@ -32,11 +33,19 @@ export default function Clinicas() {
   /** Uma mensagem por vez, e toda ação confirma o que aconteceu (design.md §4). */
   const [recado, setRecado] = useState<string | null>(null)
   const [criando, setCriando] = useState(false)
+  /** A clínica cuja confirmação de "Desativar"/"Reativar" está aberta. */
+  const [mudandoEstado, setMudandoEstado] = useState<ClinicaNaLista | null>(null)
+  /** A lista nasce só com as ativas: desativada não cresce a lista do dia a dia. */
+  const [verDesativadas, setVerDesativadas] = useState(false)
   const abrirCriacao = () => setCriando(true)
+
+  const todas = sessao.tag === 'pronta' ? sessao.clinicas : []
+  const desativadas = todas.filter((c) => !c.ativa).length
+  const visiveis = verDesativadas ? todas : todas.filter((c) => c.ativa)
 
   return (
     <section>
-      <NavDoPainel atual="/superadmin/clinicas" />
+      <NavDoPainel atual="/gestao/clinicas" />
 
       {/* Sem `eyebrow` aqui: a faixa logo acima já diz "Painel interno", e
           repetir o mesmo rótulo a dois centímetros de distância é como se
@@ -90,8 +99,19 @@ export default function Clinicas() {
               ver tudo de uma vez. */}
           <SeletorDeClinica
             clinicas={sessao.clinicas}
-            aoEscolher={(c) => router.push(`/superadmin/clinicas/${c.id}/pessoas`)}
+            aoEscolher={(c) => router.push(`/gestao/clinicas/${c.id}/pessoas`)}
           />
+
+          {desativadas === 0 ? null : (
+            <label className="caixa">
+              <input
+                type="checkbox"
+                checked={verDesativadas}
+                onChange={(e) => setVerDesativadas(e.target.checked)}
+              />
+              <span>Mostrar desativadas ({desativadas})</span>
+            </label>
+          )}
 
           <table className="superadmin-lista">
             <thead>
@@ -109,10 +129,10 @@ export default function Clinicas() {
               </tr>
             </thead>
             <tbody>
-              {sessao.clinicas.map((c) => (
+              {visiveis.map((c) => (
                 <tr key={c.id}>
                   <td>
-                    <Link className="codigo" href={`/superadmin/clinicas/${c.id}/pessoas`}>
+                    <Link className="codigo" href={`/gestao/clinicas/${c.id}/pessoas`}>
                       {c.codigo}
                     </Link>
                   </td>
@@ -133,6 +153,18 @@ export default function Clinicas() {
                       title={`Editar ${c.codigo}`}
                     >
                       Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => setMudandoEstado(c)}
+                      title={
+                        c.ativa
+                          ? `Desativar ${c.codigo}: a equipe deixa de entrar, nada é apagado`
+                          : `Reativar ${c.codigo}: a equipe volta a entrar`
+                      }
+                    >
+                      {c.ativa ? 'Desativar' : 'Reativar'}
                     </button>
                   </td>
                   <td className="coluna-acao">
@@ -170,6 +202,46 @@ export default function Clinicas() {
             recarregar()
           }}
         />
+      )}
+
+      {mudandoEstado === null ? null : (
+        <ConfirmarEstado
+          titulo={
+            mudandoEstado.ativa
+              ? `Desativar ${mudandoEstado.codigo}?`
+              : `Reativar ${mudandoEstado.codigo}?`
+          }
+          rotuloConfirmar={mudandoEstado.ativa ? 'Desativar a clínica' : 'Reativar a clínica'}
+          rotuloEnviando={mudandoEstado.ativa ? 'Desativando…' : 'Reativando…'}
+          aoFechar={() => setMudandoEstado(null)}
+          aoConfirmar={async () => {
+            const c = mudandoEstado
+            await chamar(`v1/superadmin/clinicas/${c.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ nome: c.nome, fuso: c.fuso, ativa: !c.ativa }),
+            })
+            setMudandoEstado(null)
+            setRecado(
+              c.ativa
+                ? `${c.codigo} foi desativada. Nada foi apagado: reative quando quiser.`
+                : `${c.codigo} foi reativada. A equipe já pode entrar.`,
+            )
+            recarregar()
+          }}
+        >
+          {mudandoEstado.ativa ? (
+            <p>
+              A equipe de <b>{mudandoEstado.nome}</b> deixa de entrar, e quem está com o sistema
+              aberto é desconectada na próxima ação. <b>Nada é apagado</b>: pacientes, agenda e
+              caixa ficam guardados, e a clínica volta quando for reativada.
+            </p>
+          ) : (
+            <p>
+              A equipe de <b>{mudandoEstado.nome}</b> volta a entrar com os mesmos usuários e
+              senhas de antes.
+            </p>
+          )}
+        </ConfirmarEstado>
       )}
 
       {criando ? (
@@ -366,7 +438,6 @@ function PainelDeEdicaoDeClinica({
   const [enviando, setEnviando] = useState(false)
   const [nome, setNome] = useState(clinica.nome)
   const [fuso, setFuso] = useState(clinica.fuso)
-  const [ativa, setAtiva] = useState(clinica.ativa)
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
@@ -375,7 +446,8 @@ function PainelDeEdicaoDeClinica({
     try {
       await chamar(`v1/superadmin/clinicas/${clinica.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ nome, fuso, ativa }),
+        // O estado não se muda aqui: tem botão e confirmação próprios na lista.
+        body: JSON.stringify({ nome, fuso, ativa: clinica.ativa }),
       })
       aoSalvar()
     } catch (x) {
@@ -409,11 +481,6 @@ function PainelDeEdicaoDeClinica({
               <option key={f} value={f} />
             ))}
           </datalist>
-        </label>
-
-        <label className="caixa">
-          <input type="checkbox" checked={ativa} onChange={(e) => setAtiva(e.target.checked)} />
-          <span>Ativa</span>
         </label>
 
         <p role="alert" aria-live="polite" className="erro-do-painel">

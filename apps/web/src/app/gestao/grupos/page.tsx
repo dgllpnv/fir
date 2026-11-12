@@ -4,12 +4,14 @@ import type {
   ClienteCarteiraCriadoSaida,
   GrupoCriadoSaida,
   GrupoNaLista,
+  GrupoNoPainel,
   ListaDeGruposSaida,
   ListaDeUsuariosDeGestaoSaida,
   UsuarioDeGestaoNaLista,
   UsuarioDoPortalCriadoSaida,
 } from '@fir/contracts'
 import { useEffect, useState } from 'react'
+import { ConfirmarEstado, contar } from '@/components/confirmar-estado'
 import { Modal } from '@/components/modal'
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
@@ -38,7 +40,7 @@ import { ClientesDosGrupos } from './clientes-dos-grupos'
  */
 export default function Grupos() {
   const { sessao, recarregar } = usePainel()
-  const [grupos, setGrupos] = useState<GrupoNaLista[] | null>(null)
+  const [grupos, setGrupos] = useState<GrupoNoPainel[] | null>(null)
   const [erro, setErro] = useState('')
   const [recado, setRecado] = useState<string | null>(null)
   const [tentativa, setTentativa] = useState(0)
@@ -50,6 +52,9 @@ export default function Grupos() {
   const [dandoAcesso, setDandoAcesso] = useState<GrupoNaLista | null>(null)
   const [acessoCriado, setAcessoCriado] = useState<UsuarioDoPortalCriadoSaida | null>(null)
   const [criando, setCriando] = useState(false)
+  /** O grupo cuja confirmação de "Desativar"/"Reativar" está aberta. */
+  const [mudandoEstado, setMudandoEstado] = useState<GrupoNoPainel | null>(null)
+  const [verDesativados, setVerDesativados] = useState(false)
   /** Quem tem o grupo Firmare (escopo `geral`). `null` = carregando. */
   const [daFirmare, setDaFirmare] = useState<UsuarioDeGestaoNaLista[] | null>(null)
   const [erroFirmare, setErroFirmare] = useState('')
@@ -94,10 +99,12 @@ export default function Grupos() {
   const abrirCriacao = () => setCriando(true)
 
   const clinicas = sessao.tag === 'pronta' ? sessao.clinicas : []
+  const desativados = (grupos ?? []).filter((g) => !g.ativo).length
+  const visiveis = verDesativados ? (grupos ?? []) : (grupos ?? []).filter((g) => g.ativo)
 
   return (
     <section>
-      <NavDoPainel atual="/superadmin/grupos" />
+      <NavDoPainel atual="/gestao/grupos" />
 
       <div className="titulo">
         <h2>Grupos</h2>
@@ -132,6 +139,17 @@ export default function Grupos() {
           </button>
         </Vazio>
       ) : (
+        <>
+        {desativados === 0 ? null : (
+          <label className="caixa">
+            <input
+              type="checkbox"
+              checked={verDesativados}
+              onChange={(e) => setVerDesativados(e.target.checked)}
+            />
+            <span>Mostrar desativados ({desativados})</span>
+          </label>
+        )}
         <table className="superadmin-lista">
           <thead>
             <tr>
@@ -149,9 +167,11 @@ export default function Grupos() {
             </tr>
           </thead>
           <tbody>
-            {grupos.map((g) => (
+            {visiveis.map((g) => (
               <tr key={g.id}>
-                <td data-rotulo="Nome">{g.nome}</td>
+                <td data-rotulo="Nome">
+                  {g.nome} {g.padrao ? <span className="pill dourado">fixo</span> : null}
+                </td>
                 <td data-rotulo="Estado">
                   {g.ativo ? (
                     <span className="pill bom">ativo</span>
@@ -167,6 +187,21 @@ export default function Grupos() {
                     title={`Editar ${g.nome}`}
                   >
                     Editar
+                  </button>
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => setMudandoEstado(g)}
+                    disabled={g.padrao}
+                    title={
+                      g.padrao
+                        ? 'Grupo fixo: o grupo Firmare recebe as clínicas novas e não se desativa'
+                        : g.ativo
+                          ? `Desativar ${g.nome}: quem é do grupo deixa de entrar, nada é apagado`
+                          : `Reativar ${g.nome}`
+                    }
+                  >
+                    {g.ativo ? 'Desativar' : 'Reativar'}
                   </button>
                 </td>
                 <td className="coluna-acao">
@@ -193,6 +228,52 @@ export default function Grupos() {
             ))}
           </tbody>
         </table>
+        </>
+      )}
+
+      {mudandoEstado === null ? null : (
+        <ConfirmarEstado
+          titulo={
+            mudandoEstado.ativo ? `Desativar ${mudandoEstado.nome}?` : `Reativar ${mudandoEstado.nome}?`
+          }
+          rotuloConfirmar={mudandoEstado.ativo ? 'Desativar o grupo' : 'Reativar o grupo'}
+          rotuloEnviando={mudandoEstado.ativo ? 'Desativando…' : 'Reativando…'}
+          aoFechar={() => setMudandoEstado(null)}
+          aoConfirmar={async () => {
+            const g = mudandoEstado
+            await chamar(`v1/superadmin/grupos/${g.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ nome: g.nome, ativo: !g.ativo }),
+            })
+            setMudandoEstado(null)
+            setRecado(
+              g.ativo
+                ? `${g.nome} foi desativado. Nada foi apagado: reative quando quiser.`
+                : `${g.nome} foi reativado. As pessoas dele já podem entrar de novo.`,
+            )
+            recarregarGrupos()
+          }}
+        >
+          {mudandoEstado.ativo ? (
+            <>
+              <p>
+                Hoje {mudandoEstado.nome} tem{' '}
+                <b>{contar(mudandoEstado.clinicasAtivas, 'clínica', 'clínicas')}</b> e{' '}
+                <b>{contar(mudandoEstado.usuariosAtivos, 'pessoa ativa', 'pessoas ativas')}</b>.
+              </p>
+              <p>
+                Essas pessoas deixam de entrar, e quem está com o sistema aberto é desconectada na
+                próxima ação. As clínicas continuam funcionando normalmente.{' '}
+                <b>Nada é apagado</b>: o grupo volta quando for reativado.
+              </p>
+            </>
+          ) : (
+            <p>
+              As pessoas de {mudandoEstado.nome} voltam a entrar. Quem estava conectada antes terá
+              de entrar de novo.
+            </p>
+          )}
+        </ConfirmarEstado>
       )}
 
       {editando === null ? null : (
@@ -372,7 +453,6 @@ function PainelDeEdicaoDeGrupo({
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [nome, setNome] = useState(grupo.nome)
-  const [ativo, setAtivo] = useState(grupo.ativo)
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
@@ -381,7 +461,8 @@ function PainelDeEdicaoDeGrupo({
     try {
       const r = await chamar<{ grupo: GrupoNaLista }>(`v1/superadmin/grupos/${grupo.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ nome, ativo }),
+        // O estado tem botão e confirmação próprios na lista.
+        body: JSON.stringify({ nome, ativo: grupo.ativo }),
       })
       aoSalvar(r.grupo)
     } catch (x) {
@@ -397,11 +478,6 @@ function PainelDeEdicaoDeGrupo({
         <label className="campo">
           Nome do grupo
           <input value={nome} onChange={(e) => setNome(e.target.value)} required />
-        </label>
-
-        <label className="caixa">
-          <input type="checkbox" checked={ativo} onChange={(e) => setAtivo(e.target.checked)} />
-          <span>Ativo</span>
         </label>
 
         <p role="alert" aria-live="polite" className="erro-do-painel">

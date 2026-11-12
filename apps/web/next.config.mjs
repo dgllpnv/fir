@@ -85,6 +85,18 @@ export default {
     externalDir: true,
   },
 
+  /**
+   * `/superadmin` virou `/gestao` (a rota abre o Gestão para admin ou
+   * superadmin). O redirecionamento permanente (308) mantém os favoritos da
+   * cliente vivos. Só a ROTA WEB: a API segue em `/v1/superadmin`.
+   */
+  async redirects() {
+    return [
+      { source: '/superadmin', destination: '/gestao', permanent: true },
+      { source: '/superadmin/:caminho*', destination: '/gestao/:caminho*', permanent: true },
+    ]
+  },
+
   async rewrites() {
     /**
      * **O destino é resolvido no BUILD, não em runtime.** `rewrites()` entra no

@@ -116,9 +116,9 @@ export default function Entrar() {
       <form className="caixa" onSubmit={enviar}>
         <div className="marcabloco">
           <div className="marca">
-            Firmare<span>.</span>
+            FIR Clinic<span>.</span>
           </div>
-          <div className="eyebrow">Gestão de Rotina</div>
+          <div className="eyebrow">Rotinas de gestão</div>
         </div>
 
         <div className="cartao">

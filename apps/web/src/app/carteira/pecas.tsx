@@ -11,7 +11,7 @@ import { useCarteira } from './contexto'
 
 /**
  * As peças compartilhadas das telas de DADO da carteira (depois da porta).
- * Mesma forma de `superadmin/pecas.tsx` — nenhum `style` inline, tudo em
+ * Mesma forma de `gestao/pecas.tsx` — nenhum `style` inline, tudo em
  * `packages/ui/src/carteira.css`.
  */
 

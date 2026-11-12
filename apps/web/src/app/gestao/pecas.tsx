@@ -180,11 +180,11 @@ export function SeletorDeClinica({
  * de propósito: lá a faixa é a da carteira, e o que se faz é da carteira.
  */
 const SECOES: readonly { href: string; rotulo: string }[] = [
-  { href: '/superadmin', rotulo: 'Visão geral' },
+  { href: '/gestao', rotulo: 'Visão geral' },
   { href: '/carteira', rotulo: 'Gestão da carteira' },
-  { href: '/superadmin/clinicas', rotulo: 'Clínicas' },
-  { href: '/superadmin/grupos', rotulo: 'Grupos' },
-  { href: '/superadmin/usuarios-gestao', rotulo: 'Usuários de gestão' },
+  { href: '/gestao/clinicas', rotulo: 'Clínicas' },
+  { href: '/gestao/grupos', rotulo: 'Grupos' },
+  { href: '/gestao/usuarios-gestao', rotulo: 'Usuários de gestão' },
 ]
 
 export function NavDoPainel({ atual }: { atual: string }) {
@@ -226,10 +226,10 @@ export function ErroDoPainel({
         <button type="button" className="btn" onClick={recarregar}>
           Tentar de novo
         </button>
-        <a className="btn ghost" href="/superadmin/clinicas">
+        <a className="btn ghost" href="/gestao/clinicas">
           Ir para as clínicas
         </a>
-        <a className="btn ghost" href="/superadmin/entrar">
+        <a className="btn ghost" href="/gestao/entrar">
           Entrar de novo
         </a>
       </div>

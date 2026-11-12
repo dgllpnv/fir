@@ -128,7 +128,7 @@ export default function PessoasDaClinica() {
   return (
     <section>
       <p className="nota">
-        <Link className="link superadmin-voltar" href="/superadmin/clinicas">
+        <Link className="link superadmin-voltar" href="/gestao/clinicas">
           ← Todas as clínicas
         </Link>
       </p>

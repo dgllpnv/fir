@@ -8,6 +8,7 @@ import type {
   EditarGrupoEntrada,
   EditarUsuarioDeGestaoEntrada,
   GrupoNaLista,
+  GrupoNoPainel,
   SenhaDoUsuarioDeGestaoRedefinida,
   UsuarioDeGestaoNaLista,
   UsuarioDeGestaoPublico,
@@ -141,13 +142,33 @@ export class PainelCarteiraService {
     @Inject(RELOGIO) private readonly relogio: Relogio,
   ) {}
 
-  async listarGrupos(): Promise<GrupoNaLista[]> {
-    const r = await this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(SISTEMA, (c) =>
-      c.query<{ id: string; nome: string; ativo: boolean }>(
-        'SELECT id, nome, ativo FROM grupos WHERE NOT arquivo ORDER BY nome',
+  async listarGrupos(ator: OperadorId): Promise<GrupoNoPainel[]> {
+    const base = await this.banco.nasTabelasDeIdentidadeDaCarteiraComoPainel(SISTEMA, (c) =>
+      c.query<{ id: string; nome: string; ativo: boolean; padrao: boolean; usuarios: number }>(
+        `SELECT g.id, g.nome, g.ativo, g.padrao,
+                (SELECT count(*) FROM usuarios_gestao u WHERE u.grupo_id = g.id AND u.ativo)::int AS usuarios
+           FROM grupos g WHERE NOT g.arquivo ORDER BY g.nome`,
       ),
     )
-    return r.rows
+    // `fir_painel` não lê a participação nem o portal; o Operador as lê pela
+    // conexão da carteira (a mesma de `gruposDaClinica`).
+    const contagens = await this.banco.nasTabelasDaCarteiraComoOperador(ator, async (c) => {
+      const r = await c.query<{ grupo_id: string; clinicas: number; portal: number }>(
+        `SELECT g.id AS grupo_id,
+                (SELECT count(*) FROM participacao_clinica_grupo p WHERE p.grupo_id = g.id AND p.ate IS NULL)::int AS clinicas,
+                (SELECT count(*) FROM usuarios_do_portal o WHERE o.grupo_id = g.id AND o.ativo)::int AS portal
+           FROM grupos g WHERE NOT g.arquivo`,
+      )
+      return new Map(r.rows.map((x) => [x.grupo_id, x]))
+    })
+    return base.rows.map((x) => ({
+      id: x.id,
+      nome: x.nome,
+      ativo: x.ativo,
+      padrao: x.padrao,
+      clinicasAtivas: contagens.get(x.id)?.clinicas ?? 0,
+      usuariosAtivos: x.usuarios + (contagens.get(x.id)?.portal ?? 0),
+    }))
   }
 
   /**
@@ -213,6 +234,22 @@ export class PainelCarteiraService {
         throw e
       })
       const grupo = r.rows[0]!
+      // O guard já recusa quem é de um grupo desativado (`grupoAtivoDe`); revogar
+      // aqui impede que reativar o grupo ressuscite sessões abertas antes.
+      if (de.ativo && !grupo.ativo) {
+        await c.query(
+          `UPDATE sessoes_de_carteira SET revogada_em = now()
+            WHERE revogada_em IS NULL
+              AND usuario_gestao_id IN (SELECT id FROM usuarios_gestao WHERE grupo_id = $1)`,
+          [id],
+        )
+        await c.query(
+          `UPDATE desafios_de_carteira SET revogado_em = now()
+            WHERE revogado_em IS NULL AND concluido_em IS NULL
+              AND usuario_gestao_id IN (SELECT id FROM usuarios_gestao WHERE grupo_id = $1)`,
+          [id],
+        )
+      }
       await registrarNoPainel(c, {
         atorTipo: 'operador',
         atorId: ator.id,
@@ -673,6 +710,19 @@ export class PainelCarteiraService {
         throw e
       })
       const linha = r.rows[0]!
+      // `ativo` já é conferido a cada requisição; revogar a sessão e o desafio
+      // do segundo fator impede que reativar a pessoa ressuscite o que estava aberto.
+      if (de.ativo && !linha.ativo) {
+        await c.query(
+          'UPDATE sessoes_de_carteira SET revogada_em = now() WHERE usuario_gestao_id = $1 AND revogada_em IS NULL',
+          [id],
+        )
+        await c.query(
+          `UPDATE desafios_de_carteira SET revogado_em = now()
+            WHERE usuario_gestao_id = $1 AND revogado_em IS NULL AND concluido_em IS NULL`,
+          [id],
+        )
+      }
       await registrarNoPainel(c, {
         atorTipo: 'operador',
         atorId: ator.id,

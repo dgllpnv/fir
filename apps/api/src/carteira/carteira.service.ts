@@ -21,6 +21,7 @@ import { conferirSenha, hashDeSenha } from '../autenticacao/senha'
 import { hashDoToken, limiteExcedido, novoToken } from '../autenticacao/sessao'
 import { SISTEMA } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
+import { grupoAtivoDe } from './grupo-ativo'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { registrarNoPainel } from '../painel/painel.service'
 import type { ContextoDaCarteira } from './contexto-da-carteira'
@@ -186,7 +187,8 @@ export class CarteiraService {
       if (limiteExcedido(tentativas.rows, this.relogio.agora())) return { tipo: 'limite' as const }
 
       const u = await c.query<LinhaUsuarioDeGestao>(
-        `SELECT ${colunas()} FROM usuarios_gestao WHERE usuario = normalizar_nome($1) AND ativo`,
+        `SELECT ${colunas()} FROM usuarios_gestao WHERE usuario = normalizar_nome($1) AND ativo
+            AND ${grupoAtivoDe('usuarios_gestao')}`,
         [usuario],
       )
       return { tipo: 'segue' as const, usuarioDeGestao: u.rows[0] ?? null }
@@ -277,7 +279,8 @@ export class CarteiraService {
           WHERE s.token_hash = $1
             AND s.revogada_em IS NULL
             AND s.expira_em > now()
-            AND u.ativo`,
+            AND u.ativo
+            AND ${grupoAtivoDe('u')}`,
         [hash],
       )
       const usuarioDeGestao = r.rows[0]

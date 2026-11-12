@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest'
  *
  * Não há Testing Library nesta árvore (dívida registrada em `docs/dividas.md`),
  * então a varredura é sobre a FONTE — a mesma forma de
- * `app/superadmin/identidade.test.ts`, e pelo mesmo motivo: o que ela pega não
+ * `app/gestao/identidade.test.ts`, e pelo mesmo motivo: o que ela pega não
  * é tudo, mas é exatamente o que voltaria.
  */
 const AQUI = dirname(fileURLToPath(import.meta.url))

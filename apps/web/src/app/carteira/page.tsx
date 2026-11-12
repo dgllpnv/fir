@@ -12,7 +12,7 @@ import { ErroDaCarteira } from './pecas'
  * `/carteira` — a **Visão geral** (G8 3B; `vPainel`, protótipo L1278–1331).
  *
  * O corpo mora em `components/carteira/visao-geral.tsx` desde a D-23 item 6
- * (ADR 0024): o painel do superadmin abre a MESMA tela em `/superadmin`.
+ * (ADR 0024): o painel do superadmin abre a MESMA tela em `/gestao`.
  * Aqui ficam só as peças da carteira: o erro com as saídas dela
  * e o desvio de quem não tem a tela para a primeira área que pode abrir
  * (protótipo L1266).

@@ -29,7 +29,7 @@ const STATUS: ReadonlyArray<[StatusDoClienteFirmare, string]> = [
  * `historico_grupo_da_clinica` quando há clínica.
  *
  * **Sem dinheiro nesta tela, de propósito.** O painel trata identidade e
- * tenancy, nunca negócio (`superadmin/identidade.test.ts`, "nenhum dinheiro
+ * tenancy, nunca negócio (`gestao/identidade.test.ts`, "nenhum dinheiro
  * atravessa"). A rota `PATCH /v1/superadmin/clientes-carteira/:id` aceita
  * mensalidade e vencimento — a única escrita de valor enquanto a carteira
  * não tem a chave `valores` (ticket 0.5) —, mas a tela que os edita é o

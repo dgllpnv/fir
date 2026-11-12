@@ -11,13 +11,13 @@ import type {
 } from '@fir/contracts'
 import { SENHA_MAX, SENHA_MIN, avaliarSenha, ehErro } from '@fir/domain'
 import { useEffect, useState } from 'react'
+import { ConfirmarEstado } from '@/components/confirmar-estado'
 import { Modal } from '@/components/modal'
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { ErroDoPainel, NavDoPainel } from '../pecas'
 import {
   CamposDoPerfil,
-  ChipsDoPerfil,
   type PerfilNoFormulario,
   perfilDoUsuario,
   perfilNovo,
@@ -54,6 +54,9 @@ export default function UsuariosDeGestao() {
   const [senhaMostrada, setSenhaMostrada] = useState<SenhaParaMostrar | null>(null)
   const [criando, setCriando] = useState(false)
   const [editando, setEditando] = useState<UsuarioDeGestaoNaLista | null>(null)
+  /** A pessoa cuja confirmação de "Desativar"/"Reativar" está aberta. */
+  const [mudandoEstado, setMudandoEstado] = useState<UsuarioDeGestaoNaLista | null>(null)
+  const [verDesativados, setVerDesativados] = useState(false)
   const [recado, setRecado] = useState<string | null>(null)
   const [tentativa, setTentativa] = useState(0)
 
@@ -100,9 +103,12 @@ export default function UsuariosDeGestao() {
     return grupos?.find((g) => g.id === grupoId)?.nome ?? null
   }
 
+  const desativados = (usuarios ?? []).filter((u) => !u.ativo).length
+  const visiveis = verDesativados ? (usuarios ?? []) : (usuarios ?? []).filter((u) => u.ativo)
+
   return (
     <section>
-      <NavDoPainel atual="/superadmin/usuarios-gestao" />
+      <NavDoPainel atual="/gestao/usuarios-gestao" />
 
       <div className="titulo">
         <h2>Usuários de gestão</h2>
@@ -135,69 +141,92 @@ export default function UsuariosDeGestao() {
           </button>
         </Vazio>
       ) : (
-        <table className="superadmin-lista">
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Usuário</th>
-              <th>Grupo</th>
-              <th>Perfil</th>
-              <th>Estado</th>
-              <th>Acesso</th>
-              <th>
-                <span className="sr-apenas">Editar</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {usuarios.map((u) => (
-              <tr key={u.id}>
-                <td data-rotulo="Nome">{u.nome}</td>
-                <td data-rotulo="Usuário">{u.usuario}</td>
-                <td data-rotulo="Grupo">
-                  {u.escopo === 'geral' ? 'Firmare' : (nomeDoGrupo(u.grupoId) ?? 'Grupo de cliente')}
-                </td>
-                <td data-rotulo="Perfil">
-                  <ChipsDoPerfil perfil={u} escopo={u.escopo} />
-                </td>
-                <td data-rotulo="Estado">
-                  {u.ativo ? (
-                    <span className="pill bom">ativo</span>
-                  ) : (
-                    <span className="pill mau">desativado</span>
-                  )}
-                </td>
-                <td data-rotulo="Acesso">
-                  {u.contaDoOperador ? (
-                    // ADR 0024: entra pelo login do painel, nunca por senha.
-                    <span className="pill dourado">conta do superadmin</span>
-                  ) : u.aguardandoPrimeiroAcesso ? (
-                    <span className="pill">aguardando 1º acesso</span>
-                  ) : (
-                    <span className="muted">já entrou</span>
-                  )}
-                </td>
-                <td className="coluna-acao">
-                  {/* A conta de gestão do superadmin acompanha o operador (ADR
-                      0024): perfil, estado e senha não se editam — o servidor
-                      recusa com 409, e a tela não oferece o que vai recusar. */}
-                  {u.contaDoOperador ? (
-                    <span className="muted">acompanha o operador</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="link"
-                      onClick={() => setEditando(u)}
-                      title={`Editar ${u.nome}`}
-                    >
-                      Editar
-                    </button>
-                  )}
-                </td>
+        <>
+          {desativados === 0 ? null : (
+            <label className="caixa">
+              <input
+                type="checkbox"
+                checked={verDesativados}
+                onChange={(e) => setVerDesativados(e.target.checked)}
+              />
+              <span>Mostrar desativados ({desativados})</span>
+            </label>
+          )}
+          <table className="superadmin-lista">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Usuário</th>
+                <th>Grupo</th>
+                <th>Estado</th>
+                <th>
+                  <span className="sr-apenas">Editar ou desativar</span>
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {visiveis.map((u) => (
+                <tr key={u.id}>
+                  <td data-rotulo="Nome">{u.nome}</td>
+                  <td data-rotulo="Usuário">{u.usuario}</td>
+                  <td data-rotulo="Grupo">
+                    {u.escopo === 'geral'
+                      ? 'Firmare'
+                      : (nomeDoGrupo(u.grupoId) ?? 'Grupo de cliente')}
+                  </td>
+                  <td data-rotulo="Estado">
+                    {u.ativo ? (
+                      <span className="pill bom">ativo</span>
+                    ) : (
+                      <span className="pill mau">desativado</span>
+                    )}
+                  </td>
+                  <td className="coluna-acao">
+                    {/* A conta de gestão do superadmin acompanha o operador (ADR
+                        0024): perfil, estado e senha não se editam — o servidor
+                        recusa com 409, e a tela não oferece o que vai recusar. */}
+                    {u.contaDoOperador ? (
+                      <>
+                        <span className="muted">acompanha o operador</span>
+                        <button
+                          type="button"
+                          className="link"
+                          disabled
+                          title="Para desativar, desative o operador."
+                        >
+                          Desativar
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="link"
+                          onClick={() => setEditando(u)}
+                          title={`Editar ${u.nome}`}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="link"
+                          onClick={() => setMudandoEstado(u)}
+                          title={
+                            u.ativo
+                              ? `Desativar ${u.nome}: deixa de entrar, nada é apagado`
+                              : `Reativar ${u.nome}`
+                          }
+                        >
+                          {u.ativo ? 'Desativar' : 'Reativar'}
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
 
       {editando === null ? null : (
@@ -228,6 +257,49 @@ export default function UsuariosDeGestao() {
             recarregarUsuarios()
           }}
         />
+      )}
+
+      {mudandoEstado === null ? null : (
+        <ConfirmarEstado
+          titulo={
+            mudandoEstado.ativo ? `Desativar ${mudandoEstado.nome}?` : `Reativar ${mudandoEstado.nome}?`
+          }
+          rotuloConfirmar={mudandoEstado.ativo ? 'Desativar o usuário' : 'Reativar o usuário'}
+          rotuloEnviando={mudandoEstado.ativo ? 'Desativando…' : 'Reativando…'}
+          aoFechar={() => setMudandoEstado(null)}
+          aoConfirmar={async () => {
+            const u = mudandoEstado
+            await chamar(`v1/superadmin/usuarios-gestao/${u.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                nome: u.nome,
+                ...escopoParaEnviar(escolhaDo(u)),
+                ativo: !u.ativo,
+                ...perfilParaEnviar(perfilDoUsuario(u), u.escopo),
+              }),
+            })
+            setMudandoEstado(null)
+            setRecado(
+              u.ativo
+                ? `${u.nome} foi desativado(a). Nada foi apagado: reative quando quiser.`
+                : `${u.nome} foi reativado(a). Pode entrar com o mesmo usuário e senha.`,
+            )
+            recarregarUsuarios()
+          }}
+        >
+          {mudandoEstado.ativo ? (
+            <p>
+              <b>{mudandoEstado.nome}</b> deixa de entrar, e se estiver com a carteira aberta é
+              desconectado(a) na próxima ação. <b>Nada é apagado</b>: o histórico dela fica, e você
+              pode reativar quando quiser.
+            </p>
+          ) : (
+            <p>
+              <b>{mudandoEstado.nome}</b> volta a entrar com o mesmo usuário e senha. Se estava
+              conectado(a) antes, terá de entrar de novo.
+            </p>
+          )}
+        </ConfirmarEstado>
       )}
 
       {criando ? (
@@ -439,7 +511,7 @@ function PainelDeEdicaoDeUsuarioDeGestao({
 }) {
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
-  const [form, setForm] = useState({ nome: usuario.nome, ativo: usuario.ativo })
+  const [form, setForm] = useState({ nome: usuario.nome })
   const [escolha, setEscolha] = useState<EscolhaDeGrupo>(() => escolhaDo(usuario))
   const [perfil, setPerfil] = useState<PerfilNoFormulario>(() => perfilDoUsuario(usuario))
   const escopo = escopoDa(escolha)
@@ -456,7 +528,8 @@ function PainelDeEdicaoDeUsuarioDeGestao({
           body: JSON.stringify({
             nome: form.nome,
             ...escopoParaEnviar(escolha),
-            ativo: form.ativo,
+            // O estado tem botão e confirmação próprios na lista.
+            ativo: usuario.ativo,
             ...perfilParaEnviar(perfil, escopo),
           }),
         },
@@ -489,15 +562,6 @@ function PainelDeEdicaoDeUsuarioDeGestao({
         />
 
         <CamposDoPerfil perfil={perfil} escopo={escopo} aoMudar={setPerfil} prefixo="editar" />
-
-        <label className="caixa">
-          <input
-            type="checkbox"
-            checked={form.ativo}
-            onChange={(e) => setForm({ ...form, ativo: e.target.checked })}
-          />
-          <span>Ativo</span>
-        </label>
 
         <p role="alert" aria-live="polite" className="erro-do-painel">
           {erro}

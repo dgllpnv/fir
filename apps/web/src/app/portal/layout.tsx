@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { Casco } from './casco'
 
@@ -12,6 +13,8 @@ import { Casco } from './casco'
  * a equipe interna — por isso o portal nunca reaproveita `carteira.css` nem
  * o contexto da carteira, embora a estrutura seja a mesma de propósito.
  */
+export const metadata: Metadata = { title: 'Firmare · Espaço da cliente' }
+
 export default function LayoutDoPortal({ children }: { children: ReactNode }) {
   return <Casco>{children}</Casco>
 }

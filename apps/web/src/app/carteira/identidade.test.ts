@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 /**
  * A CARTEIRA TEM A CARA DO SISTEMA, E DIZ ONDE VOCÊ ESTÁ.
  *
- * Mesma varredura de `superadmin/identidade.test.ts`, escopada para
+ * Mesma varredura de `gestao/identidade.test.ts`, escopada para
  * `apps/web/src/app/carteira`. As duas razões de existir são as mesmas: o
  * estilo não pode voltar para dentro do `style={{…}}`, e nenhuma classe da
  * carteira pode colidir com uma classe do produto ou do painel — foi assim

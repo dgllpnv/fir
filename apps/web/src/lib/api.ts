@@ -33,7 +33,7 @@ export const CAMINHO_TROCAR_SENHA = '/trocar-senha'
  * painel menos três. Mandá-lo para `/trocar-senha` — a tela do produto — o
  * largaria numa tela que pede a sessão de clínica que ele não tem.
  */
-export const CAMINHO_TROCAR_SENHA_DO_PAINEL = '/superadmin/trocar-senha'
+export const CAMINHO_TROCAR_SENHA_DO_PAINEL = '/gestao/trocar-senha'
 
 /**
  * E o mesmo desvio para os outros dois espaços de identidade — a carteira

@@ -25,7 +25,7 @@ import { diaCurto, nomeDoDia, plural } from '@/lib/formato'
 /**
  * **VISÃO GERAL DA CARTEIRA**, o componente — uma tela, duas casas
  * (D-23 item 6, ADR 0024): `/carteira` (a sessão de quem entrou na
- * carteira) e `/superadmin` (a sessão da conta de gestão do operador,
+ * carteira) e `/gestao` (a sessão da conta de gestão do operador,
  * aberta pelo login do painel). O corpo é UM só, para as duas não divergirem
  * do protótipo cada uma do seu jeito; a casa entrega só a navegação, o erro
  * com as saídas dela, e o desvio de quem não pode abrir a tela.

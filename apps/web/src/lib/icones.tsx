@@ -168,6 +168,13 @@ export const ICONE_SAIR = svg(
   <path key="b" d="m15 8.5 3.5 3.5-3.5 3.5M18.5 12H9" />,
 )
 
+/* Painel com divisões: o painel de gestão da Firmare, fora da ferramenta da
+   clínica. Fora de `ICONES`: a rota não é do menu da clínica. */
+export const ICONE_PAINEL_DE_GESTAO = svg(
+  <rect key="a" x="3" y="4" width="18" height="16" rx="2" />,
+  <path key="b" d="M3 9.5h18M9.5 9.5V20" />,
+)
+
 /* ------------------------------------------------------------------------
  * Os ícones da ROTINA. Fora de `ICONES` de propósito: aquele mapa é o do
  * menu, e `icones.test.ts` cobra que ele case exatamente com `MENU`.

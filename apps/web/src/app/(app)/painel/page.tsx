@@ -10,7 +10,7 @@ import { sessaoAtual } from '@/lib/sessao'
  * abre esta tela vê dinheiro, e a dependência mora na tabela, não num `if`
  * aqui.
  *
- * **Nada a ver com `/superadmin`.** `CONTEXT.md` abre proibindo chamar o
+ * **Nada a ver com `/gestao`.** `CONTEXT.md` abre proibindo chamar o
  * painel do superadmin de `painel`: a allowlist de IP do Traefik casa o
  * segmento `superadmin`, e uma rota de produto lá dentro ficaria bloqueada
  * para a clínica inteira.

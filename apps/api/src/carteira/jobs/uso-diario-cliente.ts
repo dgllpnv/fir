@@ -64,10 +64,15 @@ export type ResumoDoJob = {
   readonly falhas: readonly FalhaDoJob[]
 }
 
-type ClienteAtivo = { id: string; nome: string; clinica_id: string; grupo_id: string }
+type ClienteAtivo = { id: string; nome: string; clinica_id: string; grupo_id: string; status: string }
 
 /**
- * Roda para TODOS os `Cliente Firmare` com `status = 'ativo'`.
+ * Roda para TODOS os `Cliente Firmare` `ativo` OU em `onboarding` — a MESMA regra da tela
+ * FIR Clinic (`uso-carteira.service.ts`). Antes só o `ativo` era medido e a tela listava o
+ * onboarding como "aguardando o primeiro resumo" para sempre (2026-11-11: a cliente vinculou
+ * a clínica do Dr. Daniel, usou, e nada aparecia). O ALERTA de uso baixo (R13) continua só
+ * para `ativo`: quem está em onboarding ainda está aprendendo, e "ligar para a recepção"
+ * por uso baixo seria ruído.
  *
  * `diaAlvo`, se informado, SUBSTITUI "ontem no fuso da clínica" pelo dia
  * pedido — existe para reprocessar um dia específico (backfill, correção) e
@@ -81,8 +86,8 @@ export async function executarUsoDiarioCliente(
 ): Promise<ResumoDoJob> {
   const clientes = await banco.nasTabelasDaCarteiraComEscopo('geral', null, (c) =>
     c.query<ClienteAtivo>(
-      `SELECT id, nome, clinica_id, grupo_id FROM clientes_carteira
-        WHERE status = 'ativo' AND excluido_em IS NULL
+      `SELECT id, nome, clinica_id, grupo_id, status FROM clientes_carteira
+        WHERE status IN ('ativo', 'onboarding') AND excluido_em IS NULL
           -- Desde a 0047 o cliente pode existir sem clínica na FIR Clinic (D-22
           -- item 4): sem clínica não há uso a medir, e isso não é falha.
           AND clinica_id IS NOT NULL`,
@@ -198,7 +203,7 @@ export async function executarUsoDiarioCliente(
         ),
       )
 
-      await alertarUsoBaixo(banco, cliente, somarDias(dia, 1))
+      if (cliente.status === 'ativo') await alertarUsoBaixo(banco, cliente, somarDias(dia, 1))
       processados += 1
     } catch (erro) {
       falhas.push({

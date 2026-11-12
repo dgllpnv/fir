@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
  * O PORTAL TEM A CARA DO SISTEMA, E DIZ ONDE VOCÊ ESTÁ.
  *
  * Mesma varredura de `carteira/identidade.test.ts` e
- * `superadmin/identidade.test.ts`, escopada para `apps/web/src/app/portal`.
+ * `gestao/identidade.test.ts`, escopada para `apps/web/src/app/portal`.
  * As duas razões de existir são as mesmas: o estilo não pode voltar para
  * dentro do `style={{…}}`, e nenhuma classe do portal pode colidir com uma
  * classe do produto, do painel ou da carteira — são sistemas de identidade

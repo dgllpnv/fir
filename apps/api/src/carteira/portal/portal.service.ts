@@ -115,7 +115,12 @@ export class PortalService {
       return { tipo: 'segue' as const, usuarioDoPortal: u.rows[0] ?? null }
     })
     if (etapa1.tipo === 'limite') throw new LimiteDeTentativasDoPortal()
-    const usuarioDoPortal = etapa1.usuarioDoPortal
+    // Conta de grupo desativado entra pelo mesmo caminho de "usuário inexistente".
+    const candidato = etapa1.usuarioDoPortal
+    const usuarioDoPortal =
+      candidato !== null && candidato.grupo_id !== null && !(await this.grupoEstaAtivo(candidato.grupo_id))
+        ? null
+        : candidato
 
     // --- FORA DE TRANSAÇÃO: semáforo e Argon2.
     const senhaConfere = usuarioDoPortal
@@ -184,7 +189,17 @@ export class PortalService {
       )
       const usuarioDoPortal = r.rows[0]
       if (!usuarioDoPortal) return null
+      // `fir_portal` não lê `grupos` (e não deve): o estado do grupo é lido pela
+      // conexão da carteira. Grupo desativado derruba o usuário na hora.
+      if (usuarioDoPortal.grupo_id !== null && !(await this.grupoEstaAtivo(usuarioDoPortal.grupo_id))) return null
       return { usuarioDoPortal: usuarioDoPortalPublico(usuarioDoPortal) } satisfies ContextoDoPortal
+    })
+  }
+
+  private async grupoEstaAtivo(grupoId: string): Promise<boolean> {
+    return this.banco.nasTabelasDaCarteira(SISTEMA, async (c) => {
+      const g = await c.query<{ ativo: boolean }>('SELECT ativo FROM grupos WHERE id = $1', [grupoId])
+      return g.rows[0]?.ativo === true
     })
   }
 

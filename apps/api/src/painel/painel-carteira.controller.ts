@@ -73,8 +73,8 @@ export class PainelCarteiraController {
   constructor(@Inject(PainelCarteiraService) private readonly servico: PainelCarteiraService) {}
 
   @Get('grupos')
-  async listarGrupos(): Promise<ListaDeGruposSaida> {
-    return { grupos: await this.servico.listarGrupos() }
+  async listarGrupos(@Req() req: RequisicaoComPainel): Promise<ListaDeGruposSaida> {
+    return { grupos: await this.servico.listarGrupos(req.painel!.ator) }
   }
 
   @Post('grupos')

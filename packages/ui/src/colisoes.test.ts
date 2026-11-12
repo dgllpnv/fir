@@ -84,7 +84,7 @@ describe('o painel do superadmin não compartilha nome com o produto', () => {
   /**
    * O outro lado da mesma moeda: `superadmin.css` é a folha de um espaço
    * inteiro à parte, e as classes só dele levam prefixo. A varredura do lado
-   * do JSX está em `apps/web/src/app/superadmin/identidade.test.ts`; esta olha
+   * do JSX está em `apps/web/src/app/gestao/identidade.test.ts`; esta olha
    * o CSS, que é onde a colisão nasce.
    */
   it('nenhuma regra de superadmin.css alcança um elemento do produto', () => {

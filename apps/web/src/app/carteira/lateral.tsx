@@ -78,7 +78,7 @@ export function LateralDaCarteira({
                     do painel), então "Trocar senha" não se aplica a ela. `<a>`
                     e não `<Link>`: painel e troca de senha são outro casco. */}
                 {sessao.contaDoOperador ? (
-                  <a className="carteira-conta-link" href="/superadmin">
+                  <a className="carteira-conta-link" href="/gestao">
                     Voltar ao painel
                   </a>
                 ) : (

@@ -1053,3 +1053,11 @@ esquema — e aí a correção deixa de ser de uma linha neste arquivo.
 
 **Para a próxima entidade:** o verbete antes da migration. Custa dez minutos, e é o momento em que
 um nome ambíguo ainda é barato de trocar.
+
+## Nomes da Firmare e da FIR Clinic (decisão do dono do produto, 2026-11-11)
+
+**Firmare** é a **empresa de consultoria** (a dona do produto e de seus clientes). **FIR Clinic** é o **nome da ferramenta que as clínicas usam** no dia a dia (tarefas, pacientes, planos, caixa) — o produto que este repositório constrói. Na interface da clínica a marca é "FIR Clinic"; "Firmare" só aparece onde se fala da empresa (painel de gestão da consultoria, carteira, rodapé institucional).
+
+- A página "FIR Clinic" da carteira da Firmare (uso das clínicas) continua com esse nome: ela mostra o uso da FIR Clinic.
+- Termo proibido para a ferramenta das clínicas: "Firmare Gestão de Rotina" / "Gestão de Rotina" como nome de produto.
+- O painel interno da consultoria vive em `/gestao` (antes `/superadmin`); a URL antiga redireciona.

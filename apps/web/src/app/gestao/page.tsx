@@ -8,7 +8,7 @@ import { usePainel } from './contexto'
 import { ErroDoPainel, NavDoPainel } from './pecas'
 
 /**
- * `/superadmin` — a **Visão geral** de todas as clínicas (D-23 item 6,
+ * `/gestao` — a **Visão geral** de todas as clínicas (D-23 item 6,
  * ADR 0024). Um login só para a Firmare: o operador entrou no painel, e o
  * servidor abriu junto a sessão da conta de gestão dele (Grupo Firmare,
  * escopo geral, Diretoria). A tela é a MESMA de `/carteira`, o mesmo
@@ -16,10 +16,10 @@ import { ErroDoPainel, NavDoPainel } from './pecas'
  * sessão da CARTEIRA — nenhuma rota `/v1/superadmin/*` o carrega.
  *
  * **Esta página existia por causa de um defeito medido em produção**, e a
- * razão continua: sem ela, `/superadmin` caía no catch-all do PRODUTO
+ * razão continua: sem ela, `/gestao` caía no catch-all do PRODUTO
  * (`(app)/[...rota]`), que resolve sessão de clínica e manda para `/entrar` —
  * a tela de entrada da clínica, com o campo de clínica à mostra. Antes ela só
- * redirecionava para `/superadmin/clinicas`; agora ela é a primeira tela.
+ * redirecionava para `/gestao/clinicas`; agora ela é a primeira tela.
  *
  * A sessão da carteira pode faltar sem erro nenhum: o login não a abre com
  * senha provisória, ela vence, ou a pessoa clicou "Sair" dentro da
@@ -79,8 +79,8 @@ export default function VisaoGeralDoPainel() {
   const recarregar = useCallback(() => setTentativa((n) => n + 1), [])
   // A conta do operador tem todas as telas (a 0061 as fixa). Se um dia não
   // tiver a Visão geral, o lugar dele são as clínicas, não a carteira.
-  const semPermissao = useCallback(() => window.location.assign('/superadmin/clinicas'), [])
-  const navegacao = <NavDoPainel atual="/superadmin" />
+  const semPermissao = useCallback(() => window.location.assign('/gestao/clinicas'), [])
+  const navegacao = <NavDoPainel atual="/gestao" />
 
   if (conta.tag === 'segundo-fator') {
     return (

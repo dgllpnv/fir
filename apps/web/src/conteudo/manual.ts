@@ -25,7 +25,7 @@ export const MANUAL: readonly CapituloDoManual[] = [
     secoes: [
       {
         titulo: 'Para que serve a ferramenta',
-        texto: `A Gestão de Rotina organiza o dia a dia da clínica em um só lugar: as tarefas da equipe, o relacionamento com os pacientes, os programas de acompanhamento, as campanhas comerciais e os pagamentos.
+        texto: `A FIR Clinic organiza o dia a dia da clínica em um só lugar: as tarefas da equipe, o relacionamento com os pacientes, os programas de acompanhamento, as campanhas comerciais e os pagamentos.
 
 Cada coisa que precisa ser feita vira uma **tarefa**, com responsável e prazo. Quando a tarefa é concluída, fica registrada no histórico e alimenta os indicadores da clínica.`,
       },

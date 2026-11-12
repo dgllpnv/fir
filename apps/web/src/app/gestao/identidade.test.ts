@@ -73,7 +73,7 @@ describe('a varredura olhou o painel inteiro', () => {
     expect(nomes).toContain('contexto.tsx')
     expect(nomes).toContain('pecas.tsx')
     // As seis telas: entrar, trocar-senha, clínicas, pessoas, grupos e
-    // usuários de gestão (mais a porta `/superadmin`, que é a sétima).
+    // usuários de gestão (mais a porta `/gestao`, que é a sétima).
     expect(PAINEL.filter((f) => f.nome === 'page.tsx').length).toBe(7)
   })
 })
@@ -328,7 +328,7 @@ describe('o painel vê dinheiro só pela conta de gestão (ADR 0024)', () => {
   const porta = PAINEL.find((f) => f.nome === 'page.tsx' && f.texto.includes('VisaoGeralDoPainel'))
 
   it('a porta do painel É a Visão geral, e é o MESMO componente da carteira', () => {
-    expect(porta, '`/superadmin` deixou de abrir a Visão geral').toBeDefined()
+    expect(porta, '`/gestao` deixou de abrir a Visão geral').toBeDefined()
     const importa = /import \{ VisaoGeral \} from '@\/components\/carteira\/visao-geral'/
     expect(porta!.texto).toMatch(importa)
     expect(CARTEIRA, '`/carteira` tem de usar o mesmo componente, nunca uma cópia').toMatch(importa)

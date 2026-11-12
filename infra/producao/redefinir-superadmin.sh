@@ -132,7 +132,7 @@ echo
 echo "Esta senha aparece UMA VEZ. Ela vence em 72 horas e quem entrar com"
 echo "ela só consegue trocá-la — o painel fica fechado até a troca."
 echo "Dite-a; não a cole num chat que fica gravado."
-echo "A Visão geral (/superadmin) abre depois da troca: a conta de gestão do"
+echo "A Visão geral (/gestao) abre depois da troca: a conta de gestão do"
 echo "operador já existe e não tem senha própria (ADR 0024)."
 echo
 

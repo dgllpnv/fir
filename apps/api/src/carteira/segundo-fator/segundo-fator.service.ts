@@ -28,6 +28,7 @@ import { BancoService } from '../../banco/banco.service'
 import { RELOGIO, type Relogio } from '../../comum/relogio'
 import { registrarNoPainel } from '../../painel/painel.service'
 import { DURACAO_SESSAO_CARTEIRA_MS } from '../carteira.guard'
+import { grupoAtivoDe } from '../grupo-ativo'
 import { CofreDoSegundoFator, sortearCodigosDeRecuperacao } from './cifra'
 import { verificarTotp } from './totp'
 
@@ -107,7 +108,7 @@ export class SegundoFatorDaCarteiraService {
         `SELECT s.segundo_fator_em IS NOT NULL AS verificada, f.ativado_em IS NOT NULL AS ativo
            FROM sessoes_de_carteira s JOIN usuarios_gestao u ON u.id = s.usuario_gestao_id
            LEFT JOIN segundo_fator_da_carteira f ON f.usuario_gestao_id = u.id
-          WHERE s.token_hash = $1 AND s.revogada_em IS NULL AND s.expira_em > now() AND u.ativo`,
+          WHERE s.token_hash = $1 AND s.revogada_em IS NULL AND s.expira_em > now() AND u.ativo AND ${grupoAtivoDe('u')}`,
         [hashDoToken(token)],
       )
       const l = r.rows[0]

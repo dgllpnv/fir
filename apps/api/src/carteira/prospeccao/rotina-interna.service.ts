@@ -524,10 +524,16 @@ export class RotinaInternaService {
   async equipe(sessao: Sessao): Promise<EquipeDaRotinaSaida> {
     return this.banco.nasTabelasDaCarteiraComoUsuarioDeGestao(sessao, async (c) => {
       const r = await c.query<{ id: string; nome: string }>(
-        `SELECT id, nome FROM usuarios_gestao
-          WHERE ativo AND ($1::text = 'geral' OR grupo_id = $2::uuid)
-          ORDER BY nome`,
-        [sessao.escopo, sessao.grupoId],
+        // A equipe é a da Firmare, não a de quem opera a ferramenta: a conta de gestão de um
+        // superadmin (ADR 0024 — o Operador entra por outro painel) só aparece para o próprio
+        // dono dela. Sem isto, "Minhas tarefas" listava como colega a conta de teste do suporte
+        // e as duplicatas da dona (2026-11-11: "eu só quero ver o meu time").
+        `SELECT u.id, u.nome FROM usuarios_gestao u
+          WHERE u.ativo AND ($1::text = 'geral' OR u.grupo_id = $2::uuid)
+            AND (u.id = $3::uuid
+                 OR NOT EXISTS (SELECT 1 FROM contas_de_gestao_do_operador o WHERE o.usuario_gestao_id = u.id))
+          ORDER BY u.nome`,
+        [sessao.escopo, sessao.grupoId, sessao.id],
       )
       return { eu: sessao.id, pessoas: r.rows, podeVerCarga: podeVerCarga(sessao) }
     })

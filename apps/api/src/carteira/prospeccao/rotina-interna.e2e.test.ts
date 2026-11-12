@@ -392,6 +392,32 @@ describe('carga e redistribuir — só escopo geral (A-5, A-9: carteira.administ
     expect(equipe.body.pessoas.map((p: { id: string }) => p.id).sort()).toEqual([gestoraA, gestoraA2].sort())
   })
 
+  it('a conta de gestão de um superadmin não aparece como colega: só para o próprio dono', async () => {
+    const hash = await hashDeSenha(SENHA)
+    const op = (
+      await migrate.query<{ id: string }>(
+        `INSERT INTO operadores (usuario, nome, senha_hash) VALUES ($1, 'Suporte', $2) RETURNING id`,
+        [`op.${sufixo}`, hash],
+      )
+    ).rows[0]!.id
+    // Criar o operador já cria a conta de gestão dele (função da 0061): só a lemos.
+    const contaDoOperador = (
+      await migrate.query<{ usuario_gestao_id: string }>(
+        'SELECT usuario_gestao_id FROM contas_de_gestao_do_operador WHERE operador_id = $1',
+        [op],
+      )
+    ).rows[0]!.usuario_gestao_id
+    try {
+      const ids = (r: { body: { pessoas: { id: string }[] } }): string[] => r.body.pessoas.map((p) => p.id)
+      const vista = await http().get('/v1/carteira/equipe-da-rotina').set('Cookie', cookie.geral).expect(200)
+      expect(ids(vista)).not.toContain(contaDoOperador)
+      expect(ids(vista)).toContain(vista.body.eu)
+    } finally {
+      await migrate.query('DELETE FROM operadores WHERE id = $1', [op])
+      await migrate.query('DELETE FROM usuarios_gestao WHERE id = $1', [contaDoOperador])
+    }
+  })
+
   it('geral: a carga conta por semana de segunda a domingo; redistribuir ×3 move uma vez, nunca rotina', async () => {
     const carga = await http().get(`/v1/carteira/carga?pessoa=${gestoraA}`).set('Cookie', cookie.geral).expect(200)
     expect(carga.body.semanas.map((s: { inicio: string }) => s.inicio)).toEqual(['2026-11-09', '2026-11-16', '2026-11-23', '2026-11-30'])

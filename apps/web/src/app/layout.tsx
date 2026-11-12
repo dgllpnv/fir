@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import './globals.css'
 import { SCRIPT_DO_TEMA } from '@/lib/tema'
 
-export const metadata: Metadata = { title: 'Firmare · Gestão de Rotina' }
+export const metadata: Metadata = { title: 'FIR Clinic' }
 
 /**
  * **As fontes saem do próprio site, nunca do Google.** Antes, toda página da

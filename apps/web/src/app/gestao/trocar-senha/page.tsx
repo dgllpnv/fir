@@ -43,7 +43,7 @@ export default function TrocarSenhaDoOperador() {
     chamar<PainelEuSaida>('v1/superadmin/eu')
       .then(setEu)
       .catch(() => {
-        window.location.assign('/superadmin/entrar')
+        window.location.assign('/gestao/entrar')
       })
   }, [])
 
@@ -74,7 +74,7 @@ export default function TrocarSenhaDoOperador() {
       // sessões de operador e muda o que o servidor devolve em toda rota.
       // A Visão geral pede a sessão da conta de gestão, que o login não abriu
       // enquanto a senha era provisória (ADR 0024).
-      window.location.assign('/superadmin')
+      window.location.assign('/gestao')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
       setEnviando(false)
@@ -83,7 +83,7 @@ export default function TrocarSenhaDoOperador() {
 
   async function sair() {
     await chamar('v1/superadmin/sair', { method: 'POST' }).catch(() => undefined)
-    window.location.assign('/superadmin/entrar')
+    window.location.assign('/gestao/entrar')
   }
 
   return (

@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
  *
  * O laço de foco tem teste de verdade em `lib/foco.test.ts` — é lá que mora a
  * lógica. Isto é a varredura da FONTE, pela mesma razão de
- * `app/superadmin/identidade.test.ts`: não há Testing Library nesta árvore
+ * `app/gestao/identidade.test.ts`: não há Testing Library nesta árvore
  * (dívida registrada), e o que ela pega é exatamente o que voltaria se alguém
  * "simplificasse" o modal.
  */

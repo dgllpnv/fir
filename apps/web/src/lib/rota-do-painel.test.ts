@@ -12,23 +12,23 @@ import { clinicaDaRota, ehPortaDoPainel } from './rota-do-painel'
  */
 describe('a clínica em que o painel está agindo vem do endereço', () => {
   it('a lista não age em clínica nenhuma', () => {
-    expect(clinicaDaRota('/superadmin/clinicas')).toBe(null)
-    expect(clinicaDaRota('/superadmin/clinicas/')).toBe(null)
-    expect(clinicaDaRota('/superadmin')).toBe(null)
-    expect(clinicaDaRota('/superadmin/entrar')).toBe(null)
+    expect(clinicaDaRota('/gestao/clinicas')).toBe(null)
+    expect(clinicaDaRota('/gestao/clinicas/')).toBe(null)
+    expect(clinicaDaRota('/gestao')).toBe(null)
+    expect(clinicaDaRota('/gestao/entrar')).toBe(null)
   })
 
   it('a tela de pessoas age na clínica do endereço', () => {
-    expect(clinicaDaRota('/superadmin/clinicas/9f3c1a2e/pessoas')).toBe('9f3c1a2e')
-    expect(clinicaDaRota('/superadmin/clinicas/9f3c1a2e')).toBe('9f3c1a2e')
-    expect(clinicaDaRota('/superadmin/clinicas/9f3c1a2e/')).toBe('9f3c1a2e')
+    expect(clinicaDaRota('/gestao/clinicas/9f3c1a2e/pessoas')).toBe('9f3c1a2e')
+    expect(clinicaDaRota('/gestao/clinicas/9f3c1a2e')).toBe('9f3c1a2e')
+    expect(clinicaDaRota('/gestao/clinicas/9f3c1a2e/')).toBe('9f3c1a2e')
   })
 
   it('o segmento é decodificado, porque ele vem da URL', () => {
-    expect(clinicaDaRota('/superadmin/clinicas/a%20b/pessoas')).toBe('a b')
+    expect(clinicaDaRota('/gestao/clinicas/a%20b/pessoas')).toBe('a b')
     // `%` solto não é escape válido: `decodeURIComponent` lança, e a resposta
     // certa é "não sei qual clínica" — nunca derrubar a faixa inteira.
-    expect(clinicaDaRota('/superadmin/clinicas/%/pessoas')).toBe(null)
+    expect(clinicaDaRota('/gestao/clinicas/%/pessoas')).toBe(null)
   })
 
   it('nenhuma tela do PRODUTO age numa clínica do painel', () => {
@@ -38,24 +38,24 @@ describe('a clínica em que o painel está agindo vem do endereço', () => {
     expect(clinicaDaRota('/hoje')).toBe(null)
     expect(clinicaDaRota('/entrar')).toBe(null)
     // Prefixo parecido, rota diferente.
-    expect(clinicaDaRota('/superadmin/clinicasx/9f3c')).toBe(null)
+    expect(clinicaDaRota('/gestao/clinicasx/9f3c')).toBe(null)
     // Casa o prefixo sem casar a ROTA. Um `startsWith` sem a barra devolve
     // `'xy'` aqui — segmento que não é clínica de ninguém, afirmado como se
     // fosse.
-    expect(clinicaDaRota('/superadmin/clinicasxy/9f3c')).toBe(null)
+    expect(clinicaDaRota('/gestao/clinicasxy/9f3c')).toBe(null)
   })
 })
 
 describe('a porta do painel não tem faixa', () => {
   it('entrar e trocar a senha são portas', () => {
-    expect(ehPortaDoPainel('/superadmin/entrar')).toBe(true)
-    expect(ehPortaDoPainel('/superadmin/trocar-senha')).toBe(true)
-    expect(ehPortaDoPainel('/superadmin/entrar/')).toBe(true)
+    expect(ehPortaDoPainel('/gestao/entrar')).toBe(true)
+    expect(ehPortaDoPainel('/gestao/trocar-senha')).toBe(true)
+    expect(ehPortaDoPainel('/gestao/entrar/')).toBe(true)
   })
 
   it('as telas de operação não são', () => {
-    expect(ehPortaDoPainel('/superadmin/clinicas')).toBe(false)
-    expect(ehPortaDoPainel('/superadmin/clinicas/9f3c/pessoas')).toBe(false)
-    expect(ehPortaDoPainel('/superadmin')).toBe(false)
+    expect(ehPortaDoPainel('/gestao/clinicas')).toBe(false)
+    expect(ehPortaDoPainel('/gestao/clinicas/9f3c/pessoas')).toBe(false)
+    expect(ehPortaDoPainel('/gestao')).toBe(false)
   })
 })

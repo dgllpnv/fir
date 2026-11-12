@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { Casco } from './casco'
 
@@ -10,6 +11,8 @@ import { Casco } from './casco'
  * borda dourada — não preenchida como a do painel) é o sinal de que esta é
  * uma TERCEIRA sessão, disjunta da de clínica e da de superadmin.
  */
+export const metadata: Metadata = { title: 'Firmare · Carteira' }
+
 export default function LayoutDaCarteira({ children }: { children: ReactNode }) {
   return <Casco>{children}</Casco>
 }

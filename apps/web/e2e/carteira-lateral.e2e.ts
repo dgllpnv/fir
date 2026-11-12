@@ -13,10 +13,10 @@
  *    ela não fica no caminho do Tab;
  *  - quem abre `/carteira` sem sessão não vê o menu antes do desvio;
  *  - o cabeçalho da Visão geral: título numa linha só no computador, ações à
- *    direita — e o `/superadmin`, que usa o MESMO componente, sem rolar.
+ *    direita — e o `/gestao`, que usa o MESMO componente, sem rolar.
  *
  * A sessão é a da conta de gestão do OPERADOR do painel: ele entra em
- * `/superadmin` e o servidor abre junto a conta de gestão dele (ADR 0024).
+ * `/gestao` e o servidor abre junto a conta de gestão dele (ADR 0024).
  * `FIR_E2E_OPERADOR` e `FIR_E2E_OPERADOR_SENHA` dizem quem; sem elas o arquivo
  * é pulado (a semente da clínica `demo` não cria operador).
  */
@@ -44,11 +44,11 @@ let contadores: { tarefasVencidas: number | null; contatosAgora: number | null }
  * do painel abre a conta de gestão do operador quando ela falta.
  */
 async function abrirSessao(page: Page): Promise<void> {
-  await page.goto('/superadmin/entrar')
+  await page.goto('/gestao/entrar')
   await page.getByLabel('Usuário do painel').fill(OPERADOR)
   await page.getByLabel('Senha', { exact: true }).fill(SENHA)
   await page.getByRole('button', { name: 'Entrar no painel' }).click()
-  await page.waitForURL('**/superadmin')
+  await page.waitForURL('**/gestao')
   await expect(page.locator('.visao-cabeca h1')).toBeVisible({ timeout: 20_000 })
 }
 
@@ -263,10 +263,10 @@ for (const largura of [1280, 1440]) {
 }
 
 for (const largura of [390, 1280]) {
-  test(`o /superadmin (mesma Visão geral) segue de pé — ${largura} px`, async ({ browser }) => {
+  test(`o /gestao (mesma Visão geral) segue de pé — ${largura} px`, async ({ browser }) => {
     const ctx = await browser.newContext({ storageState: ESTADO, viewport: { width: largura, height: 900 } })
     const page = await ctx.newPage()
-    await page.goto('/superadmin')
+    await page.goto('/gestao')
     await page.waitForLoadState('networkidle')
     await expect(page.locator('.visao-cabeca h1')).toBeVisible({ timeout: 15_000 })
     await expect(page.locator('nav.superadmin-nav')).toBeVisible()

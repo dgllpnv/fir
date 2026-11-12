@@ -130,7 +130,20 @@ export type ListaDeClientesDaCarteiraSaida = z.infer<typeof ListaDeClientesDaCar
 export const GrupoNaLista = z.object({ id: Uuid, nome: z.string(), ativo: z.boolean() })
 export type GrupoNaLista = z.infer<typeof GrupoNaLista>
 
-export const ListaDeGruposSaida = z.object({ grupos: z.array(GrupoNaLista) })
+/**
+ * O grupo como a LISTA do painel o mostra: `padrao` (o grupo Firmare, fixo) e
+ * as duas contagens que a confirmação de "Desativar" precisa dizer em voz alta
+ * — quantas clínicas e quantas pessoas ativas perdem o acesso. Contagem de
+ * pessoas e de clínicas do PRÓPRIO grupo, só para o Operador.
+ */
+export const GrupoNoPainel = GrupoNaLista.extend({
+  padrao: z.boolean(),
+  clinicasAtivas: z.number().int().nonnegative(),
+  usuariosAtivos: z.number().int().nonnegative(),
+})
+export type GrupoNoPainel = z.infer<typeof GrupoNoPainel>
+
+export const ListaDeGruposSaida = z.object({ grupos: z.array(GrupoNoPainel) })
 export type ListaDeGruposSaida = z.infer<typeof ListaDeGruposSaida>
 
 export const CriarGrupoEntrada = z

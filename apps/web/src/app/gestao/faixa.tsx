@@ -43,7 +43,7 @@ export function FaixaDoPainel() {
     // diz "não consegui sair" é pior que mandá-lo para a porta — onde o
     // servidor decide de novo se ele está dentro ou fora.
     await chamar('v1/superadmin/sair', { method: 'POST' }).catch(() => undefined)
-    window.location.replace('/superadmin/entrar')
+    window.location.replace('/gestao/entrar')
   }
 
   return (
@@ -85,7 +85,7 @@ function ondeEstou(c: ReturnType<typeof usePainel>['clinicaAberta'], caminho: st
   // A Visão geral (ADR 0024) não age em clínica nenhuma: ela LÊ todas, pela
   // conta de gestão do operador. Dizer "você está na lista do painel" ali
   // seria afirmar o lugar errado.
-  if (c === 'nenhuma' && caminho.replace(/\/$/, '') === '/superadmin') {
+  if (c === 'nenhuma' && caminho.replace(/\/$/, '') === '/gestao') {
     return (
       <>
         <span>Visão geral</span>

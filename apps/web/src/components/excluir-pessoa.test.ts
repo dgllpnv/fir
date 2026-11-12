@@ -20,7 +20,7 @@ const ler = (...p: string[]) => readFileSync(join(AQUI, ...p), 'utf8')
 
 const CAIXA = ler('excluir-pessoa.tsx')
 const CLINICA = ler('tela-usuarios.tsx')
-const PAINEL = ler('..', 'app', 'superadmin', 'clinicas', '[id]', 'pessoas', 'page.tsx')
+const PAINEL = ler('..', 'app', 'gestao', 'clinicas', '[id]', 'pessoas', 'page.tsx')
 
 const semComentarios = (texto: string): string =>
   texto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')

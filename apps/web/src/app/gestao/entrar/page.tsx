@@ -50,7 +50,7 @@ export default function EntrarNoPainel() {
         body: JSON.stringify({ usuario, senha }),
       })
       // D-23 item 6: a porta do painel abre a Visão geral (ADR 0024).
-      window.location.assign('/superadmin')
+      window.location.assign('/gestao')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
     } finally {

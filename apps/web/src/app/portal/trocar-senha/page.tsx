@@ -13,7 +13,7 @@ import { ICONE_OLHO_ABERTO, ICONE_OLHO_FECHADO } from '@/lib/icones'
  * recusa vencida, e não havia rota nem tela para trocá-la: três dias depois de
  * criado, ficava trancado para sempre (defeito de produção, 2026-11-08).
  *
- * Espelho de `carteira/trocar-senha` e `superadmin/trocar-senha`: a mesma
+ * Espelho de `carteira/trocar-senha` e `gestao/trocar-senha`: a mesma
  * caixa centrada, a mesma regra
  * (`avaliarSenha`, de `packages/domain`, a MESMA função do servidor, com o
  * mesmo contexto: usuário e nome), o mesmo aviso que reserva altura.

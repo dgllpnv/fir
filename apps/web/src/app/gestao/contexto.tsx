@@ -88,7 +88,7 @@ export function ProvedorDoPainel({ children }: { children: ReactNode }) {
         if (!valeu) return
         if (eu.operador.senhaProvisoria) {
           setSessao({ tag: 'saindo' })
-          router.replace('/superadmin/trocar-senha')
+          router.replace('/gestao/trocar-senha')
           return
         }
         const lista = await chamar<ClinicasDoPainel>('v1/superadmin/clinicas')
@@ -98,7 +98,7 @@ export function ProvedorDoPainel({ children }: { children: ReactNode }) {
         if (!valeu) return
         if (e instanceof ErroDaApi && e.status === 404) {
           setSessao({ tag: 'saindo' })
-          router.replace('/superadmin/entrar')
+          router.replace('/gestao/entrar')
           return
         }
         setSessao({

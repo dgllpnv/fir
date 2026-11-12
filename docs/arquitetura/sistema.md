@@ -100,7 +100,7 @@ modelo, e a clínica sentinela que a preencheria já foi recusada por escrito na
 |---|---|
 | Privilégio | `REVOKE ALL … FROM fir_app`. A API do balcão **não lê nem o hash** de um operador |
 | Varredura | `teste/escrita-sem-rls.test.ts` cobra REVOKE de **toda** relação sem RLS — a próxima tabela sem RLS reprova sozinha |
-| Rede | allowlist de IP na frente do `/superadmin`, falhando fechada (`infra/producao`) |
+| Rede | allowlist de IP na frente da API do painel (`/v1/superadmin`) e da URL antiga `/superadmin` (308 para `/gestao`), falhando fechada (`infra/producao`) |
 | Append-only | `auditoria_do_painel` tem o mesmo par REVOKE + trigger da `auditoria` |
 
 `teste/auditoria-inescapavel.test.ts` **não** as alcança, de propósito: ela

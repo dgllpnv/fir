@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
 import { Casco } from './casco'
 
@@ -51,6 +52,8 @@ import { Casco } from './casco'
  * sessão é o `Casco`, que é cliente. Um `'use client'` aqui tornaria cliente
  * tudo o que o painel renderizar.
  */
+export const metadata: Metadata = { title: 'Firmare · Gestão' }
+
 export default function LayoutDoPainel({ children }: { children: ReactNode }) {
   return <Casco>{children}</Casco>
 }

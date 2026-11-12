@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { chamar } from '@/lib/api'
 import { ControleDeTema } from './controle-de-tema'
-import { ICONE_MENU, ICONE_SAIR, iconeDaRota, inicial } from '@/lib/icones'
+import { ICONE_MENU, ICONE_PAINEL_DE_GESTAO, ICONE_SAIR, iconeDaRota, inicial } from '@/lib/icones'
 import { type ItemDeMenu, secoesDoMenu } from '@/lib/menu'
 
 /**
@@ -101,9 +101,9 @@ export function Shell({
       >
         <div className="sidehead">
           <div className="marca">
-            Firmare<span>.</span>
+            FIR Clinic<span>.</span>
           </div>
-          <div className="sideclin">{clinica || 'Gestão de Rotina'}</div>
+          <div className="sideclin">{clinica || 'FIR Clinic'}</div>
         </div>
 
         {/*
@@ -143,6 +143,24 @@ export function Shell({
               ))}
             </div>
           ))}
+          {/*
+            O ATALHO PARA O PAINEL — só na sessão de SUPORTE do operador.
+
+            `suporte` vem de `lib/sessao`, resolvido no servidor: só existe
+            quando o cookie de operador abriu esta clínica. A recepcionista
+            nunca tem esta sessão, então nunca vê o item; a rota `/gestao`
+            segue exigindo o login do painel de qualquer jeito.
+
+            `<a>`: `/gestao` tem casco próprio, fora do grupo `(app)`.
+          */}
+          {suporte ? (
+            <div className="navgrupo">
+              <a className="navitem" href="/gestao" data-atalho="painel-de-gestao">
+                {ICONE_PAINEL_DE_GESTAO}
+                <span>Painel de gestão</span>
+              </a>
+            </div>
+          ) : null}
         </nav>
 
         <div className="sidefoot">
@@ -200,7 +218,7 @@ export function Shell({
               Menu
             </button>
             <div className="marca">
-              Firmare<span>.</span>
+              FIR Clinic<span>.</span>
             </div>
             <div className="quem">{usuario}</div>
           </div>

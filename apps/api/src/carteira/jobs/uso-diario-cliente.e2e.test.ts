@@ -22,7 +22,8 @@ import { executarUsoDiarioCliente } from './uso-diario-cliente'
  *     escreve a MESMA linha — nunca duplica, nunca distorce.
  *  3. **ISOLAMENTO ENTRE CLIENTES:** duas clínicas, dois `Cliente Firmare`,
  *     dois grupos — a receita de uma não vaza para a linha da outra.
- *  4. Só `Cliente Firmare` com `status = 'ativo'` recebe linha.
+ *  4. `Cliente Firmare` `ativo` ou em `onboarding` recebe linha; `pausado`/`encerrado` não.
+ *     O alerta de uso baixo só vale para o `ativo`.
  *  5. `receita_registrada` é center de centavos (`bigint`/string), nunca ponto
  *     flutuante.
  *  6. `faltas_recontatadas` (G8 1D): reagendamento no dia de cartão cuja
@@ -374,20 +375,20 @@ const linhaDe = async (clienteCarteiraId: string): Promise<LinhaUsoDiario | unde
   ).rows[0]
 
 describe('executarUsoDiarioCliente — G4', () => {
-  it('calcula a linha do dia para cada Cliente Firmare ATIVO, e só para eles', async () => {
+  it('calcula a linha do dia para cada Cliente Firmare ATIVO ou em ONBOARDING', async () => {
     const resumo = await executarUsoDiarioCliente(banco, relogio, DIA)
     // Só as falhas DOS clientes deste arquivo: o job varre o banco inteiro, e outro arquivo
     // rodando junto pode apagar um cliente dele no meio da varredura (corrida de FK).
     const meus = [clienteA, clienteB, clienteOnboarding, clienteD]
     expect(resumo.falhas.filter((x) => meus.includes(x.clienteCarteiraId))).toEqual([])
-    // Só os 'ativo' entram — o 'onboarding' não. A prova é POR CLIENTE, não
+    // 'ativo' e 'onboarding' entram (2026-11-11: o onboarding ficava eternamente "sem dados"). A prova é POR CLIENTE, não
     // pelo `processados` global: o job varre todo `Cliente Firmare` ativo do
     // banco (D16), e o arquivo de cobranças, rodando em paralelo, tem os dele.
     // `toBe(2)` sobre o total falhava com 9 assim que os dois arquivos se
     // cruzavam — medido em 2026-11-08.
-    expect(resumo.processados).toBeGreaterThanOrEqual(2)
+    expect(resumo.processados).toBeGreaterThanOrEqual(3)
     expect(await linhaDe(clienteB)).toBeDefined()
-    expect(await linhaDe(clienteOnboarding)).toBeUndefined()
+    expect(await linhaDe(clienteOnboarding)).toBeDefined()
 
     const a = await linhaDe(clienteA)
     expect(a).toBeDefined()
@@ -427,7 +428,10 @@ describe('executarUsoDiarioCliente — G4', () => {
     expect(b!.faltas_recontatadas).toBe(0)
 
     const onboarding = await linhaDe(clienteOnboarding)
-    expect(onboarding).toBeUndefined()
+    expect(onboarding).toBeDefined()
+    // Sem uso e em onboarding: mede, mas NÃO vira tarefa de "ligar para a recepção".
+    const alertaOnboarding = await migrate.query('SELECT 1 FROM tarefas_internas WHERE cliente_carteira_id = $1', [clienteOnboarding])
+    expect(alertaOnboarding.rowCount).toBe(0)
   })
 
   it('IDEMPOTÊNCIA (regra 26): rodar de novo para o MESMO dia faz UPSERT, nunca duplica', async () => {

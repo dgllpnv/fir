@@ -13,12 +13,12 @@
  */
 
 /** O prefixo do painel. `superadmin`, nunca `painel` — ver `CONTEXT.md`. */
-const CLINICAS = '/superadmin/clinicas'
+const CLINICAS = '/gestao/clinicas'
 
 /**
  * O id da clínica em que a tela atual age, ou `null` quando nenhuma.
  *
- * `/superadmin/clinicas` é a LISTA: ela não age em clínica nenhuma, e devolver
+ * `/gestao/clinicas` é a LISTA: ela não age em clínica nenhuma, e devolver
  * a primeira da lista ali seria a pior resposta possível.
  */
 export function clinicaDaRota(caminho: string): string | null {
@@ -43,7 +43,7 @@ export function clinicaDaRota(caminho: string): string | null {
  * `PAINEL INTERNO` no próprio corpo (ver `.superadmin-porta`), que é o mesmo
  * sinal com o espaço que a tela de porta tem para dar.
  */
-export const PORTAS: readonly string[] = ['/superadmin/entrar', '/superadmin/trocar-senha']
+export const PORTAS: readonly string[] = ['/gestao/entrar', '/gestao/trocar-senha']
 
 export const ehPortaDoPainel = (caminho: string): boolean =>
   PORTAS.includes(caminho.replace(/\/$/, ''))
