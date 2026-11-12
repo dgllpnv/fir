@@ -17,7 +17,7 @@ export const metadata: Metadata = { title: 'FIR Clinic' }
  */
 const lora = Lora({
   subsets: ['latin'],
-  weight: ['500', '600', '700'],
+  weight: ['500', '600'],
   display: 'swap',
   variable: '--fonte-lora',
 })
@@ -25,7 +25,7 @@ const lora = Lora({
 // 500, 600 e 700: os mesmos pesos que o app da cliente carrega (a marca da lateral é 700).
 const cormorant = Cormorant_Garamond({
   subsets: ['latin'],
-  weight: ['500', '600', '700'],
+  weight: ['500', '600'],
   display: 'swap',
   variable: '--fonte-cormorant',
 })

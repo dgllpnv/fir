@@ -24,18 +24,6 @@
 .carteira {
   min-height: 100vh;
   min-height: 100dvh;
-  /* A paleta do app da cliente (Firmare Gestão), medida nele: cinza do texto,
-     dourado do rótulo, fundo creme, linha e o vermelho suave. Os tokens mãe
-     continuam valendo para a clínica e o painel; só a carteira usa estes. */
-  --bg: var(--clinic-bg);
-  --line: var(--clinic-line);
-  --muted: var(--clinic-muted);
-  --gold-ink: var(--clinic-gold-ink);
-  --gold-soft: var(--clinic-gold-soft);
-  --sunk: var(--clinic-sunk);
-  --display: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif;
-  --bad-soft: var(--clinic-bad-soft);
-  background: var(--bg);
 }
 
 .carteira-lateral {
@@ -54,7 +42,7 @@
    TEXTO, então sai em --gold-ink (4,91:1 no claro) — --gold daria 2,21:1. */
 .carteira-marca { display: grid; gap: 4px; padding: 0 8px; min-width: 0; }
 .carteira-marca b {
-  font-family: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif;
+  font-family: var(--display);
   font-size: 30px;
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -108,9 +96,7 @@
 /* O item ativo: dourado de FUNDO com a tinta escura fixa (6,73:1 nos dois
    temas, `contraste.test.ts`), como o item ativo da clínica e o `.on` do
    protótipo (L230). */
-.carteira-menu-item[aria-current='page'] { background: var(--gold); color: var(--on-gold); font-weight: 600; box-shadow: 0 2px 8px color-mix(in srgb, var(--gold) 35%, transparent); }
-.carteira-menu-item svg { width: 17px; height: 17px; flex: none; opacity: 0.7; }
-.carteira-menu-item[aria-current='page'] svg { opacity: 1; }
+.carteira-menu-item[aria-current='page'] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
 
 /* O contador vermelho do protótipo (`.nav-badge`, L56): à direita do rótulo,
    algarismos tabulares. O par é `--bad` sobre `--bad-soft`, o "contador de
@@ -125,10 +111,10 @@
   height: 20px;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--bad);
-  color: var(--surface);
-  font-size: 11px;
-  font-weight: 600;
+  background: var(--bad-soft);
+  color: var(--bad);
+  font-size: 11.5px;
+  font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -2117,80 +2103,49 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
 .rot-int-aba-atual { color: var(--ink); border-bottom-color: var(--gold); }
 
 /* Minhas · Todas · por pessoa: quebra em linhas, nunca rola de lado. */
-.rot-int-filtros {
-  display: inline-flex;
-  max-width: 100%;
-  overflow-x: auto;
-  margin: 0 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
-  scrollbar-width: none;
-}
-.rot-int-filtros::-webkit-scrollbar { display: none; }
+.rot-int-filtros { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
 .rot-int-filtro {
-  flex: none;
   min-height: 40px;
-  padding: 6px 12px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--muted);
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 }
-.rot-int-filtro:hover { color: var(--ink); }
-.rot-int-filtro:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
-.rot-int-filtro-atual { background: var(--gold-soft); color: var(--gold-ink); font-weight: 600; }
+.rot-int-filtro:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.rot-int-filtro-atual { background: var(--gold-soft); color: var(--on-gold-soft); border-color: var(--gold); font-weight: 600; }
 
-/* O quadro do protótipo: quatro colunas em cartões quando o CONTEÚDO tem
-   largura (a lateral come 232 px da janela), duas no meio, uma só no celular.
-   Mesmo desenho, nunca rolagem horizontal. */
-.rot-int-quadro { display: grid; gap: 14px; align-items: start; margin: 0 0 18px; }
-@container carteira-tela (min-width: 640px) { .rot-int-quadro { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container carteira-tela (min-width: 980px) { .rot-int-quadro { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-.rot-int-secao {
-  display: grid;
-  gap: 4px;
-  align-content: start;
-  margin: 0 0 14px;
-  min-width: 0;
-  padding: 16px 16px 8px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface);
-}
-.rot-int-quadro > .rot-int-secao { margin: 0; }
+.rot-int-secao { display: grid; gap: 6px; margin: 0 0 18px; min-width: 0; }
 .rot-int-secao-titulo {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  margin: 0 0 4px;
-  font-family: var(--body);
-  font-size: 12px;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--display);
+  font-size: 17px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--gold-ink);
 }
-.rot-int-secao-titulo .num { font-family: var(--body); font-size: 12px; font-weight: 700; letter-spacing: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.rot-int-secao-titulo .num { font-family: var(--body); font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .rot-int-secao-atrasada > .rot-int-secao-titulo { color: var(--bad); }
 
 /* Uma tarefa: círculo · corpo · prazo. Densa — a equipe prefere ver dez a rolar por três. */
 .rot-int-tarefa {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  gap: 4px 8px;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 4px 10px;
   align-items: start;
-  padding: 10px 0;
-  border-top: 1px solid var(--line);
+  padding: 8px 10px 8px 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
 }
-.rot-int-secao-titulo + .rot-int-tarefa { border-top: 1px solid var(--line); }
 .rot-int-tarefa-feita .rot-int-titulo { color: var(--muted); text-decoration: line-through; }
 .rot-int-check {
-  width: 28px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
   border: 0;
   background: transparent;
   cursor: pointer;
@@ -2200,38 +2155,36 @@ a.lead-sinal-corpo:focus-visible { outline: 2px solid var(--gold); outline-offse
 }
 .rot-int-check::before {
   content: "";
-  width: 18px;
-  height: 18px;
-  border: 1.5px solid var(--muted);
-  border-radius: 5px;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--gold);
+  border-radius: 50%;
   box-sizing: border-box;
 }
-.rot-int-check:hover::before { border-color: var(--gold); }
-.rot-int-check-feito::before { background: var(--ok); border-color: var(--ok); box-shadow: inset 0 0 0 3px var(--surface); }
-@media (pointer: coarse) { .rot-int-check { width: 44px; height: 44px; } .rot-int-tarefa { grid-template-columns: 44px minmax(0, 1fr) auto; } }
+.rot-int-check-feito::before { background: var(--gold); box-shadow: inset 0 0 0 3px var(--surface); }
 .rot-int-check:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: -2px; }
-.rot-int-corpo { min-width: 0; display: grid; gap: 2px; padding-top: 3px; }
+.rot-int-corpo { min-width: 0; display: grid; gap: 4px; padding-top: 10px; }
 .rot-int-titulo {
   text-align: left;
   border: 0;
   background: transparent;
   padding: 0;
   font: inherit;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--ink);
   cursor: pointer;
   overflow-wrap: anywhere;
 }
 .rot-int-titulo:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-.rot-int-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; font-size: 12.5px; color: var(--muted); }
+.rot-int-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; font-size: 13px; color: var(--muted); }
 .rot-int-meta .num { font-variant-numeric: tabular-nums; }
 .rot-int-ouro { color: var(--gold-ink); }
 .rot-int-alta { color: var(--bad); font-weight: 600; }
 .rot-int-ok { color: var(--ok); }
 .rot-int-mini { font-size: 13px; min-height: 32px; color: var(--muted); }
 .rot-int-quando {
-  padding-top: 3px;
-  font-size: 12.5px;
+  padding-top: 12px;
+  font-size: 13px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -2979,6 +2932,14 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
 .uso {
   --display: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif;
   --r: 16px;
+  /* A paleta medida no app dela vale SÓ aqui, dentro da página. */
+  --bg: var(--clinic-bg);
+  --line: var(--clinic-line);
+  --muted: var(--clinic-muted);
+  --gold-ink: var(--clinic-gold-ink);
+  --gold-soft: var(--clinic-gold-soft);
+  --bad-soft: var(--clinic-bad-soft);
+  --sunk: var(--clinic-sunk);
   --sombra: 0 1px 2px rgba(46, 31, 14, 0.04), 0 4px 14px rgba(46, 31, 14, 0.04);
   gap: 22px;
   font-size: 14px;
@@ -2988,6 +2949,8 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
   :root:not([data-theme='light']) .uso { --sombra: none; }
 }
 :root[data-theme='dark'] .uso { --sombra: none; }
+/* O fundo da página FIR Clinic (um tom, o do app dela); as demais telas ficam como estavam. */
+.carteira:has(.uso) { background: var(--clinic-bg); }
 
 .uso > .eyebrow { font-size: 11px; line-height: 1.5; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600; color: var(--gold-ink); }
 /* Título colado no rótulo e subtítulo a 4 px, como no app dela; o resto respeita o `gap` de 22 px. */
@@ -3061,3 +3024,83 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
   .uso .uso-tabela tr { padding: 12px 14px; }
   .uso .uso-tabela tbody tr:last-child { border-bottom: 0; }
 }
+
+/* ===========================================================================
+   O MENU LATERAL, A VISÃO GERAL E A FIR CLINIC NO PADRÃO DO APP DA CLIENTE.
+   2026-11-11. Medido nos dois lados com a skill `comparar-layout`. Pedido do
+   dono do produto: SÓ estas três peças. As outras telas da carteira (tarefas,
+   clientes, campanhas...) ficam como estavam: nada aqui mexe em `.carteira`
+   nem em variável global — a paleta dela vale só dentro de cada seletor.
+   =========================================================================== */
+.carteira-lateral,
+.visao {
+  --line: var(--clinic-line);
+  --muted: var(--clinic-muted);
+  --gold-ink: var(--clinic-gold-ink);
+  --gold-soft: var(--clinic-gold-soft);
+  --bad-soft: var(--clinic-bad-soft);
+  --sunk: var(--clinic-sunk);
+}
+
+/* ---- Menu lateral ---- */
+.carteira-marca b { font-family: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif; }
+.carteira-marca { gap: 2px; }
+.carteira-marca span { line-height: 1.5; }
+.carteira-menu { scrollbar-width: auto; scrollbar-gutter: auto; }
+.carteira-menu-item { line-height: 21px; }
+.carteira-menu-item svg { width: 17px; height: 17px; flex: none; opacity: 0.7; }
+.carteira-menu-item[aria-current='page'] { box-shadow: 0 2px 8px color-mix(in srgb, var(--gold) 35%, transparent); }
+.carteira-menu-item[aria-current='page'] svg { opacity: 1; }
+.carteira-menu-badge { background: var(--bad); color: var(--surface); font-size: 11px; font-weight: 600; }
+@media (min-width: 900px) {
+  /* O app dela tem 8 px de margem em volta (margem do corpo da página) e a lateral começa em 8,8. */
+  .carteira { padding: 8px; box-sizing: border-box; }
+  .carteira-lateral { padding: 22px 16px; gap: 22px; }
+  .carteira-menu { gap: 10px; }
+  .carteira-menu-item { min-height: 0; padding: 7px 10px; }
+}
+@media (pointer: coarse) { .carteira-menu-item { min-height: 44px; } }
+
+/* ---- Moldura de largura: só nas telas Visão Geral e FIR Clinic (conteúdo 1144 px, como no app dela) ---- */
+@media (min-width: 900px) {
+  .carteira-principal:has(.visao),
+  .carteira-principal:has(.uso) {
+    max-width: calc(1180px + 32px);
+    padding: 26px calc(16px + clamp(0px, 2vw, 18px)) 60px;
+  }
+}
+
+/* ---- Visão Geral ---- */
+.visao {
+  --display: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif;
+  --r: 16px;
+  --sombra: 0 1px 2px rgba(46, 31, 14, 0.04), 0 4px 14px rgba(46, 31, 14, 0.04);
+  gap: 22px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .visao { --sombra: none; } }
+:root[data-theme='dark'] .visao { --sombra: none; }
+.visao .visao-identidade .eyebrow { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600; color: var(--gold-ink); margin: 0; }
+.visao .visao-identidade .titulo { font-weight: 600; font-size: clamp(30px, 3.4vw, 40px); line-height: 1.1; letter-spacing: 0; }
+.visao .visao-identidade .nota { color: var(--muted); font-size: 14px; line-height: 1.5; margin-top: 4px; }
+
+.visao .visao-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@container carteira-tela (max-width: 760px) { .visao .visao-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.visao .visao-kpi { padding: 14px 16px; gap: 4px; box-shadow: var(--sombra); }
+.visao .visao-kpi > span, .visao .visao-kpi > small { font-size: 12px; line-height: 1.5; }
+.visao .visao-kpi > b { font-weight: 600; font-size: 34px; line-height: 1; }
+.visao .visao-kpi-alerta { border-color: var(--line); }
+.visao .visao-kpi:first-child {
+  background: linear-gradient(135deg, #2e1f0e 0%, #4a3419 100%);
+  border-color: transparent;
+  color: var(--sobre-marrom);
+}
+.visao .visao-kpi:first-child > span { color: var(--gold); }
+.visao .visao-kpi:first-child > b { color: var(--sobre-marrom); }
+.visao .visao-kpi:first-child > small { color: var(--sobre-marrom-suave); }
+
+@container carteira-tela (min-width: 760px) { .visao .visao-duas { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); } }
+.visao .visao-duas { gap: 16px; }
+.visao .visao-painel { padding: 16px 18px; gap: 12px; box-shadow: var(--sombra); }
+.visao .visao-painel-cabeca h2 { font-size: 23px; line-height: 1.2; }
