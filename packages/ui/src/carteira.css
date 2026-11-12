@@ -24,6 +24,17 @@
 .carteira {
   min-height: 100vh;
   min-height: 100dvh;
+  /* A paleta do app da cliente (Firmare Gestão), medida nele: cinza do texto,
+     dourado do rótulo, fundo creme, linha e o vermelho suave. Os tokens mãe
+     continuam valendo para a clínica e o painel; só a carteira usa estes. */
+  --bg: var(--clinic-bg);
+  --line: var(--clinic-line);
+  --muted: var(--clinic-muted);
+  --gold-ink: var(--clinic-gold-ink);
+  --gold-soft: var(--clinic-gold-soft);
+  --sunk: var(--clinic-sunk);
+  --bad-soft: var(--clinic-bad-soft);
+  background: var(--bg);
 }
 
 .carteira-lateral {
@@ -42,7 +53,7 @@
    TEXTO, então sai em --gold-ink (4,91:1 no claro) — --gold daria 2,21:1. */
 .carteira-marca { display: grid; gap: 4px; padding: 0 8px; min-width: 0; }
 .carteira-marca b {
-  font-family: var(--display);
+  font-family: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif;
   font-size: 30px;
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -96,7 +107,9 @@
 /* O item ativo: dourado de FUNDO com a tinta escura fixa (6,73:1 nos dois
    temas, `contraste.test.ts`), como o item ativo da clínica e o `.on` do
    protótipo (L230). */
-.carteira-menu-item[aria-current='page'] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
+.carteira-menu-item[aria-current='page'] { background: var(--gold); color: var(--on-gold); font-weight: 600; box-shadow: 0 2px 8px color-mix(in srgb, var(--gold) 35%, transparent); }
+.carteira-menu-item svg { width: 17px; height: 17px; flex: none; opacity: 0.7; }
+.carteira-menu-item[aria-current='page'] svg { opacity: 1; }
 
 /* O contador vermelho do protótipo (`.nav-badge`, L56): à direita do rótulo,
    algarismos tabulares. O par é `--bad` sobre `--bad-soft`, o "contador de
@@ -111,10 +124,10 @@
   height: 20px;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--bad-soft);
-  color: var(--bad);
-  font-size: 11.5px;
-  font-weight: 700;
+  background: var(--bad);
+  color: var(--surface);
+  font-size: 11px;
+  font-weight: 600;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -2919,3 +2932,98 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
 .bib-perigo { color: var(--bad); }
 .bib-mensagem { width: 100%; font: inherit; line-height: 1.5; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; }
 .bib-regra { display: grid; gap: 8px; max-width: 420px; margin-top: 8px; }
+
+/* ===========================================================================
+   FIR CLINIC (a página `section.uso`) NO VISUAL DO APP DA CLIENTE.
+   2026-11-11. Pedido do dono do produto: SÓ esta página. Valores lidos do CSS
+   do app publicado (index.html): Cormorant Garamond nos títulos e números,
+   cantos de 16 px, sombra suave só no claro, cabeçalho de tabela em caixa-alta
+   (11 px, 0,1 em), pílula de situação com ponto, primeiro cartão em marrom.
+   Tudo escopado em `.uso`: o resto da carteira não muda. Os dois temas saem
+   dos tokens; o marrom é o mesmo nos dois (`--on-gold`).
+   =========================================================================== */
+.uso {
+  --display: var(--fonte-cormorant, 'Cormorant Garamond'), Georgia, 'Times New Roman', serif;
+  --r: 16px;
+  --sombra: 0 1px 2px rgba(46, 31, 14, 0.04), 0 4px 14px rgba(46, 31, 14, 0.04);
+  gap: 22px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .uso { --sombra: none; }
+}
+:root[data-theme='dark'] .uso { --sombra: none; }
+
+.uso > .eyebrow { font-size: 11px; line-height: 1.5; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600; color: var(--gold-ink); }
+/* Título colado no rótulo e subtítulo a 4 px, como no app dela; o resto respeita o `gap` de 22 px. */
+.uso > .titulo { font-weight: 600; font-size: clamp(30px, 3.4vw, 40px); line-height: 1.1; letter-spacing: 0; margin-top: -22px; }
+.uso > .nota { color: var(--muted); font-size: 14px; line-height: 1.5; margin-top: -18px; }
+
+.uso .uso-aviso { background: var(--gold-soft); color: var(--on-gold-soft); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
+
+.uso .uso-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; }
+@media (max-width: 900px) { .uso .uso-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.uso .uso-kpi { padding: 14px 16px; gap: 4px; box-shadow: var(--sombra); }
+.uso .uso-kpi > span, .uso .uso-kpi > small { line-height: 1.5; }
+.uso .uso-kpi > b { font-family: var(--display); font-weight: 600; font-size: 34px; line-height: 1; }
+.uso .uso-kpi:first-child {
+  background: linear-gradient(135deg, #2e1f0e 0%, #4a3419 100%);
+  border-color: transparent;
+  color: var(--sobre-marrom);
+}
+.uso .uso-kpi:first-child > span { color: var(--gold); }
+.uso .uso-kpi:first-child > b { color: var(--sobre-marrom); }
+.uso .uso-kpi:first-child > small { color: var(--sobre-marrom-suave); }
+
+.uso .uso-caixa {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: var(--sombra);
+}
+.uso .uso-tabela {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+.uso .uso-tabela th {
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--bg);
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+.uso .uso-tabela td { padding: 11px 14px; }
+.uso .uso-tabela tbody tr:last-child td { border-bottom: 0; }
+.uso .uso-tabela tbody tr:hover td { background: var(--sunk, var(--bg)); }
+.uso .uso-nome { font-weight: 500; }
+.uso .uso-semdado { white-space: nowrap; }
+
+/* Pílula de situação: fundo suave, ponto à frente, sem borda (a global `.pill` tem borda). */
+.uso .uso-situacao .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 9px;
+  border: 0;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.uso .uso-situacao .pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.uso .uso-situacao .pill.bom { background: var(--ok-soft); color: var(--ok); }
+.uso .uso-situacao .pill.alerta { background: var(--warn-soft); color: var(--warn-ink); }
+.uso .uso-situacao .pill.mau { background: var(--bad-soft); color: var(--bad); }
+
+/* 390 px: cada clínica vira um bloco (regra acima, @container); o cartão é a tabela inteira. */
+@container carteira-tela (max-width: 760px) {
+  .uso .uso-tabela th, .uso .uso-tabela td { padding: 0; }
+  .uso .uso-tabela tr { padding: 12px 14px; }
+  .uso .uso-tabela tbody tr:last-child { border-bottom: 0; }
+}

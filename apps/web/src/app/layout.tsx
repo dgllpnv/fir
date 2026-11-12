@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { Inter, Lora } from 'next/font/google'
+import { Cormorant_Garamond, Inter, Lora } from 'next/font/google'
 import type { ReactNode } from 'react'
 import './globals.css'
 import { SCRIPT_DO_TEMA } from '@/lib/tema'
@@ -21,6 +21,14 @@ const lora = Lora({
   display: 'swap',
   variable: '--fonte-lora',
 })
+// A serifa dos títulos do painel interno da Firmare (a do app Firmare Gestão que a cliente usa hoje).
+// 500, 600 e 700: os mesmos pesos que o app da cliente carrega (a marca da lateral é 700).
+const cormorant = Cormorant_Garamond({
+  subsets: ['latin'],
+  weight: ['500', '600', '700'],
+  display: 'swap',
+  variable: '--fonte-cormorant',
+})
 const inter = Inter({
   subsets: ['latin'],
   weight: ['400', '500', '600'],
@@ -30,7 +38,7 @@ const inter = Inter({
 
 export default function RaizLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="pt-BR" className={`${lora.variable} ${inter.variable}`}>
+    <html lang="pt-BR" className={`${lora.variable} ${cormorant.variable} ${inter.variable}`}>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         {/* Antes de qualquer pixel. Com `useEffect` a página nasceria clara e

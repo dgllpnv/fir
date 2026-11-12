@@ -125,6 +125,7 @@ export default function FirClinic() {
           passa a aparecer aqui na manhã seguinte.
         </Vazio>
       ) : (
+        <div className="uso-caixa">
         <table className="uso-tabela">
           <thead>
             <tr>
@@ -145,6 +146,7 @@ export default function FirClinic() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </section>
   )

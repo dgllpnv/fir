@@ -58,6 +58,18 @@
    */
   --on-gold: #2e1f0e;
 
+  /* Texto sobre o cartão marrom de destaque da página FIR Clinic (o fundo é `--on-gold`, igual nos dois temas). */
+  --sobre-marrom: #f9f7f2;
+  --sobre-marrom-suave: #d9cdb8;
+  /* Tons que a página FIR Clinic usa no tema claro, medidos no app da cliente. No escuro valem os mesmos da carteira. */
+  --clinic-muted: #7a6a55;
+  --clinic-gold-ink: #8a6a2c;
+  --clinic-bad-soft: #f6e1dc;
+  --clinic-bg: #f8f6f1;
+  --clinic-line: #ece5d8;
+  --clinic-gold-soft: #f7efdd;
+  --clinic-sunk: #f3eee4;
+
   /*
    * O vermelho que ainda se VÊ sobre `--gold` — e **só como elemento
    * gráfico**, nunca como texto.
@@ -134,6 +146,16 @@
     --warn-soft: #3a2c14;
     --bad: #e88672;
     --bad-soft: #3d1f18;
+    --clinic-muted: #b5a68f;
+    --clinic-gold-ink: #ddc28c;
+    --clinic-bad-soft: #3d1f18;
+  --clinic-bg: #17110a;
+  --clinic-line: #3a2d1d;
+  --clinic-gold-soft: #33271a;
+    --clinic-bg: #17110a;
+    --clinic-line: #3a2d1d;
+    --clinic-gold-soft: #33271a;
+    --clinic-sunk: #261d12;
     color-scheme: dark;
   }
 }
@@ -169,6 +191,13 @@
   --warn-soft: #3a2c14;
   --bad: #e88672;
   --bad-soft: #3d1f18;
+  --clinic-muted: #b5a68f;
+  --clinic-gold-ink: #ddc28c;
+  --clinic-bad-soft: #3d1f18;
+  --clinic-bg: #17110a;
+  --clinic-line: #3a2d1d;
+  --clinic-gold-soft: #33271a;
+  --clinic-sunk: #261d12;
   color-scheme: dark;
 }
 

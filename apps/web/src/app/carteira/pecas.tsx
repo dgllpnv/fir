@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { chamar } from '@/lib/api'
 import { type Area, areaDoCaminho, GRUPOS } from './areas'
+import { IconeDoMenu } from './icones-do-menu'
 import { useCarteira } from './contexto'
 
 /**
@@ -68,6 +69,7 @@ export function NavDaCarteira() {
                   className="carteira-menu-item"
                   aria-current={a.href === atual ? 'page' : undefined}
                 >
+                  <IconeDoMenu href={a.href} />
                   <span className="carteira-menu-rotulo">{a.rotulo}</span>
                   {a.badge && typeof n === 'number' && n > 0 ? (
                     <span className="carteira-menu-badge" title={a.badge.dica} aria-label={`${n} ${a.badge.dica}`}>
