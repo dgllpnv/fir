@@ -3,7 +3,7 @@ import { BadRequestException, Controller, Get, Inject, Query, Req } from '@nestj
 import { pessoaDoAtor } from '../banco/ator'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { HojeFinanceiroService } from '../financeiro/hoje-financeiro.service'
-import { LeituraDeProgramasService } from '../programas/leitura.service'
+import { LeituraDeProgramasService, PESSOA_NINGUEM } from '../programas/leitura.service'
 import { ConsultaDeTarefasService } from '../tarefas/consulta.service'
 import { exigirEscopo, leitorDe } from '../tarefas/leitura'
 
@@ -67,7 +67,7 @@ export class HojeController {
           // Na SESSÃO DE SUPORTE (D-13) não há pessoa, e `pessoaDoAtor`
           // devolve `null`: o escopo "meu" do operador é VAZIO, nunca o de
           // alguém. Mostrar vazio é resposta legítima.
-          responsavelId: dados.data.escopo === 'equipe' ? null : pessoaDoAtor(c.ator),
+          responsavelId: dados.data.escopo === 'equipe' ? null : (pessoaDoAtor(c.ator) ?? PESSOA_NINGUEM),
         },
       ),
     ])

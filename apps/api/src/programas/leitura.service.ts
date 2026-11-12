@@ -129,6 +129,13 @@ const SELECT_PROGRAMA = `
     ) pg ON pg.programa_id = p.id
    WHERE p.clinica_id = $1 AND p.excluido_em IS NULL`
 
+/**
+ * Um uuid válido que nenhuma pessoa tem. Quem lê sem ser pessoa (sessão de
+ * suporte) pede "o que é meu" e recebe vazio — `''` não é uuid e dava 500, e
+ * `null` significa "sem filtro", o oposto.
+ */
+export const PESSOA_NINGUEM = '00000000-0000-0000-0000-000000000000'
+
 @Injectable()
 export class LeituraDeProgramasService {
   // `@Inject` explícito: o esbuild não emite `design:paramtypes`.
@@ -144,10 +151,10 @@ export class LeituraDeProgramasService {
     // `'eu'` resolvido NO SERVIDOR: aceitar o id do cliente deixaria qualquer
     // um ver a agenda de qualquer um trocando o parâmetro.
     // `'eu'` na sessao de suporte (D-13) nao pode virar `null`: `null` aqui
-    // significa "sem filtro", que e o OPOSTO do pedido. `''` nao casa com
-    // `responsavel_id` de ninguem, e o escopo "meu" do operador sai VAZIO.
+    // significa "sem filtro", que e o OPOSTO do pedido. `PESSOA_NINGUEM` nao casa com
+    // `responsavel_id` de ninguem (e `''` estourava o cast para uuid: 500), e o escopo "meu" do operador sai VAZIO.
     const responsavel =
-      q.responsavelId === 'eu' ? (pessoaDoAtor(ctx.ator) ?? '') : (q.responsavelId ?? null)
+      q.responsavelId === 'eu' ? (pessoaDoAtor(ctx.ator) ?? PESSOA_NINGUEM) : (q.responsavelId ?? null)
 
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const programas = await this.lerProgramas(c, ctx, hoje, q)

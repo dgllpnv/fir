@@ -1,4 +1,4 @@
-import { type ArgumentsHost, Catch, HttpStatus } from '@nestjs/common'
+import { type ArgumentsHost, Catch, HttpStatus, Logger } from '@nestjs/common'
 import { BaseExceptionFilter } from '@nestjs/core'
 import type { FastifyReply } from 'fastify'
 import pg from 'pg'
@@ -49,6 +49,49 @@ export class FiltroDeTarefaVivaDaCampanha extends BaseExceptionFilter {
       })
       return
     }
+    const traduzido = traduzirErroDoBanco(erro.code)
+    if (traduzido) {
+      // Só o nome da restrição e da tabela: parâmetro e valor não vão para o log
+      // (regra 21), e é isto que transforma o próximo "Internal server error"
+      // em um erro com nome.
+      LOG.warn(`erro do banco traduzido: ${erro.code} ${erro.table ?? '-'} ${erro.constraint ?? '-'}`)
+      const res = host.switchToHttp().getResponse<FastifyReply>()
+      void res.status(traduzido.status).send({ statusCode: traduzido.status, message: traduzido.mensagem })
+      return
+    }
     super.catch(erro, host)
+  }
+}
+
+const LOG = new Logger('ErroDoBanco')
+
+/**
+ * A REDE DE SEGURANÇA: violação de regra do banco que nenhum serviço traduziu
+ * vira 4xx em português, e não "Internal server error" na cara da recepção.
+ * Não substitui a mensagem específica do serviço (que diz o que fazer); só
+ * garante que o caminho que ninguém previu não seja um 500. A transação já
+ * voltou, então nada foi gravado. Falha de esquema, trigger e conexão seguem
+ * como 500 de propósito: esses SÃO defeitos.
+ */
+function traduzirErroDoBanco(codigo: string | undefined): { status: number; mensagem: string } | null {
+  switch (codigo) {
+    case '23505':
+      return { status: HttpStatus.CONFLICT, mensagem: 'Esse registro já existe. Confira se ele não foi lançado antes.' }
+    case '23503':
+    case '23514':
+      return {
+        status: HttpStatus.CONFLICT,
+        mensagem: 'Não foi possível salvar: algum dado não combina com as regras do sistema. Confira o que foi preenchido.',
+      }
+    case '22003':
+    case '22007':
+    case '22008':
+    case '22001':
+    case '22021':
+    case '22P05':
+    case '22P02':
+      return { status: HttpStatus.BAD_REQUEST, mensagem: 'Valor, data ou texto inválido. Confira o que foi digitado.' }
+    default:
+      return null
   }
 }

@@ -259,8 +259,10 @@ describe('FECHAR É UMA TRANSAÇÃO SÓ', () => {
       [c.clinica, c.pacientes['ana'], id, c.pessoas['beatriz']],
     )
 
+    // 409 e não 500: a rede de segurança de erros do banco traduz a violação
+    // do índice. O que prova a atomicidade são as asserções abaixo.
     const r = await mover(id, { acao: 'fechar', recebimento: ENTRADA })
-    expect(r.statusCode, JSON.stringify(r.body)).toBe(500)
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(409)
 
     // NENHUM recebimento — nem vivo, nem estornado. A regra 20 não dá jeito
     // num recebimento que nunca devia ter existido.
