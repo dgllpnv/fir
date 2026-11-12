@@ -188,12 +188,15 @@ function OrcamentosPorAtendente({ periodo }: { periodo: PeriodoDoFunil }) {
   )
   if (erro !== null || dados === null) return null
   if (dados.itens.length === 0) return null
+  // Fechados antes de o sistema guardar o valor fechado não dão para
+  // classificar; a coluna só existe quando há algum, para não confundir "0".
+  const haSemClassificacao = dados.itens.some((l) => l.fechadosSemClassificacao > 0)
   return (
     <div className="grupo">
       <h3>Orçamentos por atendente</h3>
       <p className="nota">
         Lançados e fechados no período. Parcial é quando a paciente fechou menos do que foi
-        oferecido.
+        oferecido.{haSemClassificacao ? ' "Fechados antigos" são de antes de o sistema guardar o valor fechado.' : ''}
       </p>
       <div className="tabela">
         <table className="painel">
@@ -203,6 +206,7 @@ function OrcamentosPorAtendente({ periodo }: { periodo: PeriodoDoFunil }) {
               <th className="direita">Lançados</th>
               <th className="direita">Fechados completos</th>
               <th className="direita">Fechados parciais</th>
+              {haSemClassificacao ? <th className="direita">Fechados antigos</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -220,6 +224,11 @@ function OrcamentosPorAtendente({ periodo }: { periodo: PeriodoDoFunil }) {
                 <td data-rotulo="Fechados parciais" className="num direita">
                   {l.fechadosParciais}
                 </td>
+                {haSemClassificacao ? (
+                  <td data-rotulo="Fechados antigos" className="num direita">
+                    {l.fechadosSemClassificacao}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>
