@@ -362,21 +362,25 @@ function GrupoFirmare({ usuarios, erro }: { usuarios: UsuarioDeGestaoNaLista[] |
         <p className="nota erro-do-painel">Não consegui listar quem tem este grupo: {erro}</p>
       ) : usuarios === null ? (
         <p className="nota">Carregando quem tem este grupo…</p>
-      ) : usuarios.length === 0 ? (
+      ) : usuarios.filter((u) => u.ativo).length === 0 ? (
         <p className="nota">
           Ninguém ainda. Dê o grupo Firmare a um usuário em <b>Usuários de gestão</b>.
         </p>
       ) : (
-        <ul aria-label="Usuários do grupo Firmare">
-          {usuarios.map((u) => (
-            <li key={u.id}>
-              <span className={u.ativo ? 'pill' : 'pill mau'}>
-                {u.nome}
-                {u.ativo ? '' : ' (desativado)'}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul aria-label="Usuários do grupo Firmare">
+            {usuarios
+              .filter((u) => u.ativo)
+              .map((u) => (
+                <li key={u.id}>
+                  <span className="pill">{u.nome}</span>
+                </li>
+              ))}
+          </ul>
+          {usuarios.some((u) => !u.ativo) ? (
+            <p className="nota">Os desativados aparecem em Usuários de gestão, em "Mostrar desativados".</p>
+          ) : null}
+        </>
       )}
     </div>
   )

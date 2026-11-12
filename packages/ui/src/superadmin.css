@@ -377,6 +377,8 @@ table.superadmin-lista td.coluna-acao { text-align: right; white-space: nowrap; 
  * de 620 px, e `display: flex` nela quebraria o alinhamento da coluna.
  */
 table.superadmin-lista td.coluna-acao > .link + .link { margin-left: 14px; }
+/* "acompanha o operador" fica na MESMA linha de "Desativar" (o `.muted` das outras células é bloco). */
+table.superadmin-lista td.coluna-acao > .muted { display: inline; margin-right: 14px; font-size: 13px; }
 table.superadmin-lista .codigo {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
