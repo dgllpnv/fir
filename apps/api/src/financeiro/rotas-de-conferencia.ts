@@ -532,6 +532,11 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   },
   { caminho: '/v1/busca-de-pacientes', razao: 'Três campos: id, nome e telefone (decisão D-7).' },
   {
+    caminho: '/v1/atividades',
+    razao:
+      'O log da equipe da propria clinica: metadado de linhas ja gravadas (quem, quando, qual acao), nunca um agregado do dia.',
+  },
+  {
     caminho: '/v1/auditoria',
     razao:
       'A trilha de escrita. Devolve o diff de linhas já gravadas, nunca um agregado do dia — e um `INSERT` de `caixa_por_forma` só existe DEPOIS do fechamento.',
@@ -567,6 +572,31 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     caminho: '/v1/tarefas/:id',
     razao:
       'UMA tarefa, para preencher o painel de edição. Carrega o pagamento e o orçamento DAQUELA tarefa — um registro, nunca um agregado de dia, e portanto nada que o fechamento de caixa fosse conferir.',
+  },
+  {
+    caminho: '/v1/campanhas/:id',
+    razao:
+      'Detalhe de UMA campanha: receita acumulada pelo predicado unico da campanha (orcamento e estornado fora), nunca o esperado de um dia de caixa aberto.',
+  },
+  {
+    caminho: '/v1/campanhas/:id/tarefas',
+    razao:
+      'Lista de tarefas ja gravadas de UMA campanha: linhas, nao agregado de dia; valores saem null sem `valores`.',
+  },
+  {
+    caminho: '/v1/campanhas/:id/proximo-mes',
+    razao:
+      'Rascunho de campanha para o mes seguinte: copia de cadastro, nada financeiro e nada gravado.',
+  },
+  {
+    caminho: '/v1/pacientes/:id/orcamentos',
+    razao:
+      'Orcamentos de UM paciente (orcado/fechado/restante): orcamento nao e receita (regra 4) e nenhum valor e esperado de caixa; valores saem null sem `valores`.',
+  },
+  {
+    caminho: '/v1/tarefas/:id/exclusao',
+    razao:
+      'Prévia da exclusão de UMA tarefa: o que o estorno vai desfazer (soma do pagamento daquela tarefa). Um registro, nunca um agregado de dia, e o valor sai null sem `valores`.',
   },
   {
     caminho: '/v1/contas',

@@ -25,6 +25,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 import { bordasDoPeriodo } from '../tarefas/consulta.service'
+import { sqlParcial } from './parcial'
 
 /**
  * `GET /v1/jornada` — o funil do período e a situação de hoje.
@@ -110,6 +111,13 @@ type DesenhoDeColuna = {
    */
   readonly recorte: 'hoje' | 'periodo'
   readonly temValor: boolean
+  /**
+   * Visão DERIVADA, não etapa: só os fechados PARCIAIS (`sqlParcial`). O cartão
+   * não sai de "Fechados" — a mesma linha aparece nas duas colunas, e o passo
+   * "Fechados" do funil não muda. Recorte de hoje, sem período: o restante a
+   * cobrar não some quando o mês vira.
+   */
+  readonly soParciais?: true
 }
 
 const COLUNAS: readonly DesenhoDeColuna[] = [
@@ -119,6 +127,7 @@ const COLUNAS: readonly DesenhoDeColuna[] = [
   { chave: 'recontatar', rotulo: 'Recontatar', etapas: ['faltou', 'desmarcou'], recorte: 'hoje', temValor: false },
   { chave: 'realizadas', rotulo: 'Realizadas sem orçamento', etapas: ['realizado'], recorte: 'periodo', temValor: false },
   { chave: 'orcamentos', rotulo: 'Orçamentos em aberto', etapas: ['orcamento'], recorte: 'hoje', temValor: true },
+  { chave: 'parciais', rotulo: 'Orçamento parcialmente fechado', etapas: ['fechado'], recorte: 'hoje', temValor: true, soParciais: true },
   { chave: 'fechados', rotulo: 'Fechados', etapas: ['fechado'], recorte: 'periodo', temValor: true },
   { chave: 'perdidos', rotulo: 'Perdidos', etapas: ['perdido'], recorte: 'periodo', temValor: true },
 ]
@@ -226,7 +235,7 @@ export class FunilService {
           proporcao:
             n('agendados') === 0
               ? 0
-              : Math.max(4, Math.round((quantos / n('agendados')) * 100)),
+              : Math.min(100, Math.max(4, Math.round((quantos / n('agendados')) * 100))),
         }
       })
 
@@ -313,9 +322,14 @@ async function contarEventos(
                               ELSE (ev->>'valor')::bigint END), 0)::text AS valor,
             coalesce(sum(t.valor_orcamento), 0)::text AS valor_do_cartao
        FROM tarefas t
-       CROSS JOIN LATERAL jsonb_array_elements(t.historico) ev
+       CROSS JOIN LATERAL jsonb_array_elements(t.historico) WITH ORDINALITY AS e(ev, ord)
       WHERE ${onde}
         AND ev->>'acao' = ANY($${base + 1})
+        -- Um cartão fecha UMA vez: com dois eventos "fechar" (histórico migrado da
+        -- v20) só o ÚLTIMO conta, senão o valor fechado entra em dobro no funil.
+        AND (ev->>'acao' <> 'fechar' OR e.ord = (
+              SELECT max(e2.ord) FROM jsonb_array_elements(t.historico) WITH ORDINALITY AS e2(v, ord)
+               WHERE e2.v->>'acao' = 'fechar'))
         AND (ev->>'em')::timestamptz >= $${base + 2}
         AND (ev->>'em')::timestamptz <  $${base + 3}
       GROUP BY 1`,
@@ -420,6 +434,15 @@ type LinhaDeColuna = {
   proximo_passo_em: string | null
   valor_orcamento: string | null
   ultimo_evento_em: Date | null
+  /** `sqlParcial`: o cartão é um fechado parcial. */
+  parcial: boolean
+  /** A janela do período, decidida no SQL (nenhuma segunda cópia em TS). */
+  na_janela: boolean
+  oferecido: string | null
+  fechado: string | null
+  itens_total: number | null
+  /** Só nos parciais; `null` = fechado antes do detalhamento. */
+  itens_fechados: number | null
 }
 
 /**
@@ -453,19 +476,36 @@ async function montarColunas(
             (CASE WHEN t.etapa = 'fechado'
                   THEN coalesce(t.valor_fechado, t.valor_orcamento)
                   ELSE t.valor_orcamento END)::text AS valor_orcamento,
-            u.em AS ultimo_evento_em
+            u.em AS ultimo_evento_em,
+            ${sqlParcial('t')} AS parcial,
+            (t.etapa <> ALL($${params.length + 1})
+             OR (u.em >= $${params.length + 2} AND u.em < $${params.length + 3})) AS na_janela,
+            t.valor_orcamento::text AS oferecido, t.valor_fechado::text AS fechado,
+            -- Quantos procedimentos o orçamento lista (próprios ou do programa).
+            coalesce(jsonb_array_length(t.itens_orcamento), jsonb_array_length(t.programa_orcado)) AS itens_total,
+            -- "Fechou X de Y": do ÚLTIMO fechamento do cartão. Só nos parciais.
+            CASE WHEN ${sqlParcial('t')} THEN (
+              SELECT jsonb_array_length(f.ev->'itensFechados')
+                FROM jsonb_array_elements(t.historico) WITH ORDINALITY f(ev, n)
+               WHERE f.ev->>'acao' = 'fechar'
+               ORDER BY f.n DESC LIMIT 1
+            ) END AS itens_fechados
        FROM tarefas t
        LEFT JOIN pacientes pa ON pa.id = t.paciente_id
        LEFT JOIN LATERAL (
          SELECT max((ev->>'em')::timestamptz) AS em
            FROM jsonb_array_elements(t.historico) ev
           WHERE ev->>'etapa' = t.etapa::text
+            -- Retomar o restante não muda QUANDO o cartão fechou.
+            AND ev->>'acao' <> 'retomarRestante'
        ) u ON t.etapa = ANY($${params.length + 1})
       WHERE ${onde}
         -- "encerrado" não tem coluna: ele saiu de todas as listas de propósito.
         AND t.etapa <> 'encerrado'
         AND (t.etapa <> ALL($${params.length + 1})
-             OR (u.em >= $${params.length + 2} AND u.em < $${params.length + 3}))
+             OR (u.em >= $${params.length + 2} AND u.em < $${params.length + 3})
+             -- O parcial entra pela situação de HOJE, mesmo fora da janela.
+             OR ${sqlParcial('t')})
       ORDER BY t.prazo DESC, t.hora NULLS LAST, t.criada_em DESC`,
     [...params, ETAPAS_DO_PERIODO, emInstantes.de, emInstantes.ate],
   )
@@ -481,9 +521,23 @@ async function montarColunas(
   // regra de período em TypeScript seria a segunda escrita dela — e a segunda
   // é a que diverge quando a janela virar `[de, ate]` num dos dois lugares.
   return COLUNAS.map((d) => {
-    const todos = d.etapas.flatMap((e) => porEtapa.get(e) ?? [])
+    const dasEtapas = d.etapas.flatMap((e) => porEtapa.get(e) ?? [])
+    // As duas marcas vêm do SQL: `parcial` (`sqlParcial`) e `na_janela`.
+    const todos =
+      d.soParciais === true
+        ? dasEtapas.filter((l) => l.parcial)
+        : d.recorte === 'periodo'
+          ? dasEtapas.filter((l) => l.na_janela)
+          : dasEtapas
+    // Na coluna dos parciais o cabeçalho soma o RESTANTE a cobrar; nas outras, o orçado.
     const soma = todos.reduce(
-      (s, l) => s + (l.valor_orcamento === null ? 0n : BigInt(l.valor_orcamento)),
+      (s, l) =>
+        s +
+        (d.soParciais === true
+          ? restanteDe(l)
+          : l.valor_orcamento === null
+            ? 0n
+            : BigInt(l.valor_orcamento)),
       0n,
     )
     return {
@@ -491,13 +545,17 @@ async function montarColunas(
       rotulo: d.rotulo,
       n: todos.length,
       valor: d.temValor ? soma.toString() : null,
-      itens: todos.slice(0, TETO_DA_COLUNA).map(paraCartao),
+      itens: todos.slice(0, TETO_DA_COLUNA).map((l) => paraCartao(l, d.soParciais === true)),
       restantes: Math.max(0, todos.length - TETO_DA_COLUNA),
     }
   })
 }
 
-const paraCartao = (l: LinhaDeColuna): CartaoDaColuna => ({
+/** Oferecido − fechado do cartão parcial: o que ainda não foi fechado. Nunca receita (regra 4). */
+const restanteDe = (l: LinhaDeColuna): bigint =>
+  l.oferecido === null || l.fechado === null ? 0n : BigInt(l.oferecido) - BigInt(l.fechado)
+
+const paraCartao = (l: LinhaDeColuna, parcial: boolean): CartaoDaColuna => ({
   id: l.id,
   pacienteId: l.paciente_id,
   pacienteNome: l.paciente_nome,
@@ -508,5 +566,15 @@ const paraCartao = (l: LinhaDeColuna): CartaoDaColuna => ({
   hora: l.hora === null ? null : l.hora.slice(0, 5),
   proximoPassoEm: l.proximo_passo_em,
   ultimoEventoEm: l.ultimo_evento_em === null ? null : l.ultimo_evento_em.toISOString(),
-  valorOrcamento: l.valor_orcamento,
+  // Na coluna dos parciais o mini-cartão mostra o OFERECIDO, o fechado e o
+  // restante; nas outras, o que a coluna sempre mostrou.
+  valorOrcamento: parcial ? l.oferecido : l.valor_orcamento,
+  ...(parcial
+    ? {
+        valorFechado: l.fechado,
+        valorRestante: restanteDe(l).toString(),
+        itensFechados: l.itens_fechados,
+        itensTotal: l.itens_total,
+      }
+    : {}),
 })

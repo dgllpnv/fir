@@ -1,5 +1,6 @@
 import {
   ConsultaDeRecebimentos,
+  CorpoComMotivo,
   type ListaDeRecebimentos,
   type RecebimentoNaLista,
   RegistrarRecebimento,
@@ -75,11 +76,15 @@ export class RecebimentosController {
   async estornar(
     @Req() req: RequisicaoComContexto,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() corpo: unknown,
   ): Promise<void> {
+    const motivo = CorpoComMotivo.safeParse(corpo ?? {})
+    if (!motivo.success) throw new BadRequestException(primeiroErro(motivo.error))
     const c = req.contexto!
     await this.recebimentos.estornar(
       { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
       id,
+      motivo.data.motivo,
     )
   }
 }

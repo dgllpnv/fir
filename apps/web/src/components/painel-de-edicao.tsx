@@ -5,12 +5,16 @@ import type {
   ListaDaEquipe,
   ListaDeUnidades,
   TarefaNaLista,
+  PrevisaoDeExclusao,
   TarefasAfetadas,
 } from '@fir/contracts'
+import { formatarDinheiro } from '@fir/ui'
 import { useEffect, useRef, useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
+import { validarMotivoDeSuporte } from '@/lib/motivo-de-suporte'
 import { CampoDeCampanha } from './campo-de-campanha'
+import { CampoDeMotivoDeSuporte } from './campo-de-motivo-de-suporte'
 
 /**
  * Editar — e **Excluir dentro de Editar**, como no MANUAL cap. 4.
@@ -56,17 +60,27 @@ export function PainelDeEdicao({
   const unidades = useDados<ListaDeUnidades>('v1/unidades')
 
   /**
-   * O painel abre no FIM da tela, e num dia com doze tarefas ele nasce fora da
-   * vista: a pessoa toca "Editar" e nada parece acontecer. Movimento que
-   * explica de onde veio é o único permitido (`design.md` §3), e este explica.
+   * O painel é uma FOLHA fixa sobre a página, não um bloco no fim da lista: as
+   * telas o montam depois das tarefas, e com 44 delas ele nascia fora da vista
+   * — a cliente dizia que "Editar não abre". Fixo, ele aparece onde quer que
+   * seja montado, sem que a tela precise saber.
    *
-   * O foco vai junto, para quem navega por teclado não ter de percorrer a
-   * lista inteira até alcançar o formulário que acabou de abrir.
+   * Foco no primeiro campo ao abrir; Esc fecha; ao fechar o foco volta ao
+   * botão que o abriu.
    */
   const painel = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    painel.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const origem = document.activeElement
     painel.current?.querySelector('input')?.focus()
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') aoFechar()
+    }
+    document.addEventListener('keydown', esc)
+    return () => {
+      document.removeEventListener('keydown', esc)
+      if (origem instanceof HTMLElement) origem.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function salvar() {
@@ -102,13 +116,18 @@ export function PainelDeEdicao({
     }
   }
 
-  async function excluir() {
+  async function excluir(motivo?: string) {
     setErro(null)
     setSalvando(true)
     try {
+      // O motivo vai no CORPO (não na URL, que vai para log). Só o Suporte
+      // Firmare é obrigado a informá-lo; para a pessoa da clínica não há campo.
       const r = await chamar<ExclusaoDeTarefa>(
         `v1/tarefas/${t.id}?serie=${serie ? 'true' : 'false'}`,
-        { method: 'DELETE' },
+        {
+          method: 'DELETE',
+          ...(motivo === undefined ? {} : { body: JSON.stringify({ motivo }) }),
+        },
       )
       aoSalvar(
         r.ids.length > 1
@@ -124,9 +143,31 @@ export function PainelDeEdicao({
 
   return (
     <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 60,
+        display: 'grid',
+        placeItems: 'center',
+        padding: 16,
+        background: 'color-mix(in srgb, var(--ink) 45%, transparent)',
+      }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) aoFechar()
+      }}
+    >
+    <div
       className="painel"
-      style={{ marginTop: 16 }}
-      role="group"
+      style={{
+        width: 'min(560px, 100%)',
+        maxHeight: '100%',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        boxSizing: 'border-box',
+        margin: 0,
+      }}
+      role="dialog"
+      aria-modal="true"
       aria-label="Editar tarefa"
       ref={painel}
     >
@@ -244,20 +285,13 @@ export function PainelDeEdicao({
       )}
 
       {confirmando ? (
-        <div className="erro-de-tela">
-          <p>
-            Excluir {serie && t.serieId !== null ? 'esta tarefa e as próximas da série' : 'esta tarefa'}?
-            O registro sai das listas e o histórico fica guardado.
-          </p>
-          <div className="botoes">
-            <button type="button" className="btn" onClick={() => void excluir()} disabled={salvando}>
-              Sim, excluir
-            </button>
-            <button type="button" className="btn ghost" onClick={() => setConfirmando(false)}>
-              Não
-            </button>
-          </div>
-        </div>
+        <ConfirmarExclusao
+          tarefaId={t.id}
+          oque={serie && t.serieId !== null ? 'esta tarefa e as próximas da série' : 'esta tarefa'}
+          ocupado={salvando}
+          aoConfirmar={(motivo) => void excluir(motivo)}
+          aoDesistir={() => setConfirmando(false)}
+        />
       ) : (
         <div className="botoes">
           <button type="button" className="btn" onClick={() => void salvar()} disabled={salvando}>
@@ -276,6 +310,94 @@ export function PainelDeEdicao({
           </button>
         </div>
       )}
+    </div>
+    </div>
+  )
+}
+
+/**
+ * A confirmação da exclusão, em dois passos: primeiro o que VAI acontecer,
+ * depois o botão.
+ *
+ * Mora aqui e é usada também pelo cartão, para que a exclusão de uma tarefa
+ * concluída (com pagamento e programa) tenha o mesmo texto onde quer que seja
+ * pedida. O servidor decide e executa tudo numa transação; a tela só avisa.
+ *
+ * O valor só aparece para quem tem `valores`: o servidor o devolve `null` aos
+ * demais (regra 17) e o texto sai sem número.
+ */
+export function ConfirmarExclusao({
+  tarefaId,
+  oque,
+  ocupado,
+  aoConfirmar,
+  aoDesistir,
+}: {
+  tarefaId: string
+  oque: string
+  ocupado: boolean
+  /** `motivo` só vem na sessão de suporte, quando o servidor o exige. */
+  aoConfirmar: (motivo?: string) => void
+  aoDesistir: () => void
+}) {
+  const [previa, setPrevia] = useState<PrevisaoDeExclusao | null>(null)
+  const [motivo, setMotivo] = useState('')
+  const [falhou, setFalhou] = useState(false)
+
+  useEffect(() => {
+    let valeu = true
+    chamar<PrevisaoDeExclusao>(`v1/tarefas/${tarefaId}/exclusao`)
+      .then((r) => {
+        if (valeu) setPrevia(r)
+      })
+      .catch(() => {
+        if (valeu) setFalhou(true)
+      })
+    return () => {
+      valeu = false
+    }
+  }, [tarefaId])
+
+  return (
+    <div className="erro-de-tela" role="alertdialog" aria-label="Confirmar exclusão">
+      <p>
+        Excluir {oque}? O registro sai das listas e o histórico fica guardado.
+      </p>
+      {previa?.temPagamento ? (
+        <p>
+          <strong>
+            O pagamento registrado nesta tarefa
+            {previa.valor === null ? '' : ` (${formatarDinheiro(BigInt(previa.valor))})`} será
+            estornado
+          </strong>{' '}
+          e deixa de contar na receita
+          {previa.temPrograma ? '; o programa criado por ela será encerrado' : ''}. As sessões já
+          feitas e o estoque já baixado continuam como estão.
+        </p>
+      ) : previa?.temPrograma ? (
+        <p>O programa criado por esta tarefa será encerrado.</p>
+      ) : null}
+      {falhou ? <p>Não consegui conferir se há pagamento. Tente de novo.</p> : null}
+      {previa?.exigeMotivo ? (
+        <CampoDeMotivoDeSuporte valor={motivo} aoMudar={setMotivo} />
+      ) : null}
+      <div className="botoes">
+        <button
+          type="button"
+          className="btn"
+          onClick={() => aoConfirmar(previa?.exigeMotivo ? motivo.trim() : undefined)}
+          disabled={
+            ocupado ||
+            (previa === null && !falhou) ||
+            (previa?.exigeMotivo === true && !validarMotivoDeSuporte(motivo).ok)
+          }
+        >
+          Sim, excluir
+        </button>
+        <button type="button" className="btn ghost" onClick={aoDesistir}>
+          Não
+        </button>
+      </div>
     </div>
   )
 }

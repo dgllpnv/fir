@@ -236,7 +236,7 @@ export class SessoesService {
         if (ehErro(r)) throw new ConflictException(r.erro.mensagem)
       }
 
-      return umaSo(await lerTarefas(c, clinicaId, hoje, [...afetadas]), id)
+      return umaSo(await lerTarefas(c, clinicaId, hoje, [...afetadas], autor.podeJornada), id)
     })
   }
 
@@ -307,7 +307,7 @@ export class SessoesService {
       if (ehErro(r)) throw new ConflictException(r.erro.mensagem)
 
       return umaSo(
-        await lerTarefas(c, clinicaId, hoje, [id, ...canceladas.rows.map((x) => x.id)]),
+        await lerTarefas(c, clinicaId, hoje, [id, ...canceladas.rows.map((x) => x.id)], autor.podeJornada),
         id,
       )
     })

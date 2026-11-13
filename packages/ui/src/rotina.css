@@ -924,6 +924,7 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
 /* Card é AGRUPAMENTO: o passo do funil agrupa quatro fatos do mesmo número, e
    a barra embaixo só faz sentido colada neles. */
 .funpasso {
+  overflow: hidden;
   display: grid;
   gap: 2px;
   align-content: start;

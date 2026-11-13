@@ -269,6 +269,7 @@ describe('o que a importação completa, e o que ela não toca', () => {
     await request(app.getHttpServer())
       .delete(`/v1/pacientes/${id}`)
       .set('Cookie', cookies['beatriz']!)
+      .send({ razao: 'erro-de-cadastro' })
       .expect(200)
 
     const r = (await importar([{ nome: 'Foi Desativada', telefone: '71955554444' }]).expect(200))

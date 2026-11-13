@@ -15,6 +15,7 @@ import type pg from 'pg'
 import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
+import { declararMotivo, motivoDaAcao } from '../comum/motivo-de-suporte'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { campanhaParaVincular } from '../campanhas/vinculo'
 import { unidadeValida } from '../comum/unidade'
@@ -324,8 +325,11 @@ export class RecebimentosService {
    * mesmo estorno é a porta que esquece de reabrir a tarefa, e o atendimento
    * ficaria concluído sem o dinheiro que a recepção acha que lançou.
    */
-  async estornar(ctx: Contexto, id: string): Promise<void> {
+  async estornar(ctx: Contexto, id: string, motivoInformado?: string): Promise<void> {
+    // Sessão de suporte: sem motivo, 400 antes de abrir a transação (I1).
+    const motivo = motivoDaAcao(ctx.ator, motivoInformado)
     await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      await declararMotivo(c, motivo)
       const r = await c.query<{ tipo: string; tarefa_id: string | null; estornado_em: Date | null }>(
         'SELECT tipo, tarefa_id, estornado_em FROM recebimentos WHERE id = $1',
         [id],
@@ -337,7 +341,7 @@ export class RecebimentosService {
       }
       if (!ehPagamento(linha.tipo)) {
         throw new ConflictException(
-          'Este pagamento está dentro de um atendimento. Para desfazê-lo, reabra o atendimento.',
+          'Este pagamento está dentro de um atendimento. Para desfazê-lo, reabra o atendimento ou, se o orçamento já foi fechado, abra Editar e use Excluir.',
         )
       }
 

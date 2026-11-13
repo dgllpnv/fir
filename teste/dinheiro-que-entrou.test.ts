@@ -111,6 +111,14 @@ const FORA_DA_VARREDURA: Readonly<Record<string, string>> = {
   // `z.string()` por isso: a forma vazia é um valor legítimo ali.
   'apps/api/src/tarefas/leitura.ts':
     'lê o pagamento de UMA tarefa para a linha do tempo — a venda a prazo tem de aparecer lá',
+  // EXCLUIR UMA TAREFA estorna TODO recebimento vivo da adesão, e a venda a
+  // prazo (`valor = 0`, `valor_aberto > 0`) é uma linha viva que o saldo em
+  // aberto da paciente soma. Filtrar `valor > 0` aqui deixaria essa linha viva
+  // depois da exclusão: a tarefa sumiria e a dívida da adesão continuaria no
+  // saldo. A soma devolvida é só a PRÉVIA do que será estornado (zero não
+  // altera a soma), não um agregado de receita de dia nenhum.
+  'apps/api/src/tarefas/edicao.service.ts':
+    'lê os recebimentos vivos de UMA adesão para estorná-los — a linha de venda a prazo (valor 0) também tem de ser estornada',
 }
 
 const ehTeste = (caminho: string): boolean =>

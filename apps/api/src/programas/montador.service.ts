@@ -5,7 +5,7 @@ import {
   erroDe,
   montarCronograma,
   ok,
-  ratearPrograma,
+  ratearValoresDosItens,
   TIPO_RETORNO,
   TIPO_SESSAO,
   type ItemParaCronograma,
@@ -289,27 +289,18 @@ export class MontadorRelacional extends MontadorDePrograma {
    */
   private ratear(p: PedidoDeMontagem): Map<string, Dinheiro> {
     const fora = new Map<string, Dinheiro>()
-    for (const i of p.itens) if (i.valor !== null) fora.set(i.chave, i.valor)
-    if (p.valorTotal === null) return fora
-
-    const semValor = p.itens.filter((i) => i.valor === null)
-    if (semValor.length === 0) return fora
-
-    const jaDados = p.itens.reduce(
-      (s, i) => (i.valor === null ? s : s.mais(i.valor)),
-      Dinheiro.zero(),
+    if (p.valorTotal === null || p.itens.length === 0) {
+      for (const i of p.itens) if (i.valor !== null) fora.set(i.chave, i.valor)
+      return fora
+    }
+    // O valor do programa (negociado, ou o FECHADO digitado no parcial) manda:
+    // Σ itens_do_programa.valor == programas.valor_total SEMPRE, inclusive
+    // quando os preços por item do orçamento somam outra coisa (desconto).
+    const partes = ratearValoresDosItens(
+      p.valorTotal,
+      p.itens.map((i) => ({ sessoes: BigInt(i.sessoes), valor: i.valor })),
     )
-    // Clamp em zero: itens que já somam mais que o total negociado não geram
-    // parte negativa para os demais. O contrato recusa `entrada > total`, mas
-    // não "soma dos itens > total" — e um item com valor negativo na tela é
-    // pior que um item zerado.
-    const sobra = p.valorTotal.ehMaiorQue(jaDados) ? p.valorTotal.menos(jaDados) : Dinheiro.zero()
-
-    const partes = ratearPrograma(
-      sobra,
-      semValor.map((i) => BigInt(i.sessoes)),
-    )
-    semValor.forEach((i, k) => fora.set(i.chave, partes[k]!))
+    p.itens.forEach((i, k) => fora.set(i.chave, partes[k]!))
     return fora
   }
 

@@ -96,6 +96,11 @@ export const CAMPOS_MONETARIOS = [
   'valorAberto',
   'valorOrcamento',
   'valorFechado',
+  // O valor lido da lista importada da campanha (migration 0080). REFERÊNCIA,
+  // nunca receita (regras 3 e 4), mas dinheiro para a redação (regra 17).
+  'valorDeReferencia',
+  // O que sobra do orcamento depois do fechamento parcial (oferecido - fechado).
+  'valorRestante',
   'valorPago',
   'valorTotal',
   'valorEntrada',
@@ -271,6 +276,15 @@ export const CAMPOS_MONETARIOS = [
   'faturamento',
   'ltvMedio',
   'ltvTotal',
+
+  // O DETALHE DA CAMPANHA (`/campanhas/:id`) e os KPIs do mês da lista.
+  // `valorConvertido` (a soma da receita das campanhas do mês) e
+  // `faltaEmDinheiro` ("Faltam R$ X" na meta em reais). `faltaEmNumero`,
+  // `percentualRealizado` e as contagens NÃO entram: não são dinheiro, e a
+  // equipe sem `valores` lê o andamento delas. `valor` (por tipo) e
+  // `valorTotal` (drill-down) já estavam acima.
+  'valorConvertido',
+  'faltaEmDinheiro',
 
   // ---------------------------------------------------------------------
   // G3 — a carteira comercial: `Cobrança do Cliente Firmare`, `Mensalidade` e

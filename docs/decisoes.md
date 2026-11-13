@@ -716,6 +716,16 @@ seguido nesse ponto.
 
 Nada muda em rotas, permissões, conteúdo das telas e no painel do superadmin (que mantém o próprio menu no topo).
 
+## D-27 · O Suporte Firmare age na clínica COM justificativa, e a clínica lê o que ele mexeu (2026-11-13)
+
+**Origem:** a revisão de segurança e LGPD da frente I1. A D-13 e o §"Acesso de suporte" acima exigem "justificativa por acesso e prazo"; o prazo existe (sessão de 30 minutos), a justificativa não existia: o operador excluía tarefa, estornava recebimento e reativava/desativava paciente sem dizer por quê.
+
+**Decisão:** `motivo` (10 a 200 caracteres) é **obrigatório** quando o ator é o operador, em quatro ações — excluir tarefa, estornar recebimento, desativar e reativar paciente — e opcional, inalterado, para a pessoa da clínica. Vai para `auditoria.motivo` (migration 0079) e a tela **Atividades da clínica** passa a mostrar, nas linhas do Suporte, **qual registro** (id da tarefa, do recebimento, do paciente) e o motivo, nunca nome, telefone, valor, nem id ou nome do operador. Detalhes e o porquê técnico: `docs/adr/2026-11-13-excluir-tarefa-com-estorno-e-suporte.md` (emenda).
+
+**Risco aceito:** o suporte é `admin` para `temPerm`, então `podeReceber` é sempre verdadeiro e ele estorna dinheiro e encerra programa mesmo sem perfil com `receber`. Aceito porque a alternativa (suporte parcial) é uma segunda tabela de permissões para um ator de 30 minutos, e porque cada ação agora deixa motivo e trilha de operador visíveis à clínica. **O motivo é texto livre:** pode conter dado pessoal digitado por engano (a tela avisa); a clínica o lê, e ele envelhece com a trilha de escrita (5 anos). **Não coberto por esta decisão:** as demais ações do suporte que não passam por estas quatro rotas (a D-13 as recusa com 403, exceto o que foi liberado em ADR) e a cláusula de acesso de suporte no DPA (P-3).
+
+**Paciente desativado (I3):** o telefone deixa de sair em `/v1/tarefas`, Hoje e campanhas quando o paciente está desativado; nome e tarefas continuam. **Pendente, decisão do dono:** esconder das listas as tarefas ABERTAS de paciente desativado.
+
 ## O que ainda depende do dono
 
 | # | Pendência | Quem destrava | Bloqueia |

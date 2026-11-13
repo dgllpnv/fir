@@ -459,7 +459,10 @@ describe('GET /v1/pacientes/:id — a ficha', () => {
 
 describe('DELETE /v1/pacientes/:id — desativar, nunca apagar (ADR 0003)', () => {
   const desativar = (id: string, quem = 'beatriz') =>
-    request(app.getHttpServer()).delete(`/v1/pacientes/${id}`).set('Cookie', cookies[quem]!)
+    request(app.getHttpServer())
+      .delete(`/v1/pacientes/${id}`)
+      .set('Cookie', cookies[quem]!)
+      .send({ razao: 'duplicado' })
 
   it('desativar tira das listas mas NÃO apaga as tarefas', async () => {
     const id = (await criar({ nome: 'Sai Da Lista' }).expect(201)).body.id

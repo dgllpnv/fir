@@ -270,7 +270,19 @@ indicou e **não** é paciente. Ninguém se indica. Apagar a indicadora zera só
 
 Substitui o `acaoEm` de dois sentidos, e com isso "Recontatar" e "Orçamentos para retomar" passam a ser a **mesma** cláusula (`proximo_passo_em <= hoje`) — no protótipo são duas consultas que já divergiram: Recontatar não filtra por data, retomar filtra.
 
-`noshow` e `desmarcar` o põem em **hoje**; `registrarOrcamento` em **hoje + 2**; `followUp` em **hoje + 3**; `reagendar`, `encerrar`, `perder` e `fechar` o **limpam**. Os padrões são calculados no servidor, no fuso da clínica (regra 24) — a tela os **mostra**, não os decide.
+`noshow` e `desmarcar` o põem em **hoje**; `registrarOrcamento` em **hoje + 2**; `followUp` em **hoje + 3**; `reagendar`, `encerrar` e `perder` o **limpam**. `fechar` o limpa, **salvo no fechamento parcial** com data de retomar o restante (`retomarRestanteEm`), quando o grava; `retomarRestante` o ajusta ou limpa depois. Os padrões são calculados no servidor, no fuso da clínica (regra 24) — a tela os **mostra**, não os decide.
+
+### Fechamento total e parcial
+Ao fechar um orçamento, a recepção declara **fechamento total** (o orçamento todo) ou **fechamento parcial** (só uma parte). No total só há perguntas de pagamento. No parcial ela marca **quais procedimentos** foram fechados, confere o **valor fechado** (pré-preenchido pela soma dos itens com preço, sempre editável) e pode marcar quando retomar o restante. Parcial com todos os procedimentos marcados é erro ("use o orçamento todo").
+
+### Restante do orçamento × Pagamento em aberto
+Dois conceitos que **não se misturam**. **Pagamento em aberto** é o saldo a receber do que foi fechado (`fechado − recebido agora`, regra 5; vira `valorAberto` do recebimento). **Restante do orçamento** é a parte que **não** foi fechada (`oferecido − fechado`, só no parcial; `valorRestante`, derivado, nunca receita — regra 4).
+
+### Orçamento parcialmente fechado
+Nome único na UI (selo, coluna da Jornada, aba Orçamentos) para o orçamento fechado por menos do que foi oferecido. É uma **visão derivada** (`situacaoDoFechamento`/`resumoDoOrcamento`), **não** uma etapa da máquina de estados: o cartão continua `fechado` e continua contando em "Fechados". Substitui "Orçamento parcial".
+
+### Itens do orçamento
+Os procedimentos listados num orçamento (`itens_orcamento`, ou lidos de `programa_orcado`), **separados de programa**: o item diz *o quê* foi proposto; o programa diz *como* será executado (sessões, intervalo). O fechamento parcial pergunta os itens. Termo proibido: tratar "item do orçamento" como sinônimo de "programa".
 
 ### `Motivo de perda`
 Por que um orçamento se perdeu. **É dado da clínica, não `enum` do código**: toda clínica nova nasce com os cinco do protótipo (Preço · Sem retorno do paciente · Escolheu outro lugar · Não é o momento · Outro) e pode acrescentar os seus.

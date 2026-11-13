@@ -104,6 +104,13 @@ const ICONES: Readonly<Record<string, ReactElement>> = {
     <circle key="c" cx="17.5" cy="15.5" r="2.2" />,
     <path key="d" d="M19.2 17.2 22 20M20 18.4l1-1" />,
   ),
+  /* Lista com marcadores: o registro do que foi feito, por quem. */
+  '/atividades': svg(
+    <path key="a" d="M9 6h12M9 12h12M9 18h12" />,
+    <circle key="b" cx="4.5" cy="6" r="1.2" />,
+    <circle key="c" cx="4.5" cy="12" r="1.2" />,
+    <circle key="d" cx="4.5" cy="18" r="1.2" />,
+  ),
   /* Três círculos ligados: a rede de grupos que recebe a clínica. */
   '/grupos-da-clinica': svg(
     <circle key="a" cx="12" cy="5.5" r="2.5" />,
@@ -159,6 +166,41 @@ export const inicial = (nome: string): string => {
   const primeiro = partes.find((p) => !TRATAMENTOS.has(p.replace(/\.$/, '').toLowerCase()))
   return (primeiro?.[0] ?? '?').toUpperCase()
 }
+
+/* Setinha à direita do grupo: fecha apontando para o lado (a lista sai pela
+   lateral) e gira 90 graus quando a lista desce, na gaveta do celular. */
+export const ICONE_CHEVRON = svg(<path key="a" d="m9 6 6 6-6 6" strokeWidth={2} />)
+
+/* Círculo meio cheio: "contraste". Serve aos três temas (claro, escuro,
+   sistema) sem trocar de desenho conforme o escolhido — o que evita o ícone
+   piscar na hidratação, já que o servidor não sabe o tema do aparelho. */
+export const ICONE_TEMA = svg(
+  <circle key="a" cx="12" cy="12" r="8.5" />,
+  <path key="b" d="M12 3.5v17a8.5 8.5 0 0 0 0-17Z" fill="currentColor" />,
+)
+
+/* Controles deslizantes: ajustar como a clínica funciona. */
+const ICONE_CONFIGURACOES = svg(
+  <path key="a" d="M4 7h9M17 7h3M4 17h3M11 17h9" />,
+  <circle key="b" cx="15" cy="7" r="2" />,
+  <circle key="c" cx="9" cy="17" r="2" />,
+)
+
+/**
+ * O ícone do GRUPO do menu. Reaproveita o traço da tela mais representativa
+ * (o funil para Comercial, a cédula para Financeiro, as pessoas para Pessoas):
+ * ícone novo só onde não há tela que o represente.
+ */
+export const iconeDoGrupo = (titulo: string): ReactElement =>
+  titulo === 'Comercial'
+    ? ICONES['/jornada']!
+    : titulo === 'Financeiro'
+      ? ICONES['/recebimentos']!
+      : titulo === 'Pessoas'
+        ? ICONES['/equipe']!
+        : titulo === 'Configurações'
+          ? ICONE_CONFIGURACOES
+          : PADRAO
 
 export const ICONE_MENU = svg(<path key="a" d="M4 7h16M4 12h16M4 17h16" />)
 /* Porta à esquerda, seta saindo para a direita: a leitura de "sair" que não

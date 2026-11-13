@@ -1,13 +1,15 @@
-import type { EditarTarefa, ExclusaoDeTarefa, TarefasAfetadas } from '@fir/contracts'
+import type { EditarTarefa, ExclusaoDeTarefa, PrevisaoDeExclusao, TarefasAfetadas } from '@fir/contracts'
 import {
   diaCivil,
   ehOk,
+  ehPagamento,
   ehSessao,
   instanteDaConclusao,
   podeEditar,
   podeExcluir,
   type Relogio,
   type Result,
+  TIPO_PAGAMENTO_DE_ORCAMENTO,
   type StatusDeTarefa,
 } from '@fir/domain'
 import {
@@ -22,11 +24,12 @@ import type pg from 'pg'
 import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
+import { declararMotivo, motivoDaAcao } from '../comum/motivo-de-suporte'
 import { RELOGIO } from '../comum/relogio'
 import { campanhaParaVincular } from '../campanhas/vinculo'
 import { unidadeValida } from '../comum/unidade'
 import { SESSAO_NAO_SE_EXCLUI } from '../programas/mensagens'
-import { type AutorDaRequisicao, lerTarefas } from './leitura'
+import { type AutorDaRequisicao, lerTarefas, type LeitorDaRequisicao } from './leitura'
 import { exigirDominio } from './tarefas.service'
 
 /**
@@ -223,7 +226,7 @@ export class EdicaoDeTarefasService {
       if (dados.serie && t.serieId !== null) {
         ids.push(...(await this.propagarNaSerie(c, t, dados)))
       }
-      const todas = await lerTarefas(c, clinicaId, hoje, ids)
+      const todas = await lerTarefas(c, clinicaId, hoje, ids, autor.podeJornada)
       const tarefa = todas.find((x) => x.id === id)
       if (tarefa === undefined) throw new NotFoundException('Tarefa não encontrada.')
       return { tarefa, todas }
@@ -282,6 +285,31 @@ export class EdicaoDeTarefasService {
   }
 
   /**
+   * O que a exclusão vai desfazer, para a confirmação em dois passos da tela.
+   * `valor` é redigido pelo interceptor sem `valores`: a equipe lê o aviso
+   * sem o número.
+   */
+  async previaDaExclusao(
+    clinicaId: ClinicaId,
+    ator: Ator,
+    autor: LeitorDaRequisicao,
+    id: string,
+  ): Promise<PrevisaoDeExclusao> {
+    return this.banco.naClinica(clinicaId, ator, async (c) => {
+      const t = await carregar(c, clinicaId, id)
+      exigirAutorizacao(podeExcluir(t, autor))
+      const e = await efeitoDaExclusao(c, id)
+      return {
+        temPagamento: e.temPagamento,
+        temPrograma: e.programas.length > 0,
+        valor: e.temPagamento ? e.valor.toString() : null,
+        // O servidor diz à tela se a exclusão pede justificativa: só o operador.
+        exigeMotivo: typeof ator === 'object' && ator.tipo === 'operador',
+      }
+    })
+  }
+
+  /**
    * Excluir é SOFT DELETE, contra a v20 que faz `sh.deleteRow`.
    *
    * A razão é a da regra 20, e é a mesma da ADR 0003: a tarefa que alguém
@@ -291,12 +319,28 @@ export class EdicaoDeTarefasService {
   async excluir(
     clinicaId: ClinicaId,
     ator: Ator,
-    autor: AutorDaRequisicao,
+    autor: LeitorDaRequisicao,
     id: string,
     serie: boolean,
+    quem: { readonly podeReceber: boolean; readonly motivo?: string },
   ): Promise<ExclusaoDeTarefa> {
+    // Sessão de suporte: sem motivo, 400 antes de abrir a transação (I1).
+    const motivo = motivoDaAcao(ator, quem.motivo)
     return this.banco.naClinica(clinicaId, ator, async (c) => {
+      await declararMotivo(c, motivo)
+      // `carregar` já trava a tarefa (FOR UPDATE): duas exclusões simultâneas
+      // se enfileiram, e a segunda vê `excluida_em` e dá 404 (I2').
       const t = await carregar(c, clinicaId, id)
+      // O programa de origem também, ANTES de ler o efeito: `efeitoDaExclusao`
+      // decide "há outros pagamentos?" por leitura, e uma cobrança do programa
+      // gravada entre a leitura e o `UPDATE programas` passaria despercebida e
+      // o programa seria encerrado com dinheiro vivo nele. O `FOR UPDATE` conflita
+      // com o `FOR KEY SHARE` que o INSERT em `recebimentos` (FK `programa_id`)
+      // toma: a cobrança espera esta transação, ou é vista por ela.
+      await c.query(
+        'SELECT id FROM programas WHERE tarefa_de_origem_id = $1 AND excluido_em IS NULL FOR UPDATE',
+        [id],
+      )
       // O responsável NÃO exclui: ele conserta o que vai executar, e não apaga
       // o que outra pessoa pediu.
       exigirAutorizacao(podeExcluir(t, autor))
@@ -313,16 +357,53 @@ export class EdicaoDeTarefasService {
        */
       if (ehSessao(t)) throw new ConflictException(SESSAO_NAO_SE_EXCLUI)
 
-      const pago = await c.query(
-        'SELECT 1 FROM recebimentos WHERE tarefa_id = $1 AND estornado_em IS NULL',
-        [id],
-      )
-      if (pago.rowCount !== 0) {
-        // Sumir com a tarefa deixaria o dinheiro contando receita sem origem
-        // visível na ficha. A saída existe e é curta: reabrir estorna.
-        throw new ConflictException(
-          'Esta tarefa tem um pagamento registrado. Reabra a tarefa para estornar o pagamento e exclua depois.',
+      const efeito = await efeitoDaExclusao(c, id)
+      if (efeito.temPagamento || efeito.programas.length > 0) {
+        // Excluir tarefa com dinheiro ESTORNA o dinheiro: é a mesma permissão de
+        // quem registra o recebimento. `podeExcluir` (acima) só diz se a pessoa
+        // pode mexer na tarefa; não diz se pode mexer no caixa.
+        if (!quem.podeReceber) {
+          throw new ForbiddenException(
+            efeito.temPagamento
+              ? 'Esta tarefa tem um pagamento registrado. Quem exclui precisa da permissão de receber, porque o pagamento será estornado. Peça a quem tem essa permissão.'
+              : 'Esta tarefa gerou um programa. Quem exclui precisa da permissão de receber, porque o programa será encerrado junto com o orçamento. Peça a quem tem essa permissão.',
+          )
+        }
+        if (efeito.outrosPagamentosDoPrograma) {
+          throw new ConflictException(
+            mensagemDeOutrosPagamentos(efeito.outrosAvulsos, efeito.outrosEmbutidos),
+          )
+        }
+        // Soft delete, nunca DELETE (regra 20): a trilha registra quem estornou.
+        await c.query(
+          'UPDATE recebimentos SET estornado_em = now() WHERE id = ANY($1::uuid[]) AND estornado_em IS NULL',
+          [efeito.recebimentos],
         )
+        // A tarefa "Pagamento de orçamento" só existe para dar linha do tempo
+        // ao dinheiro estornado, como em RecebimentosService.estornar.
+        if (efeito.companheiras.length > 0) {
+          await c.query('UPDATE tarefas SET excluida_em = now() WHERE id = ANY($1::uuid[])', [
+            efeito.companheiras,
+          ])
+        }
+        if (efeito.programas.length > 0) {
+          // ARQUIVA, nunca apaga: mesma semântica de ProgramasService.encerrar
+          // (sessões feitas e baixas de estoque ficam; as abertas são
+          // canceladas). Nenhum movimento de estoque é tocado: o consumo
+          // aconteceu, e a regra 12 só pede compensação em reabertura de sessão.
+          await c.query(
+            `UPDATE programas
+                SET situacao = 'encerrado', encerrado_em = now(), motivo_encerramento = $2
+              WHERE id = ANY($1::uuid[]) AND situacao = 'ativo'`,
+            [efeito.programas, 'Tarefa de origem excluída'],
+          )
+          await c.query(
+            `UPDATE tarefas SET status = 'cancelada', obs = $2
+              WHERE programa_id = ANY($1::uuid[]) AND status = 'aberta' AND excluida_em IS NULL
+                AND id <> $3`,
+            [efeito.programas, 'Programa encerrado', id],
+          )
+        }
       }
 
       const ids = [id]
@@ -338,5 +419,95 @@ export class EdicaoDeTarefasService {
       await c.query('UPDATE tarefas SET excluida_em = now() WHERE id = $1', [id])
       return { id, ids }
     })
+  }
+}
+
+export type EfeitoDaExclusao = {
+  readonly temPagamento: boolean
+  readonly recebimentos: readonly string[]
+  readonly companheiras: readonly string[]
+  readonly programas: readonly string[]
+  /** Soma do que entrou (não o valor em aberto). */
+  readonly valor: bigint
+  /** Pagamento vivo do programa que NÃO é o da adesão (cobrança, sessão avulsa). */
+  readonly outrosPagamentosDoPrograma: boolean
+  /** Desses, os AVULSOS (cobrança): se estornam em Financeiro › Recebimentos. */
+  readonly outrosAvulsos: boolean
+  /** E os EMBUTIDOS em atendimento ou sessão: Recebimentos recusa estornar esses. */
+  readonly outrosEmbutidos: boolean
+}
+
+/**
+ * O caminho REAL de cada tipo de pagamento que bloqueia a exclusão (I6).
+ *
+ * O texto antigo mandava estornar tudo em Financeiro › Recebimentos, mas lá o
+ * estorno recusa o pagamento que está DENTRO de um atendimento ou sessão ("para
+ * desfazê-lo, reabra o atendimento"). A pessoa seguia a instrução e batia numa
+ * segunda recusa. Aqui cada tipo diz a sua saída.
+ */
+function mensagemDeOutrosPagamentos(avulsos: boolean, embutidos: boolean): string {
+  const base = 'O programa criado por este orçamento já tem outros pagamentos.'
+  const avulso = 'Estorne os pagamentos avulsos em Financeiro › Recebimentos'
+  const embutido =
+    'desfaça os que estão dentro de um atendimento ou sessão reabrindo esse atendimento'
+  if (avulsos && embutidos) return `${base} ${avulso} e ${embutido}. Depois, exclua a tarefa.`
+  if (embutidos) {
+    return `${base} Eles estão dentro de um atendimento ou sessão do programa: reabra esse atendimento para desfazer o pagamento. Depois, exclua a tarefa.`
+  }
+  return `${base} Estorne-os em Financeiro › Recebimentos antes de excluir a tarefa.`
+}
+
+/**
+ * O que excluir esta tarefa desfaz: os recebimentos vivos dela, o da tarefa
+ * companheira "Pagamento de orçamento" e os programas que ela criou.
+ *
+ * A companheira não aponta para o orçamento; ela é reconhecida pelo EVENTO
+ * `fechar` do histórico do cartão: o fechamento carimba o mesmo instante no
+ * evento e na `concluida_em` da companheira, e o paciente é o mesmo. Isso
+ * vale com ou sem programa. Pagamento posterior do mesmo programa NÃO é
+ * estornado em silêncio — bloqueia a exclusão.
+ */
+export async function efeitoDaExclusao(c: pg.PoolClient, id: string): Promise<EfeitoDaExclusao> {
+  const progs = await c.query<{ id: string }>(
+    'SELECT id FROM programas WHERE tarefa_de_origem_id = $1 AND excluido_em IS NULL',
+    [id],
+  )
+  const programas = progs.rows.map((p) => p.id)
+  const r = await c.query<{
+    id: string
+    valor: string
+    tarefa_id: string | null
+    tipo: string
+    da_adesao: boolean
+    do_programa: boolean
+  }>(
+    `SELECT r.id, r.valor::text AS valor, r.tarefa_id, r.tipo,
+            (r.tarefa_id = o.id
+             OR (tt.tipo = $3 AND tt.paciente_id = o.paciente_id AND EXISTS (
+                   SELECT 1 FROM jsonb_array_elements(o.historico) e
+                    WHERE e->>'acao' = 'fechar'
+                      AND (e->>'em')::timestamptz = tt.concluida_em))) AS da_adesao,
+            coalesce(r.programa_id = ANY($2::uuid[]), false) AS do_programa
+       FROM recebimentos r
+       JOIN tarefas o ON o.id = $1
+       LEFT JOIN tarefas tt ON tt.id = r.tarefa_id
+      WHERE r.estornado_em IS NULL
+        AND (r.tarefa_id = o.id
+             OR r.programa_id = ANY($2::uuid[])
+             OR (tt.tipo = $3 AND tt.paciente_id = o.paciente_id AND tt.excluida_em IS NULL))`,
+    [id, programas, TIPO_PAGAMENTO_DE_ORCAMENTO],
+  )
+  const dela = r.rows.filter((x) => x.da_adesao)
+  return {
+    temPagamento: dela.length > 0,
+    recebimentos: dela.map((x) => x.id),
+    companheiras: [
+      ...new Set(dela.map((x) => x.tarefa_id).filter((x): x is string => x !== null && x !== id)),
+    ],
+    programas,
+    valor: dela.reduce((s, x) => s + BigInt(x.valor), 0n),
+    outrosPagamentosDoPrograma: r.rows.some((x) => !x.da_adesao && x.do_programa),
+    outrosAvulsos: r.rows.some((x) => !x.da_adesao && x.do_programa && ehPagamento(x.tipo)),
+    outrosEmbutidos: r.rows.some((x) => !x.da_adesao && x.do_programa && !ehPagamento(x.tipo)),
   }
 }

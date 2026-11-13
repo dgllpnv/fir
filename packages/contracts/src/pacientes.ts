@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, Uuid } from './comum'
-import { TarefaNaLista } from './tarefas'
+import { MotivoDeSuporte, TarefaNaLista } from './tarefas'
 
 /** As sugestões da tela (`CONFIG.ORIGENS`). A coluna é texto livre de 60. */
 export const ORIGENS = [
@@ -194,6 +194,42 @@ export const PacienteNaLista = z.object({
 })
 export type PacienteNaLista = z.infer<typeof PacienteNaLista>
 
+/**
+ * POR QUE o cadastro foi desativado. Enumeração FECHADA: o texto livre não
+ * decide nada. `pediu-para-sair` é o titular que não quer ser contatado, e é
+ * o que endurece a reativação (LGPD).
+ */
+export const RAZOES_DE_DESATIVACAO = [
+  'pediu-para-sair',
+  'duplicado',
+  'erro-de-cadastro',
+  'outro',
+] as const
+export const RazaoDeDesativacao = z.enum(RAZOES_DE_DESATIVACAO, {
+  message: 'Informe o motivo da desativação: pediu-para-sair, duplicado, erro-de-cadastro ou outro.',
+})
+export type RazaoDeDesativacao = z.infer<typeof RazaoDeDesativacao>
+
+export const ROTULO_DA_RAZAO: Record<RazaoDeDesativacao, string> = {
+  'pediu-para-sair': 'O titular pediu para não ser contatado',
+  duplicado: 'Cadastro duplicado',
+  'erro-de-cadastro': 'Erro de cadastro',
+  outro: 'Outro motivo',
+}
+
+/** Aviso que a tela mostra junto do campo livre (regra 18: dado de saúde nunca). */
+export const AVISO_DETALHE_DA_RAZAO = 'Não escreva dado de saúde (diagnóstico, dose, medicamento).'
+
+/** A razão da desativação, na ficha — só para quem tem `pacientes.gerir`. */
+export const DesativacaoNaFicha = z
+  .object({
+    razao: RazaoDeDesativacao,
+    detalhe: z.string(),
+    desativadoEm: z.string(),
+  })
+  .strict()
+export type DesativacaoNaFicha = z.infer<typeof DesativacaoNaFicha>
+
 /** O cadastro mais a linha do tempo. LTV por programa chega nos épicos 4 e 5. */
 export const FichaDoPaciente = PacienteNaLista.extend({
   /**
@@ -231,6 +267,11 @@ export const FichaDoPaciente = PacienteNaLista.extend({
   indicadaPorPaciente: z.boolean(),
   /** "Chegou por uma campanha?" — só o id; o nome vem da lista de vinculáveis. */
   campanhaId: Uuid.nullable(),
+  /**
+   * Por que foi desativado. `null` para ativo, para desativado antes da razão
+   * existir e para quem não tem `pacientes.gerir` (não é dado para a recepção).
+   */
+  desativacao: DesativacaoNaFicha.nullable(),
 })
 export type FichaDoPaciente = z.infer<typeof FichaDoPaciente>
 
@@ -283,6 +324,33 @@ export const DesativacaoDePaciente = z.object({
   tarefas: z.number().int(),
 })
 export type DesativacaoDePaciente = z.infer<typeof DesativacaoDePaciente>
+
+/**
+ * Corpo do `DELETE /v1/pacientes/:id`. A razão é obrigatória para todos; o
+ * `motivo` (10 a 200) é o da sessão de suporte, e o servidor o exige do operador.
+ */
+export const DesativarPaciente = z
+  .object({
+    razao: RazaoDeDesativacao,
+    detalhe: z.string().trim().max(200, 'O detalhe tem no máximo 200 caracteres.').optional(),
+    motivo: MotivoDeSuporte.optional(),
+  })
+  .strict()
+export type DesativarPaciente = z.infer<typeof DesativarPaciente>
+
+/**
+ * Corpo do `POST /v1/pacientes/:id/reativar`. Reativar quem pediu para sair
+ * exige `confirmoQueOTitularPediu: true` E `motivo` (10 a 200); o servidor
+ * decide, porque só ele sabe a razão gravada.
+ */
+export const ReativarPaciente = z
+  .object({
+    motivo: MotivoDeSuporte.optional(),
+    confirmoQueOTitularPediu: z.boolean().optional(),
+  })
+  .strict()
+export type ReativarPaciente = z.infer<typeof ReativarPaciente>
+
 
 /**
  * A busca estreita do seletor de "Nova tarefa" — **decisão D-7**.

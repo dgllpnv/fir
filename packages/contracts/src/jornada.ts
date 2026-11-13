@@ -98,6 +98,42 @@ const Programa = z
   })
 
 /**
+ * Um PROCEDIMENTO LISTADO NO ORÇAMENTO — o conceito próprio, separado de
+ * "programa" (ADR 2026-11-13).
+ *
+ * O programa diz como o tratamento será EXECUTADO (sessões, intervalo,
+ * encadeamento). O item do orçamento só diz O QUE foi proposto, e é ele que o
+ * fechamento parcial pergunta ("quais foram fechados?"). `valor` é opcional:
+ * a recepção que não vê valores lista o procedimento sem preço.
+ */
+export const ItemDoOrcamento = z
+  .object({
+    chave: z.string().trim().min(1).max(20),
+    procedimentoId: Uuid,
+    valor: valorDeItem.optional(),
+  })
+  .strict()
+export type ItemDoOrcamento = z.infer<typeof ItemDoOrcamento>
+
+export const ItensDoOrcamento = z
+  .array(ItemDoOrcamento)
+  .min(1)
+  .max(10)
+  .superRefine((itens, ctx) => {
+    const chaves = new Set<string>()
+    for (const [i, item] of itens.entries()) {
+      if (chaves.has(item.chave)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, 'chave'],
+          message: `Chave repetida nos procedimentos: "${item.chave}".`,
+        })
+      }
+      chaves.add(item.chave)
+    }
+  })
+
+/**
  * As doze ações que esta rota aceita.
  *
  * **`agendar` e `concluir` não estão aqui.** São `POST /v1/tarefas` e
@@ -131,6 +167,11 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
       /** Quem faz o contato da retomada. Opcional; o servidor confere pessoa ativa da clínica. */
       contatoId: Uuid.optional(),
       programa: Programa.optional(),
+      /**
+       * Os procedimentos do orçamento SEM virar programa. Ou `programa` (que
+       * já carrega os itens) ou `itens` — nunca os dois (conferido no servidor).
+       */
+      itens: ItensDoOrcamento.optional(),
       nota: Nota,
     })
     .strict(),
@@ -157,9 +198,32 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
        * do cliente não é autoridade sobre data de negócio.
        */
       inicioDoPrograma: DiaCivil.optional(),
+      /**
+       * O QUE FOI FECHADO — declarado, não deduzido da soma digitada.
+       *
+       * Com um orçamento oferecido, a tela pergunta: "fechou o orçamento todo"
+       * (entrada + em aberto = o oferecido) ou "fechou só uma parte" (menos que
+       * o oferecido). O servidor CONFERE a escolha contra os números: sem isso,
+       * um "em aberto" deixado em branco virava "parcial" e o saldo que a
+       * clínica ia cobrar nunca existia. Ausente = o comportamento antigo.
+       */
+      fechamento: z.enum(['tudo', 'parte']).optional(),
+      /**
+       * Só no fechamento PARCIAL de um orçamento COM procedimentos listados: as
+       * chaves dos que a paciente de fato contratou. O servidor exige, e exige
+       * que sejam MENOS que todos (todos = "fechou o orçamento todo").
+       * Persiste no evento `fechar`.
+       */
+      itensFechados: z.array(z.string().trim().min(1).max(20)).max(10).optional(),
+      /** Só no parcial: o dia de retomar o restante. Vira lembrete em Hoje › Retomar. */
+      retomarRestanteEm: DiaCivil.optional(),
       nota: Nota,
       ...confirmacoesDoRecebimento,
     })
+    .strict(),
+  /** Retomar o RESTANTE de um orçamento fechado parcial; sem data, encerra o lembrete. */
+  z
+    .object({ acao: z.literal('retomarRestante'), retomarEm: DiaCivil.optional(), nota: Nota })
     .strict(),
   // `motivoId`, e NÃO o nome: o nome vem da lista da clínica, resolvido no
   // servidor dentro da mesma transação (decisão D-2). Aceitar o nome do
@@ -191,6 +255,8 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
        * É a mesma proposta do `registrarOrcamento`, com as mesmas conferências.
        */
       programa: Programa.optional(),
+      /** Os procedimentos do orçamento SEM programa, trocados por inteiro. */
+      itens: ItensDoOrcamento.optional(),
     })
     .strict(),
 ])
@@ -277,6 +343,11 @@ export const COLUNAS_DA_JORNADA = [
   'recontatar',
   'realizadas',
   'orcamentos',
+  // Visão DERIVADA dos fechados parciais (não é etapa): "Orçamento
+  // parcialmente fechado". Recorte de HOJE, sem período. O cartão também
+  // continua em 'fechados' (quando o fechamento cai na janela), e o passo
+  // "Fechados" do funil não muda.
+  'parciais',
   'fechados',
   'perdidos',
 ] as const
@@ -301,6 +372,16 @@ export const CartaoDaColuna = z.object({
   /** O instante do último evento DESTA etapa. É o que data as colunas do período. */
   ultimoEventoEm: z.string().nullable(),
   valorOrcamento: centavosNaSaida,
+  /**
+   * Só na coluna `parciais` (nas outras, `null`): o fechado, o RESTANTE a
+   * cobrar (oferecido − fechado) e "fechou X de Y" procedimentos. Os dois
+   * valores são redigidos sem `valores`; as contagens não são dinheiro.
+   * `itensFechados`/`itensTotal` `null` = fechado antes do detalhamento.
+   */
+  valorFechado: centavosNaSaida.optional(),
+  valorRestante: centavosNaSaida.optional(),
+  itensFechados: z.number().int().nullable().optional(),
+  itensTotal: z.number().int().nullable().optional(),
 })
 export type CartaoDaColuna = z.infer<typeof CartaoDaColuna>
 
@@ -308,7 +389,10 @@ export const ColunaDaJornadaNaSaida = z.object({
   chave: z.enum(COLUNAS_DA_JORNADA),
   rotulo: z.string(),
   n: z.number().int(),
-  /** A soma dos orçamentos da coluna. `null` nas colunas que não têm valor. */
+  /**
+   * A soma dos orçamentos da coluna. `null` nas colunas que não têm valor.
+   * Na coluna `parciais` é o RESTANTE a cobrar (cabeçalho da coluna).
+   */
   valor: centavosNaSaida,
   /** No máximo 30; o resto vai em `restantes`. */
   itens: z.array(CartaoDaColuna),
@@ -372,3 +456,72 @@ export const RespostaDeOrcamentos = z.object({
   itens: z.array(OrcamentosDeUmaPessoa),
 })
 export type RespostaDeOrcamentos = z.infer<typeof RespostaDeOrcamentos>
+
+/* =========================================================================
+ * GET /v1/pacientes/:id/orcamentos — A ABA "ORÇAMENTOS" DA FICHA
+ *
+ * Derivado, nunca gravado: lê a tarefa (colunas + `historico`) e aplica
+ * `resumoDoOrcamento` de `packages/domain`. Exige `jornada`; sem ela, sem
+ * histórico. Dose, responsável e sessões NÃO saem (dado de saúde, regra 18).
+ *
+ * Sem `valores`, o servidor apaga por NOME de chave (`valorOrcamento`,
+ * `valorFechado`, `valorRestante`, `valor` do item): sobram a situação, a
+ * contagem e os nomes dos procedimentos.
+ * ====================================================================== */
+
+export const SITUACOES_DO_ORCAMENTO = ['aberto', 'fechado', 'parcial', 'perdido'] as const
+export type SituacaoDoOrcamento = (typeof SITUACOES_DO_ORCAMENTO)[number]
+
+/**
+ * `orcado` = o orçamento ainda não foi decidido (aberto) ou foi perdido; os
+ * outros três só existem num orçamento FECHADO. `sem_detalhamento` = fechado
+ * antes de o sistema guardar quais itens foram fechados (sem backfill).
+ */
+export const SITUACOES_DO_ITEM = ['orcado', 'fechado', 'nao_fechado', 'sem_detalhamento'] as const
+export type SituacaoDoItem = (typeof SITUACOES_DO_ITEM)[number]
+
+export const ItemDoOrcamentoDoPaciente = z.object({
+  chave: z.string(),
+  procedimentoId: Uuid,
+  procedimento: z.string(),
+  /** Preço do item. Redigido sem `valores`. */
+  valor: centavosNaSaida.optional(),
+  situacao: z.enum(SITUACOES_DO_ITEM),
+})
+export type ItemDoOrcamentoDoPaciente = z.infer<typeof ItemDoOrcamentoDoPaciente>
+
+export const OrcamentoDoPaciente = z.object({
+  /** A tarefa (o atendimento) de onde o orçamento saiu. */
+  tarefaId: Uuid,
+  tipoDoAtendimento: z.string(),
+  /** O dia do atendimento, no fuso da clínica. */
+  atendimentoEm: DiaCivil,
+  /** Quando o orçamento foi enviado (instante UTC, ISO). A tela formata. */
+  registradoEm: z.string(),
+  situacao: z.enum(SITUACOES_DO_ORCAMENTO),
+  valorOrcamento: centavosNaSaida,
+  valorFechado: centavosNaSaida,
+  /** Oferecido − fechado, só no parcial. Redigido sem `valores`. */
+  valorRestante: centavosNaSaida,
+  itens: z.array(ItemDoOrcamentoDoPaciente),
+  /** `null` = sem detalhamento (orçamento antigo, ou sem itens listados). */
+  itensFechados: z.number().int().nullable(),
+  itensTotal: z.number().int(),
+  /** Só no parcial: o dia de retomar o restante, ou `null`. */
+  retomarRestanteEm: DiaCivil.nullable(),
+})
+export type OrcamentoDoPaciente = z.infer<typeof OrcamentoDoPaciente>
+
+export const RespostaDeOrcamentosDoPaciente = z.object({
+  /** Contagens por situação: a única coisa que sobra quando a lista não cabe na tela. */
+  totais: z.object({
+    orcamentos: z.number().int(),
+    abertos: z.number().int(),
+    fechados: z.number().int(),
+    parciais: z.number().int(),
+    perdidos: z.number().int(),
+  }),
+  /** Mais recente primeiro. */
+  itens: z.array(OrcamentoDoPaciente),
+})
+export type RespostaDeOrcamentosDoPaciente = z.infer<typeof RespostaDeOrcamentosDoPaciente>

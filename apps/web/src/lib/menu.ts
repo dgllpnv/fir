@@ -7,22 +7,7 @@ export type GrupoDeMenu =
   | 'Processos'
   | 'Pessoas'
   | 'Gestão'
-
-/**
- * A ordem em que os grupos aparecem na barra lateral.
- *
- * Não é alfabética e não deve virar: é a ordem do dia da recepção. "Dia a dia"
- * primeiro porque é onde ela passa o expediente; "Gestão" por último porque é
- * onde se entra uma vez por semana.
- */
-export const GRUPOS: readonly GrupoDeMenu[] = [
-  'Dia a dia',
-  'Comercial',
-  'Financeiro',
-  'Processos',
-  'Pessoas',
-  'Gestão',
-]
+  | 'Configurações'
 
 export type ItemDeMenu = {
   readonly href: string
@@ -166,7 +151,7 @@ export const MENU: readonly ItemDeMenu[] = [
   {
     href: '/unidades',
     rotulo: 'Unidades',
-    grupo: 'Gestão',
+    grupo: 'Configurações',
     perm: 'config',
     epico: null,
     promessa: 'As unidades da clínica, para separar agenda, caixa e estoque por local.',
@@ -174,7 +159,7 @@ export const MENU: readonly ItemDeMenu[] = [
   {
     href: '/usuarios',
     rotulo: 'Usuários e acessos',
-    grupo: 'Gestão',
+    grupo: 'Configurações',
     perm: 'config',
     epico: null,
     /**
@@ -188,9 +173,17 @@ export const MENU: readonly ItemDeMenu[] = [
       'Adicionar pessoa com senha provisória, ativar e desativar, e editar os perfis de permissão.',
   },
   {
+    href: '/atividades',
+    rotulo: 'Atividades',
+    grupo: 'Configurações',
+    perm: 'config',
+    epico: null,
+    promessa: 'O que a equipe fez na clínica: quem, quando e o que mudou, com filtros.',
+  },
+  {
     href: '/procedimentos',
     rotulo: 'Procedimentos',
-    grupo: 'Gestão',
+    grupo: 'Configurações',
     /**
      * `config` e **não** `programas.gerir` — e isto é a API falando.
      *
@@ -208,7 +201,7 @@ export const MENU: readonly ItemDeMenu[] = [
   {
     href: '/agenda-do-sistema',
     rotulo: 'Agenda do sistema',
-    grupo: 'Gestão',
+    grupo: 'Configurações',
     /**
      * `config`, o mesmo que as rotas `/v1/agenda-externa` exigem (ADR 0019).
      * O link iCal dá leitura da agenda de pacientes: colá-lo é configuração
@@ -222,7 +215,7 @@ export const MENU: readonly ItemDeMenu[] = [
   {
     href: '/grupos-da-clinica',
     rotulo: 'Grupos que recebem a clínica',
-    grupo: 'Gestão',
+    grupo: 'Configurações',
     /** `config`, o mesmo que `GET /v1/clinica/grupos` exige. Transparência: quem recebe o uso agregado da clínica. */
     perm: 'config',
     epico: null,
@@ -261,27 +254,95 @@ export function itensDoMenu(
   return MENU.filter((i) => i.perm === null || temPerm(u, perfis, i.perm))
 }
 
-export type SecaoDeMenu = { readonly grupo: GrupoDeMenu; readonly itens: readonly ItemDeMenu[] }
+/**
+ * Como a lateral desenha o menu: títulos soltos e grupos que abrem uma lista.
+ *
+ * A cliente pediu "só os títulos, e os subtítulos em lista suspensa
+ * quando colocássemos o mouse". É o desenho do protótipo (`itensMenu`): o que
+ * se usa o dia todo fica solto, e o resto vira um grupo com os itens dentro.
+ * A ordem abaixo é a do dia da recepção, não a alfabética.
+ *
+ * Mora aqui, e não no componente, para a ordem e a regra "grupo de um item
+ * vira link" serem testáveis sem montar tela.
+ */
+type EntradaDoLayout =
+  | { readonly tipo: 'link'; readonly href: string }
+  | { readonly tipo: 'acoes' }
+  | { readonly tipo: 'grupo'; readonly titulo: GrupoDeMenu; readonly hrefs: readonly string[] }
+  | { readonly tipo: 'separador' }
+
+export const LAYOUT_DO_MENU: readonly EntradaDoLayout[] = [
+  { tipo: 'link', href: '/hoje' },
+  { tipo: 'link', href: '/tarefas' },
+  { tipo: 'acoes' },
+  { tipo: 'grupo', titulo: 'Comercial', hrefs: ['/jornada', '/pacientes', '/programas', '/campanhas'] },
+  {
+    tipo: 'grupo',
+    titulo: 'Financeiro',
+    hrefs: ['/recebimentos', '/caixa', '/contas', '/cobrancas', '/visao-do-mes'],
+  },
+  { tipo: 'grupo', titulo: 'Processos', hrefs: ['/estoque'] },
+  { tipo: 'grupo', titulo: 'Pessoas', hrefs: ['/equipe', '/minhas-metas'] },
+  { tipo: 'separador' },
+  { tipo: 'link', href: '/painel' },
+  {
+    tipo: 'grupo',
+    titulo: 'Configurações',
+    hrefs: [
+      '/unidades',
+      '/usuarios',
+      '/procedimentos',
+      '/atividades',
+      '/agenda-do-sistema',
+      '/grupos-da-clinica',
+    ],
+  },
+  { tipo: 'link', href: '/ajuda' },
+]
+
+export type BlocoDeMenu =
+  | { readonly tipo: 'link'; readonly item: ItemDeMenu }
+  | { readonly tipo: 'acoes'; readonly itens: readonly ItemDeMenu[] }
+  | { readonly tipo: 'grupo'; readonly titulo: GrupoDeMenu; readonly itens: readonly ItemDeMenu[] }
+  | { readonly tipo: 'separador' }
 
 /**
- * Os itens já filtrados por permissão, em seções na ordem de `GRUPOS`.
+ * Os itens já filtrados por permissão, nos blocos que a lateral desenha.
  *
- * O grupo vazio **não** vira seção. Isso não é detalhe de estilo: a Enfermagem
- * enxerga 6 das 17 telas, e um título "FINANCEIRO" sozinho, sem nada embaixo,
- * diz à pessoa que existe algo ali que ela não consegue abrir — exatamente o
- * que `docs/design.md` manda a tela sem permissão não fazer (ela some do
- * menu). Derivar as seções dos itens, em vez de percorrer `GRUPOS` e filtrar
- * depois, torna o título órfão impossível por construção.
+ * Três garantias, todas por construção e todas com teste:
+ *  - **sem título órfão**: o bloco nasce dos itens que SOBRARAM do filtro; grupo
+ *    sem item não existe. Um "FINANCEIRO" sozinho diria à Enfermagem que há
+ *    algo ali que ela não abre (`docs/design.md`: tela sem permissão some);
+ *  - **grupo com um item só vira link direto**: abrir uma lista para achar uma
+ *    única opção são dois toques onde um bastava (Estoque, ou Minhas metas
+ *    para quem não gere pessoas);
+ *  - **separador não fica nas pontas nem dobrado**.
  */
-export function secoesDoMenu(itens: readonly ItemDeMenu[]): SecaoDeMenu[] {
-  const porGrupo = new Map<GrupoDeMenu, ItemDeMenu[]>()
-  for (const i of itens) {
-    const atual = porGrupo.get(i.grupo)
-    if (atual) atual.push(i)
-    else porGrupo.set(i.grupo, [i])
+export function secoesDoMenu(itens: readonly ItemDeMenu[]): BlocoDeMenu[] {
+  const porHref = new Map(itens.map((i) => [i.href, i]))
+  const blocos: BlocoDeMenu[] = []
+  for (const e of LAYOUT_DO_MENU) {
+    if (e.tipo === 'separador') {
+      blocos.push({ tipo: 'separador' })
+    } else if (e.tipo === 'link') {
+      const item = porHref.get(e.href)
+      if (item) blocos.push({ tipo: 'link', item })
+    } else if (e.tipo === 'acoes') {
+      const acoes = itens.filter((i) => i.acao === true)
+      if (acoes.length > 0) blocos.push({ tipo: 'acoes', itens: acoes })
+    } else {
+      const doGrupo = e.hrefs.flatMap((h) => {
+        const i = porHref.get(h)
+        return i ? [i] : []
+      })
+      const [unico] = doGrupo
+      if (doGrupo.length === 1 && unico) blocos.push({ tipo: 'link', item: unico })
+      else if (doGrupo.length > 1) blocos.push({ tipo: 'grupo', titulo: e.titulo, itens: doGrupo })
+    }
   }
-  return GRUPOS.flatMap((grupo) => {
-    const doGrupo = porGrupo.get(grupo)
-    return doGrupo ? [{ grupo, itens: doGrupo }] : []
-  })
+  return blocos.filter(
+    (b, i) =>
+      b.tipo !== 'separador' ||
+      (i > 0 && i < blocos.length - 1 && blocos[i - 1]?.tipo !== 'separador'),
+  )
 }

@@ -222,6 +222,39 @@ describe('compromisso que muda', () => {
   })
 })
 
+describe('cartão de orçamento com itens (CHECK itens_so_com_etapa)', () => {
+  it('a agenda reagenda ou remove o compromisso: o cartão em orçamento fica como está, sem 500', async () => {
+    feed = cal(ev('o1', AMANHA_14H, 'Bruna Martins'))
+    await rodar()
+    const id = (await tarefas())[0]!.id
+    const proc = await c.migrate.query<{ id: string }>(
+      'SELECT id FROM procedimentos WHERE clinica_id = $1 LIMIT 1',
+      [c.clinica],
+    )
+    await c.migrate.query(
+      `UPDATE tarefas SET etapa = 'orcamento', status = 'concluida', concluida_em = now(),
+              valor_orcamento = 100000,
+              itens_orcamento = $2::jsonb
+        WHERE id = $1`,
+      [id, JSON.stringify([{ chave: 'a', procedimentoId: proc.rows[0]!.id, valor: '100000' }])],
+    )
+
+    feed = cal(ev('o1', AMANHA_15H30, 'Bruna Martins'))
+    expect(await rodar()).toMatchObject({ tipo: 'ok' })
+    feed = cal(ev('o1', AMANHA_15H30, 'Bruna Martins', ['STATUS:CANCELLED']))
+    expect(await rodar()).toMatchObject({ tipo: 'ok' })
+    feed = cal(ev('outro-o1', DEPOIS_16H, 'Ana Lúcia Souza'))
+    expect(await rodar()).toMatchObject({ tipo: 'ok' })
+
+    const depois = await c.migrate.query<{ etapa: string; itens: unknown }>(
+      'SELECT etapa::text AS etapa, itens_orcamento AS itens FROM tarefas WHERE id = $1',
+      [id],
+    )
+    expect(depois.rows[0]!.etapa).toBe('orcamento')
+    expect(depois.rows[0]!.itens).toHaveLength(1)
+  })
+})
+
 describe('o que a recepção fez à mão vence', () => {
   it('no-show marcado à mão não é desfeito por uma mudança de horário', async () => {
     feed = cal(ev('n1', AMANHA_14H, 'Bruna Martins'))

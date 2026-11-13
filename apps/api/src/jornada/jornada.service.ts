@@ -4,6 +4,7 @@ import {
   diaCivil,
   Dinheiro,
   ehErro,
+  situacaoDoFechamento,
   type ErroDeDominio,
   type EventoDeJornada,
   programaCabeNoOrcamento,
@@ -34,6 +35,7 @@ import {
   type ChaveDeColuna,
   COLUNA_DE_EFEITO,
   type Efeitos,
+  itensParaJsonb,
   type ItemOrcado,
   paraParametro,
   programaParaJsonb,
@@ -126,6 +128,22 @@ export class JornadaService {
         await conferirContato(c, dados.contatoId)
       }
 
+      // Procedimentos do orçamento: ou a lista própria, ou o programa (que já
+      // os carrega) — nunca os dois. E existem no catálogo DESTA clínica.
+      if (dados.acao === 'registrarOrcamento' && dados.itens !== undefined) {
+        if (dados.programa !== undefined) {
+          throw new BadRequestException(
+            'Liste os procedimentos ou monte um programa — não os dois no mesmo orçamento.',
+          )
+        }
+        await conferirProcedimentos(c, dados.itens)
+        const cabe = programaCabeNoOrcamento(
+          Dinheiro.deCentavos(dados.valor),
+          dados.itens.map((i) => ({ valor: i.valor === undefined ? null : Dinheiro.deCentavos(i.valor) })),
+        )
+        if (ehErro(cabe)) throw new BadRequestException(cabe.erro.mensagem)
+      }
+
       if (dados.acao === 'registrarOrcamento' && dados.programa !== undefined) {
         await conferirResponsaveis(c, dados.programa)
         // A MESMA regra da correção (N-17): itens com valor que passam do
@@ -137,6 +155,20 @@ export class JornadaService {
           })),
         )
         if (ehErro(cabe)) throw new BadRequestException(cabe.erro.mensagem)
+      }
+
+      // O restante só existe num fechamento PARCIAL: a regra é a do domínio, a
+      // mesma que o selo "Orçamento parcial" e a contagem usam.
+      if (
+        dados.acao === 'retomarRestante' &&
+        situacaoDoFechamento(t.valorOrcamento, t.valorFechado) !== 'parcial'
+      ) {
+        throw new ConflictException(
+          'Este orçamento não foi fechado parcialmente: não há restante para retomar.',
+        )
+      }
+      if (dados.acao === 'retomarRestante' && dados.retomarEm !== undefined && dados.retomarEm < hoje) {
+        throw new BadRequestException('Escolha uma data a partir de hoje.')
       }
 
       /**
@@ -178,6 +210,7 @@ export class JornadaService {
               agora,
               hojeDaClinica: hoje,
               fuso,
+              podeVerValores,
             })
           : efeitosDa(dados, t, hoje, agora, motivo)
       const evento: EventoDeJornada = {
@@ -187,6 +220,12 @@ export class JornadaService {
         porId: autor.id,
         ...(efeitos.nota === undefined || efeitos.nota === '' ? {} : { nota: efeitos.nota }),
         ...(efeitos.valor === undefined ? {} : { valor: efeitos.valor }),
+        // O fechamento carrega, no EVENTO, o que foi fechado e quais itens (o
+        // evento é append-only; a coluna `valor_fechado` é a leitura rápida).
+        ...(dados.acao === 'fechar' && efeitos.valorFechado !== undefined
+          ? { valorFechado: centavosNoJsonb(efeitos.valorFechado) }
+          : {}),
+        ...(efeitos.itensFechados === undefined ? {} : { itensFechados: efeitos.itensFechados }),
         ...(efeitos.motivoId === undefined ? {} : { motivoId: efeitos.motivoId }),
         ...(efeitos.motivo === undefined ? {} : { motivo: efeitos.motivo }),
       }
@@ -219,7 +258,7 @@ export class JornadaService {
         params,
       )
 
-      const todas = await lerTarefas(c, clinicaId, hoje, [id])
+      const todas = await lerTarefas(c, clinicaId, hoje, [id], autor.podeJornada)
       const tarefa = todas[0]
       if (tarefa === undefined) throw new NotFoundException('Agendamento não encontrado.')
       return { tarefa, todas }
@@ -255,19 +294,32 @@ export class JornadaService {
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const t = await carregarCartao(c, clinicaId, id)
+      if (dados.itens !== undefined) {
+        if (dados.programa !== undefined) {
+          throw new BadRequestException(
+            'Liste os procedimentos ou monte um programa — não os dois no mesmo orçamento.',
+          )
+        }
+        if (t.programaOrcado !== null) {
+          throw new BadRequestException(
+            'Este orçamento é um programa: corrija os procedimentos pelo programa.',
+          )
+        }
+        await conferirProcedimentos(c, dados.itens)
+      }
       const r = corrigirOrcamento({
-        tarefa: t,
-        autor: { id: autor.id, podeEquipe: autor.podeEquipe },
+        tarefa: { ...t, programaOrcado: t.programaOrcado ?? t.itensOrcamentoProprios },
         podeVerValores,
+        autor: { id: autor.id, podeEquipe: autor.podeEquipe },
         pedido: {
           chaveIdempotencia: dados.chaveIdempotencia,
           ...(dados.valor === undefined ? {} : { valor: dados.valor }),
           ...(dados.retomarEm === undefined ? {} : { retomarEm: dados.retomarEm }),
           ...(dados.nota === undefined ? {} : { nota: dados.nota }),
-          ...(dados.programa === undefined
+          ...(dados.programa === undefined && dados.itens === undefined
             ? {}
             : {
-                programa: dados.programa.map((i) => ({
+                programa: (dados.programa ?? dados.itens ?? []).map((i) => ({
                   valor: i.valor === undefined ? null : i.valor,
                 })),
               }),
@@ -285,6 +337,9 @@ export class JornadaService {
               SET valor_orcamento = $3::bigint,
                   proximo_passo_em = $4::date,
                   programa_orcado = CASE WHEN $6::boolean THEN $7::jsonb ELSE programa_orcado END,
+                  itens_orcamento = CASE WHEN $8::boolean THEN $9::jsonb
+                                         WHEN $6::boolean THEN NULL
+                                         ELSE itens_orcamento END,
                   historico = historico || $5::jsonb
             WHERE id = $1 AND clinica_id = $2 AND excluida_em IS NULL`,
           [
@@ -293,13 +348,15 @@ export class JornadaService {
             paraParametro(r.valor.valorOrcamento),
             r.valor.proximoPassoEm,
             JSON.stringify([r.valor.evento]),
-            r.valor.trocaOPrograma,
+            dados.programa !== undefined,
             dados.programa === undefined ? null : JSON.stringify(programaParaJsonb(dados.programa)),
+            dados.itens !== undefined,
+            dados.itens === undefined ? null : JSON.stringify(itensParaJsonb(dados.itens)),
           ],
         )
       }
 
-      const todas = await lerTarefas(c, clinicaId, hoje, [id])
+      const todas = await lerTarefas(c, clinicaId, hoje, [id], autor.podeJornada)
       const tarefa = todas[0]
       if (tarefa === undefined) throw new NotFoundException('Agendamento não encontrado.')
       return { tarefa, todas }
@@ -328,6 +385,22 @@ function excecaoDaCorrecao(e: ErroDeDominio): HttpException {
   if (status === 403) return new ForbiddenException(e.mensagem)
   if (status === 409) return new ConflictException(e.mensagem)
   return new BadRequestException(e.mensagem)
+}
+
+/**
+ * Os procedimentos listados existem no catálogo DESTA clínica? A RLS filtra por
+ * clínica: o id da vizinha devolve zero linhas. Recusa em vez de descartar —
+ * perder um item em silêncio é a pergunta do fechamento parcial sem a resposta.
+ */
+async function conferirProcedimentos(
+  c: pg.PoolClient,
+  itens: readonly { readonly procedimentoId: string }[],
+): Promise<void> {
+  const ids = [...new Set(itens.map((i) => i.procedimentoId))]
+  const r = await c.query<{ id: string }>('SELECT id FROM procedimentos WHERE id = ANY($1)', [ids])
+  if (r.rowCount !== ids.length) {
+    throw new BadRequestException('Escolha procedimentos do catálogo da clínica.')
+  }
 }
 
 /** O motivo de perda, resolvido pela lista DA CLÍNICA — ou 400. */
@@ -449,7 +522,12 @@ function efeitosDa(
         // perde enquanto o módulo Programas não existir.
         ...(dados.programa === undefined
           ? {}
-          : { programaOrcado: programaParaJsonb(dados.programa) }),
+          : { programaOrcado: programaParaJsonb(dados.programa), itensOrcamento: null }),
+        // Os procedimentos SEM programa: a lista própria (e o programa, se um
+        // orçamento anterior o tinha, sai — os dois nunca andam juntos, CHECK 0078).
+        ...(dados.itens === undefined
+          ? {}
+          : { itensOrcamento: itensParaJsonb(dados.itens), programaOrcado: null }),
         // `hoje + 2` CALCULADO AQUI, no fuso da clínica. O protótipo calcula na
         // tela e manda a data; com o relógio do cliente adiantado, o orçamento
         // voltaria a pedir ação no dia errado (regra 24).
@@ -467,6 +545,14 @@ function efeitosDa(
         proximoPassoEm: dados.retomarEm ?? somarDias(hoje, DIAS_PARA_FOLLOW_UP),
         // Follow-up sem o campo MANTÉM quem já fazia o contato.
         ...(dados.contatoId === undefined ? {} : { contatoId: dados.contatoId }),
+        ...(dados.nota === undefined ? {} : { nota: dados.nota }),
+      }
+
+    case 'retomarRestante':
+      // Com data, o lembrete volta a Hoje › Retomar nesse dia; sem data, a
+      // clínica encerrou o restante e o lembrete sai da lista.
+      return {
+        proximoPassoEm: dados.retomarEm ?? null,
         ...(dados.nota === undefined ? {} : { nota: dados.nota }),
       }
 

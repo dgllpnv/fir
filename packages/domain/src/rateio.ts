@@ -87,3 +87,47 @@ export function valorSugerido(
     Dinheiro.zero(),
   )
 }
+
+export type ItemParaRatear = {
+  readonly sessoes: bigint
+  readonly valor: Dinheiro | null
+}
+
+/**
+ * O VALOR DE CADA ITEM, de modo que a soma seja SEMPRE `total` (regra 2).
+ *
+ * O valor negociado/fechado manda; o preço por item é só a proporção.
+ *  1. Há itens sem preço e o total ainda tem sobra depois dos que têm: os com
+ *     preço ficam como vieram e a sobra é rateada entre os sem preço, por sessões.
+ *  2. Todos têm preço e a soma já é o total: ficam como vieram.
+ *  3. Qualquer outra combinação (todos com preço e soma diferente do total;
+ *     preços que estouram o total; nenhum preço): rateia o TOTAL por inteiro —
+ *     proporcional ao preço quando todos têm preço, por sessões nos demais casos.
+ *     Nunca clampa um item em zero em silêncio.
+ */
+export function ratearValoresDosItens(
+  total: Dinheiro,
+  itens: readonly ItemParaRatear[],
+): readonly Dinheiro[] {
+  if (itens.length === 0) throw new Error('Rateio precisa de pelo menos um item.')
+  const jaDados = itens.reduce((s, i) => (i.valor === null ? s : s.mais(i.valor)), Dinheiro.zero())
+  const indicesSemPreco = itens.flatMap((i, k) => (i.valor === null ? [k] : []))
+
+  if (indicesSemPreco.length > 0 && total.ehMaiorQue(jaDados)) {
+    const partes = ratearPrograma(
+      total.menos(jaDados),
+      indicesSemPreco.map((k) => itens[k]!.sessoes),
+    )
+    const fora = itens.map((i) => i.valor)
+    indicesSemPreco.forEach((k, j) => {
+      fora[k] = partes[j]!
+    })
+    return fora.map((v) => v!)
+  }
+  if (indicesSemPreco.length === 0 && jaDados.centavos === total.centavos) {
+    return itens.map((i) => i.valor!)
+  }
+  const pesos =
+    indicesSemPreco.length === 0 ? itens.map((i) => i.valor!.centavos) : itens.map((i) => i.sessoes)
+  return ratearPrograma(total, pesos)
+}

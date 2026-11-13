@@ -130,3 +130,16 @@ describe('lista de recaptação sem telefone nem prazo (caso da cliente)', () =>
     expect(depois.linhas.every((l) => l.responsavelId === 'p-sheila')).toBe(true)
   })
 })
+
+describe('nomes limpos na prévia', () => {
+  it('nome com a letra "s" já limpo NÃO entra como alterado (a regex era /s+/, e trocava a letra)', () => {
+    const r = ler([...MODELO, ['Rosa Lima', '', '', '', '', '', ''], ['Sheila Marques', '', '', '', '', '', '']])
+    expect(r.nomesLimpos).toEqual([])
+  })
+
+  it('só entra o que foi realmente limpo (índice, valor, espaços)', () => {
+    const r = ler([...MODELO, ['6. Claudia Souza - R$ 15.200', '', '', '', '', '', '']])
+    expect(r.nomesLimpos).toHaveLength(1)
+    expect(r.nomesLimpos[0]).toMatchObject({ nome: 'Claudia Souza', valorEmCentavos: 1520000n })
+  })
+})

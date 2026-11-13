@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { DiaCivil, Uuid, centavosNaSaida, dinheiroEmTexto } from './comum'
-import { NomeDeTipo, tipoQueNaoEhPagamento } from './tarefas'
+import { NomeDeTipo, TarefaNaLista, tipoQueNaoEhPagamento } from './tarefas'
 
 /**
  * **Comercial › Campanhas** (MANUAL cap. 9).
@@ -23,8 +23,11 @@ import { NomeDeTipo, tipoQueNaoEhPagamento } from './tarefas'
  *      contatos". É o mesmo raciocínio de `saldoEmEstoque` e de
  *      `saldoEmMinutos`.
  *
- *   `percentualDaMeta` e `taxaDeConversao` — **nunca redigidos**. São o que
- *      sobra para quem não vê valor, e eles não revelam a meta.
+ *   `percentualDaMeta` — numa campanha de RECEITA, **`null` sem `valores`**
+ *      (o protótipo mostra "Resultado visível para o administrativo", sem
+ *      percentual e sem barra; ADR 2026-11-13, emenda): com meta e resultado
+ *      conhecidos o percentual é a receita em claro. Nas de contagem atravessa.
+ *   `taxaDeConversao` — **nunca redigida**: é contagem sobre contagem.
  * ────────────────────────────────────────────────────────────────────────────
  *
  * **Nenhum resultado é gravado** (regra 11): tudo abaixo que não é cadastro é
@@ -147,6 +150,15 @@ export const LinhaDaCampanha = z
     prazo: DiaCivil,
     responsavelId: Uuid,
     obs: z.string().trim().max(300).default(''),
+    /**
+     * O valor que a lista trazia ao lado do nome, em centavos (a tela tira o
+     * "- R$ 15.200" do nome e o manda aqui). **Referência, nunca receita**
+     * (regras 3 e 4); vira `tarefas.valor_de_referencia`. Ausente: o servidor
+     * tenta ler do próprio nome.
+     */
+    valorDeReferencia: dinheiroEmTexto
+      .refine((v) => v === null || v >= 0n, 'o valor da lista não pode ser negativo')
+      .optional(),
   })
   .strict()
 export type LinhaDaCampanha = z.infer<typeof LinhaDaCampanha>
@@ -237,8 +249,10 @@ export const CampanhaNaLista = z
     /** Contagem. Nunca redigido. */
     resultadoEmNumero: z.number().int().nullable(),
     /**
-     * O atingimento, em percentual inteiro. **Nunca redigido** — é o que a
-     * equipe sem `valores` lê no lugar do valor, e ele não revela a meta.
+     * O atingimento, em percentual inteiro. Pode passar de 100.
+     * **`null` numa campanha de RECEITA sem `valores`** (decisão do dono, segue
+     * o protótipo): com a meta conhecida, o percentual devolve a receita.
+     * Campanha de contagem: atravessa para todos.
      */
     percentualDaMeta: z.number().int().nullable(),
 
@@ -264,16 +278,208 @@ export const CampanhaNaLista = z
   .strict()
 export type CampanhaNaLista = z.infer<typeof CampanhaNaLista>
 
+/**
+ * `GET /v1/campanhas?mes=aaaa-mm|atual&tipo=<categoria>` — a lista do protótipo
+ * (`vCampanhas`): navegação por mês e filtro "Tipo de campanha".
+ *
+ * `atual` é o mês de HOJE na clínica, resolvido no servidor (regra 24): o
+ * navegador não decide em que mês a campanha está. Sem `mes`, a lista vem
+ * inteira — é o que as outras telas (painel, formulário) usam.
+ *
+ * O mês filtra pelo que a campanha **cruza**, não pelo que está dentro dele:
+ * `inicio <= último dia do mês AND fim >= primeiro dia` (o `campsDoMes` dela).
+ */
+export const MesDaCampanha = z.union([
+  z.literal('atual'),
+  z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Mês no formato aaaa-mm.'),
+])
+export const ConsultaDeCampanhas = z
+  .object({
+    mes: MesDaCampanha.optional(),
+    tipo: z.string().trim().max(60).optional(),
+  })
+  .strict()
+export type ConsultaDeCampanhas = z.infer<typeof ConsultaDeCampanhas>
+
+/**
+ * Os três números do alto da lista (`campkpis`). Somados no SERVIDOR sobre as
+ * campanhas que a lista mostra (mês e tipo já aplicados).
+ *
+ * `valorConvertido` é dinheiro e **está em `CAMPOS_MONETARIOS`**: sem `valores`
+ * sai `null` e a tela esconde o cartão. As duas contagens atravessam.
+ */
+export const TotaisDoMes = z
+  .object({
+    campanhas: z.number().int(),
+    valorConvertido: centavosNaSaida,
+    pacientesConvertidos: z.number().int(),
+    acoesRealizadas: z.number().int(),
+  })
+  .strict()
+export type TotaisDoMes = z.infer<typeof TotaisDoMes>
+
 export const Campanhas = z
   .object({
     /** O dia da clínica, do SERVIDOR — é ele que decide a situação. */
     hoje: DiaCivil,
+    /** O mês mostrado (`aaaa-mm`), ou `null` quando a lista veio sem recorte. */
+    mes: z.string().nullable(),
     campanhas: z.array(CampanhaNaLista),
     /** As categorias já usadas pela clínica, para a lista de escolha. */
     categorias: z.array(z.string()),
+    totais: TotaisDoMes,
   })
   .strict()
 export type Campanhas = z.infer<typeof Campanhas>
+
+// ---------------------------------------------------------------------------
+// O DETALHE DA CAMPANHA (`vCampanha` do protótipo)
+// ---------------------------------------------------------------------------
+
+/**
+ * O funil. Tudo contado no servidor com a MESMA consulta da lista (`montar`):
+ * a campanha mostra aqui o mesmo número que mostrou no cartão.
+ *
+ * `percentualRealizado` é "% do planejado" (`realizadas ÷ planejadas`, 0 sem
+ * planejadas, como no protótipo). `conversoes` é a contagem que o protótipo
+ * rotula "pagamentos": tarefas concluídas, com paciente, de tipo que atende.
+ * `receita` é dinheiro: redigida sem `valores`.
+ */
+export const FunilDaCampanha = z
+  .object({
+    planejadas: z.number().int(),
+    emAberto: z.number().int(),
+    realizadas: z.number().int(),
+    percentualRealizado: z.number().int(),
+    alcancados: z.number().int(),
+    convertidos: z.number().int(),
+    taxaDeConversao: z.number().int().nullable(),
+    conversoes: z.number().int(),
+    receita: centavosNaSaida,
+  })
+  .strict()
+export type FunilDaCampanha = z.infer<typeof FunilDaCampanha>
+
+/** `tipo === ''` são as tarefas internas ("Tarefas internas"). */
+export const LinhaPorTipo = z
+  .object({
+    tipo: z.string(),
+    rotulo: z.string(),
+    planejadas: z.number().int(),
+    realizadas: z.number().int(),
+    /** Receita das realizadas daquele tipo. Redigida sem `valores`. */
+    valor: centavosNaSaida,
+  })
+  .strict()
+export type LinhaPorTipo = z.infer<typeof LinhaPorTipo>
+
+export const LinhaPorPessoa = z
+  .object({
+    pessoaId: Uuid,
+    nome: z.string(),
+    planejadas: z.number().int(),
+    realizadas: z.number().int(),
+  })
+  .strict()
+export type LinhaPorPessoa = z.infer<typeof LinhaPorPessoa>
+
+export const CampanhaDetalhe = z
+  .object({
+    hoje: DiaCivil,
+    campanha: CampanhaNaLista,
+    funil: FunilDaCampanha,
+    /** `resultado >= meta`. A frase "Meta atingida." / "Faltam X" é da tela. */
+    metaAtingida: z.boolean(),
+    /** O que falta, em centavos (métrica `receita`). Redigido sem `valores`. */
+    faltaEmDinheiro: centavosNaSaida,
+    /** O que falta, em contagem (as outras três métricas). */
+    faltaEmNumero: z.number().int().nullable(),
+    porTipo: z.array(LinhaPorTipo),
+    porPessoa: z.array(LinhaPorPessoa),
+    /** "Histórico · <foco ou categoria>". */
+    tituloDoHistorico: z.string(),
+    /** As campanhas do mesmo tipo (a atual incluída), da mais recente para a mais antiga. */
+    historico: z.array(CampanhaNaLista),
+  })
+  .strict()
+export type CampanhaDetalhe = z.infer<typeof CampanhaDetalhe>
+
+/**
+ * Os recortes que os números do funil e das tabelas abrem (o `drill` do
+ * protótipo). Cada um é um conjunto de tarefas, definido no servidor — a tela
+ * só escolhe o nome.
+ */
+export const RECORTES_DA_CAMPANHA = [
+  'planejadas',
+  'realizadas',
+  'alcancadas',
+  'conversoes',
+  'resultado',
+  'tipo-planejadas',
+  'tipo-realizadas',
+  'pessoa-planejadas',
+  'pessoa-realizadas',
+] as const
+export type RecorteDaCampanha = (typeof RECORTES_DA_CAMPANHA)[number]
+
+/**
+ * `GET /v1/campanhas/:id/tarefas`. **Todas as tarefas da campanha**, para quem
+ * tem a permissão `campanhas` — não o recorte de `escopo` de `/v1/tarefas`
+ * (decisão do dono, ADR 2026-11-13). Sem `recorte`, vale `situacao`; com
+ * `recorte`, ele manda.
+ */
+export const ConsultaDeTarefasDaCampanha = z
+  .object({
+    situacao: z.enum(['tudo', 'abertas', 'concluidas']).default('tudo'),
+    recorte: z.enum(RECORTES_DA_CAMPANHA).optional(),
+    /** Com `tipo-*`: o nome do tipo, ou `__interna` para as sem tipo. */
+    tipo: z.string().trim().max(60).optional(),
+    /** Com `pessoa-*`. */
+    pessoaId: Uuid.optional(),
+    limite: z.coerce.number().int().min(1).max(200).default(50),
+    deslocamento: z.coerce.number().int().min(0).max(100_000).default(0),
+  })
+  .strict()
+export type ConsultaDeTarefasDaCampanha = z.infer<typeof ConsultaDeTarefasDaCampanha>
+
+export const TarefasDaCampanha = z
+  .object({
+    hoje: DiaCivil,
+    tarefas: z.array(TarefaNaLista),
+    total: z.number().int(),
+    /**
+     * A soma da receita do recorte aberto (o `tot` do `drill`). `null` sem
+     * recorte — e `null` sem `valores`, em `CAMPOS_MONETARIOS`.
+     */
+    valorTotal: centavosNaSaida,
+  })
+  .strict()
+export type TarefasDaCampanha = z.infer<typeof TarefasDaCampanha>
+
+/**
+ * `GET /v1/campanhas/:id/proximo-mes` — o rascunho de "Repetir no próximo mês".
+ *
+ * Como no protótipo, **nada é criado**: o rascunho abre o formulário de nova
+ * campanha, e a gestora confere (o nome precisa mudar — o índice
+ * `campanha_por_nome` recusa dois iguais). As datas saem do servidor: mês
+ * inteiro vira o mês seguinte inteiro, e dia 29–31 cai no último dia do mês
+ * curto (regra 25). A meta em reais viaja redigida sem `valores`.
+ */
+export const RascunhoDeCampanha = z
+  .object({
+    categoria: z.string(),
+    foco: z.string(),
+    nome: z.string(),
+    objetivo: z.string(),
+    inicio: DiaCivil,
+    fim: DiaCivil,
+    metrica: MetricaDaCampanha,
+    tipoMetrica: z.string(),
+    metaEmDinheiro: centavosNaSaida,
+    metaEmNumero: z.number().int().nullable(),
+  })
+  .strict()
+export type RascunhoDeCampanha = z.infer<typeof RascunhoDeCampanha>
 
 // ---------------------------------------------------------------------------
 // AS CAMPANHAS VINCULÁVEIS (correções da PO, A3)

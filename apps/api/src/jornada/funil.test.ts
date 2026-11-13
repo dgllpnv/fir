@@ -420,7 +420,7 @@ describe('as colunas mostram HOJE; o funil, o período', () => {
     expect(coluna(f, 'confirmadas').valor).toBeNull()
   })
 
-  it('as sete colunas vêm sempre, na ordem, inclusive vazias', async () => {
+  it('as oito colunas vêm sempre, na ordem, inclusive vazias', async () => {
     const f = await abrirFunil(MES_INTEIRO)
     expect(f.colunas.map((x) => x.chave)).toEqual([
       'agendadas',
@@ -428,6 +428,7 @@ describe('as colunas mostram HOJE; o funil, o período', () => {
       'recontatar',
       'realizadas',
       'orcamentos',
+      'parciais',
       'fechados',
       'perdidos',
     ])
@@ -486,6 +487,34 @@ describe('filtros, permissão e isolamento', () => {
   it('período inválido é 400, e não um funil silenciosamente errado', async () => {
     const r = await pegar(c, '/v1/jornada', { periodo: 'qualquer' }, 'beatriz')
     expect(r.statusCode).toBe(400)
+  })
+})
+
+/* ------------------------------------------- um cartão fecha UMA vez no funil */
+
+describe('"Fechados" conta UM por cartão, mesmo com dois eventos `fechar` (histórico migrado da v20)', () => {
+  it('cartão sintético com dois eventos fechar: n = 1 e o valor entra uma vez só', async () => {
+    const id = await orcado('360000')
+    await mover(id, { acao: 'fechar', recebimento: { valor: '360000', forma: 'Pix' } }).expect(200)
+    const antes = passo(await abrirFunil(MES_INTEIRO), 'fechados')
+    expect(antes).toMatchObject({ n: 1, valor: '360000' })
+
+    // Duplica o evento `fechar` no histórico, como a v20 deixou em alguns cartões.
+    await c.migrate.query(
+      `UPDATE tarefas SET historico = historico || (
+         SELECT jsonb_agg(ev) FROM jsonb_array_elements(historico) ev WHERE ev->>'acao' = 'fechar'
+       ) WHERE id = $1`,
+      [id],
+    )
+    const duplos = await c.migrate.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM tarefas t, jsonb_array_elements(t.historico) ev
+        WHERE t.id = $1 AND ev->>'acao' = 'fechar'`,
+      [id],
+    )
+    expect(duplos.rows[0]!.n).toBe('2')
+
+    const depois = passo(await abrirFunil(MES_INTEIRO), 'fechados')
+    expect(depois).toMatchObject({ n: 1, valor: '360000' })
   })
 })
 

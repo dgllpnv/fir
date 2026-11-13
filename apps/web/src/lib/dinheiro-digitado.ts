@@ -1,3 +1,5 @@
+import { centavosDoTextoBrasileiro } from '@fir/domain'
+
 /**
  * O que a recepção DIGITOU → centavos, como inteiro.
  *
@@ -16,24 +18,7 @@
  * dentro de um componente é como ela ganha uma segunda versão, e a segunda é
  * a que usa `parseFloat`.
  */
-export function centavosDoTexto(texto: string): bigint | null {
-  const limpo = texto.trim().replace(/\s/g, '')
-  if (limpo === '') return null
-
-  // Três formas aceitas: com separador de milhar ("1.234,56"), só com
-  // decimal de vírgula ("450,00") e só com decimal de ponto ("450.00", que é
-  // o que um teclado numérico de celular produz).
-  const comMilhar = /^\d{1,3}(\.\d{3})+(,\d{1,2})?$/.test(limpo)
-  const comVirgula = /^\d+(,\d{1,2})?$/.test(limpo)
-  const comPonto = /^\d+(\.\d{1,2})?$/.test(limpo)
-  if (!comMilhar && !comVirgula && !comPonto) return null
-
-  const normalizado = comMilhar ? limpo.replace(/\./g, '') : limpo.replace('.', ',')
-  const [inteiros, decimais] = normalizado.split(',') as [string, string | undefined]
-  if (inteiros === '') return null
-  const centavos = (decimais ?? '').padEnd(2, '0')
-  return BigInt(inteiros) * 100n + BigInt(centavos)
-}
+export const centavosDoTexto = centavosDoTextoBrasileiro
 
 /** Centavos → o texto do campo, para reabrir um valor já lançado. */
 export function textoDeCentavos(centavos: bigint): string {

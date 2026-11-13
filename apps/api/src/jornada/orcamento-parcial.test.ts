@@ -147,3 +147,203 @@ describe('GET /v1/jornada/orcamentos — contagem por atendente', () => {
     expect(sem.statusCode).toBe(401)
   })
 })
+
+/* ------------------------------------------------------------------ *
+ * O QUE FOI FECHADO É DECLARADO, E O SERVIDOR CONFERE                *
+ * ------------------------------------------------------------------ */
+async function ofertado(oferta: string, programa?: unknown[]): Promise<string> {
+  const id = await realizada()
+  const o = await mover(id, {
+    acao: 'registrarOrcamento',
+    valor: oferta,
+    ...(programa === undefined ? {} : { programa }),
+  })
+  expect(o.statusCode, JSON.stringify(o.body)).toBe(200)
+  return id
+}
+
+describe('fechar: "fechou tudo" x "só uma parte" é conferido contra os números', () => {
+  it('"tudo" com a soma diferente da oferta é recusado e NADA é gravado', async () => {
+    const id = await ofertado('2500000')
+    // Entrada de 10.000 e "em aberto" esquecido: antes virava "parcial" por engano.
+    const r = await mover(id, {
+      acao: 'fechar',
+      fechamento: 'tudo',
+      recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '0' },
+    })
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400)
+    const t = await tarefaCrua(c, id)
+    expect(t!.etapa).toBe('orcamento')
+    expect(t!.valor_fechado).toBeNull()
+  })
+
+  it('"tudo" com entrada + em aberto = oferta fecha completo', async () => {
+    const id = await ofertado('2500000')
+    const r = await mover(id, {
+      acao: 'fechar',
+      fechamento: 'tudo',
+      recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '1500000' },
+    })
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200)
+    const t = await pegar(c, `/v1/tarefas/${id}`, {}, 'beatriz')
+    expect(t.body.tarefa.orcamentoParcial).toBe(false)
+  })
+
+  it('"parte" com a soma igual ou maior que a oferta é recusado', async () => {
+    const id = await ofertado('2500000')
+    const r = await mover(id, {
+      acao: 'fechar',
+      fechamento: 'parte',
+      recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '1500000' },
+    })
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400)
+  })
+
+  it('itens e data do restante só valem no parcial', async () => {
+    const id = await ofertado('2500000')
+    const r = await mover(id, {
+      acao: 'fechar',
+      fechamento: 'tudo',
+      retomarRestanteEm: '2026-12-01',
+      recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '1500000' },
+    })
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400)
+  })
+})
+
+/** Orçamento de 25.000 cujo responsável é `quem` (quem não é responsável nem solicitante leva 403). */
+async function ofertadoPor(quem: string): Promise<string> {
+  const id = await realizada(quem)
+  const o = await mover(id, { acao: 'registrarOrcamento', valor: '2500000' }, quem)
+  expect(o.statusCode, JSON.stringify(o.body)).toBe(200)
+  return id
+}
+
+describe('o 400 do fechar não carrega NÚMERO para quem não tem `valores`', () => {
+  // `rita` (balcão) recebe e não vê valores; ganha `jornada` só dentro deste bloco.
+  beforeAll(async () => {
+    await c.migrate.query(
+      `UPDATE perfis SET perms = ARRAY['pacientes','receber','jornada'] WHERE clinica_id = $1 AND chave = 'pf_bal'`,
+      [c.clinica],
+    )
+  })
+  afterAll(async () => {
+    await c.migrate.query(
+      `UPDATE perfis SET perms = ARRAY['pacientes','receber'] WHERE clinica_id = $1 AND chave = 'pf_bal'`,
+      [c.clinica],
+    )
+  })
+
+  const semDinheiro = (corpo: { message?: unknown }): void => {
+    // Só a MENSAGEM: o corpo traz `statusCode: 400`, que não é dinheiro.
+    const texto = String(corpo.message)
+    expect(texto).not.toMatch(/\d/)
+    expect(texto).not.toMatch(/R\$/)
+  }
+
+  it('"tudo" com valor errado (Recepção sem `valores`): 400 sem nenhum dígito de dinheiro', async () => {
+    const id = await ofertadoPor('rita')
+    const r = await mover(
+      id,
+      { acao: 'fechar', fechamento: 'tudo', recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '0' } },
+      'rita',
+    )
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400)
+    semDinheiro(r.body)
+  })
+
+  it('"parte" com a soma igual à oferta (Recepção sem `valores`): 400 sem nenhum dígito de dinheiro', async () => {
+    const id = await ofertadoPor('rita')
+    const r = await mover(
+      id,
+      { acao: 'fechar', fechamento: 'parte', recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '1500000' } },
+      'rita',
+    )
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400)
+    semDinheiro(r.body)
+  })
+})
+
+describe('o RESTANTE de um parcial volta a Hoje › Retomar', () => {
+  const retomarDe = async () => {
+    const r = await pegar(c, '/v1/hoje', {}, 'beatriz')
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200)
+    return (r.body.retomar as { id: string }[]).map((x) => x.id)
+  }
+
+  it('parcial com data aparece; "retomarRestante" muda a data; sem data sai da lista', async () => {
+    const id = await ofertado('2500000')
+    const f = await mover(id, {
+      acao: 'fechar',
+      fechamento: 'parte',
+      retomarRestanteEm: HOJE,
+      recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '500000' },
+    })
+    expect(f.statusCode, JSON.stringify(f.body)).toBe(200)
+    expect(await retomarDe()).toContain(id)
+
+    const adiado = await mover(id, { acao: 'retomarRestante', retomarEm: '2099-01-01' })
+    expect(adiado.statusCode, JSON.stringify(adiado.body)).toBe(200)
+    expect(await retomarDe()).not.toContain(id)
+
+    const volta = await mover(id, { acao: 'retomarRestante', retomarEm: HOJE })
+    expect(volta.statusCode).toBe(200)
+    expect(await retomarDe()).toContain(id)
+
+    const encerra = await mover(id, { acao: 'retomarRestante' })
+    expect(encerra.statusCode).toBe(200)
+    expect(await retomarDe()).not.toContain(id)
+    expect((await tarefaCrua(c, id))!.etapa).toBe('fechado') // a etapa não muda
+  })
+
+  it('num fechamento COMPLETO não há restante: 409', async () => {
+    const id = await ofertado('1500000')
+    await mover(id, {
+      acao: 'fechar',
+      fechamento: 'tudo',
+      recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '500000' },
+    })
+    const r = await mover(id, { acao: 'retomarRestante', retomarEm: HOJE })
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(409)
+  })
+})
+
+describe('parcial com programa: só os itens marcados viram programa', () => {
+  it('o programa vale o FECHADO e só tem os itens escolhidos', async () => {
+    const p = await c.migrate.query<{ id: string }>(
+      `SELECT id FROM procedimentos WHERE clinica_id = $1 AND nome_chave = 'tirzepatida'`,
+      [c.clinica],
+    )
+    const proc = p.rows[0]!.id
+    const id = await ofertado('2500000', [
+      { procedimentoId: proc, sessoes: 2, intervaloDias: 30, chave: 'a' },
+      { procedimentoId: proc, sessoes: 2, intervaloDias: 30, chave: 'b' },
+    ])
+    const f = await mover(id, {
+      acao: 'fechar',
+      fechamento: 'parte',
+      itensFechados: ['a'],
+      recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '500000' },
+    })
+    expect(f.statusCode, JSON.stringify(f.body)).toBe(200)
+    const itens = await c.migrate.query<{ chave: string; valor: string }>(
+      `SELECT i.chave, i.valor::text AS valor
+         FROM itens_do_programa i JOIN programas g ON g.id = i.programa_id
+        WHERE g.tarefa_de_origem_id = $1`,
+      [id],
+    )
+    expect(itens.rows.map((x) => x.chave)).toEqual(['a'])
+    expect(BigInt(itens.rows[0]!.valor)).toBe(1_500_000n) // o fechado, não os 25.000
+
+    const ruim = await ofertado('2500000', [
+      { procedimentoId: proc, sessoes: 2, intervaloDias: 30, chave: 'a' },
+    ])
+    const r = await mover(ruim, {
+      acao: 'fechar',
+      fechamento: 'parte',
+      itensFechados: ['zzz'],
+      recebimento: { valor: '730000', forma: 'Pix', valorAberto: '0' },
+    })
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400)
+  })
+})

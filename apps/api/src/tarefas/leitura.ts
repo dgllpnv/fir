@@ -1,5 +1,11 @@
-import type { ItemOrcadoNaSaida, TarefaNaLista } from '@fir/contracts'
-import { type Autor, type Etapa, type EventoDeJornada, situacaoDoFechamento } from '@fir/domain'
+import type { ItemDoOrcamentoNaSaida, ItemOrcadoNaSaida, TarefaNaLista } from '@fir/contracts'
+import {
+  type Autor,
+  type Etapa,
+  type EventoDeJornada,
+  itensDoOrcamentoDe,
+  situacaoDoFechamento,
+} from '@fir/domain'
 import { ForbiddenException } from '@nestjs/common'
 import type pg from 'pg'
 import { exigePessoa, pessoaDoAtor, type PessoaId } from '../banco/ator'
@@ -127,6 +133,22 @@ export function exigirEscopo(
  *
  * `$1` clínica · `$2` o dia civil de HOJE na clínica (para `atrasada`).
  */
+/**
+ * O ÚNICO filtro de "paciente desativado" das listas e contadores de trabalho.
+ *
+ * Tarefa ABERTA de paciente desativado some de Tarefas, Hoje e dos contadores
+ * de pendência; a CONCLUÍDA/cancelada fica (histórico) e a ficha do paciente
+ * não usa esta cláusula. É só filtro de leitura: nada é apagado, e reativar o
+ * paciente devolve as tarefas exatamente como estavam.
+ *
+ * `EXISTS` com subconsulta (e não `pa.ativo`) para valer em consultas com ou
+ * sem o `JOIN pacientes`. Exige o alias `t` para `tarefas`. Tarefa sem
+ * paciente (interna) nunca casa o `EXISTS`, então não é escondida.
+ * Divergência do protótipo: lá não existe desativar paciente.
+ */
+export const FORA_DE_PACIENTE_DESATIVADO = `NOT (t.status = 'aberta'
+       AND EXISTS (SELECT 1 FROM pacientes pdes WHERE pdes.id = t.paciente_id AND NOT pdes.ativo))`
+
 export const SELECT_TAREFA = `
   SELECT t.id,
          t.solicitante_id, ps.nome AS solicitante_nome,
@@ -134,7 +156,10 @@ export const SELECT_TAREFA = `
          t.contato_id, pc.nome AS contato_nome,
          t.descricao, t.prazo::text AS prazo, t.hora::text AS hora, t.prioridade, t.status,
          t.concluida_em, t.criada_em,
-         t.paciente_id, pa.nome AS paciente_nome, pa.telefone AS paciente_telefone,
+         t.paciente_id, pa.nome AS paciente_nome,
+         -- Paciente DESATIVADO não entrega o telefone em lista nenhuma (I3,
+         -- LGPD): o nome e a tarefa continuam, o canal de contato não.
+         CASE WHEN pa.ativo THEN pa.telefone END AS paciente_telefone,
          coalesce(pa.conferir_cadastro, false) AS paciente_conferir_cadastro,
          t.tipo, t.etapa::text AS etapa, t.historico, t.resultado, t.obs,
          t.serie_id, t.recorrencia, t.unidade_id, t.campanha_id,
@@ -146,7 +171,8 @@ export const SELECT_TAREFA = `
          -- configuração o traga como number — e number perto de dinheiro é a
          -- regra 1 quebrada.
          t.valor_orcamento::text AS valor_orcamento, t.valor_fechado::text AS valor_fechado,
-         t.programa_orcado,
+         t.valor_de_referencia::text AS valor_de_referencia,
+         t.programa_orcado, t.itens_orcamento,
          t.motivo_perda_id, t.proximo_passo_em::text AS proximo_passo_em,
          t.confirmacao_enviada_em,
          -- ATRASADA é contra o HOJE DO SERVIDOR ($2), nunca contra o dia que
@@ -191,7 +217,9 @@ export type LinhaDeTarefa = {
   historico: EventoDeJornada[]
   valor_orcamento: string | null
   valor_fechado: string | null
+  valor_de_referencia: string | null
   programa_orcado: ItemOrcadoNaSaida[] | null
+  itens_orcamento: ItemDoOrcamentoNaSaida[] | null
   motivo_perda_id: string | null
   proximo_passo_em: string | null
   confirmacao_enviada_em: Date | null
@@ -254,12 +282,14 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   historico: l.historico,
   valorOrcamento: l.valor_orcamento,
   valorFechado: l.valor_fechado,
+  valorDeReferencia: l.valor_de_referencia,
   orcamentoParcial:
     situacaoDoFechamento(
       l.valor_orcamento === null ? null : BigInt(l.valor_orcamento),
       l.valor_fechado === null ? null : BigInt(l.valor_fechado),
     ) === 'parcial',
   programaOrcado: l.programa_orcado,
+  itensOrcamento: itensDoOrcamentoDe(l.itens_orcamento, l.programa_orcado),
   motivoPerdaId: l.motivo_perda_id,
   proximoPassoEm: l.proximo_passo_em,
   confirmacaoEnviadaEm:
@@ -300,19 +330,46 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
         },
 })
 
-/** Lê as tarefas pedidas, na ordem em que o banco as devolver. */
+/**
+ * A ÚNICA função que tira a jornada do cartão de quem não tem `jornada`
+ * (appsec S-5, B1 da revisão LGPD).
+ *
+ * `historico` (nota em texto livre), `programaOrcado` (com a dose),
+ * `itensOrcamento` (os PROCEDIMENTOS de um paciente identificado: dado de
+ * saúde, regra 18) e `proximoPassoEm` são a jornada. Campanhas, ficha, a lista
+ * de tarefas e a tela Hoje passam TODAS por aqui; um `if` por rota é como o
+ * campo novo (`itensOrcamento`) escapou da versão anterior, que só zerava três.
+ *
+ * A FORMA não muda — vazio e `null`, que o contrato já admite, nunca uma chave
+ * a menos. Com `jornada` o cartão volta intacto, e a mesma referência.
+ */
+export const aplicarPermissaoDeJornada = (t: TarefaNaLista, podeJornada: boolean): TarefaNaLista =>
+  podeJornada
+    ? t
+    : { ...t, historico: [], proximoPassoEm: null, programaOrcado: null, itensOrcamento: null }
+
+/**
+ * Le as tarefas pedidas, na ordem em que o banco as devolver.
+ *
+ * E o caminho comum de TODA rota de escrita de tarefa (criar, editar, concluir,
+ * cancelar, reabrir, sessao, mover). `podeJornada` e parametro OBRIGATORIO e a
+ * jornada e tirada aqui, uma vez: antes, cada rota devolvia o cartao cru e
+ * quem nao tinha `jornada` recebia historico, dose e procedimentos de volta na
+ * resposta da propria escrita (appsec F6).
+ */
 export async function lerTarefas(
   c: pg.PoolClient,
   clinicaId: ClinicaId,
   hoje: string,
   ids: readonly string[],
+  podeJornada: boolean,
 ): Promise<TarefaNaLista[]> {
   if (ids.length === 0) return []
   const r = await c.query<LinhaDeTarefa>(
     `${SELECT_TAREFA} AND t.id = ANY($3) ORDER BY t.prazo, t.hora NULLS LAST, t.criada_em`,
     [clinicaId, hoje, ids],
   )
-  return r.rows.map(paraSaida)
+  return r.rows.map((l) => aplicarPermissaoDeJornada(paraSaida(l), podeJornada))
 }
 
 /**

@@ -172,7 +172,9 @@ principal().then(
   (c) => process.exit(c),
   (e: unknown) => {
     // só o código: a mensagem de um erro do pg ou do JSON pode conter o valor da linha
-    const codigo = e instanceof ErroDeCarga || e instanceof ErroDeDump ? e.message : 'erro_inesperado'
+    // Para o erro inesperado, só o CÓDIGO técnico (28P01, ECONNREFUSED...): ele diz o que falhou e não carrega valor.
+    const tecnico = typeof e === 'object' && e !== null && 'code' in e && typeof e.code === 'string' ? ` [${e.code}]` : ''
+    const codigo = e instanceof ErroDeCarga || e instanceof ErroDeDump ? e.message : `erro_inesperado${tecnico}`
     console.error(`FALHA: ${codigo}`)
     process.exit(2)
   },

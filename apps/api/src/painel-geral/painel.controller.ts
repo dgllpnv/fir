@@ -39,7 +39,7 @@ export class PainelController {
     // `!` seguro: `SessaoGuard` é global e esta rota não é `@Publico()`.
     const c = req.contexto!
     return this.painel.painel(
-      { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
+      { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso, valores: c.pode('valores') },
       filtro.data,
     )
   }

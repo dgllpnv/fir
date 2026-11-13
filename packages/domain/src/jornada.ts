@@ -42,6 +42,7 @@ export type AcaoDeJornada =
   | 'followUp'
   | 'fechar'
   | 'perder'
+  | 'retomarRestante'
   | 'reabrir'
   | 'corrigirOrcamento'
 
@@ -77,6 +78,7 @@ export const ACOES = [
   'followUp',
   'fechar',
   'perder',
+  'retomarRestante',
   'reabrir',
   'corrigirOrcamento',
 ] as const satisfies readonly AcaoDeJornada[]
@@ -189,6 +191,12 @@ const TRANSICOES_LITERAL = [
   { acao: 'followUp',           de: ['orcamento'],              para: 'orcamento',  status: 'concluida', contaNoFunil: false, exigeValor: false, exigeMotivo: false },
   { acao: 'fechar',             de: ['realizado', 'orcamento'], para: 'fechado',    status: 'concluida', contaNoFunil: true,  exigeValor: true,  exigeMotivo: false },
   { acao: 'perder',             de: ['orcamento'],              para: 'perdido',    status: 'concluida', contaNoFunil: true,  exigeValor: false, exigeMotivo: true  },
+  // O RESTANTE de um orçamento fechado PARCIAL: a paciente fechou 15 de 25 e a
+  // clínica ainda quer retomar os 10. Não é etapa nova nem orçamento novo (nada
+  // duplica o oferecido no funil): o cartão continua `fechado` e só ganha, ou
+  // perde, a data de retomada. Que o fechamento foi parcial é conferido no
+  // serviço (`situacaoDoFechamento`), porque depende do valor, não da etapa.
+  { acao: 'retomarRestante',    de: ['fechado'],                para: 'fechado',    status: 'concluida', contaNoFunil: false, exigeValor: false, exigeMotivo: false },
   { acao: 'reabrir',            de: ['realizado', 'orcamento', 'encerrado'], para: 'anterior',   status: 'aberta',    contaNoFunil: false, exigeValor: false, exigeMotivo: false },
   // A correção do orçamento já enviado (B1). `de: ['orcamento']` e nada mais:
   // fechado e perdido são terminais, e o evento `fechar` congelou o negócio no
@@ -256,6 +264,7 @@ export const ROTULO_DE_ACAO: Readonly<Record<AcaoDeJornada, string>> = {
   followUp: 'Registrar follow-up',
   fechar: 'Fechou',
   perder: 'Perdeu',
+  retomarRestante: 'Retomar o restante',
   reabrir: 'Reabrir',
   corrigirOrcamento: 'Corrigir orçamento',
 }
@@ -299,6 +308,18 @@ export type EventoDeJornada = {
   readonly para?: RetratoDoOrcamento
   /** Só em `corrigirOrcamento`: a chave do ENVIO, gerada pela tela (retry não duplica). */
   readonly chaveIdempotencia?: string
+  /**
+   * Só em `fechar`: as CHAVES dos procedimentos do orçamento que a paciente
+   * fechou (todas, no fechamento total). Ausente = fechado antes do
+   * detalhamento: "sem detalhamento", nunca reconstruído (sem backfill).
+   */
+  readonly itensFechados?: string[]
+  /**
+   * Só em `fechar`: o que a paciente fechou (entrada + em aberto), centavos
+   * EM TEXTO (D-4). `valorFechado` está em `CAMPOS_MONETARIOS`: sem `valores`
+   * a redação o apaga, em qualquer profundidade.
+   */
+  readonly valorFechado?: string
 }
 
 /**
@@ -343,7 +364,7 @@ const mensagemPorOrigem = (etapa: Etapa): string =>
  * no histórico (append-only), que é onde a recepção o encontra.
  */
 const JA_TEM_ORCAMENTO =
-  'Este orçamento já foi fechado ou perdido. Para desfazer, estorne o recebimento do orçamento em Financeiro › Recebimentos.'
+  'Este orçamento já foi fechado ou perdido e não volta atrás. Se foi lançado por engano, abra Editar e use Excluir: o pagamento é estornado e o programa criado é encerrado.'
 
 /**
  * A etapa a que `reabrir` devolve o cartão.
@@ -778,4 +799,117 @@ export function situacaoDoFechamento(
   // Fechou direto, sem orçamento registrado: não há oferta para ficar aquém.
   if (valorOrcamento === null) return 'completo'
   return valorFechado < valorOrcamento ? 'parcial' : 'completo'
+}
+
+/* =========================================================================
+ * ITENS DO ORÇAMENTO E O RESUMO DERIVADO (ADR 2026-11-13)
+ * ====================================================================== */
+
+/** Um procedimento listado no orçamento: o que foi proposto, sem sessões nem dose. */
+export type ItemDoOrcamentoLido = {
+  readonly chave: string
+  readonly procedimentoId: string
+  /** Centavos em texto (D-4), ou ausente. */
+  readonly valor?: string | null | undefined
+}
+
+/**
+ * Os procedimentos do orçamento, de onde estiverem — **migração por leitura**.
+ *
+ * `itens_orcamento` (orçamento sem programa) tem precedência; senão os itens
+ * saem de `programa_orcado`, que é onde os orçamentos anteriores à lista
+ * própria os guardaram. Os dois nunca andam juntos (CHECK da 0078). Nenhuma
+ * linha é reescrita: quem lê deriva. `null` = orçamento só com valor.
+ */
+export function itensDoOrcamentoDe(
+  itens: readonly ItemDoOrcamentoLido[] | null,
+  programa: readonly (Omit<ItemDoOrcamentoLido, 'chave'> & { readonly chave?: string | undefined })[] | null,
+): ItemDoOrcamentoLido[] | null {
+  const lidos: readonly ItemDoOrcamentoLido[] | null =
+    itens !== null && itens.length > 0
+      ? itens
+      : programa !== null && programa.length > 0
+        ? programa.map((i, n) => ({ ...i, chave: i.chave ?? `i${n + 1}` }))
+        : null
+  if (lidos === null) return null
+  return lidos.map((i) => ({
+    chave: i.chave,
+    procedimentoId: i.procedimentoId,
+    ...(i.valor === undefined || i.valor === null ? {} : { valor: i.valor }),
+  }))
+}
+
+/** `aberto` = orçamento enviado e sem decisão; `perdido`; `fechado` (completo); `parcial`. */
+export type SituacaoDoOrcamento = 'aberto' | 'fechado' | 'parcial' | 'perdido'
+
+/**
+ * `orcado`: o orçamento ainda não foi decidido (ou foi perdido). Os três outros
+ * só existem num orçamento FECHADO; `sem_detalhamento` = fechado antes de o
+ * sistema guardar quais itens foram fechados.
+ */
+export type SituacaoDoItemDoOrcamento = 'orcado' | 'fechado' | 'nao_fechado' | 'sem_detalhamento'
+
+export type ResumoDoOrcamento = {
+  readonly situacao: SituacaoDoOrcamento
+  /** Oferecido − fechado, só no `parcial`. NÃO é receita (regra 4). */
+  readonly valorRestante: bigint | null
+  readonly itens: readonly (ItemDoOrcamentoLido & { readonly situacao: SituacaoDoItemDoOrcamento })[]
+  /** Quantos itens foram fechados, ou `null` quando não há detalhamento. */
+  readonly itensFechados: number | null
+}
+
+/**
+ * O RESUMO DE UM ORÇAMENTO — derivado, nunca gravado, e a ÚNICA regra de
+ * "parcial" que o TypeScript tem (o SQL tem o fragmento de
+ * `apps/api/src/jornada/parcial.ts`, o par desta função).
+ *
+ * "Pagamento em aberto" e "orçamento parcialmente fechado" são coisas
+ * diferentes: o primeiro é saldo A RECEBER do que foi fechado (regra 5); o
+ * segundo é a parte do orçamento que NÃO foi fechada (`valorRestante`).
+ *
+ * `null` quando o cartão não tem orçamento (etapa fora de orçamento/fechado/
+ * perdido).
+ */
+export function resumoDoOrcamento(x: {
+  readonly etapa: Etapa | null
+  readonly valorOrcamento: bigint | null
+  readonly valorFechado: bigint | null
+  readonly itens: readonly ItemDoOrcamentoLido[] | null
+  readonly historico: readonly EventoDeJornada[]
+}): ResumoDoOrcamento | null {
+  let situacao: SituacaoDoOrcamento
+  if (x.etapa === 'orcamento') situacao = 'aberto'
+  else if (x.etapa === 'perdido') situacao = 'perdido'
+  else if (x.etapa === 'fechado') {
+    situacao = situacaoDoFechamento(x.valorOrcamento, x.valorFechado) === 'parcial' ? 'parcial' : 'fechado'
+  } else return null
+
+  let fechados: ReadonlySet<string> | null = null
+  if (x.etapa === 'fechado') {
+    for (let i = x.historico.length - 1; i >= 0; i--) {
+      const e = x.historico[i]!
+      if (e.acao !== 'fechar') continue
+      if (e.itensFechados !== undefined) fechados = new Set(e.itensFechados)
+      break
+    }
+  }
+  const itens = (x.itens ?? []).map((i) => ({
+    ...i,
+    situacao: (x.etapa !== 'fechado'
+      ? 'orcado'
+      : fechados === null
+        ? 'sem_detalhamento'
+        : fechados.has(i.chave)
+          ? 'fechado'
+          : 'nao_fechado') as SituacaoDoItemDoOrcamento,
+  }))
+  return {
+    situacao,
+    valorRestante:
+      situacao === 'parcial' && x.valorOrcamento !== null && x.valorFechado !== null
+        ? x.valorOrcamento - x.valorFechado
+        : null,
+    itens,
+    itensFechados: fechados === null ? null : itens.filter((i) => i.situacao === 'fechado').length,
+  }
 }

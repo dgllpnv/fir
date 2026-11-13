@@ -41,6 +41,8 @@ export type EntidadeSensivel =
   | 'auditoria'
   | 'pacientes'
   | 'pessoas'
+  /** As tarefas de uma campanha: nome do paciente alcançado + procedimentos (I4). */
+  | 'campanhas'
   /**
    * A FICHA DE RH (épico 7). Ela carrega o salário, e a pergunta que a clínica
    * faz depois é *"quem abriu o salário dela"* — ninguém alterou nada, e a

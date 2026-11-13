@@ -81,6 +81,8 @@ export function acoesDaEtapa(t: {
    * resposta de verdade, e ausente = `true`.
    */
   readonly podeCorrigir?: boolean
+  /** O fechamento foi PARCIAL? Só então "Retomar o restante" aparece. */
+  readonly orcamentoParcial?: boolean
 }): AcaoDaFaixa[] {
   if (t.etapa === null) return []
   const etapa = t.etapa
@@ -92,6 +94,7 @@ export function acoesDaEtapa(t: {
     if (x.acao === 'registrarOrcamento' && !aindaDaParaOrcar(t.concluidaEm, t.hoje)) return false
     if (x.acao === 'fechar' && t.podeReceber === false) return false
     if (x.acao === 'corrigirOrcamento' && t.podeCorrigir === false) return false
+    if (x.acao === 'retomarRestante' && t.orcamentoParcial !== true) return false
     return true
   })
     .map((x) => ({
@@ -139,6 +142,10 @@ export function contextoDaEtapa(t: {
     return `confirmação enviada em ${brCurto(diaDe(t.confirmacaoEnviadaEm))}, aguardando resposta`
   }
   if (t.etapa === 'faltou' || t.etapa === 'desmarcou') return 'recontatar para reagendar'
+  if (t.etapa === 'fechado' && t.proximoPassoEm !== null) {
+    const atrasado = t.proximoPassoEm < t.hoje ? ' (atrasado)' : ''
+    return `retomar o restante em ${brCurto(t.proximoPassoEm)}${atrasado}`
+  }
   if (t.etapa === 'orcamento' && t.proximoPassoEm !== null) {
     const atrasado = t.proximoPassoEm < t.hoje ? ' (atrasado)' : ''
     return `retomar em ${brCurto(t.proximoPassoEm)}${atrasado}`

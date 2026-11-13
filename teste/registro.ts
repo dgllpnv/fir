@@ -64,7 +64,7 @@ export type RotaRegistrada = {
  * Uma constante, e não a lista repetida sete vezes: a sétima é a que esquece
  * o campo novo.
  */
-const DINHEIRO_DA_TAREFA = ['valor', 'valorAberto', 'valorOrcamento', 'valorFechado'] as const
+const DINHEIRO_DA_TAREFA = ['valor', 'valorAberto', 'valorOrcamento', 'valorFechado', 'valorDeReferencia'] as const
 
 /**
  * Os dois nomes monetários da META DE PESSOA — ver a nota no fim da lista.
@@ -111,7 +111,11 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
    * é forma própria, e por isso a rota entra aqui por direito, não por
    * herança.
    */
-  { metodo: 'GET', caminho: '/v1/jornada', camposDeDinheiro: ['valor', 'valorOrcamento'] },
+  {
+    metodo: 'GET',
+    caminho: '/v1/jornada',
+    camposDeDinheiro: ['valor', 'valorOrcamento', 'valorFechado', 'valorRestante'],
+  },
 
   /**
    * O FINANCEIRO (épico 4) — **todas as rotas abaixo existem**.
@@ -429,7 +433,26 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
    * saber em quanto a barra ficou. `importar` é a exceção — ela devolve só
    * contagens, e nenhuma delas é dinheiro.
    */
-  { metodo: 'GET', caminho: '/v1/campanhas', camposDeDinheiro: DINHEIRO_DA_CAMPANHA },
+  {
+    metodo: 'GET',
+    caminho: '/v1/campanhas',
+    camposDeDinheiro: [...DINHEIRO_DA_CAMPANHA, 'valorConvertido'],
+  },
+  {
+    metodo: 'GET',
+    caminho: '/v1/campanhas/:id',
+    camposDeDinheiro: [...DINHEIRO_DA_CAMPANHA, 'faltaEmDinheiro', 'valor', 'valorTotal'],
+  },
+  {
+    metodo: 'GET',
+    caminho: '/v1/campanhas/:id/tarefas',
+    camposDeDinheiro: [...DINHEIRO_DA_TAREFA, 'valorTotal'],
+  },
+  {
+    metodo: 'GET',
+    caminho: '/v1/pacientes/:id/orcamentos',
+    camposDeDinheiro: ['valor', 'valorOrcamento', 'valorFechado', 'valorRestante'],
+  },
   { metodo: 'POST', caminho: '/v1/campanhas', camposDeDinheiro: DINHEIRO_DA_CAMPANHA },
   { metodo: 'PUT', caminho: '/v1/campanhas/:id', camposDeDinheiro: DINHEIRO_DA_CAMPANHA },
   { metodo: 'DELETE', caminho: '/v1/campanhas/:id', camposDeDinheiro: DINHEIRO_DA_CAMPANHA },

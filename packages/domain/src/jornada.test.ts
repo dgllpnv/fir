@@ -7,6 +7,8 @@ import {
   type AcaoDeJornada,
   ehDaJornada,
   situacaoDoFechamento,
+  itensDoOrcamentoDe,
+  resumoDoOrcamento,
   type Etapa,
   ETAPAS,
   ETAPA_AO_CANCELAR,
@@ -121,9 +123,10 @@ describe('transicao — o que é proibido, cada caso', () => {
     expect(mensagemDe(r)).toContain('ainda não aconteceu')
   })
 
-  it('de fechado e perdido NADA sai — nem reabrir', () => {
+  it('de fechado e perdido NADA sai — nem reabrir (só o restante do parcial, que fica no mesmo lugar)', () => {
     for (const t of ETAPAS_SEM_SAIDA) {
       for (const a of ACOES) {
+        if (t === 'fechado' && a === 'retomarRestante') continue
         expect(ehErro(transicao(estadoDe(t), a)), `${t} + ${a}`).toBe(true)
       }
     }
@@ -143,7 +146,7 @@ describe('transicao — o que é proibido, cada caso', () => {
     expect(ETAPAS.filter((e) => statusDaEtapa(e) === 'cancelada')).toEqual([ETAPA_AO_CANCELAR])
   })
 
-  it('A MATRIZ INTEIRA: 9 etapas × 14 ações, e só as 25 combinações da tabela passam', () => {
+  it('A MATRIZ INTEIRA: 9 etapas × 15 ações, e só as 26 combinações da tabela passam', () => {
     // 126 combinações, uma por uma, e as 102 restantes são recusadas. É o
     // único jeito de provar que CADA transição proibida é recusada — "de
     // faltou só saem três" prova três linhas, não as outras 123.
@@ -162,6 +165,7 @@ describe('transicao — o que é proibido, cada caso', () => {
     }
     expect([...permitidas].sort()).toEqual(
       [
+        'fechado -retomarRestante-> fechado/concluida',
         'agendado -confirmar-> confirmado/aberta',
         'agendado -concluir-> realizado/concluida',
         'agendado -desmarcar-> desmarcou/aberta',
@@ -192,7 +196,7 @@ describe('transicao — o que é proibido, cada caso', () => {
         'realizado -registrarOrcamento-> orcamento/concluida',
       ].sort(),
     )
-    expect(permitidas).toHaveLength(25)
+    expect(permitidas).toHaveLength(26)
   })
 
   it('nenhuma ação de agenda alcança um cartão concluído', () => {
@@ -500,5 +504,94 @@ describe('situacaoDoFechamento — orçamento parcial', () => {
     const grande = 9_007_199_254_740_993n
     expect(situacaoDoFechamento(grande, grande - 1n)).toBe('parcial')
     expect(situacaoDoFechamento(grande, grande)).toBe('completo')
+  })
+})
+
+describe('itensDoOrcamentoDe — migração por leitura', () => {
+  const A = { chave: 'a', procedimentoId: 'p1', valor: '100' }
+  it('a lista própria tem precedência; sem ela, os itens vêm do programa orçado', () => {
+    expect(itensDoOrcamentoDe([A], [{ chave: 'x', procedimentoId: 'p9' }])).toEqual([A])
+    expect(itensDoOrcamentoDe(null, [{ chave: 'x', procedimentoId: 'p9', sessoes: 3 } as never])).toEqual([
+      { chave: 'x', procedimentoId: 'p9' },
+    ])
+  })
+  it('sem nenhum dos dois (orçamento só com valor) é null; item sem chave ganha uma posicional', () => {
+    expect(itensDoOrcamentoDe(null, null)).toBeNull()
+    expect(itensDoOrcamentoDe([], [])).toBeNull()
+    expect(itensDoOrcamentoDe(null, [{ procedimentoId: 'p1' }])![0]!.chave).toBe('i1')
+  })
+  it('nunca carrega dose, sessões nem responsável', () => {
+    const r = itensDoOrcamentoDe(null, [
+      { chave: 'a', procedimentoId: 'p', dose: '5mg', sessoes: 4, responsavelId: 'r' } as never,
+    ])
+    expect(Object.keys(r![0]!).sort()).toEqual(['chave', 'procedimentoId'])
+  })
+})
+
+describe('resumoDoOrcamento — a regra de parcial, uma vez só', () => {
+  const itens = [
+    { chave: 'a', procedimentoId: 'p1' },
+    { chave: 'b', procedimentoId: 'p2' },
+    { chave: 'c', procedimentoId: 'p3' },
+  ]
+  const fechar = (itensFechados?: string[]): EventoDeJornada => ({
+    acao: 'fechar',
+    etapa: 'fechado',
+    em: '2026-10-24T12:00:00.000Z',
+    porId: 'x',
+    ...(itensFechados === undefined ? {} : { itensFechados }),
+  })
+
+  it('parcial: restante = oferecido − fechado, e cada item marcado como fechado ou não', () => {
+    const r = resumoDoOrcamento({
+      etapa: 'fechado',
+      valorOrcamento: 2_500_000n,
+      valorFechado: 1_500_000n,
+      itens,
+      historico: [fechar(['a', 'b'])],
+    })!
+    expect(r.situacao).toBe('parcial')
+    expect(r.valorRestante).toBe(1_000_000n)
+    expect(r.itens.map((i) => i.situacao)).toEqual(['fechado', 'fechado', 'nao_fechado'])
+    expect(r.itensFechados).toBe(2)
+  })
+  it('fechado completo não tem restante; antigo (sem itensFechados) é "sem detalhamento"', () => {
+    const r = resumoDoOrcamento({
+      etapa: 'fechado',
+      valorOrcamento: 100n,
+      valorFechado: 100n,
+      itens,
+      historico: [fechar()],
+    })!
+    expect(r.situacao).toBe('fechado')
+    expect(r.valorRestante).toBeNull()
+    expect(r.itens.every((i) => i.situacao === 'sem_detalhamento')).toBe(true)
+    expect(r.itensFechados).toBeNull()
+  })
+  it('aberto e perdido: itens "orcado"; fora do orçamento: null', () => {
+    const base = { valorOrcamento: 100n, valorFechado: null, itens, historico: [] }
+    expect(resumoDoOrcamento({ ...base, etapa: 'orcamento' })!.situacao).toBe('aberto')
+    expect(resumoDoOrcamento({ ...base, etapa: 'perdido' })!.itens[0]!.situacao).toBe('orcado')
+    expect(resumoDoOrcamento({ ...base, etapa: 'realizado' })).toBeNull()
+  })
+  it('PROPRIEDADE: restante + fechado = oferecido, sempre, e só existe no parcial', () => {
+    fc.assert(
+      fc.property(fc.bigInt({ min: 1n, max: 10n ** 15n }), fc.bigInt({ min: 1n, max: 10n ** 15n }), (o, f) => {
+        const r = resumoDoOrcamento({
+          etapa: 'fechado',
+          valorOrcamento: o,
+          valorFechado: f,
+          itens: null,
+          historico: [],
+        })!
+        if (f < o) {
+          expect(r.situacao).toBe('parcial')
+          expect(r.valorRestante! + f).toBe(o)
+        } else {
+          expect(r.situacao).toBe('fechado')
+          expect(r.valorRestante).toBeNull()
+        }
+      }),
+    )
   })
 })

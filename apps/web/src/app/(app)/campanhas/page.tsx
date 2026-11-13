@@ -12,9 +12,26 @@ import { sessaoAtual } from '@/lib/sessao'
  *
  * `podeGerir` decide se os botões de escrita existem — e o servidor recusa de
  * novo em cada rota (regra 16). A tela é conveniência; quem protege é a API.
+ *
+ * `?mes=aaaa-mm` e `?tipo=` trazem a lista de volta ao mesmo recorte quando a
+ * pessoa vem do detalhe (`searchParams` aqui, e não `useSearchParams` na
+ * tela: sem `Suspense` ele quebra o `next build`).
  */
-export default async function CampanhasPage() {
-  const { eu, perfis, quem } = await sessaoAtual()
+export default async function CampanhasPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
+  const { perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'campanhas')) return <SemAcesso tela="Campanhas" />
-  return <TelaCampanhas podeGerir={temPerm(quem, perfis, 'campanhas.gerir')} />
+  const q = await searchParams
+  const mes = typeof q['mes'] === 'string' && /^\d{4}-\d{2}$/.test(q['mes']) ? q['mes'] : undefined
+  const tipo = typeof q['tipo'] === 'string' && q['tipo'] !== '' ? q['tipo'] : undefined
+  return (
+    <TelaCampanhas
+      podeGerir={temPerm(quem, perfis, 'campanhas.gerir')}
+      {...(mes === undefined ? {} : { mesInicial: mes })}
+      {...(tipo === undefined ? {} : { tipoInicial: tipo })}
+    />
+  )
 }

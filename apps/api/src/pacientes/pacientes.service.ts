@@ -1,18 +1,29 @@
 import type {
   ConsultaDePacientes,
+  DesativacaoNaFicha,
+  DesativarPaciente,
   EditarPaciente,
   FichaDoPaciente,
   ListaDePacientes,
   PacienteNaLista,
+  RazaoDeDesativacao,
+  ReativarPaciente,
   SalvarPaciente,
   TarefaNaLista,
 } from '@fir/contracts'
 import { diaCivil, type Relogio, type SaldoDoPaciente, somarDias, TIPOS } from '@fir/domain'
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import type pg from 'pg'
 import { pessoaDoAtor, type Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
+import { declararMotivo, motivoDaAcao } from '../comum/motivo-de-suporte'
 import { RELOGIO } from '../comum/relogio'
 import { unidadeValida } from '../comum/unidade'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
@@ -20,6 +31,7 @@ import { saldoDe, saldosDe } from '../financeiro/saldo.repositorio'
 import {
   type LeitorDaRequisicao,
   type LinhaDeTarefa,
+  aplicarPermissaoDeJornada,
   paraSaida as tarefaParaSaida,
   SELECT_TAREFA,
 } from '../tarefas/leitura'
@@ -39,23 +51,6 @@ import { decidirIndicacaoNoBanco, traduzirErroDeIndicacao, vinculosNaFicha } fro
  * lugares — com duas delas já divergindo.
  */
 const TIPOS_DE_ATENDIMENTO = TIPOS.filter((t) => t.atende === true).map((t) => t.nome)
-
-/**
- * A tarefa da ficha SEM a jornada, para quem não tem `jornada` (appsec S-5).
- *
- * A ficha exige `pacientes`, não `jornada`, e o perfil é editável: sem isto,
- * a ficha seria a porta lateral para o funil — o histórico com a nota em
- * texto livre, o dia de retomar e o programa orçado com a dose. É a mesma
- * regra dos três blocos da jornada em Hoje (`consulta.service.ts`): o
- * servidor não compõe a seção, e a FORMA da resposta não muda — vazio e
- * `null`, que o contrato já admite, nunca uma chave a menos.
- */
-const semJornada = (t: TarefaNaLista): TarefaNaLista => ({
-  ...t,
-  historico: [],
-  proximoPassoEm: null,
-  programaOrcado: null,
-})
 
 /** "Sem retorno há 6+ meses" é 182 dias no protótipo. O mesmo número aqui. */
 const DIAS_SEM_RETORNO = 182
@@ -191,6 +186,9 @@ const ehNomeRepetido = (e: unknown): boolean =>
 
 
 const NOME_REPETIDO = 'Já existe paciente com esse nome. Busque pelo nome para selecionar.'
+const CADASTRO_DESATIVADO = 'Este cadastro está desativado. Reative para editar.'
+const NOME_REPETIDO_NA_REATIVACAO =
+  'Já existe um paciente ativo com este nome. Ajuste o nome de um deles antes de reativar.'
 
 @Injectable()
 export class PacientesService {
@@ -294,7 +292,17 @@ export class PacientesService {
           [clinicaId, id],
         )
       ).rows[0]
-      if (atual === undefined) throw new NotFoundException('Paciente não encontrado.')
+      if (atual === undefined) {
+        // Desativado existe, mas não se edita: 404 aqui mandaria a recepção
+        // procurar um cadastro que ela está vendo na tela. A RLS já escondeu
+        // a outra clínica, então o `SELECT` não confirma nada de fora.
+        const existe = await c.query(
+          'SELECT 1 FROM pacientes WHERE clinica_id = $1 AND id = $2',
+          [clinicaId, id],
+        )
+        if (existe.rowCount === 1) throw new ConflictException(CADASTRO_DESATIVADO)
+        throw new NotFoundException('Paciente não encontrado.')
+      }
       const indicacao = await decidirIndicacaoNoBanco(
         c,
         clinicaId,
@@ -377,11 +385,22 @@ export class PacientesService {
     clinicaId: ClinicaId,
     ator: Ator,
     id: string,
+    dados: DesativarPaciente,
   ): Promise<{ id: string; tarefas: number }> {
+    const motivoDeSuporte = motivoDaAcao(ator, dados.motivo)
+    const detalhe = dados.detalhe === undefined || dados.detalhe === '' ? null : dados.detalhe
+    // O texto da trilha é só a razão (+ detalhe curto). Na sessão de suporte vale
+    // a justificativa do operador; a razão continua na coluna e no de/para.
+    const motivoNaTrilha =
+      motivoDeSuporte ?? (detalhe === null ? dados.razao : `${dados.razao}: ${detalhe}`)
     return this.banco.naClinica(clinicaId, ator, async (c) => {
+      await declararMotivo(c, motivoNaTrilha)
       const r = await c.query(
-        'UPDATE pacientes SET ativo = false, desativado_em = now() WHERE id = $1 AND ativo',
-        [id],
+        `UPDATE pacientes
+            SET ativo = false, desativado_em = now(),
+                motivo_desativacao = $2, detalhe_desativacao = $3
+          WHERE id = $1 AND ativo`,
+        [id, dados.razao, detalhe],
       )
       if (r.rowCount === 0) throw new NotFoundException('Paciente não encontrado.')
       const t = await c.query<{ n: string }>(
@@ -390,6 +409,83 @@ export class PacientesService {
       )
       return { id, tarefas: Number(t.rows[0]!.n) }
     })
+  }
+
+  /**
+   * Reativar — ADR 2026-11-13. O inverso exato de `desativar`.
+   *
+   * `desativado_tem_instante` obriga a limpar `ativo` e `desativado_em`
+   * juntos. O nome foi liberado ao desativar, então outra paciente pode tê-lo
+   * tomado: o índice parcial `pacientes_nome_unico` recusa (23505) e a
+   * resposta é 409, sem dizer nada além do que a recepção já vê na lista.
+   * Tarefas, recebimentos e programas nunca saíram do lugar: reativar não
+   * toca neles, e por isso LTV e saldo não mudam.
+   *
+   * Quem pediu para sair (`pediu-para-sair`) só volta com confirmação
+   * reforçada: `confirmoQueOTitularPediu` e um motivo de 10 a 200. A razão é
+   * lida do banco, nunca do corpo — o cliente não escolhe o quão fácil é.
+   */
+  async reativar(
+    clinicaId: ClinicaId,
+    ator: Ator,
+    fuso: string,
+    id: string,
+    dados: ReativarPaciente,
+  ): Promise<PacienteNaLista> {
+    const motivo = motivoDaAcao(ator, dados.motivo)
+    return this.banco.naClinica(clinicaId, ator, async (c) => {
+      const atual = await c.query<{ ativo: boolean; motivo_desativacao: string | null }>(
+        'SELECT ativo, motivo_desativacao FROM pacientes WHERE clinica_id = $1 AND id = $2 FOR UPDATE',
+        [clinicaId, id],
+      )
+      const linha = atual.rows[0]
+      if (linha === undefined) throw new NotFoundException('Paciente não encontrado.')
+      if (linha.ativo) throw new ConflictException('Este cadastro já está ativo.')
+      if (linha.motivo_desativacao === 'pediu-para-sair') {
+        if (dados.confirmoQueOTitularPediu !== true) {
+          throw new ConflictException(
+            'Este cadastro foi desativado porque o titular pediu para não ser contatado. Para reativar, confirme que o titular pediu para voltar.',
+          )
+        }
+        if (motivo === null) {
+          throw new BadRequestException(
+            'Informe o motivo da reativação (de 10 a 200 caracteres). Não escreva dado de saúde.',
+          )
+        }
+      }
+      await declararMotivo(c, motivo)
+      try {
+        await c.query(
+          `UPDATE pacientes
+              SET ativo = true, desativado_em = NULL,
+                  motivo_desativacao = NULL, detalhe_desativacao = NULL
+            WHERE id = $1 AND NOT ativo`,
+          [id],
+        )
+      } catch (e) {
+        if (ehNomeRepetido(e)) throw new ConflictException(NOME_REPETIDO_NA_REATIVACAO)
+        throw e
+      }
+      return this.lerUm(c, clinicaId, fuso, id)
+    })
+  }
+
+  private async lerDesativacao(
+    c: pg.PoolClient,
+    id: string,
+  ): Promise<DesativacaoNaFicha | null> {
+    const r = await c.query<{ m: string; d: string | null; em: Date }>(
+      `SELECT motivo_desativacao AS m, detalhe_desativacao AS d, desativado_em AS em
+         FROM pacientes WHERE id = $1 AND NOT ativo AND motivo_desativacao IS NOT NULL`,
+      [id],
+    )
+    const l = r.rows[0]
+    if (l === undefined) return null
+    return {
+      razao: l.m as RazaoDeDesativacao, // CHECK da 0081 garante o conjunto fechado
+      detalhe: l.d ?? '',
+      desativadoEm: l.em.toISOString(),
+    }
   }
 
   private async lerUm(
@@ -433,6 +529,7 @@ export class PacientesService {
     fuso: string,
     leitor: Pick<LeitorDaRequisicao, 'podeJornada'>,
     id: string,
+    podeGerir = false,
   ): Promise<FichaDoPaciente> {
     const hoje = this.hojeDaClinica(fuso)
     return this.banco.naClinica(clinicaId, ator, async (c) => {
@@ -448,10 +545,11 @@ export class PacientesService {
         ...paciente,
         tarefas: tarefas.rows
           .map(tarefaParaSaida)
-          .map((t) => (leitor.podeJornada ? t : semJornada(t))),
+          .map((t) => aplicarPermissaoDeJornada(t, leitor.podeJornada)),
         hoje,
         // B2: só a linha do "indicado por" (e a campanha do cadastro).
         ...(await vinculosNaFicha(c, clinicaId, id)),
+        desativacao: podeGerir ? await this.lerDesativacao(c, id) : null,
       }
     })
   }

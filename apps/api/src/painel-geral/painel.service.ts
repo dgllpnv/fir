@@ -34,6 +34,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { diaDaClinica } from '../estoque/dia-da-clinica'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
+import { FORA_DE_PACIENTE_DESATIVADO } from '../tarefas/leitura'
 import {
   TIPOS_DE_SESSAO,
   baseDeReceita,
@@ -75,6 +76,8 @@ type Contexto = {
   readonly clinicaId: ClinicaId
   readonly ator: Ator
   readonly fuso: string
+  /** `pode('valores')`; repassado às campanhas (percentual de receita, regra 17). */
+  readonly valores?: boolean
 }
 
 @Injectable()
@@ -702,6 +705,7 @@ export class PainelService {
            JOIN pacientes pa ON pa.id = t.paciente_id
           WHERE t.clinica_id = $1 AND t.excluida_em IS NULL
             AND t.status = 'aberta' AND t.prazo < $8::date
+            AND ${FORA_DE_PACIENTE_DESATIVADO}
             AND t.tipo <> ALL($7::text[])
           GROUP BY 1
        )

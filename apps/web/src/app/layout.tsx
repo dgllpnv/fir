@@ -38,7 +38,7 @@ const inter = Inter({
 
 export default function RaizLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="pt-BR" className={`${lora.variable} ${cormorant.variable} ${inter.variable}`}>
+    <html lang="pt-BR" suppressHydrationWarning className={`${lora.variable} ${cormorant.variable} ${inter.variable}`}>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         {/* Antes de qualquer pixel. Com `useEffect` a página nasceria clara e

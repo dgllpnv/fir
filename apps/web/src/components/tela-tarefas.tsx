@@ -1,6 +1,7 @@
 'use client'
 
 import type {
+  CampanhasVinculaveis,
   Escopo,
   ListaDaEquipe,
   ListaDeTarefas,
@@ -72,6 +73,7 @@ type Filtros = {
   ate: string
   tipo: string
   unidadeId: string
+  campanhaId: string
   solicitanteId: string
   responsavelId: string
 }
@@ -84,6 +86,7 @@ const VAZIOS: Filtros = {
   ate: '',
   tipo: '',
   unidadeId: '',
+  campanhaId: '',
   solicitanteId: '',
   responsavelId: '',
 }
@@ -120,6 +123,7 @@ export function TelaTarefas({
     q: q.trim() === '' ? undefined : q.trim(),
     tipo: f.tipo === '' ? undefined : f.tipo,
     unidadeId: f.unidadeId === '' ? undefined : f.unidadeId,
+    campanhaId: f.campanhaId === '' ? undefined : f.campanhaId,
     solicitanteId: f.solicitanteId === '' ? undefined : f.solicitanteId,
     responsavelId: f.responsavelId === '' ? undefined : f.responsavelId,
     limite,
@@ -154,6 +158,11 @@ export function TelaTarefas({
 
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
   const unidades = useDados<ListaDeUnidades>('v1/unidades')
+  // O filtro "Campanha" do protótipo. As opções são as vinculáveis (id e nome):
+  // rota aberta a quem cria tarefa, sem meta nem receita.
+  const campanhas = useDados<CampanhasVinculaveis>(
+    `v1/campanhas/vinculaveis${consultaEmTexto({ contexto: 'tarefa' })}`,
+  )
 
   const trocar = (parte: Partial<Filtros>) => {
     setLimite(PAGINA)
@@ -319,6 +328,21 @@ export function TelaTarefas({
             </select>
           </label>
 
+          {(campanhas.dados?.itens ?? []).length === 0 ? null : (
+            <label className="campo">
+              Campanha
+              <select value={f.campanhaId} onChange={(e) => trocar({ campanhaId: e.target.value })}>
+                <option value="">Todas</option>
+                <option value="__sem">Sem campanha</option>
+                {(campanhas.dados?.itens ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
           {(unidades.dados?.unidades ?? []).length === 0 ? null : (
             <label className="campo">
               Unidade
@@ -441,6 +465,7 @@ function contarFiltros(f: Filtros): number {
   if (f.periodo !== 'qualquer') n++
   if (f.tipo !== '') n++
   if (f.unidadeId !== '') n++
+  if (f.campanhaId !== '') n++
   if (f.solicitanteId !== '') n++
   if (f.responsavelId !== '') n++
   return n

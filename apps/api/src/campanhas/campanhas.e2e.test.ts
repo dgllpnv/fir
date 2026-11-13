@@ -405,14 +405,18 @@ describe('os resultados são CONTAGENS derivadas, nunca coluna', () => {
   })
 
   /**
-   * **SEM `valores`, A CAMPANHA ENTREGA SÓ O PERCENTUAL** (regra 17), e o
-   * servidor é quem apaga — num ponto único, nunca num `if` da tela.
+   * **SEM `valores`, A CAMPANHA DE RECEITA NÃO ENTREGA NEM O PERCENTUAL**
+   * (regra 17; decisão do dono, segue o protótipo: "Resultado visível para o
+   * administrativo", sem percentual e sem barra). Com a meta conhecida, o
+   * percentual devolveria a receita em claro. O servidor é quem apaga — num
+   * ponto único, nunca num `if` da tela.
    *
    * É a Recepção quem está nesse caso: ela tem `campanhas` e não tem
-   * `valores`. E o que NÃO é dinheiro atravessa inteiro — esconder "12 de 40
-   * contatos" seria esconder o trabalho dela.
+   * `valores`. O que NÃO é dinheiro atravessa inteiro — esconder "12 de 40
+   * contatos" seria esconder o trabalho dela, e a campanha de contagem
+   * mantém o percentual.
    */
-  it('a Recepção vê o percentual e as contagens, nunca o valor', async () => {
+  it('a Recepção vê as contagens, nunca o valor nem o percentual da campanha de receita', async () => {
     await criar({
       ...BASE,
       nome: 'Receita',
@@ -434,7 +438,9 @@ describe('os resultados são CONTAGENS derivadas, nunca coluna', () => {
     expect(r.metaEmDinheiro).toBeNull()
     expect(r.resultadoEmDinheiro).toBeNull()
     expect(r.receita).toBeNull()
-    expect(r.percentualDaMeta).toBe(70)
+    expect(r.percentualDaMeta).toBeNull()
+    // A campanha de CONTAGEM não revela dinheiro: o percentual atravessa.
+    expect(porNome.get('Outubro Rosa 2026')!.percentualDaMeta).not.toBeNull()
     // As contagens não são dinheiro e atravessam inteiras.
     expect(r.pacientesAlcancados).toBe(1)
     expect(porNome.get('Outubro Rosa 2026')!.metaEmNumero).toBe(40)

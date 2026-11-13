@@ -253,8 +253,8 @@ describe('CORRIGIR os itens do orçamento enviado', () => {
     expect(String((rb.body as { message?: string }).message)).toMatch(/Estornar/)
     expect(await receitaDoDia(c)).toBe(antes)
 
-    // a consulta fechada não é excluída nem reaberta enquanto houver pagamento
-    expect((await apagar(c, `/v1/tarefas/${id}`, {}, 'beatriz')).statusCode).toBe(409)
+    // a consulta fechada não é reaberta (fechado é terminal); EXCLUIR é a saída
+    // (ADR 2026-11-13) e é testado em tarefas/excluir-com-pagamento.test.ts
     expect((await postar(c, `/v1/tarefas/${id}/reabrir`, {}, 'beatriz')).statusCode).toBe(409)
 
     // Estornar (a porta certa) desfaz o dinheiro do orçamento e tira a companheira das listas

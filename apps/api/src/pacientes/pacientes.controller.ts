@@ -9,6 +9,8 @@ import {
   type PacienteNaLista,
   type ResultadoDaImportacao,
   SalvarPaciente,
+  DesativarPaciente,
+  ReativarPaciente,
 } from '@fir/contracts'
 import {
   BadRequestException,
@@ -40,7 +42,7 @@ import { PacientesService } from './pacientes.service'
  * Pacientes.
  *
  * `@Exige('pacientes')` na classe, e `@Exige('pacientes.gerir')` sobrescrevendo
- * nas duas ações que mudam a vida da clínica inteira — desativar e importar.
+ * nas ações que mudam a vida da clínica inteira — desativar, reativar e importar.
  * `getAllAndOverride` no guard faz o do handler vencer o da classe.
  *
  * `@DadoSensivel` fica na ficha e na campanha sugerida, as duas rotas de UMA
@@ -119,7 +121,7 @@ export class PacientesController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<FichaDoPaciente> {
     const c = req.contexto!
-    return this.pacientes.ficha(c.clinicaId, c.ator, c.clinicaFuso, leitorDe(c), id)
+    return this.pacientes.ficha(c.clinicaId, c.ator, c.clinicaFuso, leitorDe(c), id, c.pode('pacientes.gerir'))
   }
 
   /**
@@ -152,6 +154,24 @@ export class PacientesController {
   }
 
   /**
+   * REATIVAR — o inverso de desativar (ADR 2026-11-13). Mesmo gate.
+   * `@DadoSensivel`: devolve o cadastro da paciente, como a ficha.
+   */
+  @Post(':id/reativar')
+  @Exige('pacientes.gerir')
+  @DadoSensivel('pacientes')
+  async reativar(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() corpo: unknown,
+  ): Promise<PacienteNaLista> {
+    const dados = ReativarPaciente.safeParse(corpo ?? {})
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.pacientes.reativar(c.clinicaId, c.ator, c.clinicaFuso, id, dados.data)
+  }
+
+  /**
    * DESATIVAR, não excluir — ADR 0003.
    *
    * O protótipo e o `Code.gs` apagam o paciente, todas as tarefas dele e
@@ -163,9 +183,13 @@ export class PacientesController {
   async desativar(
     @Req() req: RequisicaoComContexto,
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() corpo: unknown,
   ): Promise<DesativacaoDePaciente> {
+    // A razão é obrigatória: sem ela, 400 — e nada é lido nem tocado.
+    const dados = DesativarPaciente.safeParse(corpo ?? {})
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     const c = req.contexto!
-    return this.pacientes.desativar(c.clinicaId, c.ator, id)
+    return this.pacientes.desativar(c.clinicaId, c.ator, id, dados.data)
   }
 }
 

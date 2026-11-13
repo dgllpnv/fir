@@ -72,7 +72,15 @@ const GRUPOS = [...new Set(ESCOLHIVEIS.map((t) => t.grupo))]
 type Props = {
   readonly eu: string
   /** Pré-preenchimento vindo de Hoje (aniversário) ou da ficha da paciente. */
-  readonly inicial: { pacienteId?: string; tipo?: string; descricao?: string }
+  readonly inicial: {
+    pacienteId?: string
+    tipo?: string
+    descricao?: string
+    /** "Nova tarefa nesta campanha": a campanha já vem escolhida. */
+    campanhaId?: string
+    /** Depois de criar, volta ao detalhe da campanha em vez de ir para Hoje. */
+    voltarParaCampanha?: boolean
+  }
   /** Só decide se a pergunta de duplicidade (D-21) mostra o valor digitado. */
   readonly podeValores?: boolean
   /** Decide se a campanha é SUGERIDA ao escolher a paciente (L-A3-11). */
@@ -103,6 +111,8 @@ export function TelaNovaTarefa({ eu, inicial, podeValores = false, podePacientes
       pacienteInicial={prefixada.dados}
       tipoInicial={inicial.tipo ?? ''}
       descricaoInicial={inicial.descricao ?? ''}
+      campanhaInicial={inicial.campanhaId ?? ''}
+      voltarParaCampanha={inicial.voltarParaCampanha === true}
       podeValores={podeValores}
       podePacientes={podePacientes}
     />
@@ -117,6 +127,8 @@ function Formulario({
   pacienteInicial,
   tipoInicial,
   descricaoInicial,
+  campanhaInicial,
+  voltarParaCampanha,
   podeValores,
   podePacientes,
 }: {
@@ -127,6 +139,8 @@ function Formulario({
   pacienteInicial: TPacienteEncontrado | null
   tipoInicial: string
   descricaoInicial: string
+  campanhaInicial: string
+  voltarParaCampanha: boolean
   podeValores: boolean
   podePacientes: boolean
 }) {
@@ -142,7 +156,7 @@ function Formulario({
   const [obs, setObs] = useState('')
   const [urgente, setUrgente] = useState(false)
   const [unidadeId, setUnidadeId] = useState('')
-  const [campanhaId, setCampanhaId] = useState('')
+  const [campanhaId, setCampanhaId] = useState(campanhaInicial)
   const sugestao = useSugestaoDeCampanha(podePacientes, setCampanhaId)
   /**
    * A paciente que chega pela URL (atalho da ficha) também é uma ESCOLHA, e
@@ -312,7 +326,9 @@ function Formulario({
       )
       // `assign` e não `router.push`: a tela Hoje precisa buscar de novo, e um
       // retorno ao cache do roteador mostraria o dia sem a tarefa recém-criada.
-      window.location.assign('/hoje')
+      window.location.assign(
+        voltarParaCampanha && campanhaId !== '' ? `/campanhas/${campanhaId}` : '/hoje',
+      )
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não consegui criar a tarefa.')
     } finally {

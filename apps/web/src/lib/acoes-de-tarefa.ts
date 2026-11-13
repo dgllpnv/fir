@@ -7,6 +7,7 @@ import type { AcoesDoCartao, DadosDaConclusao } from '@/components/cartao-de-tar
 import type { MoverEtapa } from '@/components/jornada/faixa-da-jornada'
 import { chamar } from './api'
 import { postarComConfirmacao } from './dialogo-de-confirmacao'
+import { corpoComMotivo } from './motivo-de-suporte'
 
 /**
  * Concluir · cancelar · reabrir · editar — escritos UMA vez.
@@ -121,6 +122,16 @@ export function useAcoesDeTarefa(
         'Tarefa reaberta. Se havia pagamento, ele foi estornado.',
       ),
     editar: (t: TarefaNaLista) => setEmEdicao(t),
+    // O motivo vai no CORPO (a URL vai para log); só o Suporte Firmare o envia.
+    excluir: (id: string, motivo?: string) =>
+      agir(
+        () =>
+          chamar<TarefasAfetadas>(`v1/tarefas/${id}?serie=false`, {
+            method: 'DELETE',
+            ...corpoComMotivo(motivo),
+          }),
+        'Tarefa excluída. Se havia pagamento, ele foi estornado.',
+      ),
   }
 
   const enviar = (id: string, corpo: Record<string, unknown>) =>
@@ -179,6 +190,7 @@ const AVISO_DA_ACAO: Readonly<Record<string, string>> = {
   followUp: 'Follow-up registrado.',
   perder: 'Orçamento marcado como perdido.',
   fechar: 'Fechamento registrado.',
+  retomarRestante: 'Restante do orçamento atualizado.',
   corrigirOrcamento: 'Orçamento corrigido.',
 }
 

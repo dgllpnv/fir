@@ -28,3 +28,7 @@ docs/Planilhas/
 
 # Arquivos enviados pela cliente (planilhas, prints, áudios, vídeos): dado real de paciente. O repositório é público.
 docs/pedidos/
+
+# Material local: pacote do protótipo v19 (código de clínicas vivas) e ferramenta de análise de vídeo (dado real de paciente)
+docs/FirClinic_Prototipo/
+.claude/skills/analisar-video/

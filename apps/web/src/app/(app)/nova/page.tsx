@@ -38,6 +38,10 @@ export default async function Nova({
         ...(texto('pacienteId') === undefined ? {} : { pacienteId: texto('pacienteId')! }),
         ...(texto('tipo') === undefined ? {} : { tipo: texto('tipo')! }),
         ...(texto('descricao') === undefined ? {} : { descricao: texto('descricao')! }),
+        // "Nova tarefa nesta campanha" (detalhe da campanha): pré-seleciona a
+        // campanha, e `voltar=campanha` devolve a pessoa a ela depois de criar.
+        ...(texto('campanhaId') === undefined ? {} : { campanhaId: texto('campanhaId')! }),
+        ...(texto('voltar') === 'campanha' ? { voltarParaCampanha: true } : {}),
       }}
     />
   )

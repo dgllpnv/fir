@@ -2,21 +2,49 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { chamar } from '@/lib/api'
-import { ControleDeTema } from './controle-de-tema'
-import { ICONE_MENU, ICONE_PAINEL_DE_GESTAO, ICONE_SAIR, iconeDaRota, inicial } from '@/lib/icones'
+import {
+  ICONE_CHEVRON,
+  ICONE_MENU,
+  ICONE_PAINEL_DE_GESTAO,
+  ICONE_SAIR,
+  iconeDaRota,
+  iconeDoGrupo,
+  inicial,
+} from '@/lib/icones'
 import { type ItemDeMenu, secoesDoMenu } from '@/lib/menu'
+import { SeletorDeTema } from './seletor-de-tema'
+
+/**
+ * Hover só onde existe hover de verdade: mouse, e janela de computador. No
+ * celular e no tablet o grupo abre por TOQUE, sempre — o hover nunca é o único
+ * caminho (390 px é o caso principal).
+ */
+const COM_HOVER = '(hover: hover) and (pointer: fine) and (min-width: 900px)'
+const COMPUTADOR = '(min-width: 900px)'
+/**
+ * Tolerância para o mouse em diagonal, de um grupo para a lista dele. Soma-se à
+ * ponte invisível de 12 px do protótipo (`.navfly::before`): a ponte cobre o
+ * trajeto reto; o atraso cobre o trajeto torto e o tremor da mão.
+ */
+const ATRASO_DE_FECHAR_MS = 150
 
 /**
  * O casco: barra lateral no computador, gaveta no celular.
  *
  * É cliente por dois motivos, e só por esses dois: o item ativo depende da
- * rota atual (`usePathname`) e a gaveta tem estado de aberta/fechada. **Quem
- * decide o que entra no menu continua sendo o servidor** — `itensDoMenu` roda
- * no layout, com a sessão de `lib/sessao`, e o que chega aqui já veio filtrado
- * por permissão. Refiltrar aqui seria reimplementar o controle de acesso no
- * lugar errado.
+ * rota atual (`usePathname`) e a gaveta (e os grupos) têm estado de
+ * aberta/fechada. **Quem decide o que entra no menu continua sendo o
+ * servidor** — `itensDoMenu` roda no layout, com a sessão de `lib/sessao`, e o
+ * que chega aqui já veio filtrado por permissão. Refiltrar aqui seria
+ * reimplementar o controle de acesso no lugar errado.
+ *
+ * O menu mostra só os TÍTULOS; os itens de cada grupo ficam numa lista que
+ * abre ao passar o mouse (computador) ou ao tocar (sempre), e na gaveta do
+ * celular vira um acordeão. É o padrão disclosure — botão com `aria-expanded`
+ * e `aria-controls` — e NÃO `role="menu"`, que prometeria setas e foco
+ * gerenciado que não existem.
  */
 export function Shell({
   itens,
@@ -45,14 +73,75 @@ export function Shell({
   const [aberta, setAberta] = useState(false)
   const botaoMenu = useRef<HTMLButtonElement>(null)
   const gaveta = useRef<HTMLElement>(null)
-  const acoes = itens.filter((i) => i.acao === true)
-  // As ações saem do menu: elas já estão acima, como botão. Repeti-las na
-  // lista seria o mesmo destino duas vezes na mesma barra.
-  const secoes = secoesDoMenu(itens.filter((i) => i.acao !== true))
+  // `secoesDoMenu` já devolve as ações (pílulas) no lugar certo e tira os
+  // títulos órfãos; aqui só se desenha.
+  const blocos = secoesDoMenu(itens)
+  const ativo = (href: string) => rota === href || rota.startsWith(`${href}/`)
+  const grupoAtivo = blocos.findIndex(
+    (b) => b.tipo === 'grupo' && b.itens.some((i) => ativo(i.href)),
+  )
+
+  // Grupo aberto: `fixo` = aberto por clique/teclado (não fecha ao tirar o
+  // mouse); sem `fixo` = aberto só por hover.
+  const [grupoAberto, setGrupoAberto] = useState<{ i: number; fixo: boolean } | null>(null)
+  const temporizador = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const botoesDeGrupo = useRef(new Map<number, HTMLButtonElement>())
+  const listas = useRef(new Map<number, HTMLDivElement>())
+  const cancelarFechar = () => {
+    if (temporizador.current) clearTimeout(temporizador.current)
+    temporizador.current = null
+  }
 
   // Trocar de tela fecha a gaveta. Sem isto, no celular a pessoa toca o item e
   // continua olhando para o menu, sem saber se algo aconteceu.
-  useEffect(() => setAberta(false), [rota])
+  useEffect(() => {
+    setAberta(false)
+  }, [rota])
+
+  // Na gaveta, o grupo da tela atual já nasce aberto; no computador, nenhum.
+  useEffect(() => {
+    cancelarFechar()
+    setGrupoAberto(aberta && grupoAtivo >= 0 ? { i: grupoAtivo, fixo: true } : null)
+  }, [aberta, rota, grupoAtivo])
+
+  // A lista do computador é `position: fixed` — a lateral rola (`overflow-y`),
+  // e uma lista absoluta seria cortada por ela. As coordenadas saem do botão,
+  // e a lista sobe se não couber embaixo (janela baixa). Via variáveis CSS, e
+  // só no computador: na gaveta a lista é do fluxo e não usa nada disto.
+  useLayoutEffect(() => {
+    if (!grupoAberto) return
+    const btn = botoesDeGrupo.current.get(grupoAberto.i)
+    const lista = listas.current.get(grupoAberto.i)
+    if (!btn || !lista || !window.matchMedia(COMPUTADOR).matches) return
+    const r = btn.getBoundingClientRect()
+    const margem = 8
+    const maximo = window.innerHeight - 2 * margem
+    const altura = Math.min(lista.offsetHeight, maximo)
+    const topo = Math.max(margem, Math.min(r.top - 6, window.innerHeight - altura - margem))
+    lista.style.setProperty('--fly-top', `${topo}px`)
+    lista.style.setProperty('--fly-left', `${r.right + 6}px`)
+    lista.style.setProperty('--fly-max', `${maximo}px`)
+  }, [grupoAberto])
+
+  // Tocar fora do grupo ou redimensionar fecha a lista do computador.
+  useEffect(() => {
+    if (!grupoAberto) return
+    const fora = (e: PointerEvent) => {
+      // Na gaveta (celular) a lista é em linha: fechar no pointerdown faz o
+      // botão tocado subir antes do clique e o toque cai em outro grupo.
+      if (!window.matchMedia(COMPUTADOR).matches) return
+      if (!(e.target as Element).closest?.(`[data-g="${grupoAberto.i}"]`)) setGrupoAberto(null)
+    }
+    const fechar = () => {
+      if (window.matchMedia(COMPUTADOR).matches) setGrupoAberto(null)
+    }
+    document.addEventListener('pointerdown', fora)
+    window.addEventListener('resize', fechar)
+    return () => {
+      document.removeEventListener('pointerdown', fora)
+      window.removeEventListener('resize', fechar)
+    }
+  }, [grupoAberto])
 
   // Abrir leva o foco para o PRIMEIRO item da gaveta. Sem isto, quem abre pelo
   // teclado continua com o foco no botão "Menu", que está atrás do véu: o Tab
@@ -88,8 +177,6 @@ export function Shell({
     window.location.replace('/entrar')
   }
 
-  const ativo = (href: string) => rota === href || rota.startsWith(`${href}/`)
-
   return (
     <div className="shell" data-suporte={suporte ? 'sim' : 'nao'}>
       <aside
@@ -106,43 +193,133 @@ export function Shell({
           <div className="sideclin">{clinica || 'FIR Clinic'}</div>
         </div>
 
-        {/*
-          As AÇÕES vêm antes do menu, e são botões.
-
-          "Nova tarefa" e "Recebimento" são as duas coisas mais frequentes que
-          a recepção faz, e as duas criam alguma coisa — não são lugares para
-          onde se vai. Enterrá-las no meio de dezessete links é enterrar o
-          caminho de dois toques dentro de uma lista (`docs/design.md` §1).
-          Elas continuam sendo itens de menu: somem para quem não pode.
-        */}
-        {acoes.length > 0 ? (
-          <div className="sideacoes">
-            {acoes.map((i) => (
-              <Link key={i.href} href={i.href} className="btn ghost acao">
-                <span aria-hidden="true">+</span>
-                {i.rotulo}
-              </Link>
-            ))}
-          </div>
-        ) : null}
-
-        <nav className="sidenav" aria-label="Seções">
-          {secoes.map((s) => (
-            <div className="navgrupo" key={s.grupo}>
-              <div className="navtit">{s.grupo}</div>
-              {s.itens.map((i) => (
+        <nav className="sidenav" aria-label="Seções" onScroll={() => setGrupoAberto(null)}>
+          {blocos.map((b, i) => {
+            if (b.tipo === 'separador') {
+              return <div className="navsep" key={`sep${i}`} role="separator" />
+            }
+            if (b.tipo === 'link') {
+              return (
                 <Link
-                  key={i.href}
-                  href={i.href}
+                  key={b.item.href}
+                  href={b.item.href}
                   className="navitem"
-                  aria-current={ativo(i.href) ? 'page' : undefined}
+                  aria-current={ativo(b.item.href) ? 'page' : undefined}
                 >
-                  {iconeDaRota(i.href)}
-                  <span>{i.rotulo}</span>
+                  {iconeDaRota(b.item.href)}
+                  <span>{b.item.rotulo}</span>
                 </Link>
-              ))}
-            </div>
-          ))}
+              )
+            }
+            if (b.tipo === 'acoes') {
+              /*
+                As AÇÕES, em pílulas, logo abaixo de Hoje e Tarefas (o lugar do
+                protótipo). "Nova tarefa" e "Recebimento" criam alguma coisa —
+                não são lugares para onde se vai — e continuam itens de menu:
+                somem para quem não pode.
+              */
+              return (
+                <div className="navacoes" key="acoes">
+                  {b.itens.map((it) => (
+                    <Link
+                      key={it.href}
+                      href={it.href}
+                      className="navacao"
+                      aria-current={ativo(it.href) ? 'page' : undefined}
+                    >
+                      <span aria-hidden="true">+</span>
+                      {it.rotulo}
+                    </Link>
+                  ))}
+                </div>
+              )
+            }
+            const aberto = grupoAberto?.i === i
+            const idLista = `navfly-${i}`
+            return (
+              <div
+                className="navg"
+                key={b.titulo}
+                data-g={i}
+                data-aberto={aberto ? 'sim' : 'nao'}
+                onPointerEnter={(e) => {
+                  if (e.pointerType !== 'mouse' || !window.matchMedia(COM_HOVER).matches) return
+                  cancelarFechar()
+                  setGrupoAberto((g) => (g?.i === i ? g : { i, fixo: false }))
+                }}
+                onPointerLeave={(e) => {
+                  if (e.pointerType !== 'mouse' || !window.matchMedia(COM_HOVER).matches) return
+                  cancelarFechar()
+                  temporizador.current = setTimeout(
+                    () => setGrupoAberto((g) => (g && !g.fixo && g.i === i ? null : g)),
+                    ATRASO_DE_FECHAR_MS,
+                  )
+                }}
+                onKeyDown={(e) => {
+                  // Na gaveta o Esc é do `document` e fecha a gaveta inteira.
+                  if (e.key !== 'Escape' || !aberto || !window.matchMedia(COMPUTADOR).matches) return
+                  e.stopPropagation()
+                  setGrupoAberto(null)
+                  botoesDeGrupo.current.get(i)?.focus()
+                }}
+                onBlur={(e) => {
+                  // Tab para fora do grupo fecha a lista aberta por teclado.
+                  if (
+                    aberto &&
+                    grupoAberto?.fixo &&
+                    window.matchMedia(COMPUTADOR).matches &&
+                    !e.currentTarget.contains(e.relatedTarget)
+                  ) {
+                    setGrupoAberto(null)
+                  }
+                }}
+              >
+                <button
+                  type="button"
+                  className="navgbtn"
+                  ref={(el) => {
+                    if (el) botoesDeGrupo.current.set(i, el)
+                    else botoesDeGrupo.current.delete(i)
+                  }}
+                  aria-expanded={aberto}
+                  aria-controls={idLista}
+                  aria-current={i === grupoAtivo ? 'true' : undefined}
+                  onClick={() =>
+                    setGrupoAberto((g) => (g?.i === i && g.fixo ? null : { i, fixo: true }))
+                  }
+                >
+                  {iconeDoGrupo(b.titulo)}
+                  <span>{b.titulo}</span>
+                  <span className="navchev" aria-hidden="true">
+                    {ICONE_CHEVRON}
+                  </span>
+                </button>
+                <div
+                  className="navfly"
+                  id={idLista}
+                  ref={(el) => {
+                    if (el) listas.current.set(i, el)
+                    else listas.current.delete(i)
+                  }}
+                >
+                  <div className="navfly-caixa">
+                    <div className="navflyt">{b.titulo}</div>
+                    {b.itens.map((it) => (
+                      <Link
+                        key={it.href}
+                        href={it.href}
+                        className="navitem"
+                        aria-current={ativo(it.href) ? 'page' : undefined}
+                      >
+                        {iconeDaRota(it.href)}
+                        <span>{it.rotulo}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
           {/*
             O ATALHO PARA O PAINEL — só na sessão de SUPORTE do operador.
 
@@ -154,48 +331,42 @@ export function Shell({
             `<a>`: `/gestao` tem casco próprio, fora do grupo `(app)`.
           */}
           {suporte ? (
-            <div className="navgrupo">
-              <a className="navitem" href="/gestao" data-atalho="painel-de-gestao">
-                {ICONE_PAINEL_DE_GESTAO}
-                <span>Painel de gestão</span>
-              </a>
-            </div>
+            <a className="navitem" href="/gestao" data-atalho="painel-de-gestao">
+              {ICONE_PAINEL_DE_GESTAO}
+              <span>Painel de gestão</span>
+            </a>
           ) : null}
         </nav>
 
         <div className="sidefoot">
-          <ControleDeTema />
           <div className="sideuser">
             <div className="avatar" aria-hidden="true">
               {inicial(usuario)}
             </div>
-            <div>
+            <div className="sideuser-nome">
               <b>{usuario}</b>
               {funcao ? <small>{funcao}</small> : null}
             </div>
+            <SeletorDeTema id="tema-lateral" lugar="rodape" />
           </div>
           {/*
-            "Trocar senha", embaixo do nome — é o "Trocar meu PIN" dela, no
-            lugar em que ela o pôs.
-
-            A rota já existia e só era alcançada pelo DESVIO do primeiro
-            acesso (`lib/sessao` manda para lá quem tem senha provisória), ou
-            seja: quem quisesse trocar a senha por vontade própria tinha de
-            digitar o endereço. O manual (cap. 2, "Trocar a senha") descreve
-            este botão, e um manual que descreve um botão que não existe é
-            pior que nenhum.
+            "Trocar senha" ao lado de "Sair", e não numa linha própria: o
+            rodapé fica com duas linhas e sobra altura para os títulos.
 
             `<a>` e não `<Link>`: `/trocar-senha` está FORA do grupo `(app)`,
             não tem a Shell, e a navegação do cliente deixaria a lateral
-            montada por cima de uma tela que não a tem.
+            montada por cima de uma tela que não a tem. O manual (cap. 2,
+            "Trocar a senha") descreve este botão.
           */}
-          <a className="btn ghost" href="/trocar-senha">
-            Trocar senha
-          </a>
-          <button type="button" className="btn ghost" onClick={sair}>
-            {ICONE_SAIR}
-            Sair
-          </button>
+          <div className="sidefoot-acoes">
+            <a className="btn ghost" href="/trocar-senha">
+              Trocar senha
+            </a>
+            <button type="button" className="btn ghost" onClick={sair}>
+              {ICONE_SAIR}
+              Sair
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -221,6 +392,7 @@ export function Shell({
               FIR Clinic<span>.</span>
             </div>
             <div className="quem">{usuario}</div>
+            <SeletorDeTema id="tema-topo" lugar="topo" />
           </div>
         </header>
         <main className="wrap">{children}</main>

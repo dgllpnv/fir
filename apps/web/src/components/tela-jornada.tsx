@@ -13,6 +13,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { consultaEmTexto, useDados } from '@/lib/dados'
 import { diaCurto, diaEmTexto } from '@/lib/formato'
+import { linhasDoParcial, textoDeRetomar } from '@/lib/jornada-parciais'
 import { Carregando, Erro } from './estados'
 
 /**
@@ -167,6 +168,11 @@ function Conteudo({
           Agendadas, confirmadas, no-show e orçamentos em aberto mostram a situação de hoje;
           realizadas, fechados e perdidos mostram o período escolhido.
         </p>
+        <p className="nota">
+          <b>Orçamento parcialmente fechado</b> mostra todos os parciais que ainda não foram
+          encerrados, sem filtrar por período; o valor da coluna é o restante a cobrar. O mesmo
+          cartão também aparece em Fechados.
+        </p>
         <Colunas colunas={dados.colunas} hoje={dados.hoje} podePacientes={podePacientes} />
       </div>
 
@@ -306,7 +312,7 @@ function Colunas({
             {c.itens.length === 0 ? (
               <p className="kvazio">Nenhum</p>
             ) : (
-              c.itens.map((x) => <MiniCartao key={x.id} cartao={x} hoje={hoje} podePacientes={podePacientes} />)
+              c.itens.map((x) => <MiniCartao key={x.id} cartao={x} coluna={c.chave} hoje={hoje} podePacientes={podePacientes} />)
             )}
             {c.restantes === 0 ? null : <p className="kvazio">+{c.restantes}</p>}
           </div>
@@ -326,7 +332,7 @@ function Colunas({
             {c.itens.length === 0 ? (
               <p className="kvazio">Nenhum</p>
             ) : (
-              c.itens.map((x) => <MiniCartao key={x.id} cartao={x} hoje={hoje} podePacientes={podePacientes} />)
+              c.itens.map((x) => <MiniCartao key={x.id} cartao={x} coluna={c.chave} hoje={hoje} podePacientes={podePacientes} />)
             )}
             {c.restantes === 0 ? null : <p className="kvazio">+{c.restantes}</p>}
           </details>
@@ -341,6 +347,7 @@ const TOM_DA_COLUNA: Readonly<Record<string, string>> = {
   recontatar: 'mau',
   realizadas: 'bom',
   orcamentos: 'alerta',
+  parciais: 'alerta',
   fechados: 'bom',
   perdidos: 'mau',
 }
@@ -355,14 +362,26 @@ const TOM_DA_COLUNA: Readonly<Record<string, string>> = {
  */
 function MiniCartao({
   cartao: x,
+  coluna,
   hoje,
   podePacientes,
 }: {
   cartao: CartaoDaColuna
+  coluna: string
   hoje: string
   podePacientes: boolean
 }) {
-  const corpo = (
+  const parcial = coluna === 'parciais' ? linhasDoParcial(x, hoje) : null
+  const corpo = parcial !== null ? (
+    <>
+      <b>{x.pacienteNome ?? 'Sem paciente'}</b>
+      <span className="num kparcial">{parcial.fechou}</span>
+      {x.valorRestante == null ? null : (
+        <span className="num kval">restante {formatarDinheiro(BigInt(x.valorRestante))}</span>
+      )}
+      {parcial.retomar === '' ? null : <span className="num">{parcial.retomar}</span>}
+    </>
+  ) : (
     <>
       <b>{x.pacienteNome ?? 'Sem paciente'}</b>
       <span className="num">{quandoDoCartao(x, hoje)}</span>
@@ -388,8 +407,7 @@ function MiniCartao({
  */
 function quandoDoCartao(x: CartaoDaColuna, hoje: string): string {
   if (x.etapa === 'orcamento') {
-    if (x.proximoPassoEm === null) return ''
-    return `retomar ${diaCurto(x.proximoPassoEm)}${x.proximoPassoEm < hoje ? ' (atrasado)' : ''}`
+    return textoDeRetomar(x.proximoPassoEm, hoje)
   }
   if (['agendado', 'confirmado', 'faltou', 'desmarcou'].includes(x.etapa)) {
     return `${diaCurto(x.prazo)}${x.hora === null ? '' : ` ${x.hora}`}`

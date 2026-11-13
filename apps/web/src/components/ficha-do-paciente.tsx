@@ -1,14 +1,27 @@
 'use client'
 
-import type { DesativacaoDePaciente, FichaDoPaciente as Ficha, TarefaNaLista } from '@fir/contracts'
+import {
+  AVISO_DETALHE_DA_RAZAO,
+  type DesativacaoDePaciente,
+  type FichaDoPaciente as Ficha,
+  RAZOES_DE_DESATIVACAO,
+  ROTULO_DA_RAZAO,
+  type RazaoDeDesativacao,
+  type TarefaNaLista,
+} from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
 import { useEffect, useRef, useState } from 'react'
 import { useAcoesDeTarefa } from '@/lib/acoes-de-tarefa'
 import { chamar } from '@/lib/api'
+import { corpoDeDesativar, DETALHE_MAX, prepararReativacao } from '@/lib/desativacao-de-paciente'
+import { validarMotivoDeSuporte } from '@/lib/motivo-de-suporte'
 import { useDados } from '@/lib/dados'
 import { diaEmTexto, linkDeWhatsApp, plural } from '@/lib/formato'
 import { ICONE_WHATSAPP, inicial } from '@/lib/icones'
+import { type AbaDaFicha, abasDaFicha, proximaAba } from '@/lib/orcamentos-do-paciente'
+import { AbaDeOrcamentos } from './aba-de-orcamentos'
 import { CartaoDeTarefa } from './cartao-de-tarefa'
+import { CampoDeMotivoDeSuporte, useEhSuporte } from './campo-de-motivo-de-suporte'
 import { Carregando, Erro, Toast } from './estados'
 import { FormularioDePaciente } from './formulario-de-paciente'
 import { PainelDeEdicao } from './painel-de-edicao'
@@ -79,6 +92,25 @@ export function FichaDoPaciente({
   const [confirmando, setConfirmando] = useState(false)
   const [desativando, setDesativando] = useState(false)
   const [filtro, setFiltro] = useState<FiltroDoHistorico>('tudo')
+  const [aba, setAba] = useState<AbaDaFicha>('historico')
+  /** A tarefa que "Retomar o restante" (aba Orçamentos) manda mostrar no Histórico. */
+  const [focoLocal, setFocoLocal] = useState<string | null>(null)
+  const [reativando, setReativando] = useState(false)
+  const suporte = useEhSuporte()
+  const [motivo, setMotivo] = useState('')
+  const [motivoTocado, setMotivoTocado] = useState(false)
+  const motivoValido = !suporte || validarMotivoDeSuporte(motivo).ok
+  const motivoDeSuporte = suporte ? motivo.trim() : undefined
+  const [razao, setRazao] = useState<RazaoDeDesativacao | ''>('')
+  const [detalhe, setDetalhe] = useState('')
+  /** 0 = nada aberto; 1 = aviso; 2 = confirmação e motivo (só para "pediu para sair"). */
+  const [etapaDeReativar, setEtapaDeReativar] = useState<0 | 1 | 2>(0)
+  const [confirmouTitular, setConfirmouTitular] = useState(false)
+  const [motivoDaReativacao, setMotivoDaReativacao] = useState('')
+  const [erroDeReativar, setErroDeReativar] = useState<string | null>(null)
+  const abas = abasDaFicha(podeJornada)
+  const abaAtiva: AbaDaFicha = abas.includes(aba) ? aba : 'historico'
+  const idDaTarefaEmFoco = focoLocal ?? tarefaEmFoco
 
   /**
    * As MESMAS ações de Hoje e de Tarefas — concluir, cancelar, reabrir,
@@ -95,18 +127,67 @@ export function FichaDoPaciente({
   /** Rola até a tarefa do link UMA vez — recarregar depois de agir não rola de novo. */
   const jaRolou = useRef(false)
   useEffect(() => {
-    if (p === null || tarefaEmFoco === null || jaRolou.current) return
-    const alvo = document.getElementById(`tarefa-${tarefaEmFoco}`)
+    if (p === null || idDaTarefaEmFoco === null || jaRolou.current || abaAtiva !== 'historico') return
+    const alvo = document.getElementById(`tarefa-${idDaTarefaEmFoco}`)
     if (alvo === null) return
     jaRolou.current = true
     alvo.scrollIntoView({ block: 'center' })
     alvo.focus({ preventScroll: true })
-  }, [p, tarefaEmFoco])
+  }, [p, idDaTarefaEmFoco, abaAtiva])
+
+  function retomarRestante(tarefaId: string) {
+    jaRolou.current = false
+    setFocoLocal(tarefaId)
+    setFiltro('tudo')
+    setAba('historico')
+  }
+
+  const pediuParaSair = p?.desativacao?.razao === 'pediu-para-sair'
+
+  async function reativar() {
+    if (!motivoValido) {
+      setMotivoTocado(true)
+      return
+    }
+    const prep = prepararReativacao(pediuParaSair, confirmouTitular, motivoDaReativacao, motivoDeSuporte)
+    if (!prep.ok) {
+      setErroDeReativar(prep.erro)
+      return
+    }
+    setReativando(true)
+    setErroDeReativar(null)
+    try {
+      await chamar<unknown>(`v1/pacientes/${id}/reativar`, { method: 'POST', ...prep.corpo })
+      setEtapaDeReativar(0)
+      setConfirmouTitular(false)
+      setMotivoDaReativacao('')
+      setMotivo('')
+      setMotivoTocado(false)
+      setRecado('Cadastro reativado.')
+      recarregar()
+    } catch (e) {
+      setErroDeReativar(e instanceof Error ? e.message : 'Não consegui reativar o cadastro.')
+    } finally {
+      setReativando(false)
+    }
+  }
 
   async function desativar() {
+    if (!motivoValido) {
+      setMotivoTocado(true)
+      return
+    }
+    if (razao === '') return
     setDesativando(true)
     try {
-      const r = await chamar<DesativacaoDePaciente>(`v1/pacientes/${id}`, { method: 'DELETE' })
+      const r = await chamar<DesativacaoDePaciente>(`v1/pacientes/${id}`, {
+        method: 'DELETE',
+        ...corpoDeDesativar(razao, detalhe, motivoDeSuporte),
+      })
+      setRazao('')
+      setDetalhe('')
+      setMotivo('')
+      setMotivoTocado(false)
       setConfirmando(false)
       setRecado(
         r.tarefas === 0
@@ -145,20 +226,109 @@ export function FichaDoPaciente({
           </div>
         </div>
         <div className="acoes-de-tela">
-          <a className="btn" href={`/nova?pacienteId=${p.id}`}>
-            Nova tarefa
-          </a>
-          <button type="button" className="btn ghost" onClick={() => setEditando((v) => !v)}>
-            Editar cadastro
-          </button>
+          {p.ativo ? (
+            <>
+              <a className="btn" href={`/nova?pacienteId=${p.id}`}>
+                Nova tarefa
+              </a>
+              <button type="button" className="btn ghost" onClick={() => setEditando((v) => !v)}>
+                Editar cadastro
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 
       {p.ativo ? null : (
-        <p className="aviso-filtro" style={{ borderLeftColor: 'var(--bad)' }}>
-          Cadastro <strong>desativado</strong>. O histórico continua aqui; ela não aparece mais nas
-          listas nem recebe tarefa nova.
-        </p>
+        <div className="aviso-filtro" style={{ borderLeftColor: 'var(--bad)' }}>
+          <p style={{ margin: 0 }}>
+            Cadastro <strong>desativado</strong>. O histórico continua aqui; ele não aparece na lista
+            de pacientes. As tarefas já criadas continuam em Tarefas.
+          </p>
+          {podeGerir && p.desativacao !== null ? (
+            <p style={{ margin: '8px 0 0' }}>
+              Motivo: <strong>{ROTULO_DA_RAZAO[p.desativacao.razao]}</strong>
+              {p.desativacao.detalhe === '' ? '' : ` — ${p.desativacao.detalhe}`}
+            </p>
+          ) : null}
+          {podeGerir ? (
+            <div style={{ marginTop: 8 }}>
+              {pediuParaSair && etapaDeReativar > 0 ? (
+                <div className="erro-de-tela" role="alertdialog" aria-label="Reativar quem pediu para sair">
+                  <p>
+                    <strong>Este titular pediu para não ser contatado.</strong> Reativar o cadastro volta a
+                    colocá-lo nas listas e nas campanhas. Só reative se o próprio titular pediu para voltar.
+                  </p>
+                  {etapaDeReativar === 2 ? (
+                    <>
+                      <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={confirmouTitular}
+                          onChange={(e) => setConfirmouTitular(e.target.checked)}
+                        />
+                        Confirmo que o titular pediu para voltar a ser contatado.
+                      </label>
+                      {suporte ? null : (
+                        <label className="campo">
+                          Motivo da reativação (de 10 a 200 caracteres)
+                          <textarea
+                            maxLength={DETALHE_MAX}
+                            style={{ minHeight: 56 }}
+                            value={motivoDaReativacao}
+                            onChange={(e) => setMotivoDaReativacao(e.target.value)}
+                          />
+                          <small>{AVISO_DETALHE_DA_RAZAO}</small>
+                        </label>
+                      )}
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+              {suporte && (!pediuParaSair || etapaDeReativar === 2) ? (
+                <CampoDeMotivoDeSuporte valor={motivo} aoMudar={setMotivo} tocado={motivoTocado} />
+              ) : null}
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  if (pediuParaSair && etapaDeReativar < 2) {
+                    setEtapaDeReativar(etapaDeReativar === 0 ? 1 : 2)
+                    return
+                  }
+                  void reativar()
+                }}
+                disabled={reativando}
+              >
+                {reativando
+                  ? 'Reativando…'
+                  : pediuParaSair && etapaDeReativar === 1
+                    ? 'Entendi, continuar'
+                    : pediuParaSair && etapaDeReativar === 2
+                      ? 'Confirmar reativação'
+                      : 'Reativar cadastro'}
+              </button>
+              {pediuParaSair && etapaDeReativar > 0 ? (
+                <button
+                  type="button"
+                  className="btn ghost"
+                  onClick={() => {
+                    setEtapaDeReativar(0)
+                    setConfirmouTitular(false)
+                    setErroDeReativar(null)
+                  }}
+                >
+                  Desistir
+                </button>
+              ) : null}
+              {erroDeReativar === null ? null : (
+                <p role="alert" style={{ margin: '8px 0 0', color: 'var(--bad)' }}>
+                  {erroDeReativar}
+                </p>
+              )}
+            </div>
+          ) : null}
+        </div>
       )}
 
       <div className="metalinha" style={{ marginBottom: 14 }}>
@@ -187,7 +357,7 @@ export function FichaDoPaciente({
         )}
       </div>
 
-      {editando ? (
+      {editando && p.ativo ? (
         <div style={{ marginBottom: 16 }}>
           <FormularioDePaciente
             paciente={p}
@@ -251,7 +421,49 @@ export function FichaDoPaciente({
 
       {p.obs === '' ? null : <p className="nota" style={{ marginBottom: 14 }}>{p.obs}</p>}
 
-      <div className="grupo">
+      {podeJornada ? (
+        <div
+          className="abas-da-ficha"
+          role="tablist"
+          aria-label="Seções da ficha"
+          onKeyDown={(e) => {
+            const prox = proximaAba(abas, abaAtiva, e.key)
+            if (prox === null) return
+            e.preventDefault()
+            setAba(prox)
+            document.getElementById(`aba-${prox}`)?.focus()
+          }}
+        >
+          {abas.map((a) => (
+            <button
+              key={a}
+              id={`aba-${a}`}
+              type="button"
+              role="tab"
+              aria-selected={abaAtiva === a}
+              aria-controls={`painel-${a}`}
+              tabIndex={abaAtiva === a ? 0 : -1}
+              onClick={() => setAba(a)}
+            >
+              {a === 'historico' ? 'Histórico' : 'Orçamentos'}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {abaAtiva === 'orcamentos' ? (
+        <div id="painel-orcamentos" role="tabpanel" aria-labelledby="aba-orcamentos">
+          <AbaDeOrcamentos pacienteId={id} aoRetomar={retomarRestante} />
+        </div>
+      ) : null}
+
+      <div
+        className="grupo"
+        hidden={abaAtiva !== 'historico'}
+        {...(podeJornada
+          ? { id: 'painel-historico', role: 'tabpanel', 'aria-labelledby': 'aba-historico' }
+          : {})}
+      >
         <h3>
           Histórico<span className="contador">{p.tarefas.length}</span>
         </h3>
@@ -298,7 +510,7 @@ export function FichaDoPaciente({
                   podeValores={podeValores}
                   acoes={podeJornada ? { ...acoes, mover } : acoes}
                   semPaciente
-                  destacada={t.id === tarefaEmFoco}
+                  destacada={t.id === idDaTarefaEmFoco}
                 />
               ))
             )}
@@ -314,12 +526,36 @@ export function FichaDoPaciente({
               {plural(p.tarefas.length, 'tarefa já registrada fica', 'tarefas já registradas ficam')}{' '}
               no histórico — a trilha de um atendimento concluído é prova, não conveniência.
             </p>
+            <label className="campo">
+              Por que desativar?
+              <select value={razao} onChange={(e) => setRazao(e.target.value as RazaoDeDesativacao | '')}>
+                <option value="">Escolha um motivo</option>
+                {RAZOES_DE_DESATIVACAO.map((r) => (
+                  <option key={r} value={r}>
+                    {ROTULO_DA_RAZAO[r]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="campo">
+              Detalhe (opcional)
+              <input
+                type="text"
+                maxLength={DETALHE_MAX}
+                value={detalhe}
+                onChange={(e) => setDetalhe(e.target.value)}
+              />
+              <small>{AVISO_DETALHE_DA_RAZAO}</small>
+            </label>
+            {suporte ? (
+              <CampoDeMotivoDeSuporte valor={motivo} aoMudar={setMotivo} tocado={motivoTocado} />
+            ) : null}
             <div className="botoes">
               <button
                 type="button"
                 className="btn"
                 onClick={() => void desativar()}
-                disabled={desativando}
+                disabled={desativando || razao === ''}
               >
                 Sim, desativar
               </button>

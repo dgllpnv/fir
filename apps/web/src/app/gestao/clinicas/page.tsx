@@ -11,6 +11,7 @@ import { SenhaProvisoria } from '@/components/senha-provisoria'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { usePainel } from '../contexto'
 import { ErroDoPainel, NavDoPainel, SeletorDeClinica } from '../pecas'
+import { abrirAbaDeSuporte, TEXTO_SUPORTE_ABERTO, TEXTO_SUPORTE_BLOQUEADO } from './suporte'
 
 /**
  * **As clínicas** — a lista, a busca e a criação.
@@ -33,6 +34,8 @@ export default function Clinicas() {
   /** Uma mensagem por vez, e toda ação confirma o que aconteceu (design.md §4). */
   const [recado, setRecado] = useState<string | null>(null)
   const [criando, setCriando] = useState(false)
+  /** O resultado do botão de suporte mora AQUI, fora da célula: frase dentro de `<td>` estoura a tabela. */
+  const [aviso, setAviso] = useState<AvisoDeSuporte | null>(null)
   /** A clínica cuja confirmação de "Desativar"/"Reativar" está aberta. */
   const [mudandoEstado, setMudandoEstado] = useState<ClinicaNaLista | null>(null)
   /** A lista nasce só com as ativas: desativada não cresce a lista do dia a dia. */
@@ -113,6 +116,26 @@ export default function Clinicas() {
             </label>
           )}
 
+          {aviso === null ? null : (
+            <p
+              role={aviso.tipo === 'aberta' ? 'status' : 'alert'}
+              className={aviso.tipo === 'aberta' ? 'nota' : 'erro-do-painel'}
+            >
+              {aviso.tipo === 'aberta' ? (
+                TEXTO_SUPORTE_ABERTO(aviso.codigo)
+              ) : aviso.tipo === 'bloqueada' ? (
+                <>
+                  {TEXTO_SUPORTE_BLOQUEADO(aviso.codigo)}{' '}
+                  <a className="link" href="/hoje" target="_blank" rel="noopener">
+                    Abrir o sistema de {aviso.codigo}
+                  </a>
+                </>
+              ) : (
+                `${aviso.codigo}: ${aviso.texto}`
+              )}
+            </p>
+          )}
+
           <table className="superadmin-lista">
             <thead>
               <tr>
@@ -183,7 +206,7 @@ export default function Clinicas() {
                         abriria sessão numa clínica que ninguém escolheu — com
                         a linha de trilha dentro dela dizendo que o operador
                         entrou. */}
-                    <BotaoDeSuporte clinica={c} />
+                    <BotaoDeSuporte clinica={c} aoAvisar={setAviso} />
                   </td>
                 </tr>
               ))}
@@ -516,51 +539,58 @@ function PainelDeEdicaoDeClinica({
  * `design.md` §4: toda ação confirma o que aconteceu. "Agi na clínica errada"
  * é o defeito que o painel pode causar, e o custo de nomeá-la é uma frase.
  */
-function BotaoDeSuporte({ clinica }: { clinica: ClinicaNaLista }) {
-  const [estado, setEstado] = useState<'pronto' | 'abrindo' | 'bloqueado'>('pronto')
-  const [erro, setErro] = useState('')
+type AvisoDeSuporte =
+  | { tipo: 'aberta'; codigo: string }
+  | { tipo: 'bloqueada'; codigo: string }
+  | { tipo: 'erro'; codigo: string; texto: string }
+
+function BotaoDeSuporte({
+  clinica,
+  aoAvisar,
+}: {
+  clinica: ClinicaNaLista
+  aoAvisar: (aviso: AvisoDeSuporte) => void
+}) {
+  const [abrindo, setAbrindo] = useState(false)
 
   async function abrir() {
-    setEstado('abrindo')
-    setErro('')
+    setAbrindo(true)
     try {
       await chamar<SessaoDeSuporteCriada>(
         `v1/superadmin/clinicas/${clinica.id}/sessao-de-suporte`,
         { method: 'POST' },
       )
-      const aba = window.open('/hoje', '_blank', 'noopener')
-      setEstado(aba === null ? 'bloqueado' : 'pronto')
+      // Sem `noopener` na feature: com ele `open` devolve null sempre.
+      const r = abrirAbaDeSuporte(() => window.open('/hoje', '_blank'))
+      aoAvisar(
+        r === 'aberta'
+          ? { tipo: 'aberta', codigo: clinica.codigo }
+          : { tipo: 'bloqueada', codigo: clinica.codigo },
+      )
     } catch (x) {
-      setEstado('pronto')
-      setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+      aoAvisar({
+        tipo: 'erro',
+        codigo: clinica.codigo,
+        texto: x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.',
+      })
+    } finally {
+      setAbrindo(false)
     }
   }
 
   return (
-    <>
-      <button
-        type="button"
-        className="link"
-        onClick={() => void abrir()}
-        disabled={estado === 'abrindo' || !clinica.ativa}
-        title={
-          clinica.ativa
-            ? `Entra no sistema de ${clinica.codigo} logado como operador, por 30 minutos`
-            : 'Clínica desativada: não há sessão a abrir'
-        }
-      >
-        {estado === 'abrindo' ? 'Entrando…' : 'entrar no sistema dela'}
-      </button>
-      {estado === 'bloqueado' ? (
-        <small className="muted">
-          A sessão está aberta. O navegador bloqueou a aba nova —{' '}
-          <a className="link" href="/hoje" target="_blank" rel="noopener">
-            abra o sistema de {clinica.codigo}
-          </a>
-          .
-        </small>
-      ) : null}
-      {erro === '' ? null : <small className="muted">{erro}</small>}
-    </>
+    <button
+      type="button"
+      className="link"
+      onClick={() => void abrir()}
+      disabled={abrindo || !clinica.ativa}
+      title={
+        clinica.ativa
+          ? `Entra no sistema de ${clinica.codigo} logado como operador, por 30 minutos`
+          : 'Clínica desativada: não há sessão a abrir'
+      }
+    >
+      {abrindo ? 'Entrando…' : 'entrar no sistema dela'}
+    </button>
   )
 }

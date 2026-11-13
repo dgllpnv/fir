@@ -186,7 +186,8 @@ describe('GET /v1/superadmin/atividades: o log da equipe, de todas as clínicas'
 
   it('o período é por dia civil na clínica: hoje entra, o dia seguinte não', async () => {
     const nova = await criarClinicaOk()
-    const hoje = new Date().toISOString().slice(0, 10)
+    // 12h atrás: o dia civil UTC pode já ser o seguinte ao da clínica (à noite no Brasil).
+    const hoje = new Date(Date.now() - 12 * 3_600_000).toISOString().slice(0, 10)
     const amanha = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10)
     const dentro = await atividades(`?clinicaId=${nova.id}&de=${hoje}`).expect(200)
     expect(dentro.body.itens.length).toBeGreaterThan(0)

@@ -5,11 +5,13 @@ import { FORMAS } from '@fir/contracts'
 import { aceitaPagamento, tipoAoConcluir } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
+import { urlDaProximaTarefa } from '@/lib/proxima-tarefa'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto, linkDeWhatsApp } from '@/lib/formato'
 import { ICONE_CHECK, ICONE_WHATSAPP } from '@/lib/icones'
+import { ConfirmarExclusao } from './painel-de-edicao'
 import { FaixaDaJornada, type MoverEtapa } from './jornada/faixa-da-jornada'
 import { SeloConferirCadastro } from './selo-conferir-cadastro'
 
@@ -31,6 +33,8 @@ export type AcoesDoCartao = {
   readonly cancelar: (id: string) => Promise<void>
   readonly reabrir: (id: string) => Promise<void>
   readonly editar: (t: TarefaNaLista) => void
+  /** Exclui a tarefa (e estorna o pagamento, se houver). Ausente, o botão não aparece. */
+  readonly excluir?: (id: string, motivo?: string) => Promise<void>
   /** A ação da jornada. Ausente, a faixa não aparece. */
   readonly mover?: MoverEtapa
 }
@@ -88,6 +92,7 @@ export function CartaoDeTarefa({
   destacada = false,
 }: Props) {
   const [concluindo, setConcluindo] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
   const [ocupado, setOcupado] = useState(false)
 
   const feita = t.status === 'concluida'
@@ -172,6 +177,13 @@ export function CartaoDeTarefa({
                 )}
               </>
             )}
+            {/* O valor que a lista importada trazia (REFERÊNCIA, não receita). O
+                servidor o apaga sem `valores`; aqui só some o que veio nulo. */}
+            {t.valorDeReferencia === null ? null : (
+              <span className="pill num">
+                valor da lista: {formatarDinheiro(emCentavos(t.valorDeReferencia))}
+              </span>
+            )}
             {whats === null ? null : (
               <a
                 className="whats"
@@ -234,11 +246,33 @@ export function CartaoDeTarefa({
               setConcluindo(false)
             }}
           />
+        ) : excluindo && acoes.excluir !== undefined ? (
+          <ConfirmarExclusao
+            tarefaId={t.id}
+            oque="esta tarefa"
+            ocupado={ocupado}
+            aoConfirmar={(motivo) => {
+              setOcupado(true)
+              void acoes.excluir?.(t.id, motivo).catch(() => undefined).finally(() => {
+                setOcupado(false)
+                setExcluindo(false)
+              })
+            }}
+            aoDesistir={() => setExcluindo(false)}
+          />
         ) : (
           <div className="acoes-da-tarefa">
             {podeEditar ? (
               <button type="button" className="link" onClick={() => acoes.editar(t)}>
                 Editar
+              </button>
+            ) : null}
+            {/* Para a tarefa concluída o caminho da exclusão não pode depender de
+                "Editar" abrir: o dono do cartão pode ter pagamento e orçamento
+                fechado, e é aqui que a recepção procura o botão. */}
+            {feita && (souSolicitante || podeEquipe) && acoes.excluir !== undefined ? (
+              <button type="button" className="link perigo" onClick={() => setExcluindo(true)}>
+                Excluir
               </button>
             ) : null}
             {podeCancelar ? (
@@ -324,7 +358,7 @@ function PainelDeConclusao({
       // Só chega aqui se o servidor concluiu (o erro cai no `catch`): a tarefa
       // nova nunca nasce de uma conclusão que falhou.
       if (criarProxima) {
-        roteador.push(t.pacienteId === null ? '/nova' : `/nova?pacienteId=${t.pacienteId}`)
+        roteador.push(urlDaProximaTarefa(t))
       }
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não consegui concluir a tarefa.')

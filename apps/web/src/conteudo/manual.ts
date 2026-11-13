@@ -177,7 +177,7 @@ Para registrar algo que aconteceu, use sempre **Concluir**. Precisa de um próxi
 - **Corrigir orçamento**: digitou errado? Enquanto o orçamento está em aberto, quem pediu, quem atende ou quem acompanha a equipe corrige o valor, a data de retomar e “o que foi orçado”. Para mudar os procedimentos, marque “Corrigir os procedimentos do orçamento”: a lista já vem com o que foi orçado, e é só ajustar sessões, intervalo ou trocar itens. Quem não marcar não muda nada neles. A etapa não muda, a correção aparece na “Evolução” (de → para), e o funil dos meses já fechados continua igual.
 - **Fechou**: abre, no próprio cartão, o formulário do fechamento. Informe o **valor recebido agora**, a forma de pagamento e o **valor em aberto** (o que fica para depois, que vira **saldo em aberto** da paciente). Se o orçamento tinha programa, ele já vem montado para você confirmar a data de início. O dinheiro entra no caixa de hoje e **não se lança de novo em Recebimentos**. Se a consulta já tinha pagamento próprio, o do orçamento é registrado à parte, como “Pagamento de orçamento”, e o da consulta não muda.
 - **Perdeu**: encerra o orçamento com o motivo (preço, sem retorno, outro lugar, momento, outro).
-- **Reabrir** (círculo da tarefa concluída): volta o atendimento para a etapa anterior, e o pagamento que estava dentro dele é **estornado** (deixa de contar no caixa, mas fica registrado). Funciona até o orçamento ser fechado ou perdido. Depois de **Fechou** ou **Perdeu** não se reabre: para desfazer um fechamento, estorne o recebimento do orçamento em Financeiro › Recebimentos.
+- **Reabrir** (círculo da tarefa concluída): volta o atendimento para a etapa anterior, e o pagamento que estava dentro dele é **estornado** (deixa de contar no caixa, mas fica registrado). Funciona até o orçamento ser fechado ou perdido. Depois de **Fechou** ou **Perdeu** não se reabre: se o fechamento foi lançado por engano, abra **Editar** e use **Excluir** (o pagamento é estornado e o programa criado é encerrado).
 
 Cada movimento fica em **“Evolução”**, no próprio cartão: etapa, data, quem fez e observação.`,
       },
@@ -283,7 +283,7 @@ O formulário mostra os recebimentos do paciente nos últimos 7 dias, para evita
         texto: `Nada de dinheiro é apagado: ele é **estornado**, deixa de contar no caixa e a trilha mostra quem fez e quando. O caminho depende de onde o dinheiro foi lançado:
 - **Dentro do atendimento** (“Houve pagamento?”): **reabra** o atendimento (círculo da tarefa concluída). O pagamento é estornado e a tarefa volta para a etapa anterior. Se for só um teste, depois de reabrir use **Editar › Excluir**.
 - **Em Financeiro › Recebimentos** (recebimento avulso, inclusive o “Pagamento de orçamento”): na lista **Recebimentos de hoje**, toque em **Estornar** e confirme. O recebimento sai da conta do dia.
-- **Orçamento já fechado:** estorne o recebimento do orçamento (acima). O programa que nasceu no fechamento é encerrado à parte, em Programas.
+- **Orçamento já fechado:** abra o atendimento em Tarefas, toque em **Editar** e use **Excluir**. O pagamento é estornado e o programa que nasceu no fechamento é encerrado; as sessões já feitas ficam registradas.
 
 Dica: antes de lançar de novo, confira a lista de recebimentos da paciente. Um pagamento não deve existir duas vezes.`,
       },

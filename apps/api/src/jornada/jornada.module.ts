@@ -7,6 +7,8 @@ import { FunilService } from './funil.service'
 import { JornadaController } from './jornada.controller'
 import { JornadaService } from './jornada.service'
 import { OrcamentosController } from './orcamentos.controller'
+import { OrcamentosDoPacienteController } from './orcamentos-do-paciente.controller'
+import { OrcamentosDoPacienteService } from './orcamentos-do-paciente.service'
 import { OrcamentosService } from './orcamentos.service'
 import { MotivosController, MotivosService } from './motivos.controller'
 import { ProgramasModule } from '../programas/programas.module'
@@ -31,8 +33,22 @@ import { ProgramasModule } from '../programas/programas.module'
  */
 @Module({
   imports: [TarefasModule, ProgramasModule],
-  controllers: [JornadaController, FunilController, OrcamentosController, MotivosController],
-  providers: [JornadaService, FechamentoService, FunilService, OrcamentosService, MotivosService, provedorDeRelogio],
+  controllers: [
+    JornadaController,
+    FunilController,
+    OrcamentosController,
+    OrcamentosDoPacienteController,
+    MotivosController,
+  ],
+  providers: [
+    JornadaService,
+    FechamentoService,
+    FunilService,
+    OrcamentosService,
+    OrcamentosDoPacienteService,
+    MotivosService,
+    provedorDeRelogio,
+  ],
   exports: [JornadaService],
 })
 export class JornadaModule {}

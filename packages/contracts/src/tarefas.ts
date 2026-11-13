@@ -279,6 +279,20 @@ export const BooleanoDeConsulta = z
   .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
   .transform((v) => v === true || v === 'true' || v === '1')
 
+/**
+ * O MOTIVO de uma ação do Suporte Firmare dentro de uma clínica (I1).
+ *
+ * Texto curto, que vai para `auditoria.motivo` e para a tela Atividades da
+ * clínica. Mínimo de 10 caracteres para não aceitar "x" ou "ok": é a
+ * justificativa que a clínica lê depois. Não escreva nome de paciente.
+ */
+export const MotivoDeSuporte = z.string().trim().min(10).max(200)
+export type MotivoDeSuporte = z.infer<typeof MotivoDeSuporte>
+
+/** O corpo (opcional) de `DELETE`, `POST …/reativar` etc.: só carrega o motivo. */
+export const CorpoComMotivo = z.object({ motivo: MotivoDeSuporte.optional() }).strict()
+export type CorpoComMotivo = z.infer<typeof CorpoComMotivo>
+
 export const ExcluirTarefa = z
   .object({ serie: BooleanoDeConsulta.default(false) })
   .strict()
@@ -362,6 +376,10 @@ export const EventoDeJornada = z.object({
   de: RetratoDoOrcamentoNaSaida.optional(),
   para: RetratoDoOrcamentoNaSaida.optional(),
   chaveIdempotencia: Uuid.optional(),
+  /** Só em `fechar`: as chaves dos procedimentos fechados. Ausente = sem detalhamento. */
+  itensFechados: z.array(z.string()).optional(),
+  /** Só em `fechar`: o que foi fechado (entrada + em aberto). Redigido sem `valores`. */
+  valorFechado: centavosNaSaida.optional(),
 })
 export type EventoDeJornada = z.infer<typeof EventoDeJornada>
 
@@ -377,6 +395,14 @@ export const ItemOrcadoNaSaida = z.object({
   depoisDe: z.string().optional(),
 })
 export type ItemOrcadoNaSaida = z.infer<typeof ItemOrcadoNaSaida>
+
+/** Um procedimento do orçamento, como ele sai: o que foi proposto, sem sessões nem dose. */
+export const ItemDoOrcamentoNaSaida = z.object({
+  chave: z.string(),
+  procedimentoId: Uuid,
+  valor: centavosNaSaida.optional(),
+})
+export type ItemDoOrcamentoNaSaida = z.infer<typeof ItemDoOrcamentoNaSaida>
 
 /**
  * A tarefa como as duas telas a leem.
@@ -416,9 +442,21 @@ export const TarefaNaLista = z.object({
   valorOrcamento: centavosNaSaida,
   /** Centavos que a paciente fechou (entrada + saldo). Redigido como o resto do dinheiro. */
   valorFechado: centavosNaSaida,
+  /**
+   * Centavos lidos da LISTA IMPORTADA da campanha, ao lado do nome (migration
+   * 0080). **Referência, nunca receita** (regras 3 e 4): fora de recebido, LTV,
+   * meta e `valorConvertido`. `null` sem `valores` e quando a lista não trazia.
+   */
+  valorDeReferencia: centavosNaSaida,
   /** Fechou menos do que foi oferecido. Não é dinheiro: aparece para todos. */
   orcamentoParcial: z.boolean(),
   programaOrcado: z.array(ItemOrcadoNaSaida).nullable(),
+  /**
+   * Os procedimentos LISTADOS no orçamento (conceito próprio, ADR 2026-11-13):
+   * os de `itens_orcamento`, ou — migração por leitura — os de
+   * `programa_orcado`. `null` = orçamento só com valor, sem lista.
+   */
+  itensOrcamento: z.array(ItemDoOrcamentoNaSaida).nullable(),
   motivoPerdaId: Uuid.nullable(),
   /** O dia a partir do qual este cartão volta a pedir ação (D-3). */
   proximoPassoEm: DiaCivil.nullable(),
@@ -496,6 +534,23 @@ export type TarefaParaEditar = z.infer<typeof TarefaParaEditar>
 export const ExclusaoDeTarefa = z.object({ id: Uuid, ids: z.array(Uuid) })
 export type ExclusaoDeTarefa = z.infer<typeof ExclusaoDeTarefa>
 
+/**
+ * O que excluir a tarefa desfaz. `valor` (centavos, texto) é dinheiro: sai
+ * `null` sem a permissão `valores`, e a tela então avisa sem o número.
+ */
+export const PrevisaoDeExclusao = z.object({
+  temPagamento: z.boolean(),
+  temPrograma: z.boolean(),
+  valor: z.string().nullable(),
+  /**
+   * `true` na SESSÃO DE SUPORTE: o servidor só aceita a exclusão com `motivo`
+   * (decisoes.md: justificativa por acesso). É o servidor quem diz — a tela não
+   * precisa adivinhar em que sessão está.
+   */
+  exigeMotivo: z.boolean().default(false),
+})
+export type PrevisaoDeExclusao = z.infer<typeof PrevisaoDeExclusao>
+
 /* -------------------------------------------------------------------------
  * A CONSULTA
  * ---------------------------------------------------------------------- */
@@ -527,6 +582,8 @@ export const ConsultaDeTarefas = z.object({
   /** O nome do tipo, ou `__interna` para as tarefas sem paciente. */
   tipo: z.string().trim().max(60).optional(),
   unidadeId: Uuid.optional(),
+  /** Uma campanha, ou `__sem` para as tarefas sem campanha. */
+  campanhaId: z.union([Uuid, z.literal('__sem')]).optional(),
   solicitanteId: Uuid.optional(),
   responsavelId: Uuid.optional(),
   limite: z.coerce.number().int().min(1).max(200).default(50),

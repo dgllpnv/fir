@@ -7,6 +7,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { bordasDoPeriodo } from '../tarefas/consulta.service'
+import { sqlParcial } from './parcial'
 
 /**
  * **ORÇAMENTOS POR ATENDENTE.**
@@ -41,9 +42,9 @@ export class OrcamentosService {
     const j = janela(bordas.de, bordas.ate, fuso)
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
-      // `valor_fechado < valor_orcamento` é a MESMA regra de
-      // `situacaoDoFechamento` do domínio, em SQL, porque a contagem precisa
-      // agrupar no banco; o teste de e2e cobre as duas pontas.
+      // `sqlParcial` é a MESMA regra de `situacaoDoFechamento` do domínio, em
+      // SQL (um fragmento só, `parcial.ts`), porque a contagem precisa agrupar
+      // no banco; `parcial.test.ts` cobre as duas pontas.
       const r = await c.query<{
         pessoa: string
         nome: string
@@ -57,11 +58,10 @@ export class OrcamentosService {
                 count(*) FILTER (
                   WHERE ev->>'acao' = 'fechar' AND t.etapa = 'fechado'
                     AND t.valor_fechado IS NOT NULL
-                    AND NOT (t.valor_orcamento IS NOT NULL AND t.valor_fechado < t.valor_orcamento)
+                    AND NOT ${sqlParcial('t')}
                 )::text AS completos,
                 count(*) FILTER (
-                  WHERE ev->>'acao' = 'fechar' AND t.etapa = 'fechado'
-                    AND t.valor_orcamento IS NOT NULL AND t.valor_fechado < t.valor_orcamento
+                  WHERE ev->>'acao' = 'fechar' AND ${sqlParcial('t')}
                 )::text AS parciais,
                 count(*) FILTER (
                   WHERE ev->>'acao' = 'fechar' AND t.etapa = 'fechado' AND t.valor_fechado IS NULL

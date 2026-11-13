@@ -1,6 +1,6 @@
 import type { MoverEtapa } from '@fir/contracts'
 import { Dinheiro, ehErro, TIPO_PAGAMENTO_DE_ORCAMENTO } from '@fir/domain'
-import { BadRequestException, Inject, Injectable } from '@nestjs/common'
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { AutorDaRequisicao } from '../tarefas/leitura'
@@ -61,6 +61,12 @@ export class FechamentoService {
       readonly hojeDaClinica: string
       /** O fuso da clínica — a janela do dia dos avisos de recebimento (D-21). */
       readonly fuso: string
+      /**
+       * `temPerm(…, 'valores')`. Sem ela, NENHUMA mensagem de erro carrega o
+       * valor do orçamento: a recusa (400/409) é uma resposta como qualquer
+       * outra, e a Recepção não tem `valores` (regra 17).
+       */
+      readonly podeVerValores: boolean
     },
   ): Promise<Efeitos> {
     const { cartao, dados } = x
@@ -89,6 +95,107 @@ export class FechamentoService {
     const negocio = cartao.valorOrcamento !== null && cartao.valorOrcamento > 0n
       ? cartao.valorOrcamento
       : doFechamento
+
+    /**
+     * O QUE FOI FECHADO É DECLARADO, E O SERVIDOR CONFERE.
+     *
+     * Com um orçamento oferecido, a recepção escolhe "fechou tudo" ou "fechou
+     * só uma parte". As duas escolhas são conferidas contra a soma (entrada +
+     * em aberto): sem a conferência, um "em aberto" deixado em branco virava
+     * "parcial" por engano — e o saldo que a clínica ia cobrar nunca existia.
+     */
+    const oferta =
+      cartao.valorOrcamento !== null && cartao.valorOrcamento > 0n ? cartao.valorOrcamento : null
+    // O valor só entra na frase de quem o pode ver. Sem `valores`, a mesma
+    // recusa, sem número: o servidor confere, a frase não conta.
+    const reais = (c: bigint): string => Dinheiro.deCentavos(c).formatar()
+    const comValor = (frase: string): string => (x.podeVerValores ? frase : '')
+    /**
+     * As duas recusas que comparam o que foi digitado com a OFERTA.
+     *
+     * Quem não tem `valores` não pode usá-las como oráculo do valor do
+     * orçamento (regra 17, S-28): se esta comparação falhasse ANTES das demais
+     * validações, "X acima da oferta" e "X abaixo da oferta" voltariam
+     * respostas diferentes e a Recepção descobriria o número por tentativa. Por
+     * isso, sem `valores`, ela roda por último (logo antes de qualquer escrita):
+     * quem erra outra coisa recebe o MESMO erro, qualquer que seja o valor.
+     */
+    const conferirOferta = (): void => {
+      if (dados.fechamento === 'tudo' && oferta !== null && doFechamento !== oferta) {
+        throw new BadRequestException(
+          'Fechou o orçamento todo: o valor recebido agora mais o pagamento em aberto precisam completar o orçamento' +
+            (x.podeVerValores
+              ? ` (${reais(oferta)}; hoje somam ${reais(doFechamento)}).`
+              : '.') +
+            ' Se fechou só uma parte, escolha "Só uma parte".',
+        )
+      }
+      if (dados.fechamento === 'parte' && oferta !== null && doFechamento >= oferta) {
+        throw new BadRequestException(
+          'Fechou só uma parte: o valor recebido agora mais o pagamento em aberto precisam ficar abaixo do orçamento' +
+            comValor(` de ${reais(oferta)}`) +
+            '. Se fechou o orçamento todo, escolha "O orçamento todo".',
+        )
+      }
+    }
+    if (x.podeVerValores) conferirOferta()
+    if (dados.fechamento === 'parte' && oferta === null) {
+      throw new BadRequestException('Este atendimento não tem orçamento: não há parte a fechar.')
+    }
+    if (
+      dados.fechamento !== 'parte' &&
+      (dados.itensFechados !== undefined || dados.retomarRestanteEm !== undefined)
+    ) {
+      throw new BadRequestException(
+        'Os procedimentos fechados e a data de retomar o restante só valem no fechamento parcial.',
+      )
+    }
+    // OS PROCEDIMENTOS DO ORÇAMENTO, quando listados: no parcial a recepção
+    // diz QUAIS foram fechados — nem nenhum, nem todos (todos é "fechou tudo").
+    const itens = cartao.itens
+    if (dados.fechamento === 'parte') {
+      if (itens === null) {
+        if (dados.itensFechados !== undefined) {
+          throw new BadRequestException('Este orçamento não tem procedimentos listados.')
+        }
+      } else {
+        const marcados = new Set(dados.itensFechados ?? [])
+        if (marcados.size === 0) {
+          throw new BadRequestException('Marque os procedimentos do orçamento que a paciente fechou.')
+        }
+        const existentes = new Set(itens.map((i) => i.chave))
+        if ([...marcados].some((k) => !existentes.has(k))) {
+          throw new BadRequestException('Algum procedimento marcado não faz parte deste orçamento.')
+        }
+        if (marcados.size >= itens.length) {
+          throw new BadRequestException(
+            'Todos os procedimentos foram marcados: use "O orçamento todo" em vez de "Só uma parte".',
+          )
+        }
+      }
+    }
+    if (dados.retomarRestanteEm !== undefined && dados.retomarRestanteEm < x.hojeDaClinica) {
+      throw new BadRequestException('Escolha uma data a partir de hoje.')
+    }
+
+    // UM ORÇAMENTO MONTA UM PROGRAMA (índice `programa_por_origem`). Se este
+    // atendimento já tem programa vivo — o cartão voltou a "orçamento" depois de
+    // um fechamento anterior —, recusa AQUI, antes de qualquer escrita, com a
+    // frase que diz o que fazer. Sem isto, o índice estourava no meio da
+    // transação e a recepção via "Internal server error" (relato de uma clínica, 12/11).
+    if (cartao.programaOrcado !== null && cartao.programaOrcado.length > 0) {
+      const ja = await c.query(
+        'SELECT 1 FROM programas WHERE tarefa_de_origem_id = $1 AND excluido_em IS NULL',
+        [x.tarefaId],
+      )
+      if (ja.rowCount !== 0) {
+        throw new ConflictException(
+          'Este orçamento já virou um programa de tratamento. Confira em Programas antes de fechar de novo; se o programa foi lançado por engano, exclua-o primeiro.',
+        )
+      }
+    }
+
+    if (!x.podeVerValores) conferirOferta()
 
     // O recebimento é o MESMO serviço do épico 2 — uma linha em
     // `recebimentos` com `tarefa_id`. Nenhuma segunda implementação, e
@@ -155,7 +262,22 @@ export class FechamentoService {
      * entrou e o programa não existe", e só a primeira a recepção resolve
      * sozinha.
      */
-    const proposta = cartao.programaOrcado
+    let proposta = cartao.programaOrcado
+    if (dados.fechamento === 'parte' && dados.itensFechados !== undefined) {
+      // Só os itens que a paciente contratou viram programa. O rateio e a
+      // agenda de sessões partem dos itens marcados, não de tudo o que foi
+      // oferecido (a paciente que fechou 15 de 25 não ganha as sessões dos 10).
+      // A conferência dos marcados já foi feita acima, contra `cartao.itens`.
+      const mantidos = new Set(dados.itensFechados)
+      proposta = (proposta ?? [])
+        .filter((i) => mantidos.has(i.chave))
+        .map((i) => {
+          if (i.depoisDe === undefined || i.depoisDe === null || mantidos.has(i.depoisDe)) return i
+          // Depende de um item que não foi fechado: passa a começar no início.
+          const { depoisDe: _fora, ...resto } = i
+          return resto
+        })
+    }
     if (proposta !== null && proposta.length > 0) {
       const r = await this.montador.montar(c, {
         clinicaId: x.clinicaId,
@@ -185,7 +307,8 @@ export class FechamentoService {
         // O recebimento acabou de ser inserido acima, na MESMA transação, e
         // recebe `programa_id` para que o saldo do épico 4 agrupe (regra 5).
         recebimentoDaAdesaoId: recebimentoId,
-        valorTotal: Dinheiro.deCentavos(negocio),
+        // No parcial o programa vale o que foi FECHADO, não o oferecido.
+        valorTotal: Dinheiro.deCentavos(dados.fechamento === 'parte' ? doFechamento : negocio),
         modoDeCobranca: (dados.recebimento.valorAberto ?? 0n) > 0n ? 'saldo' : 'avulso',
         atorId: x.autor.id,
         hojeDaClinica: x.hojeDaClinica,
@@ -213,8 +336,17 @@ export class FechamentoService {
       ...(cartao.valorOrcamento === negocio ? {} : { valorOrcamento: negocio }),
       // O que a paciente fechou de fato. `> 0` porque a coluna recusa zero.
       ...(doFechamento > 0n ? { valorFechado: doFechamento } : {}),
-      // O cartão para de pedir ação: a paciente decidiu.
-      proximoPassoEm: null,
+      // QUAIS procedimentos foram fechados, para o evento (append-only): todos no
+      // fechamento total, os marcados no parcial. Sem declaração, ou sem
+      // procedimentos listados, o evento não diz nada — "sem detalhamento".
+      ...(itens !== null && dados.fechamento === 'tudo'
+        ? { itensFechados: itens.map((i) => i.chave) }
+        : itens !== null && dados.fechamento === 'parte'
+          ? { itensFechados: [...(dados.itensFechados ?? [])] }
+          : {}),
+      // O cartão para de pedir ação: a paciente decidiu. No fechamento parcial
+      // pode ficar o lembrete de retomar o RESTANTE (Hoje › Retomar).
+      proximoPassoEm: dados.retomarRestanteEm ?? null,
       // O evento guarda o valor do NEGÓCIO, não o da entrada: é ele que o
       // funil soma em "Fechados", e o recebido é da tela Recebimentos. As
       // duas medem coisas diferentes, e colapsá-las numa é como o número do

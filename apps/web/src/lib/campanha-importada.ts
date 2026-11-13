@@ -1,5 +1,11 @@
-import type { LinhaDaCampanha } from '@fir/contracts'
+import type { LinhaDaCampanha as LinhaDoContrato } from '@fir/contracts'
+import { limparNomeDeLista } from '@fir/domain'
 import { celula, mapear, normalizar, type Apelidos } from './colunas'
+
+/** A linha como VAI no corpo (JSON): o valor da lista em centavos, em texto. */
+export type LinhaDaCampanha = Omit<LinhaDoContrato, 'valorDeReferencia'> & {
+  valorDeReferencia?: string
+}
 
 /**
  * Planilha de campanha → linhas do contrato.
@@ -59,6 +65,13 @@ export type Lidas = {
   responsaveisDesconhecidos: readonly string[]
   /** Quantas linhas traziam um prazo que não deu para ler. */
   prazosIlegiveis: number
+  /**
+   * O que a limpeza do nome mudou — a PRÉVIA do que vai ser gravado. A planilha
+   * da cliente traz "6. Maria Souza - R$ 15.200" na coluna do
+   * paciente; o índice e o valor saem do nome, e o valor (centavos) fica aqui,
+   * só para a prévia de quem tem `valores`.
+   */
+  nomesLimpos: readonly { original: string; nome: string; valorEmCentavos: bigint | null }[]
 }
 
 export function lerTabelaDeCampanha(
@@ -74,14 +87,20 @@ export function lerTabelaDeCampanha(
     }
   }
 
+  const nomesLimpos: { original: string; nome: string; valorEmCentavos: bigint | null }[] = []
   const porNome = new Map(padroes.equipe.map((p) => [normalizar(p.nome), p.id]))
   const linhas: LinhaDaCampanha[] = []
   const desconhecidos = new Set<string>()
   let prazosIlegiveis = 0
 
   for (const linha of m.corpo) {
-    const nome = celula(linha, m.indices, 'nome')
+    const original = celula(linha, m.indices, 'nome')
+    const limpo = limparNomeDeLista(original)
+    const nome = limpo.nome
     if (nome === '') continue
+    if (nome !== original.replace(/\s+/g, ' ').trim()) {
+      nomesLimpos.push({ original, nome, valorEmCentavos: limpo.valorEmCentavos })
+    }
 
     const resp = celula(linha, m.indices, 'responsavel')
     let responsavelId = padroes.responsavelId
@@ -106,8 +125,12 @@ export function lerTabelaDeCampanha(
       prazo,
       responsavelId,
       obs: celula(linha, m.indices, 'obs').slice(0, 300),
+      // O valor que a lista trazia; sem ele, nada é enviado (o campo é opcional).
+      ...(limpo.valorEmCentavos === null
+        ? {}
+        : { valorDeReferencia: limpo.valorEmCentavos.toString() }),
     })
   }
 
-  return { linhas, responsaveisDesconhecidos: [...desconhecidos], prazosIlegiveis }
+  return { linhas, responsaveisDesconhecidos: [...desconhecidos], prazosIlegiveis, nomesLimpos }
 }

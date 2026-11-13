@@ -254,6 +254,11 @@ describe('a tarefa não guarda dinheiro', () => {
      */
     expect(suspeitas, `colunas monetárias em tarefas: ${suspeitas.join(', ')}`).toEqual([
       'sessao_total',
+      // `valor_de_referencia` (0080): o valor que veio no nome da lista que a
+      // clínica importou, guardado só para consulta. Não é receita (regra 4):
+      // nunca entra em recebido, LTV, meta nem caixa. ADR
+      // 2026-11-13-valor-de-referencia-da-lista.
+      'valor_de_referencia',
       // `valor_fechado` (0076): o total que a paciente fechou, para separar o
       // orçamento parcial. Tampouco é receita (regra 4).
       'valor_fechado',

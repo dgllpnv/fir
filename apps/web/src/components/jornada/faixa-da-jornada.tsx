@@ -15,6 +15,8 @@ import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
 import { diaCurto, diaEmTexto, linkDeWhatsApp, somarDiasNaTela } from '@/lib/formato'
+import { EditorDeItensDoOrcamento, itemVazio, type ItemNoEditor } from './editor-de-itens-do-orcamento'
+import { FormularioDeFechamento } from './formulario-de-fechamento'
 import {
   Montador,
   montadorVazio,
@@ -101,6 +103,7 @@ export function FaixaDaJornada({
     hoje,
     podeReceber,
     podeCorrigir: mover.podeCorrigirOrcamento?.(t) ?? true,
+    orcamentoParcial: t.orcamentoParcial,
   })
   const contexto = contextoDaEtapa({
     etapa,
@@ -125,7 +128,7 @@ export function FaixaDaJornada({
           <span className="muted num">fechado {formatarDinheiro(BigInt(t.valorFechado))}</span>
         )}
         {etapa === 'fechado' && t.orcamentoParcial ? (
-          <span className="pill alerta">Orçamento parcial</span>
+          <span className="pill alerta">Orçamento parcialmente fechado</span>
         ) : null}
       </div>
 
@@ -173,6 +176,17 @@ export function FaixaDaJornada({
             )}
           </div>
         )
+      ) : emForm === 'fechar' ? (
+        <FormularioDeFechamento
+          tarefa={t}
+          hoje={hoje}
+          podeValores={podeValores}
+          aoFechar={() => setEmForm(null)}
+          aoSalvar={async (corpo) => {
+            await mover(t.id, corpo)
+            setEmForm(null)
+          }}
+        />
       ) : (
         <FormularioDaAcao
           acao={emForm}
@@ -201,7 +215,7 @@ export function FaixaDaJornada({
 function ResumoDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
   const vigente = orcamentoVigente(t.historico)
   const nota = vigente?.nota ?? ''
-  const itens = t.programaOrcado?.length ?? 0
+  const itens = t.itensOrcamento?.length ?? 0
   // A observação do fechamento ("não fechou o implante") ficava só dentro da
   // Evolução recolhida; no cartão fechado ela aparece junto do orçamento.
   const fechou = [...t.historico].reverse().find((e) => e.acao === 'fechar')
@@ -233,7 +247,7 @@ function ResumoDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
  * recepção olha quando pergunta "o que tinha nesse orçamento?".
  */
 function ItensDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
-  const itens = t.programaOrcado?.length ?? 0
+  const itens = t.itensOrcamento?.length ?? 0
   // Nomes pelo catálogo da clínica. Sem permissão (403) ou sem rede, cai em
   // "Procedimento": a lista nunca depende do catálogo para existir.
   const catalogo = useDados<ListaDeProcedimentos>(itens > 0 ? 'v1/procedimentos' : null)
@@ -241,18 +255,27 @@ function ItensDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
   if (itens === 0) return null
   return (
     <ul className="nota" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-      {(t.programaOrcado ?? []).map((i, n) => (
-        <li key={`${i.chave ?? n}`}>
-          {nomes.get(i.procedimentoId) ?? 'Procedimento'}
-          {' · '}
-          {i.sessoes} {i.sessoes === 1 ? 'sessão' : 'sessões'}
-          {i.sessoes > 1 ? `, a cada ${i.intervaloDias} dias` : ''}
-          {i.dose === undefined || i.dose === null || i.dose === '' ? '' : ` · dose ${i.dose}`}
-          {i.valor === null || i.valor === undefined || i.valor === '' ? null : (
-            <span className="num"> · {formatarDinheiro(BigInt(i.valor))}</span>
-          )}
-        </li>
-      ))}
+      {(t.itensOrcamento ?? []).map((i, n) => {
+        // Programa: as sessões vêm do `programaOrcado` (mesma chave). Orçamento só
+        // com procedimentos listados não tem sessões a mostrar.
+        const p = (t.programaOrcado ?? []).find((x) => x.chave === i.chave)
+        return (
+          <li key={`${i.chave}-${n}`}>
+            {nomes.get(i.procedimentoId) ?? 'Procedimento'}
+            {p === undefined ? null : (
+              <>
+                {' · '}
+                {p.sessoes} {p.sessoes === 1 ? 'sessão' : 'sessões'}
+                {p.sessoes > 1 ? `, a cada ${p.intervaloDias} dias` : ''}
+                {p.dose === undefined || p.dose === null || p.dose === '' ? '' : ` · dose ${p.dose}`}
+              </>
+            )}
+            {i.valor === null || i.valor === undefined || i.valor === '' ? null : (
+              <span className="num"> · {formatarDinheiro(BigInt(i.valor))}</span>
+            )}
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -440,9 +463,6 @@ function FormularioDaAcao({
   /** A chave do ENVIO: o duplo clique e o retry da rede trazem a mesma, e o servidor grava uma vez. */
   const [chaveIdempotencia] = useState(() => crypto.randomUUID())
   const [motivoId, setMotivoId] = useState('')
-  const [entrada, setEntrada] = useState('')
-  const [aberto, setAberto] = useState('')
-  const [forma, setForma] = useState<(typeof FORMAS)[number]>(FORMAS[0])
   /**
    * A caixa **"É um programa: montar agora"** do `registrarOrcamento`, e o
    * montador por trás dela — **o MESMO componente de Nova adesão** (MANUAL
@@ -460,6 +480,28 @@ function FormularioDaAcao({
    * foi orçado), e só viajam se a pessoa marcar "Corrigir os procedimentos".
    */
   const [editaItens, setEditaItens] = useState(false)
+  /**
+   * A LISTA de procedimentos do orçamento SEM programa (ADR 2026-11-13). Linha
+   * sem procedimento escolhido é ignorada: a lista é opcional.
+   */
+  const [lista, setLista] = useState<readonly ItemNoEditor[]>(() =>
+    corrigindo && !temProposta && t.itensOrcamento !== null
+      ? t.itensOrcamento.map((i, n) => ({
+          chave: `i${n + 1}`,
+          procedimentoId: i.procedimentoId,
+          valor: i.valor === null || i.valor === undefined ? '' : textoDeCentavos(BigInt(i.valor)),
+        }))
+      : [itemVazio(1)],
+  )
+  function itensDaLista() {
+    return lista
+      .filter((x) => x.procedimentoId !== '')
+      .map((x, n) => ({
+        chave: `i${n + 1}`,
+        procedimentoId: x.procedimentoId,
+        ...(x.valor.trim() === '' ? {} : { valor: (centavosDoTexto(x.valor) ?? 0n).toString() }),
+      }))
+  }
   const [montagem, setMontagem] = useState<EstadoDoMontador>(() =>
     corrigindo && temProposta
       ? {
@@ -481,14 +523,6 @@ function FormularioDaAcao({
         }
       : montadorVazio(hoje),
   )
-  /**
-   * O **início do programa**, no `fechar` — e só quando o cartão traz proposta.
-   *
-   * Nasce em HOJE, o dia do servidor, e o campo é OPCIONAL no contrato: não
-   * mandar significa "hoje da clínica", decidido lá. A tela **mostra** o que o
-   * servidor faria; ela não é a autoridade da data (regra 24).
-   */
-  const [inicioDoPrograma, setInicioDoPrograma] = useState(hoje)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
@@ -559,6 +593,7 @@ function FormularioDaAcao({
           retomarEm: quando,
           ...(contatoId === '' ? {} : { contatoId }),
           ...(ehPrograma ? { programa: itensDoMontador() } : {}),
+          ...(!ehPrograma && itensDaLista().length > 0 ? { itens: itensDaLista() } : {}),
           ...comNota,
         }
       }
@@ -574,11 +609,14 @@ function FormularioDaAcao({
         }
         if (quando !== '' && quando !== (t.proximoPassoEm ?? '')) corpo['retomarEm'] = quando
         if (nota.trim() !== notaVigente) corpo['nota'] = nota.trim()
-        if (editaItens) {
+        if (editaItens && temProposta) {
           if (montagem.itens.some((x) => x.procedimentoId === '')) {
             return 'Escolha o procedimento de cada item do orçamento.'
           }
           corpo['programa'] = itensDoMontador()
+        } else if (editaItens) {
+          if (itensDaLista().length === 0) return 'Escolha ao menos um procedimento.'
+          corpo['itens'] = itensDaLista()
         }
         if (Object.keys(corpo).length === 2) return 'Nada mudou no orçamento.'
         return corpo
@@ -586,28 +624,14 @@ function FormularioDaAcao({
       case 'followUp':
         if (nota.trim() === '') return 'Conte como foi o contato.'
         return { acao, retomarEm: quando, ...(contatoId === '' ? {} : { contatoId }), ...comNota }
+      case 'retomarRestante':
+        return { acao, ...(quando === '' ? {} : { retomarEm: quando }), ...comNota }
       case 'perder':
         if (motivoId === '') return 'Escolha o motivo.'
         return { acao, motivoId, ...comNota }
-      case 'fechar': {
-        const valorEntrada = centavosDoTexto(entrada)
-        if (valorEntrada === null || valorEntrada <= 0n) return 'Informe o valor recebido agora.'
-        const emAberto = aberto.trim() === '' ? 0n : centavosDoTexto(aberto)
-        if (emAberto === null || emAberto < 0n) return 'Valor em aberto inválido. Use 300,00.'
-        return {
-          acao,
-          recebimento: { valor: valorEntrada.toString(), forma, valorAberto: emAberto.toString() },
-          /**
-           * `inicioDoPrograma` só viaja quando há proposta a montar.
-           *
-           * Mandá-lo num fechamento sem programa seria descrever uma
-           * requisição que não é esta — o contrato o aceita, o serviço o
-           * ignoraria, e o campo passaria a existir sem significado.
-           */
-          ...(temProposta ? { inicioDoPrograma } : {}),
-          ...comNota,
-        }
-      }
+      case 'fechar':
+        // O fechamento tem formulário próprio: `FormularioDeFechamento`.
+        return 'Esta ação não é desta tela.'
       default:
         return 'Esta ação não é desta tela.'
     }
@@ -680,7 +704,16 @@ function FormularioDaAcao({
               </p>
               <Montador estado={montagem} aoMudar={setMontagem} podeValores={podeValores} />
             </>
-          ) : null}
+          ) : (
+            <fieldset className="campo" style={{ border: 0, padding: 0, margin: 0 }}>
+              <legend>Procedimentos do orçamento <small>(opcional)</small></legend>
+              <p className="nota">
+                Liste o que foi orçado: ao fechar só uma parte, o sistema pergunta quais
+                procedimentos a paciente levou. Não vira programa.
+              </p>
+              <EditorDeItensDoOrcamento itens={lista} aoMudar={setLista} podeValores={podeValores} />
+            </fieldset>
+          )}
         </>
       ) : null}
 
@@ -696,10 +729,16 @@ function FormularioDaAcao({
               style={{ width: 'auto' }}
               onChange={(e) => setEditaItens(e.target.checked)}
             />
-            {temProposta ? 'Corrigir os procedimentos do orçamento' : 'Informar os procedimentos do orçamento'}
+            {temProposta || t.itensOrcamento !== null
+              ? 'Corrigir os procedimentos do orçamento'
+              : 'Informar os procedimentos do orçamento'}
           </label>
           {editaItens ? (
-            <Montador estado={montagem} aoMudar={setMontagem} podeValores={podeValores} />
+            temProposta ? (
+              <Montador estado={montagem} aoMudar={setMontagem} podeValores={podeValores} />
+            ) : (
+              <EditorDeItensDoOrcamento itens={lista} aoMudar={setLista} podeValores={podeValores} />
+            )
           ) : null}
         </>
       ) : null}
@@ -729,6 +768,13 @@ function FormularioDaAcao({
         </div>
       ) : null}
 
+      {acao === 'retomarRestante' ? (
+        <label className="campo">
+          Retomar o restante em <small>(vazio encerra o lembrete)</small>
+          <input type="date" className="num" min={hoje} value={quando} onChange={(e) => setQuando(e.target.value)} />
+        </label>
+      ) : null}
+
       {acao === 'followUp' ? (
         <label className="campo">
           Próximo contato em
@@ -741,73 +787,6 @@ function FormularioDaAcao({
       ) : null}
 
       {acao === 'perder' ? <SeletorDeMotivo valor={motivoId} aoEscolher={setMotivoId} /> : null}
-
-      {acao === 'fechar' ? (
-        <>
-          <div className="par">
-            <label className="campo">
-              Valor recebido agora (R$)
-              <input
-                inputMode="decimal"
-                placeholder="Ex.: 1.000,00"
-                value={entrada}
-                onChange={(e) => setEntrada(e.target.value)}
-              />
-            </label>
-            <label className="campo">
-              Forma de pagamento
-              <select
-                value={forma}
-                onChange={(e) => {
-                  const escolhida = FORMAS.find((f) => f === e.target.value)
-                  if (escolhida !== undefined) setForma(escolhida)
-                }}
-              >
-                {FORMAS.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <label className="campo">
-            Valor em aberto (R$) <small>(o que ficou para depois)</small>
-            <input
-              inputMode="decimal"
-              placeholder="Ex.: 2.600,00"
-              value={aberto}
-              onChange={(e) => setAberto(e.target.value)}
-            />
-          </label>
-
-          {/*
-            O INÍCIO DO PROGRAMA, e só quando há proposta.
-
-            Fechar este cartão vai **montar o programa**: `n` sessões na agenda
-            da enfermagem, a partir desta data. O campo nasce em hoje — o dia
-            do servidor —, e é o único momento em que alguém escolhe quando o
-            tratamento começa.
-          */}
-          {temProposta ? (
-            <>
-              <p className="nota">
-                Ao fechar, o programa é montado e as sessões entram na agenda — na mesma transação
-                do pagamento.
-              </p>
-              <label className="campo" style={{ maxWidth: 260 }}>
-                Data da primeira sessão
-                <input
-                  type="date"
-                  className="num"
-                  value={inicioDoPrograma}
-                  onChange={(e) => setInicioDoPrograma(e.target.value)}
-                />
-              </label>
-            </>
-          ) : null}
-        </>
-      ) : null}
 
       {ROTULO_DA_NOTA[acao] === undefined ? null : (
         <label className="campo">
@@ -901,6 +880,7 @@ const TITULO: Partial<Record<AcaoDeJornada, string>> = {
   followUp: 'Follow-up do orçamento',
   perder: 'Orçamento perdido',
   fechar: 'Fechou o orçamento',
+  retomarRestante: 'Retomar o restante do orçamento',
   corrigirOrcamento: 'Corrigir o orçamento enviado',
 }
 
@@ -914,6 +894,8 @@ const DICA: Partial<Record<AcaoDeJornada, string>> = {
     'O valor do orçamento mede a conversão do funil — ele não entra na receita.',
   corrigirOrcamento:
     'Corrige o que foi registrado; a etapa não muda. O funil dos meses já fechados continua igual, e a correção fica na Evolução.',
+  retomarRestante:
+    'A paciente fechou só uma parte. Escolha o dia de voltar a falar do restante; sem data, o lembrete sai da lista.',
   fechar:
     'O valor recebido agora entra no caixa de hoje; o que ficou em aberto vira saldo da paciente. Fica registrado neste atendimento — não lance de novo em Recebimento.',
 }
@@ -926,6 +908,7 @@ const ROTULO_DA_NOTA: Partial<Record<AcaoDeJornada, string>> = {
   followUp: 'Como foi o contato',
   perder: 'Observação (opcional)',
   fechar: 'Observação (opcional)',
+  retomarRestante: 'Observação (opcional)',
 }
 
 const PLACEHOLDER_DA_NOTA: Partial<Record<AcaoDeJornada, string>> = {

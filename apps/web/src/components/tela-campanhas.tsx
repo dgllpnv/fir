@@ -5,14 +5,16 @@ import type {
   Campanhas,
   ListaDaEquipe,
   MetricaDeCampanha,
+  RascunhoDeCampanha,
 } from '@fir/contracts'
 import { METRICAS_DE_CAMPANHA } from '@fir/contracts'
 import { TIPOS, ehPagamento } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
+import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { DICA_DO_NOME_DA_CAMPANHA } from '@/conteudo/dica-do-nome-da-campanha'
 import { chamar } from '@/lib/api'
-import { useDados } from '@/lib/dados'
+import { consultaEmTexto, useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
 import { lerTabelaDeCampanha, type Lidas } from '@/lib/campanha-importada'
 import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
@@ -22,45 +24,95 @@ import { lerTabela } from '@/lib/planilha'
 import { Carregando, Erro, Toast, Vazio } from './estados'
 
 /**
- * **Comercial › Campanhas** (MANUAL cap. 9).
+ * **Comercial › Campanhas** (MANUAL cap. 9) — a LISTA do mês (`vCampanhas`).
  *
  * ────────────────────────────────────────────────────────────────────────────
  * O QUE ESTA TELA NÃO FAZ
  *
  *  1. **Não conta nada.** Resultado, percentual da meta, taxa de conversão,
- *     receita, pacientes alcançados e convertidos, situação e "dias
- *     restantes" vêm prontos do servidor. O protótipo calcula os oito no
- *     navegador (`statsCamp`, `situacaoCamp`), com `today()` do aparelho — e
- *     aí o celular adiantado da recepção encerra a campanha um dia antes.
+ *     receita, pacientes alcançados e convertidos, situação, "dias
+ *     restantes" e os três totais do mês vêm prontos do servidor. O protótipo
+ *     calcula tudo no navegador (`statsCamp`, `situacaoCamp`), com `today()`
+ *     do aparelho — e aí o celular adiantado da recepção encerra a campanha um
+ *     dia antes.
  *
- *  2. **Não decide quem vê valor.** `metaEmDinheiro`, `resultadoEmDinheiro` e
- *     `receita` estão em `CAMPOS_MONETARIOS`; sem `valores` o servidor os
- *     apaga (regra 17) e o `percentualDaMeta` atravessa. **A Recepção é
- *     exatamente esse caso** — ela tem `campanhas` e não tem `valores`. O
- *     protótipo faz `oculto: c.metrica==="receita" && !vVal()` aqui na tela.
+ *  2. **Não decide quem vê valor.** `metaEmDinheiro`, `resultadoEmDinheiro`,
+ *     `receita` e `valorConvertido` estão em `CAMPOS_MONETARIOS`; sem `valores`
+ *     o servidor os apaga (regra 17), e o `percentualDaMeta` de uma campanha
+ *     de RECEITA vai junto (null; a barra some e o texto do protótipo
+ *     aparece). **A Recepção é exatamente esse caso** — ela tem `campanhas` e
+ *     não tem `valores`. O protótipo faz `oculto: c.metrica==="receita" && !vVal()`.
  *
  *  3. **Não escreve sem `campanhas.gerir`.** Os botões somem para quem só vê,
  *     e o servidor recusa de novo (regra 16) — a tela é conveniência.
+ *
+ *  4. **Não filtra o mês.** `?mes=` e `?tipo=` vão ao servidor: o mês de "hoje"
+ *     é o dele (regra 24), e a lista do mês é a que CRUZA o mês.
  * ────────────────────────────────────────────────────────────────────────────
  *
- * **390 px:** uma campanha por bloco, com o nome e a situação no topo, a barra
- * da meta e os números em grade de duas colunas. Nada rola na horizontal.
+ * Cada cartão é um LINK para `/campanhas/[id]`, o detalhe com as tarefas — a
+ * omissão de paridade que a cliente apontou ("não consigo mais ver as ações
+ * desenvolvidas naquela campanha").
+ *
+ * **390 px:** um cartão por linha, com o nome e a situação no topo, a barra da
+ * meta e os números em grade de duas colunas. Nada rola na horizontal.
  */
-export function TelaCampanhas({ podeGerir }: { podeGerir: boolean }) {
-  const [versao, setVersao] = useState(0)
-  const dados = useDados<Campanhas>(`v1/campanhas?v=${versao}`)
+
+const MESES = [
+  'Janeiro',
+  'Fevereiro',
+  'Março',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+]
+
+/** `2026-11` → "Novembro de 2026". Só rótulo: o mês de negócio é do servidor. */
+export function rotuloDoMes(mes: string): string {
+  return `${MESES[Number(mes.slice(5, 7)) - 1] ?? mes} de ${mes.slice(0, 4)}`
+}
+
+/** `2026-12` + 1 → `2027-01`. Aritmética de calendário, sem relógio e sem fuso. */
+function somaDeMes(mes: string, k: number): string {
+  const total = Number(mes.slice(0, 4)) * 12 + (Number(mes.slice(5, 7)) - 1) + k
+  const ano = Math.floor(total / 12)
+  return `${ano}-${String((total % 12) + 1).padStart(2, '0')}`
+}
+
+export function TelaCampanhas({
+  podeGerir,
+  mesInicial,
+  tipoInicial,
+}: {
+  podeGerir: boolean
+  /** `aaaa-mm`, vindo da URL (volta do detalhe). Sem ele: o mês atual do servidor. */
+  mesInicial?: string
+  tipoInicial?: string
+}) {
+  const [mes, setMes] = useState<string>(mesInicial ?? 'atual')
+  const [tipo, setTipo] = useState(tipoInicial ?? '')
+  const dados = useDados<Campanhas>(`v1/campanhas${consultaEmTexto({ mes, tipo })}`)
   const d = dados.dados
-  const [editando, setEditando] = useState<string | 'nova' | null>(null)
+  const [novaAberta, setNovaAberta] = useState(false)
   const [recado, setRecado] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
-  const agir = async (fn: () => Promise<unknown>, aviso: string) => {
+  const criar = async (corpo: CorpoDaCampanha) => {
     setSalvando(true)
     try {
-      await fn()
-      setEditando(null)
-      setVersao((v) => v + 1)
-      setRecado(aviso)
+      await chamar('v1/campanhas', { method: 'POST', body: JSON.stringify(corpo) })
+      setNovaAberta(false)
+      // A campanha nova aparece no mês dela, não no que a gestora olhava.
+      setMes(corpo.inicio.slice(0, 7))
+      setTipo('')
+      dados.recarregar()
+      setRecado('Campanha criada.')
     } catch (e: unknown) {
       setRecado(e instanceof Error ? e.message : 'Não consegui salvar.')
     } finally {
@@ -68,95 +120,137 @@ export function TelaCampanhas({ podeGerir }: { podeGerir: boolean }) {
     }
   }
 
+  const mesMostrado = d?.mes ?? null
+  const hojeMes = d === null ? null : d.hoje.slice(0, 7)
+  const kpis = d?.totais ?? null
+
   return (
     <section>
-      <div className="eyebrow">Comercial</div>
       <div className="titulo">
-        <h2>Campanhas</h2>
-        {podeGerir ? (
-          <div className="acoes-de-tela">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => setEditando(editando === 'nova' ? null : 'nova')}
-            >
-              Nova campanha
-            </button>
-          </div>
+        <div>
+          <div className="eyebrow">Campanhas comerciais</div>
+          <h2>{mesMostrado === null ? 'Campanhas' : rotuloDoMes(mesMostrado)}</h2>
+        </div>
+        <div className="acoes-de-tela">
+          <button
+            type="button"
+            className="btn ghost"
+            aria-label="Mês anterior"
+            disabled={mesMostrado === null}
+            onClick={() => mesMostrado !== null && setMes(somaDeMes(mesMostrado, -1))}
+          >
+            ‹ Anterior
+          </button>
+          <button
+            type="button"
+            className="btn ghost"
+            aria-label="Próximo mês"
+            disabled={mesMostrado === null}
+            onClick={() => mesMostrado !== null && setMes(somaDeMes(mesMostrado, 1))}
+          >
+            Próximo ›
+          </button>
+        </div>
+      </div>
+
+      <div className="acoes-de-tela" style={{ marginBottom: 12 }}>
+        {podeGerir && !novaAberta ? (
+          <button type="button" className="btn" onClick={() => setNovaAberta(true)}>
+            Nova campanha
+          </button>
+        ) : null}
+        {mesMostrado !== null && hojeMes !== null && mesMostrado !== hojeMes ? (
+          <button
+            type="button"
+            className={podeGerir ? 'btn ghost' : 'link'}
+            onClick={() => setMes('atual')}
+          >
+            {podeGerir ? 'Mês atual' : 'Voltar para o mês atual'}
+          </button>
         ) : null}
       </div>
 
-      <p className="nota">
-        Uma campanha é um esforço com <b>começo, fim e uma meta</b>. As tarefas ligadas a ela
-        contam sozinhas: contatos feitos, pacientes convertidos e receita gerada aparecem aqui
-        sem ninguém lançar nada.
-      </p>
-
-      {editando === 'nova' && podeGerir ? (
+      {novaAberta && podeGerir ? (
         <Formulario
           categorias={d?.categorias ?? []}
           salvando={salvando}
-          aoCancelar={() => setEditando(null)}
-          aoSalvar={(corpo) =>
-            agir(
-              () => chamar('v1/campanhas', { method: 'POST', body: JSON.stringify(corpo) }),
-              'Campanha criada.',
-            )
+          semValores={
+            kpis?.valorConvertido === null ||
+            (d?.campanhas ?? []).some((x) => x.metrica === 'receita' && x.metaEmDinheiro === null)
           }
+          inicioPadrao={mesMostrado === null ? '' : `${mesMostrado}-01`}
+          aoCancelar={() => setNovaAberta(false)}
+          aoSalvar={criar}
         />
       ) : null}
 
-      {dados.carregando ? (
-        <Carregando linhas={3} />
-      ) : dados.erro !== null ? (
+      {/*
+        Os três números do mês. `valorConvertido` redigido (`null`) esconde o
+        cartão de destaque e deixa as duas contagens — a Recepção lê o andamento
+        sem ler o preço (regra 17).
+      */}
+      {kpis !== null && kpis.campanhas > 0 ? (
+        <div className="kpis kpis-da-campanha">
+          {kpis.valorConvertido === null ? null : (
+            <div className="kpi destaque">
+              <span>Valor convertido no mês</span>
+              <b className="num">{formatarDinheiro(centavos(kpis.valorConvertido) ?? 0n)}</b>
+              <span>
+                {plural(kpis.campanhas, 'campanha', 'campanhas')}
+                {tipo === '' ? '' : ` · ${tipo}`}
+              </span>
+            </div>
+          )}
+          <div className="kpi">
+            <span>Pacientes convertidos</span>
+            <b className="num">{kpis.pacientesConvertidos}</b>
+            <span>somando as campanhas</span>
+          </div>
+          <div className="kpi">
+            <span>Ações realizadas</span>
+            <b className="num">{kpis.acoesRealizadas}</b>
+            <span>tarefas concluídas</span>
+          </div>
+        </div>
+      ) : null}
+
+      {d !== null && d.categorias.length > 1 ? (
+        <label className="campo" style={{ maxWidth: 320 }}>
+          Tipo de campanha
+          <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
+            <option value="">Todos os tipos</option>
+            {d.categorias.map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      {dados.erro !== null ? (
         <Erro mensagem={dados.erro} recarregar={dados.recarregar} />
-      ) : d === null ? null : d.campanhas.length === 0 ? (
+      ) : d === null ? (
+        <Carregando linhas={3} />
+      ) : d.campanhas.length === 0 ? (
         <Vazio>
-          <p style={{ margin: 0, color: 'var(--ink)' }}>Nenhuma campanha cadastrada.</p>
+          <p style={{ margin: 0, color: 'var(--ink)' }}>
+            {tipo !== '' && d.categorias.length > 0
+              ? 'Nenhuma campanha desse tipo neste mês.'
+              : `Nenhuma campanha em ${rotuloDoMes(d.mes ?? d.hoje.slice(0, 7)).toLowerCase()}.`}
+          </p>
           <p className="nota">
             {podeGerir
-              ? 'Crie a primeira: dê um nome, um período e uma meta. Depois ligue as tarefas a ela — ou importe uma lista de pacientes de uma vez.'
+              ? 'Crie a primeira e vincule as tarefas da equipe a ela — ou importe uma lista de pacientes de uma vez.'
               : 'Quando a gestão criar uma campanha, ela aparece aqui com o resultado atualizado.'}
           </p>
         </Vazio>
       ) : (
-        d.campanhas.map((c) =>
-          editando === c.id && podeGerir ? (
-            <Formulario
-              key={c.id}
-              campanha={c}
-              categorias={d.categorias}
-              salvando={salvando}
-              aoCancelar={() => setEditando(null)}
-              aoSalvar={(corpo) =>
-                agir(
-                  () =>
-                    chamar(`v1/campanhas/${c.id}`, {
-                      method: 'PUT',
-                      body: JSON.stringify(corpo),
-                    }),
-                  'Campanha salva.',
-                )
-              }
-            />
-          ) : (
-            <Bloco
-              key={c.id}
-              campanha={c}
-              podeGerir={podeGerir}
-              salvando={salvando}
-              aoEditar={() => setEditando(c.id)}
-              aoExcluir={() =>
-                agir(
-                  () => chamar(`v1/campanhas/${c.id}`, { method: 'DELETE' }),
-                  'Campanha excluída.',
-                )
-              }
-              avisar={setRecado}
-              aoImportar={() => setVersao((v) => v + 1)}
-            />
-          ),
-        )
+        <div className="lista-de-campanhas">
+          {d.campanhas.map((c) => (
+            <Cartao key={c.id} campanha={c} mes={d.mes ?? ''} tipo={tipo} />
+          ))}
+        </div>
       )}
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
@@ -165,7 +259,7 @@ export function TelaCampanhas({ podeGerir }: { podeGerir: boolean }) {
 }
 
 /** O resultado e a meta, na escala da métrica — `—` quando foi redigido. */
-function naEscala(c: CampanhaNaLista, lado: 'meta' | 'resultado'): string {
+export function naEscala(c: CampanhaNaLista, lado: 'meta' | 'resultado'): string {
   if (c.metrica === 'receita') {
     const v = centavos(lado === 'meta' ? c.metaEmDinheiro : c.resultadoEmDinheiro)
     return v === null ? '—' : formatarDinheiro(v)
@@ -174,152 +268,103 @@ function naEscala(c: CampanhaNaLista, lado: 'meta' | 'resultado'): string {
   return n === null ? '—' : String(n)
 }
 
-function Bloco({
+/**
+ * A faixa da barra da meta, do protótipo (`barraMeta`): ≥100 verde, ≥60
+ * dourada, abaixo âmbar. É cor de um percentual que o SERVIDOR calculou.
+ */
+export const faixaDaMeta = (pct: number | null): 'ok' | 'meio' | 'baixo' =>
+  pct !== null && pct >= 100 ? 'ok' : pct !== null && pct >= 60 ? 'meio' : 'baixo'
+
+/** A barra da meta, a mesma na lista e no detalhe. */
+export function BarraDaMeta({ percentual }: { percentual: number | null }) {
+  return (
+    <div
+      className="barra barra-da-meta"
+      data-faixa={faixaDaMeta(percentual)}
+      role="img"
+      aria-label={percentual === null ? 'sem meta' : `${percentual}% da meta`}
+    >
+      <i style={{ width: larguraDaBarra(percentual) }} />
+    </div>
+  )
+}
+
+/** O cartão-botão de `vCampanhas` (`.ccard`): a campanha inteira abre o detalhe. */
+function Cartao({
   campanha: c,
-  podeGerir,
-  salvando,
-  aoEditar,
-  aoExcluir,
-  avisar,
-  aoImportar,
+  mes,
+  tipo,
 }: {
   campanha: CampanhaNaLista
-  podeGerir: boolean
-  salvando: boolean
-  aoEditar: () => void
-  aoExcluir: () => void
-  avisar: (a: string) => void
-  aoImportar: () => void
+  mes: string
+  tipo: string
 }) {
-  const [confirmando, setConfirmando] = useState(false)
   /**
-   * **O MESMO raciocínio de `MetaDoMes`:** `metrica === 'receita'` com
+   * O MESMO raciocínio de `MetaDoMes`: `metrica === 'receita'` com
    * `metaEmDinheiro === null` só acontece por redação (o contrato exige
-   * `> 0`). Dizer "meta em reais" não revela quanto é — o nome da métrica já
-   * diz que ela é dinheiro —, e sem isto a tela mostra "meta —", que lê como
-   * "a gestão esqueceu de definir a meta".
+   * `> 0`). O protótipo escreve "Resultado visível para o administrativo".
    */
   const dinheiroOculto = c.metrica === 'receita' && c.metaEmDinheiro === null
   const receita = centavos(c.receita)
 
   return (
-    <section className="campanha" data-situacao={c.situacao}>
+    <Link
+      href={`/campanhas/${c.id}${consultaEmTexto({ mes, tipo })}`}
+      className="campanha cartao-da-campanha"
+      data-situacao={c.situacao}
+    >
       <header>
-        <div>
-          <b>{c.nome}</b>
-          <span className="muted">
-            {c.categoria}
-            {c.foco === '' ? '' : ` · ${c.foco}`} · {diaCurto(c.inicio)} a {diaCurto(c.fim)}
-          </span>
-        </div>
+        <b>{c.nome}</b>
         <span className={`pill ${c.situacao === 'andamento' ? 'dourado' : ''}`}>
           {c.rotuloDaSituacao}
         </span>
       </header>
-
-      {c.objetivo === '' ? null : <p className="nota">{c.objetivo}</p>}
-
-      <div className="meta-linha">
-        <span>
-          {c.rotuloDaMeta}:{' '}
-          <b className="num">{naEscala(c, 'resultado')}</b>{' '}
-          {dinheiroOculto ? (
-            <span className="muted">de uma meta em reais, que seu perfil não mostra</span>
-          ) : (
-            <>de <b className="num">{naEscala(c, 'meta')}</b></>
-          )}
+      <div>
+        <span className="pill paciente">
+          {c.categoria}
+          {c.foco === '' ? '' : ` · ${c.foco}`}
         </span>
+      </div>
+
+      {dinheiroOculto ? (
+        <p className="nota">Resultado visível para o administrativo</p>
+      ) : (
+        <>
+          <div className="meta-linha">
+            <span>
+              Meta: <b className="num">{naEscala(c, 'meta')}</b> {c.rotuloDaMeta.toLowerCase()}
+            </span>
+            <span className="num">
+              <b>{naEscala(c, 'resultado')}</b> de {naEscala(c, 'meta')}
+              {c.percentualDaMeta === null ? '' : ` · ${c.percentualDaMeta}%`}
+            </span>
+          </div>
+          <BarraDaMeta percentual={c.percentualDaMeta} />
+        </>
+      )}
+
+      {receita === null ? null : (
+        <div className="valor-da-campanha">
+          <span>Valor convertido</span>
+          <b className="num">{formatarDinheiro(receita)}</b>
+          <span>
+            {plural(c.pacientesConvertidos, 'paciente convertido', 'pacientes convertidos')}
+          </span>
+        </div>
+      )}
+
+      <p className="nota">
         <span className="num">
-          {c.percentualDaMeta === null ? '—' : `${c.percentualDaMeta}%`}
+          {plural(c.tarefasConcluidas, 'ação realizada', 'ações realizadas')} de {c.tarefas}
         </span>
-      </div>
-      <div
-        className="barra"
-        role="img"
-        aria-label={
-          c.percentualDaMeta === null ? 'sem meta' : `${c.percentualDaMeta}% da meta`
-        }
-      >
-        <i style={{ width: larguraDaBarra(c.percentualDaMeta) }} />
-      </div>
-
-      <dl className="numeros-da-campanha">
-        <div>
-          <dt>Ações</dt>
-          <dd className="num">
-            {c.tarefasConcluidas}/{c.tarefas}
-          </dd>
-        </div>
-        <div>
-          <dt>Em aberto</dt>
-          <dd className="num">{c.tarefasAbertas}</dd>
-        </div>
-        <div>
-          <dt>Contatos</dt>
-          <dd className="num">{c.contatos}</dd>
-        </div>
-        <div>
-          <dt>Pacientes alcançados</dt>
-          <dd className="num">{c.pacientesAlcancados}</dd>
-        </div>
-        <div>
-          <dt>Convertidos</dt>
-          <dd className="num">
-            {c.pacientesConvertidos}
-            {c.taxaDeConversao === null ? '' : ` · ${c.taxaDeConversao}%`}
-          </dd>
-        </div>
-        {/*
-          A receita SEMPRE aparece como linha, inclusive redigida — a ausência
-          da linha contaria à Recepção que existe um bloco que ela não vê, e o
-          `—` conta que existe um número que ela não vê. O segundo é honesto; o
-          primeiro é esconder a tela.
-        */}
-        <div>
-          <dt>Receita gerada</dt>
-          <dd className="num">{receita === null ? '—' : formatarDinheiro(receita)}</dd>
-        </div>
-      </dl>
-
-      {podeGerir ? (
-        <div className="acoes-de-tela">
-          <button type="button" className="link" onClick={aoEditar} disabled={salvando}>
-            Editar
-          </button>
-          <Importar campanha={c} avisar={avisar} aoImportar={aoImportar} />
-          {confirmando ? (
-            <>
-              <button
-                type="button"
-                className="link perigo"
-                onClick={aoExcluir}
-                disabled={salvando}
-              >
-                Confirmar exclusão
-              </button>
-              <button type="button" className="link" onClick={() => setConfirmando(false)}>
-                Cancelar
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="link perigo"
-              onClick={() => setConfirmando(true)}
-              disabled={salvando}
-            >
-              Excluir
-            </button>
-          )}
-        </div>
-      ) : null}
-      {confirmando ? (
-        <p className="nota">
-          A campanha some das escolhas e <b>as tarefas continuam ligadas a ela</b> — o histórico
-          do período não muda.
-        </p>
-      ) : null}
-    </section>
+        {' · '}
+        {plural(c.pacientesAlcancados, 'paciente alcançado', 'pacientes alcançados')}
+        {' · '}
+        <span className="num">
+          {diaCurto(c.inicio)} a {diaCurto(c.fim)}
+        </span>
+      </p>
+    </Link>
   )
 }
 
@@ -332,11 +377,14 @@ function Bloco({
  * números de volta, e `ignoradas` é o que torna *"importei de novo e não
  * aconteceu nada"* uma resposta em vez de um silêncio.
  */
-function Importar({
+export function Importar({
   campanha,
   avisar,
   aoImportar,
+  podeValores = false,
 }: {
+  /** Só decide se a prévia mostra o valor lido do nome (regra 17). */
+  podeValores?: boolean
   campanha: CampanhaNaLista
   avisar: (a: string) => void
   aoImportar: () => void
@@ -505,6 +553,25 @@ function Importar({
           linhas vão para o responsável padrão. Ninguém é criado por uma planilha.
         </p>
       )}
+      {arquivoLido === null || arquivoLido.nomesLimpos.length === 0 ? null : (
+        <div role="status" className="nota">
+          <b>
+            {plural(arquivoLido.nomesLimpos.length, 'nome vinha', 'nomes vinham')} com número ou
+            valor junto.
+          </b>{' '}
+          O nome gravado é só o do paciente — veja os primeiros:
+          <ul>
+            {arquivoLido.nomesLimpos.slice(0, 5).map((n) => (
+              <li key={n.original}>
+                “{n.original}” → <b>{n.nome}</b>
+                {podeValores && n.valorEmCentavos !== null
+                  ? ` (valor lido: ${formatarDinheiro(n.valorEmCentavos)}, não gravado)`
+                  : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {arquivoLido === null || arquivoLido.prazosIlegiveis === 0 ? null : (
         <p className="nota" role="status">
           {plural(arquivoLido.prazosIlegiveis, 'linha', 'linhas')} com prazo que não deu para ler:
@@ -582,7 +649,7 @@ function Importar({
   )
 }
 
-type CorpoDaCampanha = {
+export type CorpoDaCampanha = {
   categoria: string
   foco: string
   nome: string
@@ -595,16 +662,28 @@ type CorpoDaCampanha = {
   metaEmNumero: number | null
 }
 
-function Formulario({
+export function Formulario({
   campanha,
+  repetindo = false,
+  inicioPadrao = '',
   categorias,
   salvando,
+  semValores = false,
   aoSalvar,
   aoCancelar,
 }: {
-  campanha?: CampanhaNaLista
+  /**
+   * Os valores de partida. Uma campanha existente (edição) ou o rascunho de
+   * "Repetir no próximo mês" — as duas têm os mesmos dez campos.
+   */
+  campanha?: CampanhaNaLista | RascunhoDeCampanha
+  /** Com `campanha`: é uma CÓPIA, então o formulário cria em vez de editar. */
+  repetindo?: boolean
+  inicioPadrao?: string
   categorias: readonly string[]
   salvando: boolean
+  /** Sem `valores` a meta em reais não vem preenchida e o contrato a exige (> 0). */
+  semValores?: boolean
   aoSalvar: (corpo: CorpoDaCampanha) => void
   aoCancelar: () => void
 }) {
@@ -612,7 +691,7 @@ function Formulario({
   const [categoria, setCategoria] = useState(campanha?.categoria ?? 'Sazonal')
   const [foco, setFoco] = useState(campanha?.foco ?? '')
   const [objetivo, setObjetivo] = useState(campanha?.objetivo ?? '')
-  const [inicio, setInicio] = useState(campanha?.inicio ?? '')
+  const [inicio, setInicio] = useState(campanha?.inicio ?? inicioPadrao)
   const [fim, setFim] = useState(campanha?.fim ?? '')
   const [metrica, setMetrica] = useState<MetricaDeCampanha>(campanha?.metrica ?? 'convertidos')
   const [tipoMetrica, setTipoMetrica] = useState(campanha?.tipoMetrica ?? '')
@@ -646,7 +725,11 @@ function Formulario({
             ? emCentavos !== null && emCentavos > 0n
             : Number.isInteger(n) && n > 0
         if (!valida) {
-          setErro('Informe a meta — um número maior que zero.')
+          setErro(
+            metrica === 'receita' && semValores
+              ? 'Você não vê valores, então a meta em reais não vem preenchida. Informe a meta para continuar.'
+              : 'Informe a meta — um número maior que zero.',
+          )
           return
         }
         aoSalvar({
@@ -665,7 +748,18 @@ function Formulario({
         })
       }}
     >
-      <h3>{campanha === undefined ? 'Nova campanha' : `Editar ${campanha.nome}`}</h3>
+      <h3>
+        {campanha === undefined || repetindo ? 'Nova campanha' : `Editar ${campanha.nome}`}
+      </h3>
+      {repetindo ? (
+        <p className="nota">
+          Cópia da campanha no mês seguinte, sem as tarefas. Mude o nome (duas campanhas não
+          podem ter o mesmo) e confira as datas e a meta antes de criar.
+          {campanha?.metrica === 'receita' && campanha.metaEmDinheiro === null
+            ? ' A meta em reais da campanha original não aparece no seu perfil: informe a nova.'
+            : ''}
+        </p>
+      ) : null}
 
       <label className="campo">
         Nome
@@ -796,7 +890,7 @@ function Formulario({
 
       <div className="acoes-de-tela">
         <button type="submit" className="btn" disabled={salvando}>
-          {campanha === undefined ? 'Criar campanha' : 'Salvar'}
+          {campanha === undefined || repetindo ? 'Criar campanha' : 'Salvar'}
         </button>
         <button type="button" className="link" onClick={aoCancelar} disabled={salvando}>
           Cancelar

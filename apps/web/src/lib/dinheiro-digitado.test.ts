@@ -26,6 +26,12 @@ describe('o que a recepção digita vira centavos inteiros', () => {
     }
   })
 
+  it('ambíguos e malformados: uma leitura só, igual à do domínio', () => {
+    expect(centavosDoTexto('1.5')).toBe(150n)
+    expect(centavosDoTexto('15.20')).toBe(1520n)
+    for (const ruim of ['1..5', '15.', '1.2.3']) expect(centavosDoTexto(ruim), ruim).toBeNull()
+  })
+
   it('o texto volta a ser o mesmo valor — ida e volta sem perda', () => {
     for (const centavos of [0n, 7n, 1999n, 45000n, 123456n, 90071992547409919n]) {
       expect(centavosDoTexto(textoDeCentavos(centavos))).toBe(centavos)

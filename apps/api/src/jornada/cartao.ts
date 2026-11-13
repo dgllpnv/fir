@@ -1,5 +1,11 @@
-import type { ItemOrcadoNaSaida, MoverEtapa } from '@fir/contracts'
-import type { Etapa, EventoDeJornada, StatusDeTarefa } from '@fir/domain'
+import type { ItemDoOrcamentoNaSaida, ItemOrcadoNaSaida, MoverEtapa } from '@fir/contracts'
+import {
+  type Etapa,
+  type EventoDeJornada,
+  itensDoOrcamentoDe,
+  type ItemDoOrcamentoLido,
+  type StatusDeTarefa,
+} from '@fir/domain'
 import { NotFoundException } from '@nestjs/common'
 import type pg from 'pg'
 import type { ClinicaId } from '../banco/clinica-id'
@@ -26,7 +32,13 @@ export type CartaoCarregado = {
   readonly unidadeId: string | null
   /** Centavos, ou `null`. Nunca redigido aqui: isto é leitura interna. */
   readonly valorOrcamento: bigint | null
+  /** Centavos fechados (entrada + saldo); `null` = fechado antes da coluna, ou não fechado. */
+  readonly valorFechado: bigint | null
   readonly programaOrcado: ItemOrcadoNaSaida[] | null
+  /** Procedimentos do orçamento SEM programa (0078); `null` = não há. */
+  readonly itensOrcamentoProprios: ItemDoOrcamentoNaSaida[] | null
+  /** Os procedimentos do orçamento, de onde estiverem (itens próprios ou programa). */
+  readonly itens: ItemDoOrcamentoLido[] | null
   /** Quem pode editar o cartão (`podeEditar`): a correção do orçamento pergunta (B1). */
   readonly solicitanteId: string
   readonly responsavelId: string
@@ -61,7 +73,9 @@ export async function carregarCartao(
     tipo: string
     unidade_id: string | null
     valor_orcamento: string | null
+    valor_fechado: string | null
     programa_orcado: ItemOrcadoNaSaida[] | null
+    itens_orcamento: ItemDoOrcamentoNaSaida[] | null
     solicitante_id: string
     responsavel_id: string
     proximo_passo_em: string | null
@@ -72,7 +86,8 @@ export async function carregarCartao(
             -- qualquer jeito, mas explicitar impede que uma mudança de
             -- configuração o traga como number — e number perto de dinheiro é
             -- a regra 1 quebrada.
-            valor_orcamento::text AS valor_orcamento, programa_orcado,
+            valor_orcamento::text AS valor_orcamento, valor_fechado::text AS valor_fechado,
+            programa_orcado, itens_orcamento,
             solicitante_id, responsavel_id, proximo_passo_em::text AS proximo_passo_em
        FROM tarefas
       -- A clínica TAMBÉM no filtro: a RLS é a primeira camada, não a única
@@ -95,7 +110,10 @@ export async function carregarCartao(
     tipo: l.tipo,
     unidadeId: l.unidade_id,
     valorOrcamento: l.valor_orcamento === null ? null : BigInt(l.valor_orcamento),
+    valorFechado: l.valor_fechado === null ? null : BigInt(l.valor_fechado),
     programaOrcado: l.programa_orcado,
+    itensOrcamentoProprios: l.itens_orcamento,
+    itens: itensDoOrcamentoDe(l.itens_orcamento, l.programa_orcado),
     solicitanteId: l.solicitante_id,
     responsavelId: l.responsavel_id,
     proximoPassoEm: l.proximo_passo_em,
@@ -121,6 +139,7 @@ export const COLUNA_DE_EFEITO = {
   valorOrcamento: ['valor_orcamento', 'bigint'],
   valorFechado: ['valor_fechado', 'bigint'],
   programaOrcado: ['programa_orcado', 'jsonb'],
+  itensOrcamento: ['itens_orcamento', 'jsonb'],
   motivoPerdaId: ['motivo_perda_id', 'uuid'],
   contatoId: ['contato_id', 'uuid'],
 } as const satisfies Record<string, readonly [string, string]>
@@ -150,6 +169,22 @@ export type ItemOrcadoNoBanco = Omit<ItemOrcado, 'valor'> & { readonly valor?: s
 /** Centavos em texto, para dentro do `jsonb`. Um lugar só. */
 export const centavosNoJsonb = (v: bigint): string => v.toString()
 
+/** Um item do orçamento como vai para o `jsonb`: `valor` em centavos TEXTO (D-4). */
+export type ItemDoOrcamentoNoBanco = {
+  readonly chave: string
+  readonly procedimentoId: string
+  readonly valor?: string
+}
+
+export const itensParaJsonb = (
+  itens: readonly { chave: string; procedimentoId: string; valor?: bigint | undefined }[],
+): readonly ItemDoOrcamentoNoBanco[] =>
+  itens.map((i) => ({
+    chave: i.chave,
+    procedimentoId: i.procedimentoId,
+    ...(i.valor === undefined ? {} : { valor: centavosNoJsonb(i.valor) }),
+  }))
+
 export const programaParaJsonb = (
   programa: readonly ItemOrcado[],
 ): readonly ItemOrcadoNoBanco[] =>
@@ -173,7 +208,9 @@ export type Efeitos = {
   readonly valorOrcamento?: bigint
   /** Centavos fechados (entrada + saldo): o que separa orçamento parcial de completo. */
   readonly valorFechado?: bigint
-  readonly programaOrcado?: readonly ItemOrcadoNoBanco[]
+  readonly programaOrcado?: readonly ItemOrcadoNoBanco[] | null
+  /** Procedimentos do orçamento sem programa; `null` limpa a coluna. */
+  readonly itensOrcamento?: readonly ItemDoOrcamentoNoBanco[] | null
   readonly motivoPerdaId?: string | null
   readonly contatoId?: string | null
   /** O que entra no EVENTO, não em coluna. */
@@ -181,6 +218,8 @@ export type Efeitos = {
   readonly valor?: string
   readonly motivoId?: string
   readonly motivo?: string
+  /** Só em `fechar`: as chaves dos itens fechados, para o evento. */
+  readonly itensFechados?: string[]
 }
 
 /**

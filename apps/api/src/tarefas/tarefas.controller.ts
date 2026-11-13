@@ -2,11 +2,13 @@ import {
   Cancelar,
   Concluir,
   ConsultaDeTarefas,
+  CorpoComMotivo,
   CriarTarefa,
   EditarTarefa,
   type ExclusaoDeTarefa,
   ExcluirTarefa,
   type ListaDeTarefas,
+  type PrevisaoDeExclusao,
   type TarefaParaEditar,
   type TarefasAfetadas,
 } from '@fir/contracts'
@@ -101,7 +103,8 @@ export class TarefasController {
     // `autorDe(c).id` e não `c.ator`: `tarefas.responsavel_id` é NOT NULL e
     // guarda uma PESSOA. A sessão de suporte do painel é recusada aqui — ver
     // `autorDe` em `leitura.ts` (D-13).
-    return this.tarefas.criar(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c).id, dados.data)
+    const autor = autorDe(c)
+    return this.tarefas.criar(c.clinicaId, c.ator, c.clinicaFuso, autor.id, dados.data, autor.podeJornada)
   }
 
   @Post(':id/concluir')
@@ -152,16 +155,38 @@ export class TarefasController {
     return this.edicao.editar(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id, dados.data)
   }
 
+  @Get(':id/exclusao')
+  async previaDaExclusao(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PrevisaoDeExclusao> {
+    const c = req.contexto!
+    return this.edicao.previaDaExclusao(c.clinicaId, c.ator, leitorDe(c), id)
+  }
+
   @Delete(':id')
   async excluir(
     @Req() req: RequisicaoComContexto,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Query() consulta: unknown,
+    // O motivo vai no CORPO, e não na URL: URL vai para log de acesso, e o motivo
+    // é texto livre. Opcional para a pessoa da clínica; obrigatório ao Suporte.
+    @Body() corpo: unknown,
   ): Promise<ExclusaoDeTarefa> {
     const dados = ExcluirTarefa.safeParse(consulta)
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const motivo = CorpoComMotivo.safeParse(corpo ?? {})
+    if (!motivo.success) throw new BadRequestException(primeiroErro(motivo.error))
     const c = req.contexto!
-    return this.edicao.excluir(c.clinicaId, c.ator, autorDe(c), id, dados.data.serie)
+    // `leitorDe` e não `autorDe`, de propósito: excluir não GRAVA o nome de
+    // ninguém numa coluna de pessoa, então o SUPORTE pode excluir (ADR
+    // 2026-11-13). As demais escritas de tarefa continuam em `autorDe`.
+    return this.edicao.excluir(c.clinicaId, c.ator, leitorDe(c), id, dados.data.serie, {
+      // Para o operador `pode('receber')` é sempre verdadeiro (admin em temPerm):
+      // o suporte estorna o pagamento junto. É risco aceito, ver decisoes.md.
+      podeReceber: c.pode('receber'),
+      ...(motivo.data.motivo === undefined ? {} : { motivo: motivo.data.motivo }),
+    })
   }
 }
 

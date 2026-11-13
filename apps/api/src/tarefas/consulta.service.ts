@@ -25,7 +25,16 @@ import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
-import { type LeitorDaRequisicao, type LinhaDeTarefa, paraSaida, SELECT_TAREFA } from './leitura'
+import { sqlParcial } from '../jornada/parcial'
+import {
+  aplicarPermissaoDeJornada,
+  type AutorDaRequisicao,
+  FORA_DE_PACIENTE_DESATIVADO,
+  type LeitorDaRequisicao,
+  type LinhaDeTarefa,
+  paraSaida,
+  SELECT_TAREFA,
+} from './leitura'
 
 /**
  * A consulta que as DUAS telas usam.
@@ -224,7 +233,7 @@ export class ConsultaDeTarefasService {
     const hoje = this.hojeDaClinica(fuso)
     // `$1` clínica e `$2` hoje são os dois do `SELECT_TAREFA`.
     const p = new Parametros(clinicaId, hoje)
-    const onde: string[] = []
+    const onde: string[] = [FORA_DE_PACIENTE_DESATIVADO]
 
     const escopo = filtroDeEscopo(consulta.escopo, autor.id, p)
     if (escopo !== null) onde.push(escopo)
@@ -262,6 +271,14 @@ export class ConsultaDeTarefasService {
     if (consulta.unidadeId !== undefined) {
       onde.push(`t.unidade_id = ${p.prox(consulta.unidadeId)}`)
     }
+    if (consulta.campanhaId !== undefined) {
+      // "__sem" = "Sem campanha", como o filtro "Campanha" do protótipo.
+      onde.push(
+        consulta.campanhaId === '__sem'
+          ? 't.campanha_id IS NULL'
+          : `t.campanha_id = ${p.prox(consulta.campanhaId)}`,
+      )
+    }
     if (consulta.q !== undefined && consulta.q !== '') {
       // `normalizar_nome` é a MESMA função que indexa o nome do paciente —
       // sem acento, sem caixa, espaços colapsados. Uma segunda normalização
@@ -287,7 +304,7 @@ export class ConsultaDeTarefasService {
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const r = await c.query<LinhaDeTarefa>(sql, p.valores)
       return {
-        tarefas: r.rows.map(paraSaida),
+        tarefas: r.rows.map((l) => aplicarPermissaoDeJornada(paraSaida(l), autor.podeJornada)),
         total: Number(r.rows[0]?.total ?? 0),
         hoje,
       }
@@ -315,7 +332,7 @@ export class ConsultaDeTarefasService {
     clinicaId: ClinicaId,
     ator: Ator,
     fuso: string,
-    autor: Autor,
+    autor: AutorDaRequisicao,
     id: string,
   ): Promise<TarefaParaEditar> {
     const hoje = this.hojeDaClinica(fuso)
@@ -339,7 +356,7 @@ export class ConsultaDeTarefasService {
         autor,
       )
       if (!ehOk(r2)) throw new ForbiddenException(r2.erro.mensagem)
-      return { tarefa: paraSaida(linha), hoje }
+      return { tarefa: aplicarPermissaoDeJornada(paraSaida(linha), autor.podeJornada), hoje }
     })
   }
 
@@ -375,11 +392,11 @@ export class ConsultaDeTarefasService {
           ? filtroDePasso(escopo, autor.id, p)
           : filtroDeEscopo(escopo, autor.id, p)
         const r = await c.query<LinhaDeTarefa>(
-          `${SELECT_TAREFA} AND ${extra}${doEscopo === null ? '' : ` AND ${doEscopo}`}
+          `${SELECT_TAREFA} AND ${FORA_DE_PACIENTE_DESATIVADO} AND ${extra}${doEscopo === null ? '' : ` AND ${doEscopo}`}
              ORDER BY ${ordem}`,
           p.valores,
         )
-        return r.rows.map(paraSaida)
+        return r.rows.map((l) => aplicarPermissaoDeJornada(paraSaida(l), autor.podeJornada))
       }
 
       // Pendentes: abertas com prazo < HOJE DO SERVIDOR. Não dependem do dia
@@ -444,7 +461,10 @@ export class ConsultaDeTarefasService {
         : []
       const retomar = daJornada
         ? await ler(
-            `t.etapa = 'orcamento' AND t.proximo_passo_em IS NOT NULL
+            // O orçamento em aberto E o RESTANTE de um fechado parcial
+            // (`valor_fechado < valor_orcamento`) com data de retomada.
+            `(t.etapa = 'orcamento' OR ${sqlParcial('t')})
+             AND t.proximo_passo_em IS NOT NULL
              AND t.proximo_passo_em <= $2::date`,
             [],
             't.proximo_passo_em, t.criada_em',
@@ -489,6 +509,7 @@ export class ConsultaDeTarefasService {
         WHERE t.clinica_id = $1 AND t.excluida_em IS NULL AND t.status = 'aberta'
           AND t.prazo >= $3::date AND t.prazo < $4::date
           AND ${FORA_DO_RECONTATO}
+          AND ${FORA_DE_PACIENTE_DESATIVADO}
           ${doEscopo === null ? '' : `AND ${doEscopo}`}
         GROUP BY t.prazo`,
       p.valores,
@@ -501,6 +522,7 @@ export class ConsultaDeTarefasService {
         `SELECT t.proximo_passo_em::text AS dia, count(*)::text AS abertas
            FROM tarefas t
           WHERE t.clinica_id = $1 AND t.excluida_em IS NULL AND ${RETOMADA_FUTURA}
+            AND ${FORA_DE_PACIENTE_DESATIVADO}
             AND t.proximo_passo_em >= $3::date AND t.proximo_passo_em < $4::date
             ${doPasso === null ? '' : `AND ${doPasso}`}
           GROUP BY t.proximo_passo_em`,
@@ -590,6 +612,7 @@ export class ConsultaDeTarefasService {
         WHERE t.clinica_id = $1 AND t.excluida_em IS NULL AND t.status = 'aberta'
           AND (t.prazo = $3::date OR ($3::date = $2::date AND t.prazo < $2::date))
           AND ${FORA_DO_RECONTATO}
+          AND ${FORA_DE_PACIENTE_DESATIVADO}
           AND NOT (${meu ?? 'true'})
           ${doAlvo === null ? '' : `AND ${doAlvo}`}`,
       p.valores,

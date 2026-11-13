@@ -8,7 +8,9 @@ import {
   montarCenario,
   pegar,
   postar,
+  receitaDoDia,
   tarefaCrua,
+  vivosDe,
 } from './__tests__/cenario'
 
 let c: Cenario
@@ -122,7 +124,7 @@ describe('DELETE /v1/tarefas/:id', () => {
     expect(await vivasDaSerie(segunda!.serieId!)).toBe(2)
   })
 
-  it('excluir uma tarefa com recebimento é recusado — estorne primeiro', async () => {
+  it('excluir uma tarefa com recebimento ESTORNA o pagamento junto (ADR 2026-11-13)', async () => {
     const t = await nova({
       vinculo: 'paciente',
       pacienteId: c.pacientes['ana'],
@@ -132,8 +134,23 @@ describe('DELETE /v1/tarefas/:id', () => {
     }, 'beatriz')
 
     const r = await excluir(t.id, {}, 'beatriz')
-    expect(r.statusCode).toBe(409)
-    expect(r.body.message).toContain('Reabra a tarefa')
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200)
+    expect((await tarefaCrua(c, t.id))!['excluida_em']).not.toBeNull()
+    expect(await vivosDe(c, t.id)).toHaveLength(0)
+    expect(await receitaDoDia(c)).toBe(0n)
+  })
+
+  it('sem a permissão de receber a exclusão com pagamento é recusada (403)', async () => {
+    const t = await nova({
+      vinculo: 'paciente',
+      pacienteId: c.pacientes['ana'],
+      tipo: 'Consulta realizada',
+      responsavelId: c.pessoas['juliana'],
+      quando: { modo: 'retroativo', em: HOJE, pagamento: { valor: '45000', forma: 'Pix' } },
+    }, 'juliana')
+    // juliana é a solicitante, então pode excluir a tarefa; não pode estornar dinheiro.
+    const r = await excluir(t.id, {}, 'juliana')
+    expect(r.statusCode).toBe(403)
     expect((await tarefaCrua(c, t.id))!['excluida_em']).toBeNull()
   })
 

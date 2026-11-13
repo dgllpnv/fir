@@ -1,6 +1,7 @@
 import type { CumprimentoDePrazos, LinhaPorResponsavel } from '@fir/contracts'
 import { TIPOS, janela, percentualInteiro } from '@fir/domain'
 import type pg from 'pg'
+import { FORA_DE_PACIENTE_DESATIVADO } from '../tarefas/leitura'
 
 /**
  * **AS CONSULTAS DE `PainelService` QUE O JOB DE TELEMETRIA DA CARTEIRA
@@ -107,6 +108,7 @@ export async function consultarPrazos(
       WHERE t.clinica_id = $1
         AND t.excluida_em IS NULL
         AND t.status <> 'cancelada'
+        AND ${FORA_DE_PACIENTE_DESATIVADO}
         AND t.tipo <> ALL($6::text[])
         AND t.prazo >= $2::date
         AND t.prazo <= $3::date

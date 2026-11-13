@@ -42,7 +42,7 @@ describe('o nome antigo da ferramenta não volta a aparecer nas telas da gestão
 
 describe('o atalho para o painel de gestão', () => {
   it('só renderiza quando a sessão é de suporte, e leva a /gestao', () => {
-    expect(SHELL).toMatch(/\{suporte \? \(\s*<div className="navgrupo">[\s\S]*?href="\/gestao"/)
+    expect(SHELL).toMatch(/\{suporte \? \(\s*<a className="navitem" href="\/gestao"/)
     expect(SHELL.match(/href="\/gestao"/g)).toHaveLength(1)
   })
 

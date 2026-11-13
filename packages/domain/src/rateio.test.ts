@@ -1,7 +1,7 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { Dinheiro } from './dinheiro'
-import { ratearPrograma, valorSugerido } from './rateio'
+import { ratearPrograma, ratearValoresDosItens, valorSugerido } from './rateio'
 
 const c = (n: number | bigint) => Dinheiro.deCentavos(BigInt(n))
 const somar = (ds: readonly Dinheiro[]) => ds.reduce((s, d) => s.mais(d), Dinheiro.zero())
@@ -251,6 +251,88 @@ describe('as propriedades do rateio', () => {
           ratearPrograma(total, pesos).map((d) => d.centavos),
         )
       }),
+    )
+  })
+})
+
+describe('ratearValoresDosItens — Σ itens == total, seja qual for a combinação', () => {
+  it('o contraexemplo do parcial: A+B somam 20.000 e o fechado digitado é 18.000', () => {
+    const r = ratearValoresDosItens(c(18000), [
+      { sessoes: 1n, valor: c(10000) },
+      { sessoes: 1n, valor: c(10000) },
+    ])
+    expect(r.map((d) => d.centavos)).toEqual([9000n, 9000n])
+  })
+
+  it('item sem preço e preços que estouram o total: nenhum item fica em zero sem querer', () => {
+    const r = ratearValoresDosItens(c(18000), [
+      { sessoes: 1n, valor: c(10000) },
+      { sessoes: 1n, valor: c(10000) },
+      { sessoes: 2n, valor: null },
+    ])
+    expect(somar(r).centavos).toBe(18000n)
+    expect(r.every((d) => d.centavos > 0n)).toBe(true)
+  })
+
+  it('o preço do item é respeitado quando sobra total para os sem preço', () => {
+    const r = ratearValoresDosItens(c(360000), [
+      { sessoes: 4n, valor: c(100000) },
+      { sessoes: 4n, valor: null },
+    ])
+    expect(r.map((d) => d.centavos)).toEqual([100000n, 260000n])
+  })
+
+  const gItens = fc.array(
+    fc.record({
+      sessoes: fc.bigInt({ min: 1n, max: 40n }),
+      valor: fc.option(
+        fc.bigInt({ min: 0n, max: 10n ** 9n }).map((n) => Dinheiro.deCentavos(n)),
+        { nil: null },
+      ),
+    }),
+    { minLength: 1, maxLength: 10 },
+  )
+
+  it('PROPRIEDADE: a soma é EXATAMENTE o total, para toda combinação de preços', () => {
+    fc.assert(
+      fc.property(gTotal, gItens, (total, itens) => {
+        expect(somar(ratearValoresDosItens(total, itens)).centavos).toBe(total.centavos)
+      }),
+    )
+  })
+
+  it('PROPRIEDADE: sem nenhum preço e mesmas sessões, max − min <= 1 e o resto vai nas primeiras', () => {
+    fc.assert(
+      fc.property(gTotal, fc.integer({ min: 1, max: 30 }), (total, n) => {
+        const r = ratearValoresDosItens(
+          total,
+          Array.from({ length: n }, () => ({ sessoes: 2n, valor: null })),
+        ).map((d) => d.centavos)
+        const max = r.reduce((a, b) => (a > b ? a : b))
+        const min = r.reduce((a, b) => (a < b ? a : b))
+        expect(max - min <= 1n).toBe(true)
+        expect(r).toEqual(total.ratear(n).map((d) => d.centavos))
+      }),
+    )
+  })
+
+  it('PROPRIEDADE: todos com o mesmo preço e soma diferente do total, max − min <= 1', () => {
+    fc.assert(
+      fc.property(
+        gTotal,
+        fc.integer({ min: 1, max: 30 }),
+        fc.bigInt({ min: 1n, max: 10n ** 7n }),
+        (total, n, preco) => {
+          const r = ratearValoresDosItens(
+            total,
+            Array.from({ length: n }, () => ({ sessoes: 1n, valor: Dinheiro.deCentavos(preco) })),
+          ).map((d) => d.centavos)
+          const max = r.reduce((a, b) => (a > b ? a : b))
+          const min = r.reduce((a, b) => (a < b ? a : b))
+          expect(max - min <= 1n).toBe(true)
+          expect(r.reduce((s, x) => s + x, 0n)).toBe(total.centavos)
+        },
+      ),
     )
   })
 })

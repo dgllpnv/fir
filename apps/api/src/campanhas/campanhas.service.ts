@@ -1,22 +1,41 @@
 import type {
+  CampanhaDetalhe,
   CampanhaImportada,
   CampanhaNaLista,
   Campanhas,
+  ConsultaDeCampanhas,
+  ConsultaDeTarefasDaCampanha,
   ImportarCampanha,
+  LinhaPorPessoa,
+  LinhaPorTipo,
   MetricaDeCampanha,
+  RascunhoDeCampanha,
   SalvarCampanha,
   SituacaoDaCampanha,
+  TarefasDaCampanha,
 } from '@fir/contracts'
 import { METRICAS_DE_CAMPANHA, METRICA_EM_DINHEIRO } from '@fir/contracts'
 import {
+  TIPOS,
   TIPOS_DE_CONTATO,
   TIPOS_QUE_ATENDEM,
   diasEntre,
   emAndamento,
+  fimDoMes,
   inicioDoDia,
+  limparNomeDeLista,
   percentualInteiro,
+  somarDias,
+  somarMeses,
 } from '@fir/domain'
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import type pg from 'pg'
 import { exigePessoa, pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
@@ -24,6 +43,13 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { diaDaClinica } from '../estoque/dia-da-clinica'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
+import {
+  aplicarPermissaoDeJornada,
+  FORA_DE_PACIENTE_DESATIVADO,
+  type LinhaDeTarefa,
+  paraSaida,
+  SELECT_TAREFA,
+} from '../tarefas/leitura'
 import { RECEITA_DA_CAMPANHA } from './receita-da-campanha'
 
 /**
@@ -66,6 +92,11 @@ type Contexto = {
   readonly clinicaId: ClinicaId
   readonly ator: Ator
   readonly fuso: string
+  /**
+   * `pode('valores')` de quem pergunta. Ausente = `false`: quem esquece de
+   * dizer não ganha o percentual de uma campanha de receita (regra 17).
+   */
+  readonly valores?: boolean
 }
 
 type LinhaDeCampanha = {
@@ -97,9 +128,330 @@ export class CampanhasService {
     @Inject(RELOGIO) private readonly relogio: Relogio,
   ) {}
 
-  async listar(ctx: Contexto): Promise<Campanhas> {
+  async listar(ctx: Contexto, consulta: ConsultaDeCampanhas = {}): Promise<Campanhas> {
     const hoje = diaDaClinica(this.relogio, ctx.fuso)
-    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => this.montar(c, ctx, hoje))
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) =>
+      this.montar(c, ctx, hoje, consulta),
+    )
+  }
+
+  /**
+   * O detalhe de UMA campanha (`vCampanha`). **Não há segunda fórmula**: a
+   * campanha e o histórico saem do mesmo `montar` da lista, e só o que a lista
+   * não tem (por tipo, por pessoa, conversões) é consulta nova — sobre as
+   * mesmas tarefas e com o mesmo predicado de receita.
+   */
+  async detalhe(ctx: Contexto, id: string): Promise<CampanhaDetalhe> {
+    const hoje = diaDaClinica(this.relogio, ctx.fuso)
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      const todas = await this.montarCampanhas(c, ctx, hoje)
+      const camp = todas.find((x) => x.id === id)
+      if (camp === undefined) throw new NotFoundException('Campanha não encontrada.')
+
+      const porTipoSql = await c.query<{
+        tipo: string
+        planejadas: string
+        realizadas: string
+        valor: string
+      }>(
+        `SELECT t.tipo,
+                count(*)::text AS planejadas,
+                count(*) FILTER (WHERE t.status = 'concluida')::text AS realizadas,
+                coalesce(sum(r.valor) FILTER (WHERE ${RECEITA_DA_CAMPANHA}), 0)::text AS valor
+           FROM tarefas t
+           LEFT JOIN recebimentos r
+                  ON r.tarefa_id = t.id
+                 AND r.estornado_em IS NULL
+                 AND ${DINHEIRO_QUE_ENTROU}
+          WHERE t.clinica_id = $1 AND t.campanha_id = $2
+            AND t.excluida_em IS NULL AND t.status <> 'cancelada'
+            AND ${FORA_DE_PACIENTE_DESATIVADO}
+          GROUP BY t.tipo`,
+        [ctx.clinicaId, id],
+      )
+      // A ordem do catálogo (o `CONFIG.TIPOS` dela), com as internas na frente.
+      const ordemDoTipo = (n: string): number =>
+        n === '' ? -1 : TIPOS.findIndex((t) => t.nome === n) + 1 || 9999
+      const porTipo: LinhaPorTipo[] = porTipoSql.rows
+        .map((l) => ({
+          tipo: l.tipo,
+          rotulo: l.tipo === '' ? 'Tarefas internas' : l.tipo,
+          planejadas: Number(l.planejadas),
+          realizadas: Number(l.realizadas),
+          valor: l.valor,
+        }))
+        .sort(
+          (a, b) =>
+            ordemDoTipo(a.tipo) - ordemDoTipo(b.tipo) || a.rotulo.localeCompare(b.rotulo, 'pt-BR'),
+        )
+
+      const porPessoa: LinhaPorPessoa[] = (
+        await c.query<{ id: string; nome: string; planejadas: string; realizadas: string }>(
+          `SELECT p.id::text AS id, p.nome,
+                  count(*)::text AS planejadas,
+                  count(*) FILTER (WHERE t.status = 'concluida')::text AS realizadas
+             FROM tarefas t JOIN pessoas p ON p.id = t.responsavel_id
+            WHERE t.clinica_id = $1 AND t.campanha_id = $2
+              AND t.excluida_em IS NULL AND t.status <> 'cancelada'
+              AND ${FORA_DE_PACIENTE_DESATIVADO}
+            GROUP BY p.id, p.nome`,
+          [ctx.clinicaId, id],
+        )
+      ).rows
+        .map((l) => ({
+          pessoaId: l.id,
+          nome: l.nome,
+          planejadas: Number(l.planejadas),
+          realizadas: Number(l.realizadas),
+        }))
+        .sort((a, b) => b.realizadas - a.realizadas || a.nome.localeCompare(b.nome, 'pt-BR'))
+
+      const conversoes = Number(
+        (
+          await c.query<{ n: string }>(
+            `SELECT count(*)::text AS n FROM tarefas t
+              WHERE t.clinica_id = $1 AND t.campanha_id = $2 AND t.excluida_em IS NULL
+                AND t.status = 'concluida' AND t.paciente_id IS NOT NULL
+                AND t.tipo = ANY($3)`,
+            [ctx.clinicaId, id, [...TIPOS_QUE_ATENDEM]],
+          )
+        ).rows[0]?.n ?? 0,
+      )
+
+      const ehDinheiro = camp.metrica === METRICA_EM_DINHEIRO
+      const meta = BigInt(ehDinheiro ? camp.metaEmDinheiro! : camp.metaEmNumero!)
+      const resultado = BigInt(ehDinheiro ? camp.resultadoEmDinheiro! : camp.resultadoEmNumero!)
+      const falta = resultado >= meta ? 0n : meta - resultado
+
+      // O histórico: mesma categoria — e, em "Procedimento específico", o
+      // mesmo foco (`norm(x.foco) === norm(c.foco)` dela).
+      const ESPECIFICO = 'Procedimento específico'
+      const historico = todas
+        .filter(
+          (x) =>
+            x.categoria === camp.categoria &&
+            (camp.categoria !== ESPECIFICO || semAcento(x.foco) === semAcento(camp.foco)),
+        )
+        .sort((a, b) => b.inicio.localeCompare(a.inicio) || a.nome.localeCompare(b.nome, 'pt-BR'))
+
+      return {
+        hoje,
+        campanha: camp,
+        funil: {
+          planejadas: camp.tarefas,
+          emAberto: camp.tarefasAbertas,
+          realizadas: camp.tarefasConcluidas,
+          percentualRealizado:
+            camp.tarefas === 0
+              ? 0
+              : (percentualInteiro(BigInt(camp.tarefasConcluidas), BigInt(camp.tarefas)) ?? 0),
+          alcancados: camp.pacientesAlcancados,
+          convertidos: camp.pacientesConvertidos,
+          taxaDeConversao: camp.taxaDeConversao,
+          conversoes,
+          receita: camp.receita,
+        },
+        // Em campanha de receita, quem não tem `valores` não pode saber se a
+        // receita bateu a meta: o booleano seria o percentual por outro caminho.
+        metaAtingida: ehDinheiro && ctx.valores !== true ? false : resultado >= meta,
+        faltaEmDinheiro: ehDinheiro ? falta.toString() : null,
+        faltaEmNumero: ehDinheiro ? null : Number(falta),
+        porTipo,
+        porPessoa,
+        tituloDoHistorico:
+          historico.length > 1
+            ? camp.categoria === ESPECIFICO && camp.foco !== ''
+              ? camp.foco
+              : camp.categoria
+            : '',
+        historico: historico.length > 1 ? historico : [],
+      }
+    })
+  }
+
+  /**
+   * **As tarefas da campanha** — `cardTarefa` na lista e no `drill` do protótipo.
+   *
+   * **TODAS as da campanha, para quem tem `campanhas`** (decisão do dono, ADR
+   * 2026-11-13): sem o recorte de `escopo` de `GET /v1/tarefas`. A permissão é
+   * conferida no controlador; a RLS isola a clínica; e a leitura é a
+   * `SELECT_TAREFA` única, então o cartão é o mesmo de Hoje e de Tarefas.
+   *
+   * O telefone da paciente SAI `null` sem a permissão `pacientes`: o nome fica
+   * (é o que a campanha precisa para dizer "quem foi alcançado"), mas o
+   * contato é dado do cadastro, e a Recepção desta tela pode não ter a ficha.
+   * Sem `jornada`, o cartão sai sem histórico, procedimentos e dose.
+   */
+  async tarefas(
+    ctx: Contexto,
+    id: string,
+    q: ConsultaDeTarefasDaCampanha,
+    podePacientes: boolean,
+    podeJornada: boolean,
+  ): Promise<TarefasDaCampanha> {
+    const hoje = diaDaClinica(this.relogio, ctx.fuso)
+    if (
+      (q.recorte === 'tipo-planejadas' || q.recorte === 'tipo-realizadas') &&
+      q.tipo === undefined
+    ) {
+      throw new BadRequestException('Informe o tipo.')
+    }
+    if (
+      (q.recorte === 'pessoa-planejadas' || q.recorte === 'pessoa-realizadas') &&
+      q.pessoaId === undefined
+    ) {
+      throw new BadRequestException('Informe a pessoa.')
+    }
+
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      const camp = (
+        await c.query<{ metrica: MetricaDeCampanha; tipo_metrica: string }>(
+          `SELECT metrica, tipo_metrica FROM campanhas
+            WHERE id = $1 AND clinica_id = $2 AND excluida_em IS NULL`,
+          [id, ctx.clinicaId],
+        )
+      ).rows[0]
+      if (camp === undefined) throw new NotFoundException('Campanha não encontrada.')
+
+      /**
+       * As condições do recorte, escritas UMA vez e montadas para duas
+       * consultas (a lista e a soma do `drill`): cada uma com a sua
+       * numeração de parâmetros, a partir de `base`.
+       */
+      const condicoes = (base: number): { sql: string[]; valores: unknown[] } => {
+        const sql: string[] = []
+        const valores: unknown[] = []
+        const p = (v: unknown): string => {
+          valores.push(v)
+          return `$${base + valores.length}`
+        }
+        const feita = "t.status = 'concluida'"
+        const comPaciente = 't.paciente_id IS NOT NULL'
+        const planejada = "t.status <> 'cancelada'"
+        const doTipo = (): string => `t.tipo = ${p(q.tipo === '__interna' ? '' : q.tipo)}`
+        const daPessoa = (): string => `t.responsavel_id = ${p(q.pessoaId)}`
+        switch (q.recorte) {
+          case undefined:
+            if (q.situacao === 'abertas') sql.push("t.status = 'aberta'")
+            else if (q.situacao === 'concluidas') sql.push(feita)
+            break
+          case 'planejadas':
+            sql.push(planejada)
+            break
+          case 'realizadas':
+            sql.push(feita)
+            break
+          case 'alcancadas':
+            sql.push(feita, comPaciente)
+            break
+          case 'conversoes':
+            sql.push(feita, comPaciente, `t.tipo = ANY(${p([...TIPOS_QUE_ATENDEM])})`)
+            break
+          case 'resultado':
+            if (camp.metrica === 'contatos') {
+              sql.push(feita, comPaciente, `t.tipo = ANY(${p([...TIPOS_DE_CONTATO])})`)
+            } else if (camp.metrica === 'tipo') {
+              sql.push(feita, `t.tipo = ${p(camp.tipo_metrica)}`)
+            } else if (camp.metrica === 'convertidos') {
+              sql.push(feita, comPaciente, `t.tipo = ANY(${p([...TIPOS_QUE_ATENDEM])})`)
+            } else {
+              // A MESMA receita da lista: o predicado único (N-2).
+              sql.push(RECEITA_DA_CAMPANHA)
+            }
+            break
+          case 'tipo-planejadas':
+            sql.push(planejada, doTipo())
+            break
+          case 'tipo-realizadas':
+            sql.push(feita, doTipo())
+            break
+          case 'pessoa-planejadas':
+            sql.push(planejada, daPessoa())
+            break
+          case 'pessoa-realizadas':
+            sql.push(feita, daPessoa())
+            break
+        }
+        return { sql, valores }
+      }
+
+      // `$1` clínica, `$2` hoje (do SELECT_TAREFA), `$3` campanha, `$4` fuso.
+      const ate = 4
+      const onde = condicoes(ate)
+      const pLimite = `$${ate + onde.valores.length + 1}`
+      const pDesloc = `$${ate + onde.valores.length + 2}`
+      const r = await c.query<LinhaDeTarefa>(
+        `WITH base AS (${SELECT_TAREFA} AND t.campanha_id = $3
+            AND ${FORA_DE_PACIENTE_DESATIVADO}${onde.sql
+          .map((o) => ` AND ${o}`)
+          .join('')})
+         SELECT *, count(*) OVER () AS total FROM base
+          ORDER BY ${q.recorte === undefined ? "(status = 'aberta') DESC, " : ''}
+                   coalesce((concluida_em AT TIME ZONE $4::text)::date::text, prazo) DESC,
+                   criada_em DESC, id
+          LIMIT ${pLimite} OFFSET ${pDesloc}`,
+        [ctx.clinicaId, hoje, id, ctx.fuso, ...onde.valores, q.limite, q.deslocamento],
+      )
+
+      let valorTotal: string | null = null
+      if (q.recorte !== undefined) {
+        const soma = condicoes(2)
+        valorTotal = (
+          await c.query<{ s: string }>(
+            `SELECT coalesce(sum(r.valor) FILTER (WHERE ${RECEITA_DA_CAMPANHA}), 0)::text AS s
+               FROM tarefas t
+               LEFT JOIN recebimentos r ON r.tarefa_id = t.id AND r.estornado_em IS NULL
+              WHERE t.clinica_id = $1 AND t.excluida_em IS NULL AND t.campanha_id = $2
+                AND ${FORA_DE_PACIENTE_DESATIVADO}${soma.sql
+                .map((o) => ` AND ${o}`)
+                .join('')}`,
+            [ctx.clinicaId, id, ...soma.valores],
+          )
+        ).rows[0]!.s
+      }
+
+      return {
+        hoje,
+        tarefas: r.rows.map((l) => {
+          // A jornada (histórico, procedimentos, dose) é de quem tem `jornada`,
+          // não de quem tem `campanhas` (B1): a mesma função da ficha e de Hoje.
+          const t = aplicarPermissaoDeJornada(paraSaida(l), podeJornada)
+          return podePacientes ? t : { ...t, pacienteTelefone: null }
+        }),
+        total: Number(r.rows[0]?.total ?? 0),
+        valorTotal,
+      }
+    })
+  }
+
+  /**
+   * O rascunho de **"Repetir no próximo mês"** (`proximoMes` do protótipo).
+   *
+   * Campanha que ocupa o mês inteiro vira o mês seguinte inteiro; as demais
+   * andam um mês, com o dia 29–31 caindo no último dia do mês curto (regra 25,
+   * `somarMeses`). Nada é gravado: a cópia nasce sem tarefas, quando a
+   * gestora salva o formulário.
+   */
+  async proximoMes(ctx: Contexto, id: string): Promise<RascunhoDeCampanha> {
+    const hoje = diaDaClinica(this.relogio, ctx.fuso)
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      const camp = (await this.montarCampanhas(c, ctx, hoje)).find((x) => x.id === id)
+      if (camp === undefined) throw new NotFoundException('Campanha não encontrada.')
+      const mesInteiro = camp.inicio.slice(8) === '01' && somarDias(camp.fim, 1).slice(8) === '01'
+      const inicio = somarMeses(camp.inicio, 1)
+      return {
+        categoria: camp.categoria,
+        foco: camp.foco,
+        nome: camp.nome,
+        objetivo: camp.objetivo,
+        inicio,
+        fim: mesInteiro ? fimDoMes(inicio.slice(0, 7)) : somarMeses(camp.fim, 1),
+        metrica: camp.metrica,
+        tipoMetrica: camp.tipoMetrica,
+        metaEmDinheiro: camp.metaEmDinheiro,
+        metaEmNumero: camp.metaEmNumero,
+      }
+    })
   }
 
   /**
@@ -139,7 +491,21 @@ export class CampanhasService {
    * linhas do painel. O `SELECT` não existe aqui — quem recusa é o índice, e
    * é isso que faz duas abas não atravessarem juntas.
    */
-  async salvar(ctx: Contexto, id: string | null, dados: SalvarCampanha): Promise<Campanhas> {
+  async salvar(
+    ctx: Contexto,
+    id: string | null,
+    dados: SalvarCampanha,
+    podeVerValores: boolean,
+  ): Promise<Campanhas> {
+    // Quem nao ve valor nao DEFINE a meta em reais (regra 17, appsec F10): com
+    // `metaEmDinheiro` = 1 o `percentualDaMeta` (que atravessa a redacao) viraria
+    // a receita em claro. O mesmo vale ao TIRAR a metrica de 'receita', que
+    // sobrescreveria a meta em reais que ela nao pode ver.
+    const SEM_VALORES =
+      'Definir ou alterar uma campanha em R$ exige a permissão de valores. Peça a quem a tem.'
+    if (!podeVerValores && dados.metrica === METRICA_EM_DINHEIRO) {
+      throw new ForbiddenException(SEM_VALORES)
+    }
     // O ALVO num inteiro só, na escala da MÉTRICA (migration 0020, decisão 2).
     // O contrato já garantiu que o campo preenchido combina com a métrica.
     const meta = dados.metaEmDinheiro !== null ? dados.metaEmDinheiro : BigInt(dados.metaEmNumero!)
@@ -157,6 +523,13 @@ export class CampanhasService {
 
     const hoje = diaDaClinica(this.relogio, ctx.fuso)
     await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      if (!podeVerValores && id !== null) {
+        const atual = await c.query<{ metrica: string }>(
+          'SELECT metrica FROM campanhas WHERE id = $1 AND excluida_em IS NULL',
+          [id],
+        )
+        if (atual.rows[0]?.metrica === METRICA_EM_DINHEIRO) throw new ForbiddenException(SEM_VALORES)
+      }
       try {
         if (id === null) {
           await c.query(
@@ -234,6 +607,24 @@ export class CampanhasService {
     dados: ImportarCampanha,
   ): Promise<CampanhaImportada> {
     const hoje = diaDaClinica(this.relogio, ctx.fuso)
+    /**
+     * **O NOME CHEGA LIMPO, venha de onde vier.** A planilha da cliente traz
+     * `6. Maria Souza - R$ 15.200` na coluna do paciente; a tela
+     * já limpa na prévia, mas o servidor não confia nela (outro cliente da
+     * API, planilha colada): índice e valor saem do nome ANTES da chave de
+     * idempotência (regra 26) — o mesmo paciente com e sem o "- R$" é UM
+     * paciente. O valor lido é gravado em `tarefas.valor_de_referencia` (0080,
+     * ADR 2026-11-13 "valor da lista"): referência, nunca receita, redigida sem
+     * `valores`. Pô-lo em `obs`/`descricao` o entregaria à equipe (regra 17).
+     */
+    // Acima disto o `bigint` do Postgres estouraria: valor assim é lixo de
+    // planilha (um CPF na coluna errada), não dinheiro — fica sem valor.
+    const TETO = 10n ** 15n
+    const valores = dados.linhas.map((l) => {
+      const v = l.valorDeReferencia ?? limparNomeDeLista(l.nome).valorEmCentavos
+      return v !== null && v >= 0n && v <= TETO ? v : null
+    })
+    dados = { ...dados, linhas: dados.linhas.map((l) => ({ ...l, nome: limparNomeDeLista(l.nome).nome })) }
 
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const campanha = (
@@ -277,6 +668,7 @@ export class CampanhasService {
         prazo: string
         responsavelId: string
         obs: string
+        valorDeReferencia: bigint | null
       }
       const limpas: Limpa[] = []
       const vistas = new Set<string>()
@@ -304,6 +696,7 @@ export class CampanhasService {
           prazo: l.prazo,
           responsavelId: l.responsavelId,
           obs: l.obs,
+          valorDeReferencia: valores[i] ?? null,
         })
       }
       if (limpas.length === 0) {
@@ -390,8 +783,9 @@ export class CampanhasService {
         const r = await c.query(
           `INSERT INTO tarefas
              (clinica_id, solicitante_id, responsavel_id, descricao, prazo, prioridade,
-              status, historico, resultado, obs, recorrencia, paciente_id, tipo, campanha_id)
-           VALUES ($1, $2, $3, $4, $5::date, 'normal', 'aberta', '[]', '', $6, '', $7, $8, $9)
+              status, historico, resultado, obs, recorrencia, paciente_id, tipo, campanha_id,
+              valor_de_referencia)
+           VALUES ($1, $2, $3, $4, $5::date, 'normal', 'aberta', '[]', '', $6, '', $7, $8, $9, $10::bigint)
            ON CONFLICT (clinica_id, campanha_id, paciente_id, tipo)
              WHERE campanha_id IS NOT NULL AND paciente_id IS NOT NULL
                AND status = 'aberta' AND excluida_em IS NULL AND serie_id IS NULL
@@ -408,6 +802,8 @@ export class CampanhasService {
             pacienteId,
             dados.tipo,
             campanhaId,
+            // Texto, nunca `number`: bigint em centavos (regra 1).
+            l.valorDeReferencia === null ? null : l.valorDeReferencia.toString(),
           ],
         )
         if (r.rowCount === 0) ignoradas++
@@ -437,7 +833,53 @@ export class CampanhasService {
     c: pg.PoolClient,
     ctx: Contexto,
     hoje: string,
+    consulta: ConsultaDeCampanhas = {},
   ): Promise<Campanhas> {
+    const todas = await this.montarCampanhas(c, ctx, hoje)
+    const mes =
+      consulta.mes === undefined ? null : consulta.mes === 'atual' ? hoje.slice(0, 7) : consulta.mes
+    // O mês filtra pelo que a campanha CRUZA (`campsDoMes`), e só com `mes`
+    // muda a ordem: a lista do mês põe "em andamento" na frente, e a lista
+    // inteira (painel, formulário) segue do início mais recente.
+    let campanhas = todas
+    if (mes !== null) {
+      const de = `${mes}-01`
+      const ate = fimDoMes(mes)
+      campanhas = campanhas
+        .filter((x) => x.inicio <= ate && x.fim >= de)
+        .sort(
+          (a, b) =>
+            Number(a.situacao !== 'andamento') - Number(b.situacao !== 'andamento') ||
+            a.inicio.localeCompare(b.inicio) ||
+            a.nome.localeCompare(b.nome, 'pt-BR'),
+        )
+    }
+    if (consulta.tipo !== undefined && consulta.tipo !== '') {
+      campanhas = campanhas.filter((x) => x.categoria === consulta.tipo)
+    }
+    return {
+      hoje,
+      mes,
+      campanhas,
+      categorias: [...new Set(todas.map((x) => x.categoria))].sort((a, b) =>
+        a.localeCompare(b, 'pt-BR'),
+      ),
+      totais: {
+        campanhas: campanhas.length,
+        // Σ da receita das campanhas mostradas (`tot` de `vCampanhas`), em
+        // centavos inteiros — nunca `number`.
+        valorConvertido: campanhas.reduce((a, x) => a + BigInt(x.receita ?? '0'), 0n).toString(),
+        pacientesConvertidos: campanhas.reduce((a, x) => a + x.pacientesConvertidos, 0),
+        acoesRealizadas: campanhas.reduce((a, x) => a + x.tarefasConcluidas, 0),
+      },
+    }
+  }
+
+  private async montarCampanhas(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    hoje: string,
+  ): Promise<CampanhaNaLista[]> {
     const linhas = (
       await c.query<LinhaDeCampanha>(
         `WITH feitas AS (
@@ -459,6 +901,9 @@ export class CampanhasService {
               AND t.campanha_id IS NOT NULL
               AND t.excluida_em IS NULL
               AND t.status <> 'cancelada'
+              -- Tarefa ABERTA de paciente desativado não conta como pendente;
+              -- concluída continua contando para o resultado.
+              AND ${FORA_DE_PACIENTE_DESATIVADO}
          )
          SELECT cp.id::text AS id, cp.categoria, cp.foco, cp.nome, cp.objetivo,
                 cp.inicio::text AS inicio, cp.fim::text AS fim,
@@ -496,22 +941,28 @@ export class CampanhasService {
       )
     ).rows
 
-    const campanhas = linhas.map((l) => montarCampanha(l, hoje, ctx.fuso))
-    return {
-      hoje,
-      campanhas,
-      categorias: [...new Set(campanhas.map((x) => x.categoria))].sort((a, b) =>
-        a.localeCompare(b, 'pt-BR'),
-      ),
-    }
+    return linhas.map((l) => montarCampanha(l, hoje, ctx.fuso, ctx.valores === true))
   }
 }
+
+/** `norm()` dela: minúsculas e sem acento, para comparar o foco. */
+const semAcento = (t: string): string =>
+  t
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim()
+    .toLowerCase()
 
 // ---------------------------------------------------------------------------
 // APOIO — nenhuma destas funções lê banco
 // ---------------------------------------------------------------------------
 
-function montarCampanha(l: LinhaDeCampanha, hoje: string, fuso: string): CampanhaNaLista {
+function montarCampanha(
+  l: LinhaDeCampanha,
+  hoje: string,
+  fuso: string,
+  podeVerValores: boolean,
+): CampanhaNaLista {
   const meta = BigInt(l.meta)
   const receita = BigInt(l.receita)
   const pacAlcancados = Number(l.pac_alcancados)
@@ -558,7 +1009,12 @@ function montarCampanha(l: LinhaDeCampanha, hoje: string, fuso: string): Campanh
     resultadoEmNumero: ehDinheiro ? null : Number(resultado),
     // **Pode passar de 100**, e é deliberado: a campanha que superou a meta
     // mostra "128%" no texto, e a barra é que fica cheia.
-    percentualDaMeta: percentualInteiro(resultado, meta),
+    //
+    // **Campanha de RECEITA sem `valores`: `null`** (decisão do dono, segue o
+    // protótipo — "Resultado visível para o administrativo", sem percentual e
+    // sem barra). Com a meta conhecida o percentual devolve a receita em claro.
+    // Mora AQUI, no ponto único de montagem, e não num `if` por endpoint.
+    percentualDaMeta: ehDinheiro && !podeVerValores ? null : percentualInteiro(resultado, meta),
 
     receita: receita.toString(),
 

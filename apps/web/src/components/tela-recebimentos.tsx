@@ -16,6 +16,8 @@ import { consultaEmTexto, useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto } from '@/lib/formato'
+import { CampoDeMotivoDeSuporte, useEhSuporte } from './campo-de-motivo-de-suporte'
+import { corpoComMotivo, validarMotivoDeSuporte } from '@/lib/motivo-de-suporte'
 import { CampoDeCampanha, useSugestaoDeCampanha } from './campo-de-campanha'
 import { Carregando, Erro, Toast, Vazio } from './estados'
 import { SeletorDePaciente } from './seletor-de-paciente'
@@ -355,9 +357,12 @@ export function TelaRecebimentos({
               <LinhaDeRecebimento
                 key={r.id}
                 r={r}
-                aoEstornar={async () => {
+                aoEstornar={async (motivo) => {
                   try {
-                    await chamar<void>(`v1/recebimentos/${r.id}`, { method: 'DELETE' })
+                    await chamar<void>(`v1/recebimentos/${r.id}`, {
+                      method: 'DELETE',
+                      ...corpoComMotivo(motivo),
+                    })
                     setRecado('Recebimento estornado.')
                     doDia.recarregar()
                     meta.recarregar()
@@ -501,10 +506,14 @@ function LinhaDeRecebimento({
   aoEstornar,
 }: {
   r: RecebimentoNaLista
-  aoEstornar?: () => Promise<void>
+  /** `motivo` só na sessão de suporte (o servidor o exige do operador). */
+  aoEstornar?: (motivo?: string) => Promise<void>
 }) {
   const [confirmando, setConfirmando] = useState(false)
   const [estornando, setEstornando] = useState(false)
+  const suporte = useEhSuporte()
+  const [motivo, setMotivo] = useState('')
+  const [motivoTocado, setMotivoTocado] = useState(false)
   // Só o recebimento AVULSO se estorna aqui. O pagamento de dentro de um
   // atendimento ("Consulta realizada") se desfaz reabrindo o atendimento: uma
   // segunda porta para o mesmo estorno esquece de reabrir a tarefa.
@@ -518,17 +527,24 @@ function LinhaDeRecebimento({
           {r.estornado ? ' · estornado' : ''}
         </small>
         {r.estornado || aoEstornar === undefined ? null : !avulso ? (
-          <small>Para desfazer, reabra o atendimento em Tarefas.</small>
+          <small>Para desfazer, abra o atendimento em Tarefas e use Excluir em Editar (ou reabra-o, se ainda não tiver orçamento fechado).</small>
         ) : confirmando ? (
           <small>
             Estornar este recebimento? Ele deixa de contar no caixa e fica registrado como estornado.{' '}
+            {suporte ? (
+              <CampoDeMotivoDeSuporte valor={motivo} aoMudar={setMotivo} tocado={motivoTocado} />
+            ) : null}
             <button
               type="button"
               className="btn ghost"
               disabled={estornando}
               onClick={async () => {
+                if (suporte && !validarMotivoDeSuporte(motivo).ok) {
+                  setMotivoTocado(true)
+                  return
+                }
                 setEstornando(true)
-                await aoEstornar?.()
+                await aoEstornar?.(suporte ? motivo.trim() : undefined)
                 setEstornando(false)
                 setConfirmando(false)
               }}

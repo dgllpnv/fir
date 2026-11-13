@@ -56,27 +56,32 @@
 
 /* A navegação é a única parte que rola: cabeça e rodapé ficam sempre à vista,
    mesmo no perfil que enxerga as 17 telas numa janela baixa. */
-/* As AÇÕES da lateral: criar tarefa e registrar recebimento.
-   Botões, e não itens de menu — ver o comentário em `shell.tsx`. O contorno
-   dourado as separa da lista sem usar sombra nem preenchimento cheio, que
-   roubariam a atenção do item ativo. */
-.sideacoes { display: grid; gap: 6px; padding: 0 10px 12px; }
-.sideacoes .acao {
-  justify-content: flex-start;
-  gap: 10px;
-  border-color: var(--gold);
-  color: var(--gold-ink);
-  min-height: 42px;
-  padding: 9px 12px;
-  font-size: 13.5px;
+/* As AÇÕES da lateral, em pílulas (`.navacoes` do protótipo): criar tarefa e
+   registrar recebimento. Não são itens de menu — ver `shell.tsx`. Fundo e tinta
+   do par medido `--on-gold-soft` sobre `--gold-soft`; o item ativo/hover usa
+   `--on-gold` sobre `--gold`, o mesmo do menu. 40 px de altura de toque. */
+.navacoes { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 4px 2px; }
+.navacao {
+  display: inline-flex;
+  align-items: center;
+  flex: 1 1 auto;
+  gap: 5px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  background: var(--gold-soft);
+  color: var(--on-gold-soft);
+  font-size: 12.5px;
+  font-weight: 600;
   text-decoration: none;
 }
-.sideacoes .acao span { font-size: 17px; line-height: 1; font-weight: 400; }
-.sideacoes .acao:hover { background: var(--gold-soft); }
+.navacao span { font-size: 15px; line-height: 1; font-weight: 400; }
+.navacao:hover, .navacao[aria-current='page'] { background: var(--gold); color: var(--on-gold); }
 
 .sidenav {
   display: grid;
-  gap: 12px;
+  gap: 4px;
   align-content: start;
   flex: 1;
   min-height: 0;
@@ -87,17 +92,6 @@
      (13 telas, rola), e a barra pareceria outra a cada perfil. */
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-}
-
-.navgrupo { display: grid; gap: 2px; }
-
-.navtit {
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-weight: 600;
-  color: var(--muted);
-  padding: 0 10px 4px;
 }
 
 .navitem {
@@ -122,14 +116,65 @@
 .navitem[aria-current='page'] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
 .navitem[aria-current='page'] svg { opacity: 1; }
 
+/* ---------- grupos que abrem uma lista (o "menu compacto" do protótipo) ----------
+ *
+ * A lateral mostra só os TÍTULOS; os itens vêm numa lista que abre ao passar o
+ * mouse (computador com mouse), ou ao tocar (sempre). Medidas do protótipo:
+ * botão 14px/500, padding 10, raio 10; lista min 230, raio 14, padding 10/8,
+ * sombra 0 12px 32px, ponte de 12px entre o botão e a lista.
+ */
+.navg { position: relative; }
+.navgbtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.navgbtn svg { width: 20px; height: 20px; flex: none; opacity: 0.7; }
+.navgbtn > span:not(.navchev) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.navgbtn .navchev { margin-left: auto; display: inline-flex; flex: none; transition: transform 0.15s; }
+.navgbtn .navchev svg { width: 14px; height: 14px; opacity: 0.55; }
+.navgbtn:hover, .navg[data-aberto='sim'] .navgbtn { background: var(--gold-soft); color: var(--on-gold-soft); }
+/* O grupo da tela atual: tinta dourada de TEXTO (`--gold-ink`) e peso 600; sobre
+   o fundo `--gold-soft` do hover/aberto a tinta passa a `--on-gold-soft`
+   (`--gold-ink` ali dá 4,32:1 e reprova). */
+.navgbtn[aria-current='true'] { color: var(--gold-ink); font-weight: 600; }
+.navgbtn[aria-current='true']:hover, .navg[data-aberto='sim'] .navgbtn[aria-current='true'] { color: var(--on-gold-soft); }
+.navgbtn[aria-current='true'] svg { opacity: 1; }
+
+.navflyt {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 2px 10px 6px;
+}
+.navfly { display: none; }
+.navg[data-aberto='sim'] .navfly { display: block; }
+.navfly-caixa { display: grid; gap: 2px; }
+
+.navsep { height: 1px; background: var(--line); margin: 8px 6px; }
+
 .sidefoot {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   border-top: 1px solid var(--line);
-  padding: 14px 6px 0;
+  padding: 12px 6px 0;
 }
 .sideuser { display: flex; gap: 10px; align-items: center; min-width: 0; }
-.sideuser > div { min-width: 0; }
+.sideuser-nome { min-width: 0; flex: 1; }
 .sideuser b {
   display: block;
   font-size: 13.5px;
@@ -157,7 +202,8 @@
   font-size: 14px;
   flex: none;
 }
-.sidefoot .btn { padding: 9px 12px; min-height: 40px; font-size: 13.5px; }
+.sidefoot-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.sidefoot .btn { padding: 9px 4px; min-height: 40px; font-size: 12.5px; white-space: nowrap; }
 
 /* ---------- barra de topo (só abaixo de 900) ---------- */
 
@@ -284,14 +330,41 @@
     box-shadow: 0 0 40px rgba(46, 31, 14, 0.25);
   }
   .conteudo main { padding-block: 18px 32px; }
+  /* Na gaveta o grupo é um ACORDEÃO: a lista desce no fluxo, recuada. */
+  .navfly { padding: 2px 0 6px 18px; }
+  .navflyt { display: none; }
+  .navg[data-aberto='sim'] .navchev { transform: rotate(90deg); }
+  /* O tema já está na barra de topo; na gaveta ele seria repetido. */
+  .sidefoot .tema-menu { display: none; }
 }
 
 /* ---------- computador: a lateral é coluna fixa ---------- */
 
 @media (min-width: 900px) {
   .shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); }
-  .side { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; }
+  /* `z-index` para a lista (fixa) passar por cima do conteúdo, que vem depois no
+     DOM; `sticky` já cria o contexto de empilhamento, e o 15 é o do protótipo. */
+  .side { position: sticky; top: 0; z-index: 15; height: 100vh; height: 100dvh; overflow-y: auto; }
   .topbar, .scrim { display: none; }
+  /*
+   * A LISTA FLUTUANTE. A lateral rola (`overflow-y: auto`, e precisa rolar em
+   * janela baixa), e um filho `absolute` seria cortado por ela. `fixed` escapa
+   * do corte — e as coordenadas vêm do botão, calculadas em `shell.tsx`
+   * (`--fly-top`, `--fly-left`, `--fly-max`). O `::before` é a ponte invisível
+   * de 12 px do protótipo: o mouse atravessa o vão sem fechar a lista.
+   */
+  .navfly { position: fixed; top: var(--fly-top, 0); left: var(--fly-left, 100%); z-index: 30; min-width: 230px; }
+  .navfly::before { content: ''; position: absolute; left: -12px; top: 0; bottom: 0; width: 12px; }
+  .navfly-caixa {
+    max-height: var(--fly-max, 100vh);
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 12px 32px rgba(46, 31, 14, 0.16);
+    padding: 10px 8px;
+  }
+  .navg[data-aberto='sim'] .navchev { transform: translateX(2px); }
   .conteudo main { padding-block: 28px 48px; }
   /* A coluna de leitura respira na tela larga sem virar linha de 1200 px:
      texto longo demais na horizontal é mais difícil de ler, não menos. */
@@ -302,6 +375,7 @@
    Quem pediu menos movimento recebe o mesmo resultado sem o trajeto. */
 @media (prefers-reduced-motion: reduce) {
   .side, .side[data-aberta='sim'] { transition: visibility 0s; }
+  .navgbtn .navchev { transition: none; }
 }
 
 /* ---------- a tela de entrar ---------- */
@@ -357,9 +431,56 @@
   color: var(--bad);
 }
 
-/* Claro · Escuro · Sistema, no rodapé da lateral.
-   Três alvos numa linha de 240 px: 13px e padding curto, sem apertar o toque
-   abaixo de 32 px de altura. */
+/* Claro · Escuro · Sistema: botão-ícone com lista (`SeletorDeTema`), junto do
+   usuário. Alvo de 40 px. O `.tema` de três botões abaixo continua só para a
+   lateral da carteira, que não mudou. */
+.tema-menu { position: relative; flex: none; }
+.tema-botao {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.tema-botao svg { width: 20px; height: 20px; }
+.tema-botao:hover, .tema-botao[aria-expanded='true'] { background: var(--gold-soft); color: var(--on-gold-soft); }
+.tema-lista {
+  position: absolute;
+  right: 0;
+  z-index: 40;
+  display: grid;
+  gap: 2px;
+  min-width: 140px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(46, 31, 14, 0.16);
+}
+.tema-menu[data-lugar='rodape'] .tema-lista { bottom: calc(100% + 6px); }
+.tema-menu[data-lugar='topo'] .tema-lista { top: calc(100% + 6px); }
+.tema-lista button {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.tema-lista button:hover { background: var(--gold-soft); color: var(--on-gold-soft); }
+/* O escolhido usa o par medido `--on-gold` sobre `--gold` (6,73:1 nos dois
+   temas), o mesmo do item ativo do menu — e não `--gold` como texto. */
+.tema-lista button[aria-pressed='true'] { background: var(--gold); color: var(--on-gold); font-weight: 600; }
+
+/* Claro · Escuro · Sistema em três botões — só a lateral da CARTEIRA usa. */
 .tema {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -384,9 +505,6 @@
   background: var(--gold-soft);
   color: var(--on-gold-soft);
 }
-/* O escolhido usa o par medido `--on-gold` sobre `--gold` (6,73:1 nos dois
-   temas), o mesmo do item ativo do menu — e não `--gold` como texto, que
-   reprova em AA. */
 .tema button[aria-pressed='true'] {
   background: var(--gold);
   color: var(--on-gold);

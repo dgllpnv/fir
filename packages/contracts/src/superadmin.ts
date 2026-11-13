@@ -329,3 +329,29 @@ export const AtividadesDoPainel = z.object({
   proximo: z.string().nullable(),
 })
 export type AtividadesDoPainel = z.infer<typeof AtividadesDoPainel>
+
+/**
+ * O MESMO log, visto POR UMA CLINICA: so a dela (a clinica vem da sessao, nunca
+ * da consulta) e sem o que e do painel (clinica).
+ */
+export const FiltroDeAtividadesDaClinica = FiltroDeAtividades.omit({ clinicaId: true })
+export type FiltroDeAtividadesDaClinica = z.infer<typeof FiltroDeAtividadesDaClinica>
+
+export const AtividadeDaClinica = AtividadeDoPainel.omit({ clinica: true }).extend({
+  /**
+   * SÓ nas linhas do Suporte Firmare (`quem.tipo = 'superadmin'`): qual
+   * registro ele mexeu (id da tarefa, do recebimento, do paciente) e por quê.
+   * `null` nas demais linhas. Nunca nome, telefone ou valor — o id sozinho não
+   * identifica ninguém fora do sistema, e o motivo é texto curto exigido na
+   * sessão de suporte (decisoes.md: justificativa por acesso).
+   */
+  entidadeId: z.string().nullable().default(null),
+  motivo: z.string().nullable().default(null),
+})
+export type AtividadeDaClinica = z.infer<typeof AtividadeDaClinica>
+
+export const AtividadesDaClinica = z.object({
+  itens: z.array(AtividadeDaClinica),
+  proximo: z.string().nullable(),
+})
+export type AtividadesDaClinica = z.infer<typeof AtividadesDaClinica>

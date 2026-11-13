@@ -214,7 +214,7 @@ export class ConclusaoService {
         })
       }
 
-      return umaSo(await lerTarefas(c, clinicaId, hoje, [id]))
+      return umaSo(await lerTarefas(c, clinicaId, hoje, [id], autor.podeJornada))
     })
   }
 
@@ -262,7 +262,7 @@ export class ConclusaoService {
           WHERE id = $1`,
         [id, dados.obs ?? null, etapa, JSON.stringify(historico)],
       )
-      return umaSo(await lerTarefas(c, clinicaId, hoje, [id]))
+      return umaSo(await lerTarefas(c, clinicaId, hoje, [id], autor.podeJornada))
     })
   }
 
@@ -335,7 +335,8 @@ export class ConclusaoService {
                 -- existem em orçamento/fechado/perdido. Reabrir um orçamento
                 -- ENVIADO os solta da coluna, e eles continuam no histórico
                 -- (append-only), que é onde a recepção os vê.
-                valor_orcamento = NULL, programa_orcado = NULL,
+                valor_orcamento = NULL, programa_orcado = NULL, valor_fechado = NULL,
+                itens_orcamento = NULL,
                 proximo_passo_em = CASE WHEN $4::text = 'orcamento' THEN NULL ELSE proximo_passo_em END
           WHERE id = $1`,
         [
@@ -349,7 +350,7 @@ export class ConclusaoService {
           t.etapa,
         ],
       )
-      return umaSo(await lerTarefas(c, clinicaId, hoje, [id]))
+      return umaSo(await lerTarefas(c, clinicaId, hoje, [id], autor.podeJornada))
     })
   }
 }

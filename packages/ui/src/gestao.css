@@ -471,3 +471,96 @@ table.painel td .muted { display: block; font-size: 11px; color: var(--muted); }
 .agenda-nova-palavra { display: flex; gap: 8px; align-items: stretch; }
 .agenda-nova-palavra input { flex: 1; min-width: 0; }
 .agenda-nova-palavra .btn { flex: none; }
+
+/* =========================================================
+   CAMPANHAS — lista do mês e detalhe (`/campanhas/[id]`)
+   ========================================================= */
+
+/* O cartão da lista é um LINK inteiro: sem sublinhado, com foco visível e
+   um realce que diz "abre". */
+a.cartao-da-campanha { color: inherit; text-decoration: none; cursor: pointer; }
+a.cartao-da-campanha:hover { border-color: var(--gold); }
+a.cartao-da-campanha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.lista-de-campanhas { display: grid; gap: 0; }
+.cartao-da-campanha .valor-da-campanha {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+  font-size: 13px; color: var(--muted);
+}
+.cartao-da-campanha .valor-da-campanha b { font-size: 16px; color: var(--gold-ink); }
+.kpis-da-campanha { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+/* A faixa da barra da meta (protótipo `barraMeta`): ≥100 verde, ≥60 dourada,
+   abaixo âmbar. */
+.barra-da-meta[data-faixa='ok'] > i { background: var(--ok); }
+.barra-da-meta[data-faixa='meio'] > i { background: var(--gold); }
+.barra-da-meta[data-faixa='baixo'] > i { background: var(--warn); }
+
+.detalhe-da-campanha { display: grid; gap: 12px; align-content: start; }
+.detalhe-da-campanha > h3 { font-size: 17px; margin: 14px 0 0; }
+.detalhe-da-campanha > .tabela { margin-bottom: 4px; }
+.cabeca-da-campanha { display: grid; gap: 6px; }
+.cabeca-da-campanha h2 { font-size: 28px; margin: 0; }
+.cabeca-da-campanha .pilulas { display: flex; gap: 6px; flex-wrap: wrap; }
+.cabeca-da-campanha .nota { margin: 0; }
+.cartao-de-meta { margin-bottom: 0; }
+.numero-da-meta { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.numero-da-meta > b { margin-left: auto; font-size: 18px; color: var(--gold-ink); }
+.contagem { color: var(--muted); font-weight: 400; font-size: 0.8em; margin-left: 4px; }
+
+/* O número que abre os registros. Parece número, e age como botão: alvo de
+   toque de 40 px, foco visível, e `aria-pressed` pinta o aberto. */
+.numero-abre {
+  font: inherit; font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--gold-ink); background: none; border: 0; padding: 6px 10px; min-height: 40px;
+  min-width: 40px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+  border-radius: var(--r);
+}
+.numero-abre.grande { font-size: 28px; text-decoration: none; padding: 0 4px; min-height: 0; }
+.numero-abre:hover { background: var(--gold-soft); }
+.numero-abre[aria-pressed='true'] { background: var(--gold-soft); color: var(--on-gold-soft); }
+.numero-abre:focus-visible, .kpi-abre:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+
+.kpi-abre { font: inherit; text-align: left; color: inherit; cursor: pointer; }
+.kpi-abre:hover, .kpi-abre[aria-pressed='true'] { border-color: var(--gold); background: var(--gold-soft); }
+.kpi-abre .ver { font-size: 11px; color: var(--gold-ink); text-transform: uppercase; letter-spacing: 0.06em; }
+.funil-da-campanha { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 0; }
+
+.drill { border-left: 3px solid var(--gold); padding-left: 12px; display: grid; gap: 8px; }
+.drill-topo { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.drill-topo .valor { color: var(--gold-ink); font-weight: 600; }
+.drill-topo .link { margin-left: auto; }
+
+table.painel tr.atual td { background: var(--gold-soft); }
+table.painel td b.ok { color: var(--ok); }
+
+/* ---------- ficha do paciente: abas e aba Orçamentos ---------- */
+.abas-da-ficha { display: flex; gap: 6px; margin: 0 0 12px; border-bottom: 1px solid var(--line); }
+.abas-da-ficha button {
+  font: inherit; font-weight: 600; font-size: 14px; color: var(--muted); background: none;
+  border: 0; border-bottom: 3px solid transparent; padding: 10px 12px; min-height: 44px;
+  cursor: pointer; margin-bottom: -1px;
+}
+.abas-da-ficha button[aria-selected='true'] { color: var(--ink); border-bottom-color: var(--gold-ink); }
+.abas-da-ficha button:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: -2px; }
+
+.orc-totais { margin: 0 0 10px; }
+.orc { border-bottom: 1px solid var(--line); padding: 12px 0; display: grid; gap: 6px; }
+.orc-topo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.orc-tipo { font-size: 12.5px; }
+.orc-valores { display: flex; gap: 18px; flex-wrap: wrap; margin: 0; }
+.orc-valores dt { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.orc-valores dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.orc-itens { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.orc-item { display: grid; grid-template-columns: 18px 1fr auto; column-gap: 8px; align-items: baseline; font-size: 13.5px; }
+.orc-marca { font-weight: 700; text-align: center; }
+.orc-nome { overflow-wrap: anywhere; }
+.orc-preco { color: var(--muted); font-variant-numeric: tabular-nums; }
+.orc-estado { grid-column: 2 / 4; font-size: 12px; color: var(--muted); }
+.orc-item.fechado .orc-marca { color: var(--ok); }
+.orc-item.nao_fechado .orc-marca { color: var(--bad); }
+.orc-item.nao_fechado .orc-nome { color: var(--muted); }
+.orc-rodape { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: space-between; }
+
+/* ---------- jornada: coluna "Orçamento parcialmente fechado" ---------- */
+.kmini .kparcial { color: var(--ink); font-weight: 600; }
+.grupo[hidden] { display: none; }

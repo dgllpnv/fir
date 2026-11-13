@@ -116,6 +116,7 @@ export class TarefasService {
     fuso: string,
     autor: PessoaId,
     dados: CriarTarefa,
+    podeJornada: boolean,
   ): Promise<TarefasAfetadas> {
     const agora = this.relogio.agora()
     const hoje = diaCivil(agora, fuso)
@@ -203,7 +204,7 @@ export class TarefasService {
               )
             : await this.criarAgendada(c, comum, dados.quando, agora)
 
-      const todas = await lerTarefas(c, clinicaId, hoje, ids)
+      const todas = await lerTarefas(c, clinicaId, hoje, ids, podeJornada)
       return { tarefa: todas[0]!, todas }
     })
   }
