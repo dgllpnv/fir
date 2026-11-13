@@ -148,14 +148,22 @@ export function FormularioDeFechamento({
               <small className="num"> (orçamento de {formatarDinheiro(oferta)})</small>
             )}
           </legend>
-          <label style={{ display: 'inline-block', marginRight: 16 }}>
-            <input type="radio" name="fechamento" checked={tipo === 'tudo'} onChange={() => setTipo('tudo')} />{' '}
-            O orçamento todo
-          </label>
-          <label style={{ display: 'inline-block' }}>
-            <input type="radio" name="fechamento" checked={tipo === 'parte'} onChange={() => setTipo('parte')} />{' '}
-            Só uma parte
-          </label>
+          <div className="escolhas">
+            <label className="escolha">
+              <input type="radio" name="fechamento" checked={tipo === 'tudo'} onChange={() => setTipo('tudo')} />
+              <span>
+                <b>Fechamento total</b>
+                <small>O orçamento todo</small>
+              </span>
+            </label>
+            <label className="escolha">
+              <input type="radio" name="fechamento" checked={tipo === 'parte'} onChange={() => setTipo('parte')} />
+              <span>
+                <b>Fechamento parcial</b>
+                <small>Só alguns procedimentos</small>
+              </span>
+            </label>
+          </div>
         </fieldset>
       ) : null}
 
@@ -165,16 +173,18 @@ export function FormularioDeFechamento({
             <fieldset className="campo" style={{ border: 0, padding: 0, margin: 0 }}>
               <legend>Quais procedimentos a paciente fechou?</legend>
               {itens.map((i) => (
-                <label key={i.chave} style={{ display: 'block', padding: '4px 0' }}>
+                <label key={i.chave} className="escolha" style={{ marginTop: 6 }}>
                   <input
                     type="checkbox"
                     checked={marcados.has(i.chave)}
                     onChange={(e) => marcar(i.chave, e.target.checked)}
-                  />{' '}
-                  {nome(i.procedimentoId)}
-                  {podeValores && i.valor !== undefined && i.valor !== null ? (
-                    <span className="num muted"> · {formatarDinheiro(BigInt(i.valor))}</span>
-                  ) : null}
+                  />
+                  <span>
+                    <b>{nome(i.procedimentoId)}</b>
+                    {podeValores && i.valor !== undefined && i.valor !== null ? (
+                      <small className="num">{formatarDinheiro(BigInt(i.valor))}</small>
+                    ) : null}
+                  </span>
                 </label>
               ))}
             </fieldset>

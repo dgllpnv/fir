@@ -204,8 +204,8 @@ function OrcamentosPorAtendente({ periodo }: { periodo: PeriodoDoFunil }) {
         Lançados e fechados no período. Parcial é quando a paciente fechou menos do que foi
         oferecido.{haSemClassificacao ? ' "Fechados antigos" são de antes de o sistema guardar o valor fechado.' : ''}
       </p>
-      <div className="tabela">
-        <table className="painel">
+      <div className="tabela-rolavel">
+        <table className="lista conferencia">
           <thead>
             <tr>
               <th>Atendente</th>
@@ -380,6 +380,7 @@ function MiniCartao({
         <span className="num kval">restante {formatarDinheiro(BigInt(x.valorRestante))}</span>
       )}
       {parcial.retomar === '' ? null : <span className="num">{parcial.retomar}</span>}
+      <span className="kacao">Abrir orçamento ›</span>
     </>
   ) : (
     <>
@@ -388,6 +389,7 @@ function MiniCartao({
       {x.valorOrcamento === null ? null : (
         <span className="num kval">{formatarDinheiro(BigInt(x.valorOrcamento))}</span>
       )}
+      {coluna === 'orcamentos' ? <span className="kacao">Abrir orçamento ›</span> : null}
     </>
   )
   if (x.pacienteId === null || !podePacientes) return <div className="kmini">{corpo}</div>
