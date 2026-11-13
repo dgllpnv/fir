@@ -1006,7 +1006,10 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
 .etapa-bloco[open] > summary::after { content: '▾'; }
 
 .kval { color: var(--gold-ink); font-weight: 600; font-size: 12.5px; }
-.khead .pill { white-space: normal; }
+/* O rótulo ocupa a linha inteira (como cabeçalho de coluna): "Orçamento
+   parcialmente fechado" cabe sem estourar, e contagem e valor vêm logo abaixo,
+   iguais em todas as colunas. */
+.khead .pill { flex: 1 0 100%; white-space: normal; border-radius: 10px; text-align: left; }
 /* A pista do que o toque faz: em "Orçamentos em aberto" e "parcialmente fechado"
    o cartão abre o orçamento, onde estão Fechou / Retomar o restante. */
 .kmini .kacao { color: var(--gold-ink); font-weight: 600; font-size: 12px; }
