@@ -309,12 +309,15 @@ function Colunas({
                 <span className="num kval">{formatarDinheiro(BigInt(c.valor))}</span>
               )}
             </div>
-            {c.itens.length === 0 ? (
-              <p className="kvazio">Nenhum</p>
-            ) : (
-              c.itens.map((x) => <MiniCartao key={x.id} cartao={x} coluna={c.chave} hoje={hoje} podePacientes={podePacientes} />)
-            )}
-            {c.restantes === 0 ? null : <p className="kvazio">+{c.restantes}</p>}
+            {/* Só a lista rola: o título e a contagem ficam parados no topo. */}
+            <div className="klista">
+              {c.itens.length === 0 ? (
+                <p className="kvazio">Nenhum</p>
+              ) : (
+                c.itens.map((x) => <MiniCartao key={x.id} cartao={x} coluna={c.chave} hoje={hoje} podePacientes={podePacientes} />)
+              )}
+              {c.restantes === 0 ? null : <p className="kvazio">+{c.restantes}</p>}
+            </div>
           </div>
         ))}
       </div>

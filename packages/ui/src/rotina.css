@@ -1066,11 +1066,15 @@ table.lista th.direita, table.lista td.direita { text-align: right; }
     background: var(--gold-soft);
     padding: 10px;
     min-height: 120px;
-    /* Coluna comprida rola por dentro: sem isto uma etapa com 30 cartões
-       estica a linha inteira e deixa um vazio ao lado das outras. */
-    max-height: 330px;
-    overflow-y: auto;
+    /* Coluna comprida: o TÍTULO fica parado e só a lista de pacientes (`.klista`)
+       rola. Sem teto, uma etapa com 30 cartões estica a linha inteira e deixa um
+       vazio ao lado das outras. */
+    max-height: 360px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
+  .kcol .klista { overflow-y: auto; min-height: 0; flex: 1 1 auto; padding-right: 2px; }
   .kcol .kmini { background: var(--surface); }
   .khead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .khead > b { font-size: 16px; font-variant-numeric: tabular-nums; }
