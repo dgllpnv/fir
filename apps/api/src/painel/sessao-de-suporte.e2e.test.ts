@@ -274,6 +274,44 @@ describe('INVARIANTE 1 — ele não aparece como pessoa da clínica', () => {
 
 // ---------------------------------------------------------------------------
 
+describe('DECISÃO DO DONO (2026-11-13) — o superadmin pode tudo o que a administradora pode', () => {
+  it('cria paciente E tarefa (o responsável é a administradora), e a trilha diz "operador"', async () => {
+    const { cookie } = await abrirSuporte(clinicaA.id)
+    const paciente = await http()
+      .post('/v1/pacientes')
+      .set('Cookie', cookie)
+      .send({ nome: `Paciente Tarefa ${sufixo}`, telefone: '71999990001' })
+      .expect(201)
+
+    const tarefa = await http()
+      .post('/v1/tarefas')
+      .set('Cookie', cookie)
+      .send({
+        vinculo: 'paciente',
+        pacienteId: paciente.body.id,
+        tipo: 'Consulta agendada',
+        responsavelId: adminA,
+        quando: { modo: 'agendada', prazo: '2030-01-15' },
+      })
+    expect(tarefa.status, JSON.stringify(tarefa.body)).toBe(201)
+
+    const t = await migrate.query<{ responsavel_id: string }>(
+      'SELECT responsavel_id FROM tarefas WHERE id = $1',
+      [tarefa.body.tarefa.id],
+    )
+    expect(t.rows[0]?.responsavel_id).toBe(adminA)
+    const r = await migrate.query<{ ator_tipo: string; ator_id: string | null }>(
+      `SELECT ator_tipo, ator_id FROM auditoria
+        WHERE clinica_id = $1 AND entidade = 'tarefas' AND entidade_id = $2
+        ORDER BY id`,
+      [clinicaA.id, tarefa.body.tarefa.id],
+    )
+    expect(r.rows.length).toBeGreaterThan(0)
+    expect(r.rows[0]?.ator_tipo, 'a trilha deve dizer quem fez de verdade').toBe('operador')
+    expect(r.rows[0]?.ator_id).toBe(operador)
+  })
+})
+
 describe('INVARIANTE 2 — a escrita dele cai na trilha DELA como operador', () => {
   it('criar um paciente pela sessão de suporte grava `ator_tipo = operador`', async () => {
     const { cookie } = await abrirSuporte(clinicaA.id)

@@ -89,6 +89,18 @@ declare const marcaDeOperador: unique symbol
 export type OperadorId = {
   readonly tipo: 'operador'
   readonly id: string
+  /**
+   * A administradora da clínica, que **assina no lugar do operador** nas colunas
+   * `NOT NULL` que guardam uma pessoa (`responsavel_id`, `registrado_por`…).
+   *
+   * Decisão do dono (2026-11-13, ADR "suporte-age-como-administradora"): o
+   * superadmin deve poder tudo o que a administradora pode. A FK exige uma
+   * pessoa, então ela empresta o id; **a trilha de auditoria continua dizendo
+   * `ator_tipo = 'operador'`** (`atorEmColunas` ignora este campo), e é ela que
+   * responde "quem fez de verdade". `pessoaDoAtor` continua `null`: leitura de
+   * "minhas tarefas" do operador segue vazia, nada é lido como se fosse dela.
+   */
+  readonly comoPessoa?: PessoaId
   readonly [marcaDeOperador]?: true
 }
 
@@ -270,6 +282,10 @@ export class SessaoDeSuporteNaoAssina extends Error {
  */
 export const exigePessoa = (ator: Ator): PessoaId => {
   const pessoa = pessoaDoAtor(ator)
-  if (pessoa === null) throw new SessaoDeSuporteNaoAssina()
-  return pessoa
+  if (pessoa !== null) return pessoa
+  // O operador assina como a administradora da clínica (ver `OperadorId`).
+  if (typeof ator !== 'string' && ator.tipo === 'operador' && ator.comoPessoa !== undefined) {
+    return ator.comoPessoa
+  }
+  throw new SessaoDeSuporteNaoAssina()
 }

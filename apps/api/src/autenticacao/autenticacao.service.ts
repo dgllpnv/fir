@@ -538,7 +538,17 @@ export class AutenticacaoService {
      * abrir sem nenhum perfil para escolher.
      */
     if (sessao.operador_id !== null) {
-      const ator = operadorIdDeFonteConfiavel(sessao.operador_id)
+      const base = operadorIdDeFonteConfiavel(sessao.operador_id)
+      // A administradora (a mais antiga e ativa) assina no lugar do operador nas
+      // colunas que exigem pessoa; a trilha segue dizendo "operador".
+      const adm = await this.banco.naClinica(clinicaId, base, async (c) => {
+        const r = await c.query<{ id: string }>(
+          `SELECT id FROM pessoas WHERE admin AND ativo AND excluida_em IS NULL ORDER BY criada_em, id LIMIT 1`,
+        )
+        return r.rows[0]?.id
+      })
+      const ator =
+        adm === undefined ? base : { ...base, comoPessoa: pessoaIdDeFonteConfiavel(adm) }
       const operador: OperadorPublico = {
         id: sessao.operador_id,
         usuario: sessao.operador_usuario ?? '',
