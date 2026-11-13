@@ -202,10 +202,6 @@ function ResumoDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
   const vigente = orcamentoVigente(t.historico)
   const nota = vigente?.nota ?? ''
   const itens = t.programaOrcado?.length ?? 0
-  // Nomes pelo catálogo da clínica. Sem permissão (403) ou sem rede, cai na
-  // contagem: o resumo nunca depende do catálogo para existir.
-  const catalogo = useDados<ListaDeProcedimentos>(itens > 0 ? 'v1/procedimentos' : null)
-  const nomes = new Map((catalogo.dados?.itens ?? []).map((p) => [p.id, p.nome]))
   // A observação do fechamento ("não fechou o implante") ficava só dentro da
   // Evolução recolhida; no cartão fechado ela aparece junto do orçamento.
   const fechou = [...t.historico].reverse().find((e) => e.acao === 'fechar')
@@ -226,23 +222,38 @@ function ResumoDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
           <b>Observação do fechamento:</b> {notaDoFechamento}
         </p>
       )}
-      {itens === 0 ? null : (
-        <ul className="nota" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-          {(t.programaOrcado ?? []).map((i, n) => (
-            <li key={`${i.chave ?? n}`}>
-              {nomes.get(i.procedimentoId) ?? 'Procedimento'}
-              {' · '}
-              {i.sessoes} {i.sessoes === 1 ? 'sessão' : 'sessões'}
-              {i.sessoes > 1 ? `, a cada ${i.intervaloDias} dias` : ''}
-              {i.dose === undefined || i.dose === null || i.dose === '' ? '' : ` · dose ${i.dose}`}
-              {i.valor === null || i.valor === undefined || i.valor === '' ? null : (
-                <span className="num"> · {formatarDinheiro(BigInt(i.valor))}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <ItensDoOrcamento tarefa={t} />
     </div>
+  )
+}
+
+/**
+ * Os ITENS do orçamento — o que a paciente está levando. Mostrados no resumo do
+ * cartão E dentro da linha "Orçamento enviado" da Evolução, que é onde a
+ * recepção olha quando pergunta "o que tinha nesse orçamento?".
+ */
+function ItensDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
+  const itens = t.programaOrcado?.length ?? 0
+  // Nomes pelo catálogo da clínica. Sem permissão (403) ou sem rede, cai em
+  // "Procedimento": a lista nunca depende do catálogo para existir.
+  const catalogo = useDados<ListaDeProcedimentos>(itens > 0 ? 'v1/procedimentos' : null)
+  const nomes = new Map((catalogo.dados?.itens ?? []).map((p) => [p.id, p.nome]))
+  if (itens === 0) return null
+  return (
+    <ul className="nota" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+      {(t.programaOrcado ?? []).map((i, n) => (
+        <li key={`${i.chave ?? n}`}>
+          {nomes.get(i.procedimentoId) ?? 'Procedimento'}
+          {' · '}
+          {i.sessoes} {i.sessoes === 1 ? 'sessão' : 'sessões'}
+          {i.sessoes > 1 ? `, a cada ${i.intervaloDias} dias` : ''}
+          {i.dose === undefined || i.dose === null || i.dose === '' ? '' : ` · dose ${i.dose}`}
+          {i.valor === null || i.valor === undefined || i.valor === '' ? null : (
+            <span className="num"> · {formatarDinheiro(BigInt(i.valor))}</span>
+          )}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -302,6 +313,9 @@ function mensagemDeConfirmacao(t: TarefaNaLista, hoje: string, whats: string): s
  */
 function Evolucao({ tarefa: t }: { tarefa: TarefaNaLista }) {
   if (t.historico.length === 0) return null
+  // Os itens são os do orçamento VIGENTE: vão na última linha "Orçamento
+  // enviado", e não repetidos em cada uma.
+  const ultimoOrcamento = t.historico.map((e) => e.acao).lastIndexOf('registrarOrcamento')
   return (
     <details className="evolucao">
       <summary>
@@ -327,6 +341,7 @@ function Evolucao({ tarefa: t }: { tarefa: TarefaNaLista }) {
               <span className="num">{formatarDinheiro(BigInt(e.valor))}</span>
             )}
             {e.acao === 'corrigirOrcamento' ? <Correcao de={e.de} para={e.para} /> : null}
+            {i === ultimoOrcamento ? <ItensDoOrcamento tarefa={t} /> : null}
           </li>
         ))}
       </ol>
