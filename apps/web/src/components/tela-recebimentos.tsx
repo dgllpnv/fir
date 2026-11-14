@@ -15,7 +15,7 @@ import { chamar, ErroDaApi } from '@/lib/api'
 import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { consultaEmTexto, useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
-import { centavosDoTexto } from '@/lib/dinheiro-digitado'
+import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
 import { diaEmTexto } from '@/lib/formato'
 import { CampoDeMotivoDeSuporte, useEhSuporte } from './campo-de-motivo-de-suporte'
 import { corpoComMotivo, validarMotivoDeSuporte } from '@/lib/motivo-de-suporte'
@@ -140,6 +140,23 @@ export function TelaRecebimentos({
   const dividaPadrao = dividas[0] === undefined ? '' : (dividas[0].programaId ?? 'geral')
   const dividaAtual = dividaEscolhida === '' ? dividaPadrao : dividaEscolhida
 
+  /**
+   * O TETO do valor em "Saldo em aberto" / "Programa em andamento": o que quita
+   * a dívida escolhida. A tela ajusta o campo na hora; o servidor corta de
+   * qualquer jeito (quem não tem `valores` não vê o teto, e o corte vale igual).
+   */
+  const dividaSelecionada = dividas.find((g) => (g.programaId ?? 'geral') === dividaAtual)
+  const teto: bigint | null =
+    (ref === 'saldo' || ref === 'programa') && dividaSelecionada?.saldo != null
+      ? centavos(dividaSelecionada.saldo)
+      : null
+
+  function ajustarAoTeto(texto: string, limite: bigint | null = teto): string {
+    if (limite === null) return texto
+    const digitado = centavosDoTexto(texto)
+    return digitado !== null && digitado > limite ? textoDeCentavos(limite) : texto
+  }
+
   function limpar(): void {
     setRef('')
     setValor('')
@@ -158,7 +175,9 @@ export function TelaRecebimentos({
     setErroDoForm(null)
     if (paciente === null || escolhida === undefined) return
 
-    const emCentavos = centavosDoTexto(valor)
+    const ajustado = ajustarAoTeto(valor)
+    if (ajustado !== valor) setValor(ajustado)
+    const emCentavos = centavosDoTexto(ajustado)
     if (emCentavos === null || emCentavos <= 0n) {
       setErroDoForm('Informe o valor recebido. Use o formato 1.200,00.')
       return
@@ -273,7 +292,14 @@ export function TelaRecebimentos({
                 {(escolhida.k === 'saldo' || escolhida.k === 'programa') && dividas.length > 0 ? (
                   <label className="campo">
                     Qual dívida a paciente está pagando?
-                    <select value={dividaAtual} onChange={(e) => setDividaEscolhida(e.target.value)}>
+                    <select
+                      value={dividaAtual}
+                      onChange={(e) => {
+                        setDividaEscolhida(e.target.value)
+                        const nova = dividas.find((g) => (g.programaId ?? 'geral') === e.target.value)
+                        setValor((v) => ajustarAoTeto(v, nova?.saldo == null ? null : centavos(nova.saldo)))
+                      }}
+                    >
                       {dividas.map((g) => (
                         <option key={g.programaId ?? 'geral'} value={g.programaId ?? 'geral'}>
                           {g.programa ?? 'Valor em aberto fora de programa'}
@@ -291,7 +317,13 @@ export function TelaRecebimentos({
                       value={valor}
                       placeholder="Ex.: 450,00"
                       onChange={(e) => setValor(e.target.value)}
+                      onBlur={() => setValor((v) => ajustarAoTeto(v))}
                     />
+                    {teto === null ? null : (
+                      <small className="muted">
+                        Máximo: {formatarDinheiro(teto)}, o que quita esta dívida.
+                      </small>
+                    )}
                   </label>
                   <label className="campo">
                     Forma de pagamento
