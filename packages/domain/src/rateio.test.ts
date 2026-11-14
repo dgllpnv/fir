@@ -1,7 +1,7 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { Dinheiro } from './dinheiro'
-import { ratearPrograma, ratearValoresDosItens, valorSugerido } from './rateio'
+import { ratearPrograma, ratearValoresDosItens, valorFechadoPorSessoes, valorSugerido } from './rateio'
 
 const c = (n: number | bigint) => Dinheiro.deCentavos(BigInt(n))
 const somar = (ds: readonly Dinheiro[]) => ds.reduce((s, d) => s.mais(d), Dinheiro.zero())
@@ -334,5 +334,42 @@ describe('ratearValoresDosItens — Σ itens == total, seja qual for a combinaç
         },
       ),
     )
+  })
+})
+
+describe('valorFechadoPorSessoes — fechou N das S sessões', () => {
+  it('contraexemplo fixo: R$ 100,00 em 3 sessões', () => {
+    const um = valorFechadoPorSessoes(c(10000), 1, 3)
+    expect([um.fechado.centavos, um.restante.centavos]).toEqual([3333n, 6667n])
+    const dois = valorFechadoPorSessoes(c(10000), 2, 3)
+    expect([dois.fechado.centavos, dois.restante.centavos]).toEqual([6667n, 3333n])
+  })
+
+  it('N = S é o valor inteiro e N = 0 é zero', () => {
+    expect(valorFechadoPorSessoes(c(12345), 7, 7).fechado.centavos).toBe(12345n)
+    expect(valorFechadoPorSessoes(c(12345), 0, 7).fechado.centavos).toBe(0n)
+  })
+
+  it('PROPRIEDADE: fechado + restante = valor, restante ≥ 0, e fechado cresce com N', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 0n, max: 100_000_000n }),
+        fc.integer({ min: 1, max: 60 }),
+        (valor, s) => {
+          let anterior = -1n
+          for (let n = 0; n <= s; n++) {
+            const r = valorFechadoPorSessoes(c(valor), n, s)
+            expect(r.fechado.centavos + r.restante.centavos).toBe(valor)
+            expect(r.restante.centavos >= 0n).toBe(true)
+            expect(r.fechado.centavos >= anterior).toBe(true)
+            anterior = r.fechado.centavos
+          }
+        },
+      ),
+    )
+  })
+
+  it('recusa mais sessões que as orçadas', () => {
+    expect(() => valorFechadoPorSessoes(c(100), 4, 3)).toThrow()
   })
 })

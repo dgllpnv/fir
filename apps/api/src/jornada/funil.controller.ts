@@ -1,4 +1,9 @@
-import { ConsultaDaJornada, type RespostaDaJornada } from '@fir/contracts'
+import {
+  ConsultaDaJornada,
+  type ProgramasEmAndamento,
+  type RecebimentosDiretos,
+  type RespostaDaJornada,
+} from '@fir/contracts'
 import { BadRequestException, Controller, Get, Inject, Query, Req } from '@nestjs/common'
 import { Exige } from '../autorizacao/autorizacao.guard'
 import type { RequisicaoComContexto } from '../comum/contexto'
@@ -21,6 +26,32 @@ import { FunilService } from './funil.service'
 @Exige('jornada')
 export class FunilController {
   constructor(@Inject(FunilService) private readonly funil: FunilService) {}
+
+  /**
+   * Os pagamentos registrados direto em Financeiro › Registrar recebimento, para a
+   * Jornada mostrar quem já pagou. Mesma permissão `jornada`; o valor sai pela
+   * redação central (sem `valores`, vira `null`).
+   */
+  /**
+   * Os pacientes em programa de tratamento, para a seção "Em programa" da Jornada.
+   * Mesma permissão `jornada`. Sem dinheiro, dose, produto nem lote.
+   */
+  @Get('programas-em-andamento')
+  async programasEmAndamento(@Req() req: RequisicaoComContexto): Promise<ProgramasEmAndamento> {
+    const c = req.contexto!
+    return this.funil.programasEmAndamento(c.clinicaId, c.ator, c.clinicaFuso)
+  }
+
+  @Get('recebimentos-diretos')
+  async recebimentosDiretos(
+    @Req() req: RequisicaoComContexto,
+    @Query() consulta: unknown,
+  ): Promise<RecebimentosDiretos> {
+    const dados = ConsultaDaJornada.safeParse(consulta)
+    if (!dados.success) throw new BadRequestException('Confira os filtros da tela.')
+    const c = req.contexto!
+    return this.funil.recebimentosDiretos(c.clinicaId, c.ator, c.clinicaFuso, dados.data)
+  }
 
   @Get()
   async abrir(

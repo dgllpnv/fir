@@ -119,7 +119,7 @@ export default function Clinicas() {
           {aviso === null ? null : (
             <p
               role={aviso.tipo === 'aberta' ? 'status' : 'alert'}
-              className={aviso.tipo === 'aberta' ? 'nota' : 'erro-do-painel'}
+              className={aviso.tipo === 'aberta' ? 'nota aviso-do-painel' : 'erro-do-painel aviso-do-painel'}
             >
               {aviso.tipo === 'aberta' ? (
                 TEXTO_SUPORTE_ABERTO(aviso.codigo)

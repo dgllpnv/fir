@@ -17,6 +17,7 @@ import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
 import { diaCurto, diaEmTexto, linkDeWhatsApp, somarDiasNaTela } from '@/lib/formato'
 import { EditorDeItensDoOrcamento, itemVazio, type ItemNoEditor } from './editor-de-itens-do-orcamento'
 import { FormularioDeFechamento } from './formulario-de-fechamento'
+import { FormularioDeDesfazerOrcamento } from './formulario-de-desfazer-orcamento'
 import {
   Montador,
   montadorVazio,
@@ -187,6 +188,16 @@ export function FaixaDaJornada({
             setEmForm(null)
           }}
         />
+      ) : emForm === 'reabrirOrcamento' || emForm === 'excluirOrcamento' ? (
+        <FormularioDeDesfazerOrcamento
+          acao={emForm}
+          tarefa={t}
+          aoFechar={() => setEmForm(null)}
+          aoSalvar={async (corpo) => {
+            await mover(t.id, corpo)
+            setEmForm(null)
+          }}
+        />
       ) : (
         <FormularioDaAcao
           acao={emForm}
@@ -246,13 +257,26 @@ function ResumoDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
  * cartão E dentro da linha "Orçamento enviado" da Evolução, que é onde a
  * recepção olha quando pergunta "o que tinha nesse orçamento?".
  */
-function ItensDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
+function ItensDoOrcamento({
+  tarefa: t,
+  comFechamento = true,
+}: {
+  tarefa: TarefaNaLista
+  /** Na Evolução a linha é "Orçamento enviado": mostra o que foi orçado, nunca o que foi fechado. */
+  comFechamento?: boolean
+}) {
   const itens = t.itensOrcamento?.length ?? 0
   // Nomes pelo catálogo da clínica. Sem permissão (403) ou sem rede, cai em
   // "Procedimento": a lista nunca depende do catálogo para existir.
   const catalogo = useDados<ListaDeProcedimentos>(itens > 0 ? 'v1/procedimentos' : null)
   const nomes = new Map((catalogo.dados?.itens ?? []).map((p) => [p.id, p.nome]))
   if (itens === 0) return null
+  // O que ela FECHOU de cada procedimento (menos sessões que as orçadas): vem do evento.
+  // Só enquanto o orçamento ESTÁ fechado: reaberto, voltam as sessões orçadas.
+  const fechadas =
+    comFechamento && t.etapa === 'fechado'
+      ? ([...t.historico].reverse().find((e) => e.acao === 'fechar')?.sessoesFechadas ?? {})
+      : {}
   return (
     <ul className="nota" style={{ margin: '4px 0 0', paddingLeft: 18 }}>
       {(t.itensOrcamento ?? []).map((i, n) => {
@@ -262,10 +286,20 @@ function ItensDoOrcamento({ tarefa: t }: { tarefa: TarefaNaLista }) {
         return (
           <li key={`${i.chave}-${n}`}>
             {nomes.get(i.procedimentoId) ?? 'Procedimento'}
+            {p === undefined && i.sessoes !== undefined ? (
+              <>
+                {' · '}
+                {fechadas[i.chave] === undefined
+                  ? `${i.sessoes} ${i.sessoes === 1 ? 'sessão' : 'sessões'}`
+                  : `fechou ${fechadas[i.chave]} de ${i.sessoes} sessões`}
+              </>
+            ) : null}
             {p === undefined ? null : (
               <>
                 {' · '}
-                {p.sessoes} {p.sessoes === 1 ? 'sessão' : 'sessões'}
+                {fechadas[i.chave] === undefined
+                  ? `${p.sessoes} ${p.sessoes === 1 ? 'sessão' : 'sessões'}`
+                  : `fechou ${fechadas[i.chave]} de ${p.sessoes} sessões`}
                 {p.sessoes > 1 ? `, a cada ${p.intervaloDias} dias` : ''}
                 {p.dose === undefined || p.dose === null || p.dose === '' ? '' : ` · dose ${p.dose}`}
               </>
@@ -364,7 +398,7 @@ function Evolucao({ tarefa: t }: { tarefa: TarefaNaLista }) {
               <span className="num">{formatarDinheiro(BigInt(e.valor))}</span>
             )}
             {e.acao === 'corrigirOrcamento' ? <Correcao de={e.de} para={e.para} /> : null}
-            {i === ultimoOrcamento ? <ItensDoOrcamento tarefa={t} /> : null}
+            {i === ultimoOrcamento ? <ItensDoOrcamento tarefa={t} comFechamento={false} /> : null}
           </li>
         ))}
       </ol>
@@ -490,6 +524,7 @@ function FormularioDaAcao({
           chave: `i${n + 1}`,
           procedimentoId: i.procedimentoId,
           valor: i.valor === null || i.valor === undefined ? '' : textoDeCentavos(BigInt(i.valor)),
+          sessoes: i.sessoes === undefined ? '' : String(i.sessoes),
         }))
       : [itemVazio(1)],
   )
@@ -500,6 +535,7 @@ function FormularioDaAcao({
         chave: `i${n + 1}`,
         procedimentoId: x.procedimentoId,
         ...(x.valor.trim() === '' ? {} : { valor: (centavosDoTexto(x.valor) ?? 0n).toString() }),
+        ...(Number.parseInt(x.sessoes, 10) >= 1 ? { sessoes: Number.parseInt(x.sessoes, 10) } : {}),
       }))
   }
   const [montagem, setMontagem] = useState<EstadoDoMontador>(() =>

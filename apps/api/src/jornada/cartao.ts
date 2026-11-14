@@ -174,15 +174,22 @@ export type ItemDoOrcamentoNoBanco = {
   readonly chave: string
   readonly procedimentoId: string
   readonly valor?: string
+  readonly sessoes?: number
 }
 
 export const itensParaJsonb = (
-  itens: readonly { chave: string; procedimentoId: string; valor?: bigint | undefined }[],
+  itens: readonly {
+    chave: string
+    procedimentoId: string
+    valor?: bigint | undefined
+    sessoes?: number | undefined
+  }[],
 ): readonly ItemDoOrcamentoNoBanco[] =>
   itens.map((i) => ({
     chave: i.chave,
     procedimentoId: i.procedimentoId,
     ...(i.valor === undefined ? {} : { valor: centavosNoJsonb(i.valor) }),
+    ...(i.sessoes === undefined ? {} : { sessoes: i.sessoes }),
   }))
 
 export const programaParaJsonb = (
@@ -220,6 +227,7 @@ export type Efeitos = {
   readonly motivo?: string
   /** Só em `fechar`: as chaves dos itens fechados, para o evento. */
   readonly itensFechados?: string[]
+  readonly sessoesFechadas?: Readonly<Record<string, number>>
 }
 
 /**

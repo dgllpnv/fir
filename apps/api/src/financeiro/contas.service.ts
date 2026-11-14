@@ -7,6 +7,7 @@ import {
   type ListaDeContas,
   type PagarConta,
   type ResultadoDoPagamento,
+  type CriarConta,
   type SalvarConta,
 } from '@fir/contracts'
 import {
@@ -212,9 +213,21 @@ export class ContasService {
     })
   }
 
-  async criar(ctx: Contexto, dados: SalvarConta): Promise<ContaNaLista> {
+  async criar(ctx: Contexto, dados: CriarConta): Promise<ContaNaLista> {
     const hoje = this.hojeDaClinica(ctx.fuso)
+    if (dados.pagamento !== undefined && dados.pagamento.em > hoje) {
+      throw new BadRequestException('A data do pagamento precisa ser até hoje.')
+    }
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      // Reenvio do mesmo lançamento (duplo toque, retry): devolve a conta que
+      // o primeiro envio criou, sem pagar nem renovar de novo.
+      if (dados.requisicaoId !== undefined) {
+        const ja = await c.query<{ id: string }>(
+          `SELECT id FROM contas_a_pagar WHERE clinica_id=$1 AND requisicao_id=$2`,
+          [ctx.clinicaId, dados.requisicaoId],
+        )
+        if (ja.rows[0] !== undefined) return this.lerUma(c, ctx, ja.rows[0].id, hoje)
+      }
       await this.exigirResponsavelAtivo(c, dados.responsavelId)
       const unidade = await unidadeValida(c, dados.unidadeId ?? null)
       // A ÂNCORA É O DIA DO PRIMEIRO VENCIMENTO, e o servidor a deriva. Pedi-la
@@ -227,8 +240,8 @@ export class ContasService {
       const r = await c.query<{ id: string }>(
         `INSERT INTO contas_a_pagar
            (clinica_id, descricao, categoria, valor, vencimento, fornecedor, responsavel_id,
-            unidade_id, serie_id, dia_vencimento, criada_por, forma_prevista)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+            unidade_id, serie_id, dia_vencimento, criada_por, forma_prevista, requisicao_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
         [
           ctx.clinicaId,
           dados.descricao,
@@ -242,9 +255,18 @@ export class ContasService {
           serie?.dia ?? null,
           pessoaDoAtor(ctx.ator),
           dados.formaPrevista,
+          dados.requisicaoId ?? null,
         ],
       )
-      return this.lerUma(c, ctx, r.rows[0]!.id, hoje)
+      const id = r.rows[0]!.id
+      // "Conta já paga": a mesma baixa do Paguei, na mesma transação. Se ela
+      // falhar, a conta também não nasce — nunca fica uma conta aberta que a
+      // pessoa achava paga.
+      if (dados.pagamento !== undefined) {
+        const r2 = await this.pagarDentro(c, ctx, id, dados.pagamento, hoje)
+        return r2.conta
+      }
+      return this.lerUma(c, ctx, id, hoje)
     })
   }
 
@@ -331,59 +353,74 @@ export class ContasService {
       throw new BadRequestException('A data do pagamento precisa ser até hoje.')
     }
 
-    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const atual = await this.linhaCrua(c, ctx, id)
-      if (atual.pago_em !== null) throw new ConflictException('Esta conta já foi paga.')
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, (c) =>
+      this.pagarDentro(c, ctx, id, dados, hoje),
+    )
+  }
 
-      // A FORMA GRAVADA É EXATAMENTE A RECEBIDA (ADR 0020, decisão 2). Ausente
-      // ou `''` = "Não informada"; NUNCA `atual.forma_prevista`. A tela já
-      // pré-preenche o Paguei com a prevista — se chegou vazio, foi a pessoa
-      // que limpou, e o servidor não inventa a forma que o extrato vai cobrar.
-      //
-      // `AND pago_em IS NULL` + `rowCount`: dois "Paguei" ao mesmo tempo (duas
-      // abas) liam a conta aberta e o segundo UPDATE SOBRESCREVIA o primeiro
-      // pagamento em silêncio — achado no gate do desfazer (2026-11-08). Agora o
-      // banco decide: o segundo recebe "já foi paga", e nada é sobrescrito.
-      const pagou = await c.query(
-        `UPDATE contas_a_pagar SET pago_em=$2, valor_pago=$3, forma_pagamento=$4, pago_por=$5
-          WHERE id=$1 AND pago_em IS NULL`,
-        [id, dados.em, dados.valor.toString(), dados.formaPagamento ?? '', pessoaDoAtor(ctx.ator)],
+  /**
+   * A baixa em si, numa transação que o chamador já abriu: o Paguei e a conta
+   * criada "já paga" passam pelo MESMO código — não existe um segundo caminho
+   * de baixa que possa divergir do primeiro.
+   */
+  private async pagarDentro(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    id: string,
+    dados: PagarConta,
+    hoje: string,
+  ): Promise<ResultadoDoPagamento> {
+    const atual = await this.linhaCrua(c, ctx, id)
+    if (atual.pago_em !== null) throw new ConflictException('Esta conta já foi paga.')
+
+    // A FORMA GRAVADA É EXATAMENTE A RECEBIDA (ADR 0020, decisão 2). Ausente
+    // ou `''` = "Não informada"; NUNCA `atual.forma_prevista`. A tela já
+    // pré-preenche o Paguei com a prevista — se chegou vazio, foi a pessoa
+    // que limpou, e o servidor não inventa a forma que o extrato vai cobrar.
+    //
+    // `AND pago_em IS NULL` + `rowCount`: dois "Paguei" ao mesmo tempo (duas
+    // abas) liam a conta aberta e o segundo UPDATE SOBRESCREVIA o primeiro
+    // pagamento em silêncio — achado no gate do desfazer (2026-11-08). Agora o
+    // banco decide: o segundo recebe "já foi paga", e nada é sobrescrito.
+    const pagou = await c.query(
+      `UPDATE contas_a_pagar SET pago_em=$2, valor_pago=$3, forma_pagamento=$4, pago_por=$5
+        WHERE id=$1 AND pago_em IS NULL`,
+      [id, dados.em, dados.valor.toString(), dados.formaPagamento ?? '', pessoaDoAtor(ctx.ator)],
+    )
+    if (pagou.rowCount !== 1) throw new ConflictException('Esta conta já foi paga.')
+
+    let proxima: ContaNaLista | null = null
+    const vencimento =
+      atual.serie_id === null
+        ? null
+        : await this.vencimentoDaRenovacao(c, ctx, atual.serie_id, atual.vencimento)
+    if (vencimento !== null) {
+      const nova = await c.query<{ id: string }>(
+        `INSERT INTO contas_a_pagar
+           (clinica_id, descricao, categoria, valor, vencimento, fornecedor, responsavel_id,
+            unidade_id, serie_id, dia_vencimento, criada_por, forma_prevista)
+         -- forma_prevista LISTADA: esquecê-la gravaria '' sem erro nenhum.
+         -- forma_pagamento NÃO é copiada: o Pix por exceção deste mês não
+         -- vira a previsão do próximo (ADR 0020, decisão 3).
+         SELECT clinica_id, descricao, categoria, valor, $2::date, fornecedor, responsavel_id,
+                unidade_id, serie_id, dia_vencimento, $3, forma_prevista
+           FROM contas_a_pagar WHERE id = $1
+         -- INFERENCIA pelas colunas, e nao ON CONFLICT ON CONSTRAINT:
+         -- conta_da_serie_por_mes e um indice unico PARCIAL, e ON CONSTRAINT
+         -- so enxerga constraints. Medido: o Postgres responde
+         -- "constraint ... does not exist". O predicado do indice precisa
+         -- ser repetido aqui para o planejador escolhe-lo.
+         ON CONFLICT (clinica_id, serie_id, vencimento)
+           WHERE serie_id IS NOT NULL AND excluida_em IS NULL
+           DO NOTHING
+         RETURNING id`,
+        [id, vencimento, pessoaDoAtor(ctx.ator)],
       )
-      if (pagou.rowCount !== 1) throw new ConflictException('Esta conta já foi paga.')
+      const criada = nova.rows[0]
+      if (criada !== undefined) proxima = await this.lerUma(c, ctx, criada.id, hoje)
+    }
 
-      let proxima: ContaNaLista | null = null
-      const vencimento =
-        atual.serie_id === null
-          ? null
-          : await this.vencimentoDaRenovacao(c, ctx, atual.serie_id, atual.vencimento)
-      if (vencimento !== null) {
-        const nova = await c.query<{ id: string }>(
-          `INSERT INTO contas_a_pagar
-             (clinica_id, descricao, categoria, valor, vencimento, fornecedor, responsavel_id,
-              unidade_id, serie_id, dia_vencimento, criada_por, forma_prevista)
-           -- forma_prevista LISTADA: esquecê-la gravaria '' sem erro nenhum.
-           -- forma_pagamento NÃO é copiada: o Pix por exceção deste mês não
-           -- vira a previsão do próximo (ADR 0020, decisão 3).
-           SELECT clinica_id, descricao, categoria, valor, $2::date, fornecedor, responsavel_id,
-                  unidade_id, serie_id, dia_vencimento, $3, forma_prevista
-             FROM contas_a_pagar WHERE id = $1
-           -- INFERENCIA pelas colunas, e nao ON CONFLICT ON CONSTRAINT:
-           -- conta_da_serie_por_mes e um indice unico PARCIAL, e ON CONSTRAINT
-           -- so enxerga constraints. Medido: o Postgres responde
-           -- "constraint ... does not exist". O predicado do indice precisa
-           -- ser repetido aqui para o planejador escolhe-lo.
-           ON CONFLICT (clinica_id, serie_id, vencimento)
-             WHERE serie_id IS NOT NULL AND excluida_em IS NULL
-             DO NOTHING
-           RETURNING id`,
-          [id, vencimento, pessoaDoAtor(ctx.ator)],
-        )
-        const criada = nova.rows[0]
-        if (criada !== undefined) proxima = await this.lerUma(c, ctx, criada.id, hoje)
-      }
-
-      return { conta: await this.lerUma(c, ctx, id, hoje), proxima }
-    })
+    return { conta: await this.lerUma(c, ctx, id, hoje), proxima }
   }
 
   /**

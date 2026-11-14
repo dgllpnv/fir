@@ -22,7 +22,11 @@ vi.mock('@/lib/dados', () => ({
     dados:
       caminho !== null && caminho.startsWith('v1/jornada/orcamentos')
         ? { de: '2026-09-25', ate: '2026-10-24', itens: [] }
-        : resposta.atual,
+        : caminho !== null &&
+            (caminho.startsWith('v1/jornada/recebimentos-diretos') ||
+              caminho.startsWith('v1/jornada/programas-em-andamento'))
+          ? { itens: [], restantes: 0 }
+          : resposta.atual,
     carregando: false,
     erro: null,
     recarregar: () => {},

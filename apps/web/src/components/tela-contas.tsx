@@ -57,6 +57,10 @@ type Rascunho = {
   mensal: boolean
   /** `''` = não definida. */
   formaPrevista: string
+  /** "Conta já paga": só na criação. Paga pelo valor da conta. */
+  jaPaga: boolean
+  pagoEm: string
+  formaPaga: string
 }
 
 export function TelaContas({
@@ -136,6 +140,9 @@ export function TelaContas({
                   responsavelId: euId,
                   mensal: true,
                   formaPrevista: '',
+                  jaPaga: false,
+                  pagoEm: hoje,
+                  formaPaga: '',
                 })
               }
             >
@@ -193,6 +200,7 @@ export function TelaContas({
 
       {form === null ? null : (
         <FormularioDeConta
+          hoje={hoje}
           rascunho={form}
           aoFechar={() => setForm(null)}
           aoSalvar={(aviso) => {
@@ -313,6 +321,9 @@ export function TelaContas({
                                 // Só uma forma que o servidor aceita: uma prevista
                                 // fora da lista seria recusada ao salvar.
                                 formaPrevista: formaInicialDoPagamento(c.formaPrevista),
+                                jaPaga: false,
+                                pagoEm: hoje,
+                                formaPaga: '',
                               })
                             }
                           >
@@ -651,10 +662,12 @@ function DesfazerPagamento({
 
 /** Nova conta / Editar conta — com a descrição da categoria embaixo do campo. */
 function FormularioDeConta({
+  hoje,
   rascunho,
   aoFechar,
   aoSalvar,
 }: {
+  hoje: string
   rascunho: Rascunho
   aoFechar: () => void
   aoSalvar: (aviso: string) => void
@@ -663,6 +676,8 @@ function FormularioDeConta({
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [confirmando, setConfirmando] = useState(false)
+  // Uma chave por abertura do formulário: o reenvio do mesmo toque não duplica.
+  const [requisicaoId] = useState(() => crypto.randomUUID())
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
   const equipeAtiva = (equipe.dados?.equipe ?? []).filter((p) => p.ativo)
 
@@ -692,6 +707,20 @@ function FormularioDeConta({
         responsavelId: r.responsavelId,
         mensal: r.mensal,
         formaPrevista: r.formaPrevista,
+        ...(r.id === null
+          ? {
+              requisicaoId,
+              ...(r.jaPaga
+                ? {
+                    pagamento: {
+                      em: r.pagoEm,
+                      valor: v.toString(),
+                      formaPagamento: r.formaPaga,
+                    },
+                  }
+                : {}),
+            }
+          : {}),
       })
       if (r.id === null) await chamar('v1/contas', { method: 'POST', body: corpo })
       else await chamar(`v1/contas/${r.id}`, { method: 'PATCH', body: corpo })
@@ -828,6 +857,41 @@ function FormularioDeConta({
         />
         Conta mensal — repete todo mês, no mesmo dia do vencimento.
       </label>
+
+      {r.id !== null ? null : (
+        <label className="caixa">
+          <input
+            type="checkbox"
+            checked={r.jaPaga}
+            onChange={(e) => setR({ ...r, jaPaga: e.target.checked })}
+          />
+          Conta já paga — registra a conta e o pagamento de uma vez.
+        </label>
+      )}
+      {r.id === null && r.jaPaga ? (
+        <div className="par">
+          <label className="campo">
+            Data do pagamento
+            <input
+              type="date"
+              max={hoje}
+              value={r.pagoEm}
+              onChange={(e) => setR({ ...r, pagoEm: e.target.value })}
+            />
+          </label>
+          <label className="campo">
+            Forma de pagamento
+            <select value={r.formaPaga} onChange={(e) => setR({ ...r, formaPaga: e.target.value })}>
+              {FORMAS_DE_SAIDA.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+              <option value="">{FORMA_NAO_INFORMADA}</option>
+            </select>
+          </label>
+        </div>
+      ) : null}
 
       {erro === null ? null : (
         <p className="campo" role="alert">

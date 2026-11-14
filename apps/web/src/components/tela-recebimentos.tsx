@@ -8,6 +8,7 @@ import type {
   TPacienteEncontrado,
 } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
+import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { ehPagamento } from '@fir/domain'
 import { chamar, ErroDaApi } from '@/lib/api'
@@ -99,6 +100,8 @@ export function TelaRecebimentos({
   const [aberto, setAberto] = useState('')
   const [obs, setObs] = useState('')
   const [campanhaId, setCampanhaId] = useState('')
+  // Qual dívida o "Saldo em aberto" abate: '' = a primeira que deve; 'geral' = fora de programa.
+  const [dividaEscolhida, setDividaEscolhida] = useState('')
   const sugestao = useSugestaoDeCampanha(podePacientes, setCampanhaId)
   const [salvando, setSalvando] = useState(false)
   const [erroDoForm, setErroDoForm] = useState<string | null>(null)
@@ -129,6 +132,11 @@ export function TelaRecebimentos({
 
   const escolhida = REFERENCIAS.find((r) => r.k === ref)
 
+  // As dívidas da paciente: cada programa em aberto e o grupo geral. Só as que devem.
+  const dividas = (saldo.dados?.grupos ?? []).filter((g) => g.devendo)
+  const dividaPadrao = dividas[0] === undefined ? '' : (dividas[0].programaId ?? 'geral')
+  const dividaAtual = dividaEscolhida === '' ? dividaPadrao : dividaEscolhida
+
   function limpar(): void {
     setRef('')
     setValor('')
@@ -136,6 +144,7 @@ export function TelaRecebimentos({
     setObs('')
     setEm(hoje)
     setCampanhaId('')
+    setDividaEscolhida('')
     // O próximo recebimento da MESMA paciente sugere de novo, sem ler de novo.
     sugestao.controle.recomecar()
     setTroca((n) => n + 1)
@@ -171,6 +180,9 @@ export function TelaRecebimentos({
           em,
           obs: obs.trim(),
           ref: escolhida.k,
+          ...(escolhida.k === 'saldo' && dividaAtual !== '' && dividaAtual !== 'geral'
+            ? { programaId: dividaAtual }
+            : {}),
           ...(campanhaId === '' ? {} : { campanhaId }),
           ...(escolhida.abre && abertoEmCentavos !== null
             ? { valorAberto: abertoEmCentavos.toString() }
@@ -241,6 +253,19 @@ export function TelaRecebimentos({
 
             {escolhida === undefined ? null : (
               <>
+                {escolhida.k === 'saldo' && dividas.length > 0 ? (
+                  <label className="campo">
+                    Qual dívida a paciente está pagando?
+                    <select value={dividaAtual} onChange={(e) => setDividaEscolhida(e.target.value)}>
+                      {dividas.map((g) => (
+                        <option key={g.programaId ?? 'geral'} value={g.programaId ?? 'geral'}>
+                          {g.programa ?? 'Valor em aberto fora de programa'}
+                          {g.saldo === null ? '' : ` — ${formatarDinheiro(centavos(g.saldo))} em aberto`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 <div className="par">
                   <label className="campo">
                     Valor recebido (R$)
@@ -527,7 +552,15 @@ function LinhaDeRecebimento({
           {r.estornado ? ' · estornado' : ''}
         </small>
         {r.estornado || aoEstornar === undefined ? null : !avulso ? (
-          <small>Para desfazer, abra o atendimento em Tarefas e use Excluir em Editar (ou reabra-o, se ainda não tiver orçamento fechado).</small>
+          <small>
+            Este pagamento faz parte de um atendimento. Para desfazer, abra o atendimento e use{' '}
+            <b>Reabrir orçamento</b> ou <b>Excluir orçamento</b> (a consulta continua).{' '}
+            <Link
+              href={`/pacientes/${r.pacienteId}${r.tarefaId === null ? '' : `?tarefa=${r.tarefaId}`}`}
+            >
+              Abrir o atendimento
+            </Link>
+          </small>
         ) : confirmando ? (
           <small>
             Estornar este recebimento? Ele deixa de contar no caixa e fica registrado como estornado.{' '}

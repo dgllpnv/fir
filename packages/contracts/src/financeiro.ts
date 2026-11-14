@@ -92,7 +92,11 @@ export const RegistrarRecebimento = z.discriminatedUnion('ref', [
   // "Este paciente não tem programa em andamento." — o mesmo texto da tela.
   // O contrato já exige o id: o épico 5 não mexe neste arquivo.
   z.object({ ...comumDoRecebimento, ref: z.literal('programa'), programaId: Uuid }).strict(),
-  z.object({ ...comumDoRecebimento, ref: z.literal('saldo') }).strict(),
+  // `saldo` ABATE uma dívida. `programaId` diz QUAL: ausente/nulo = o grupo geral
+  // (o que não é de programa); com id = a dívida daquele programa. Sem isto, todo
+  // "Saldo em aberto" caía no grupo geral, e a paciente que devia num programa
+  // ficava com a dívida do programa e um crédito no geral.
+  z.object({ ...comumDoRecebimento, ref: z.literal('saldo'), programaId: Uuid.nullish() }).strict(),
 ])
 export type RegistrarRecebimento = z.infer<typeof RegistrarRecebimento>
 
@@ -204,6 +208,18 @@ export const PagarConta = z
   })
   .strict()
 export type PagarConta = z.infer<typeof PagarConta>
+
+/**
+ * Criar a conta — `SalvarConta` mais, opcionalmente, o pagamento JÁ FEITO
+ * ("Conta já paga"). Só a criação aceita `pagamento`: editar não paga.
+ * É o mesmo `PagarConta` do Paguei, então a baixa não tem segundo formato.
+ */
+export const CriarConta = SalvarConta.extend({
+  pagamento: PagarConta.optional(),
+  /** Chave do envio: reenviar o mesmo lançamento devolve a conta já criada. */
+  requisicaoId: Uuid.optional(),
+}).strict()
+export type CriarConta = z.infer<typeof CriarConta>
 
 export const ContaNaLista = z.object({
   id: Uuid,
@@ -457,6 +473,8 @@ export const GrupoDeSaldo = z.object({
   /** `null` = o grupo geral, fora de programa. */
   programaId: Uuid.nullable(),
   programa: z.string().nullable(),
+  /** O grupo deve algo? Derivado, não monetário: sobrevive à redação sem `valores`. */
+  devendo: z.boolean(),
   aberto: centavosNaSaida,
   abatido: centavosNaSaida,
   saldo: centavosNaSaida,

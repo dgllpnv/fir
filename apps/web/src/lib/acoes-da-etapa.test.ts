@@ -42,13 +42,22 @@ describe('a faixa de ações vem da tabela de @fir/domain', () => {
     expect(nomes('desmarcou')).toEqual(['reagendar', 'encerrar'])
   })
 
-  it('de orçamento saem follow-up, fechar, corrigir e perder — a recusa por último', () => {
+  it('de orçamento saem follow-up, fechar, corrigir, perder e excluir o orçamento — as que desfazem por último', () => {
     expect(nomes('orcamento', { status: 'concluida' })).toEqual([
       'followUp',
       'fechar',
       'corrigirOrcamento',
       'perder',
+      'excluirOrcamento',
     ])
+  })
+
+  it('reabrir/excluir o orçamento somem de quem não pode receber', () => {
+    for (const etapa of ['orcamento', 'fechado', 'perdido'] as const) {
+      const n = nomes(etapa, { status: 'concluida', podeReceber: false })
+      expect(n, etapa).not.toContain('reabrirOrcamento')
+      expect(n, etapa).not.toContain('excluirOrcamento')
+    }
   })
 
   it('"Corrigir orçamento" some de quem não pode editar o cartão (B1)', () => {
@@ -61,10 +70,13 @@ describe('a faixa de ações vem da tabela de @fir/domain', () => {
     }
   })
 
-  it('os três terminais não oferecem ação nenhuma', () => {
-    for (const etapa of ['fechado', 'perdido', 'encerrado'] as const) {
-      expect(nomes(etapa, { status: etapa === 'encerrado' ? 'cancelada' : 'concluida' }), etapa)
-        .toEqual([])
+  it('os terminais só oferecem desfazer o ORÇAMENTO (fechado/perdido) ou nada (encerrado)', () => {
+    expect(nomes('encerrado', { status: 'cancelada' })).toEqual([])
+    for (const etapa of ['fechado', 'perdido'] as const) {
+      expect(nomes(etapa, { status: 'concluida' }), etapa).toEqual([
+        'reabrirOrcamento',
+        'excluirOrcamento',
+      ])
     }
   })
 

@@ -123,10 +123,13 @@ describe('transicao — o que é proibido, cada caso', () => {
     expect(mensagemDe(r)).toContain('ainda não aconteceu')
   })
 
-  it('de fechado e perdido NADA sai — nem reabrir (só o restante do parcial, que fica no mesmo lugar)', () => {
+  it('de fechado e perdido NADA sai — nem reabrir o atendimento (só o restante do parcial, e desfazer o ORÇAMENTO por ação própria)', () => {
     for (const t of ETAPAS_SEM_SAIDA) {
       for (const a of ACOES) {
         if (t === 'fechado' && a === 'retomarRestante') continue
+        // 2026-11-13: a ÚNICA saída, pedida pela cliente — desfazer só o
+        // orçamento, estornando o dinheiro (ADR reabrir-e-excluir-orcamento).
+        if (a === 'reabrirOrcamento' || a === 'excluirOrcamento') continue
         expect(ehErro(transicao(estadoDe(t), a)), `${t} + ${a}`).toBe(true)
       }
     }
@@ -146,8 +149,8 @@ describe('transicao — o que é proibido, cada caso', () => {
     expect(ETAPAS.filter((e) => statusDaEtapa(e) === 'cancelada')).toEqual([ETAPA_AO_CANCELAR])
   })
 
-  it('A MATRIZ INTEIRA: 9 etapas × 15 ações, e só as 26 combinações da tabela passam', () => {
-    // 126 combinações, uma por uma, e as 102 restantes são recusadas. É o
+  it('A MATRIZ INTEIRA: 9 etapas × 17 ações, e só as 31 combinações da tabela passam', () => {
+    // 153 combinações, uma por uma, e as 122 restantes são recusadas. É o
     // único jeito de provar que CADA transição proibida é recusada — "de
     // faltou só saem três" prova três linhas, não as outras 123.
     //
@@ -194,9 +197,15 @@ describe('transicao — o que é proibido, cada caso', () => {
         'realizado -fechar-> fechado/concluida',
         'realizado -reabrir-> agendado/aberta',
         'realizado -registrarOrcamento-> orcamento/concluida',
+        // 2026-11-13 (pedido da cliente): desfazer só o orçamento. A consulta fica.
+        'fechado -reabrirOrcamento-> orcamento/concluida',
+        'perdido -reabrirOrcamento-> orcamento/concluida',
+        'orcamento -excluirOrcamento-> realizado/concluida',
+        'fechado -excluirOrcamento-> realizado/concluida',
+        'perdido -excluirOrcamento-> realizado/concluida',
       ].sort(),
     )
-    expect(permitidas).toHaveLength(26)
+    expect(permitidas).toHaveLength(31)
   })
 
   it('nenhuma ação de agenda alcança um cartão concluído', () => {
@@ -442,7 +451,9 @@ describe('propriedades — exemplo a dedo não prova tabela de transições', ()
       }),
     )
     // Piso: sem ele a propriedade passaria com toda transição devolvendo erro.
-    expect(andou).toBeGreaterThan(100)
+    // 50, não 100: com 17 ações, várias só valem em certas etapas, e a amostra
+    // aleatória varia (99 numa rodada). O piso só prova que a propriedade não é vazia.
+    expect(andou).toBeGreaterThan(50)
   })
 
   it('o estado alcançado por qualquer caminho é sempre consistente', () => {
@@ -511,8 +522,9 @@ describe('itensDoOrcamentoDe — migração por leitura', () => {
   const A = { chave: 'a', procedimentoId: 'p1', valor: '100' }
   it('a lista própria tem precedência; sem ela, os itens vêm do programa orçado', () => {
     expect(itensDoOrcamentoDe([A], [{ chave: 'x', procedimentoId: 'p9' }])).toEqual([A])
+    // As sessões orçadas acompanham o item (pedido da cliente, 2026-11-13).
     expect(itensDoOrcamentoDe(null, [{ chave: 'x', procedimentoId: 'p9', sessoes: 3 } as never])).toEqual([
-      { chave: 'x', procedimentoId: 'p9' },
+      { chave: 'x', procedimentoId: 'p9', sessoes: 3 },
     ])
   })
   it('sem nenhum dos dois (orçamento só com valor) é null; item sem chave ganha uma posicional', () => {
@@ -520,11 +532,11 @@ describe('itensDoOrcamentoDe — migração por leitura', () => {
     expect(itensDoOrcamentoDe([], [])).toBeNull()
     expect(itensDoOrcamentoDe(null, [{ procedimentoId: 'p1' }])![0]!.chave).toBe('i1')
   })
-  it('nunca carrega dose, sessões nem responsável', () => {
+  it('carrega as sessões, e NUNCA a dose nem o responsável (regra 18)', () => {
     const r = itensDoOrcamentoDe(null, [
       { chave: 'a', procedimentoId: 'p', dose: '5mg', sessoes: 4, responsavelId: 'r' } as never,
     ])
-    expect(Object.keys(r![0]!).sort()).toEqual(['chave', 'procedimentoId'])
+    expect(Object.keys(r![0]!).sort()).toEqual(['chave', 'procedimentoId', 'sessoes'])
   })
 })
 

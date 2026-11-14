@@ -22,6 +22,7 @@ const CHAVE_DO_AVISO: Readonly<Record<string, string>> = {
   CAIXA_FECHADO: 'confirmarCaixaFechado',
   POSSIVEL_DUPLICIDADE: 'confirmarDuplicidade',
   MES_ANTERIOR: 'confirmarMesAnterior',
+  VALOR_ACIMA_DA_DIVIDA: 'confirmarAcimaDaDivida',
 }
 
 export type ContextoDaPergunta = {
@@ -66,6 +67,8 @@ export function perguntasDosAvisos(
           : `Já existe um pagamento de mesmo valor para esta paciente ${quando}. É outro pagamento?`
       case 'MES_ANTERIOR':
         return 'Este pagamento é de um mês anterior, que já pode ter sido fechado. Continuar mesmo assim?'
+      case 'VALOR_ACIMA_DA_DIVIDA':
+        return 'Este valor é maior do que está em aberto nesta dívida. O que passar vira crédito da paciente. Registrar mesmo assim?'
       default:
         return a
     }

@@ -1,4 +1,4 @@
-import { MoverEtapa, type TarefasAfetadas } from '@fir/contracts'
+import { MoverEtapa, type PreviaDeDesfazerOrcamento, type TarefasAfetadas } from '@fir/contracts'
 import type { ChaveDePermissao } from '@fir/domain'
 import {
   BadRequestException,
@@ -6,6 +6,7 @@ import {
   Controller,
   ForbiddenException,
   HttpCode,
+  Get,
   HttpStatus,
   Inject,
   Param,
@@ -17,6 +18,7 @@ import { Exige } from '../autorizacao/autorizacao.guard'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { autorDe } from '../tarefas/leitura'
 import { primeiroErro } from '../tarefas/tarefas.controller'
+import { DesfazerOrcamentoService } from './desfazer-orcamento.service'
 import { JornadaService } from './jornada.service'
 
 /**
@@ -54,11 +56,32 @@ import { JornadaService } from './jornada.service'
  */
 const PERMISSAO_EXTRA: Partial<Record<MoverEtapa['acao'], ChaveDePermissao>> = {
   fechar: 'receber',
+  // As duas ESTORNAM o dinheiro do fechamento: a mesma chave de quem o registrou.
+  reabrirOrcamento: 'receber',
+  excluirOrcamento: 'receber',
 }
 @Controller('v1/tarefas')
 @Exige('jornada')
 export class JornadaController {
-  constructor(@Inject(JornadaService) private readonly jornada: JornadaService) {}
+  constructor(
+    @Inject(JornadaService) private readonly jornada: JornadaService,
+    @Inject(DesfazerOrcamentoService) private readonly desfazer: DesfazerOrcamentoService,
+  ) {}
+
+  /**
+   * O que reabrir ou excluir o orçamento vai desfazer — a confirmação da tela.
+   * Exige `jornada` e `receber`, como as duas ações. O valor passa pela redação
+   * central: sem `valores`, a equipe lê "há um pagamento a estornar".
+   */
+  @Get(':id/orcamento/previa')
+  async previa(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<PreviaDeDesfazerOrcamento> {
+    const c = req.contexto!
+    if (!c.pode('receber')) throw new ForbiddenException('Sem acesso a esta ação.')
+    return this.desfazer.previa(c.clinicaId, c.ator, c.clinicaFuso, id)
+  }
 
   @Post(':id/jornada')
   @HttpCode(HttpStatus.OK)

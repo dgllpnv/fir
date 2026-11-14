@@ -7,7 +7,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { bordasDoPeriodo } from '../tarefas/consulta.service'
-import { sqlParcial } from './parcial'
+import { sqlEventoDesfeito, sqlParcial } from './parcial'
 
 /**
  * **ORÇAMENTOS POR ATENDENTE.**
@@ -68,10 +68,11 @@ export class OrcamentosService {
                 )::text AS sem
            FROM tarefas t
            JOIN pessoas p ON p.id = t.responsavel_id AND p.clinica_id = t.clinica_id
-           CROSS JOIN LATERAL jsonb_array_elements(t.historico) ev
+           CROSS JOIN LATERAL jsonb_array_elements(t.historico) WITH ORDINALITY AS e(ev, ord)
           WHERE t.clinica_id = $1
             AND t.excluida_em IS NULL
             AND ev->>'acao' = ANY($2)
+            AND NOT ${sqlEventoDesfeito('t', 'ev', 'e.ord')}
             AND (ev->>'em')::timestamptz >= $3
             AND (ev->>'em')::timestamptz <  $4
           GROUP BY t.responsavel_id, p.nome

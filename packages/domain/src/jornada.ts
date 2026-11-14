@@ -45,6 +45,8 @@ export type AcaoDeJornada =
   | 'retomarRestante'
   | 'reabrir'
   | 'corrigirOrcamento'
+  | 'reabrirOrcamento'
+  | 'excluirOrcamento'
 
 /** As nove etapas, na ordem em que a clínica as percorre. */
 export const ETAPAS = [
@@ -81,6 +83,8 @@ export const ACOES = [
   'retomarRestante',
   'reabrir',
   'corrigirOrcamento',
+  'reabrirOrcamento',
+  'excluirOrcamento',
 ] as const satisfies readonly AcaoDeJornada[]
 
 const ABERTAS = ['agendado', 'confirmado', 'faltou', 'desmarcou'] as const
@@ -97,7 +101,9 @@ export const ETAPAS_TERMINAIS: readonly Etapa[] = ['fechado', 'perdido', 'encerr
 export const ETAPAS_EM_RECONTATO: readonly Etapa[] = ['faltou', 'desmarcou']
 
 /**
- * De `fechado` e `perdido` NADA sai. Nem `reabrir`.
+ * De `fechado` e `perdido` NADA avança. Nem `reabrir`. A ÚNICA exceção são
+ * `reabrirOrcamento` e `excluirOrcamento` (ADR 2026-11-13): elas desfazem só o
+ * orçamento, estornando o dinheiro e encerrando o programa na mesma transação.
  *
  * `encerrado` é terminal no FUNIL — a jornada não avança dali — mas `reabrir`
  * alcança, porque reabrir não é avanço: é correção, e cancelar por engano
@@ -204,6 +210,13 @@ const TRANSICOES_LITERAL = [
   // funil, no Painel e na carteira (gate de números, N-13). `exigeValor:
   // false` porque corrigir só a data ou só a nota é correção legítima.
   { acao: 'corrigirOrcamento',  de: ['orcamento'],              para: 'orcamento',  status: 'concluida', contaNoFunil: false, exigeValor: false, exigeMotivo: false },
+  // DESFAZER SÓ O ORÇAMENTO (pedido da cliente, 2026-11-13; ADR
+  // 2026-11-13-reabrir-e-excluir-orcamento). É a ÚNICA saída de `fechado` e de
+  // `perdido`: a consulta fica, o orçamento volta ou some, e o dinheiro do
+  // fechamento é estornado na mesma transação. `contaNoFunil: false`: o evento
+  // não soma nada — o que ele faz é tirar do funil o que foi desfeito.
+  { acao: 'reabrirOrcamento',   de: ['fechado', 'perdido'],     para: 'orcamento',  status: 'concluida', contaNoFunil: false, exigeValor: false, exigeMotivo: false },
+  { acao: 'excluirOrcamento',   de: ['orcamento', 'fechado', 'perdido'], para: 'realizado', status: 'concluida', contaNoFunil: false, exigeValor: false, exigeMotivo: false },
 ] as const satisfies readonly Transicao[]
 
 /**
@@ -267,6 +280,8 @@ export const ROTULO_DE_ACAO: Readonly<Record<AcaoDeJornada, string>> = {
   retomarRestante: 'Retomar o restante',
   reabrir: 'Reabrir',
   corrigirOrcamento: 'Corrigir orçamento',
+  reabrirOrcamento: 'Reabrir orçamento',
+  excluirOrcamento: 'Excluir orçamento',
 }
 
 /**
@@ -314,6 +329,8 @@ export type EventoDeJornada = {
    * detalhamento: "sem detalhamento", nunca reconstruído (sem backfill).
    */
   readonly itensFechados?: string[]
+  /** Só em `fechar` parcial de programa: sessões fechadas por chave (as orçadas ficam no orçamento). */
+  readonly sessoesFechadas?: Readonly<Record<string, number>>
   /**
    * Só em `fechar`: o que a paciente fechou (entrada + em aberto), centavos
    * EM TEXTO (D-4). `valorFechado` está em `CAMPOS_MONETARIOS`: sem `valores`
@@ -547,7 +564,10 @@ export function orcadoNaJanela(
   ate: Date,
 ): Dinheiro {
   let total = Dinheiro.zero()
-  for (const h of historicos) {
+  for (const h0 of historicos) {
+    // O que veio ANTES de um "excluir orçamento" foi desfeito: não é orçado.
+    const corte = h0.map((e) => e.acao).lastIndexOf('excluirOrcamento')
+    const h = corte === -1 ? h0 : h0.slice(corte + 1)
     for (const e of h) {
       if (e.acao !== 'registrarOrcamento') continue
       const em = new Date(e.em).getTime()
@@ -811,6 +831,8 @@ export type ItemDoOrcamentoLido = {
   readonly procedimentoId: string
   /** Centavos em texto (D-4), ou ausente. */
   readonly valor?: string | null | undefined
+  /** Sessões orçadas, quando informadas. */
+  readonly sessoes?: number | undefined
 }
 
 /**
@@ -836,6 +858,7 @@ export function itensDoOrcamentoDe(
     chave: i.chave,
     procedimentoId: i.procedimentoId,
     ...(i.valor === undefined || i.valor === null ? {} : { valor: i.valor }),
+    ...(typeof i.sessoes === 'number' && i.sessoes > 0 ? { sessoes: i.sessoes } : {}),
   }))
 }
 
@@ -853,7 +876,11 @@ export type ResumoDoOrcamento = {
   readonly situacao: SituacaoDoOrcamento
   /** Oferecido − fechado, só no `parcial`. NÃO é receita (regra 4). */
   readonly valorRestante: bigint | null
-  readonly itens: readonly (ItemDoOrcamentoLido & { readonly situacao: SituacaoDoItemDoOrcamento })[]
+  readonly itens: readonly (ItemDoOrcamentoLido & {
+    readonly situacao: SituacaoDoItemDoOrcamento
+    /** Sessões fechadas, quando o parcial fechou menos que as orçadas. */
+    readonly sessoesFechadas?: number
+  })[]
   /** Quantos itens foram fechados, ou `null` quando não há detalhamento. */
   readonly itensFechados: number | null
 }
@@ -885,16 +912,19 @@ export function resumoDoOrcamento(x: {
   } else return null
 
   let fechados: ReadonlySet<string> | null = null
+  let sessoesFechadas: Readonly<Record<string, number>> = {}
   if (x.etapa === 'fechado') {
     for (let i = x.historico.length - 1; i >= 0; i--) {
       const e = x.historico[i]!
       if (e.acao !== 'fechar') continue
       if (e.itensFechados !== undefined) fechados = new Set(e.itensFechados)
+      if (e.sessoesFechadas !== undefined) sessoesFechadas = e.sessoesFechadas
       break
     }
   }
   const itens = (x.itens ?? []).map((i) => ({
     ...i,
+    ...(sessoesFechadas[i.chave] === undefined ? {} : { sessoesFechadas: sessoesFechadas[i.chave]! }),
     situacao: (x.etapa !== 'fechado'
       ? 'orcado'
       : fechados === null

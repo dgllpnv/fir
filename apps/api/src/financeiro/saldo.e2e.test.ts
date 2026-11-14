@@ -88,7 +88,8 @@ describe('GET /v1/pacientes/:id/saldo', () => {
     // excedente sumia — e paciente que pagou a mais é erro de lançamento ou
     // crédito real, e os dois precisam aparecer.
     await registrar({ ref: 'consulta', valor: '100000', valorAberto: '50000' })
-    await registrar({ ref: 'saldo', valor: '80000' })
+    // Acima da dívida: o servidor pergunta; a confirmação explícita gera o crédito.
+    await registrar({ ref: 'saldo', valor: '80000', confirmarAcimaDaDivida: true })
 
     const r = await saldoDe(c.pacientes['ana']!)
     expect(r.body.saldo).toBe('0')
@@ -139,7 +140,7 @@ describe('GET /v1/pacientes/:id/saldo', () => {
 describe('a lista e a ficha consomem a MESMA função do domínio', () => {
   it('a ficha traz saldo, credito e temSaldo — e o credito não é engolido', async () => {
     await registrar({ ref: 'consulta', valor: '100000', valorAberto: '50000' })
-    await registrar({ ref: 'saldo', valor: '80000' })
+    await registrar({ ref: 'saldo', valor: '80000', confirmarAcimaDaDivida: true })
 
     const r = await fichaDe(c.pacientes['ana']!)
     expect(r.statusCode).toBe(200)

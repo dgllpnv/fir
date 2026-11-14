@@ -18,3 +18,25 @@ export const sqlParcial = (alias: string): string =>
     AND ${alias}.valor_orcamento IS NOT NULL
     AND ${alias}.valor_fechado IS NOT NULL
     AND ${alias}.valor_fechado < ${alias}.valor_orcamento)`
+
+/**
+ * "ESTE EVENTO FOI DESFEITO" EM SQL — o fragmento único.
+ *
+ * O histórico é append-only: reabrir ou excluir o orçamento NÃO apaga o evento
+ * `fechar`/`perder`/`registrarOrcamento`, acrescenta um evento depois dele. Quem
+ * conta eventos (o funil, a contagem por atendente) precisa ignorar o que já foi
+ * desfeito, senão "Fechados" soma um negócio que não existe mais.
+ *
+ *  - `excluirOrcamento` desfaz tudo o que veio antes dele;
+ *  - `reabrirOrcamento` desfaz só o `fechar` e o `perder` anteriores — o
+ *    orçamento enviado continua sendo um orçamento enviado.
+ *
+ * `ev` e `ord` são o evento e a posição dele (`WITH ORDINALITY`), nomes
+ * literais do código, nunca de requisição. O par em TypeScript é
+ * `orcadoNaJanela`, em `packages/domain`.
+ */
+export const sqlEventoDesfeito = (alias: string, ev: string, ord: string): string =>
+  `EXISTS (SELECT 1 FROM jsonb_array_elements(${alias}.historico) WITH ORDINALITY AS z(v, o)
+            WHERE z.o > ${ord}
+              AND (z.v->>'acao' = 'excluirOrcamento'
+                   OR (z.v->>'acao' = 'reabrirOrcamento' AND ${ev}->>'acao' IN ('fechar', 'perder'))))`

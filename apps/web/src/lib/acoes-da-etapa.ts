@@ -51,7 +51,15 @@ export type AcaoDaFaixa = {
 }
 
 /** As que recusam ou encerram — desenhadas com menos peso que as que avançam. */
-const NEGATIVAS: readonly AcaoDeJornada[] = ['noshow', 'desmarcar', 'encerrar', 'perder']
+const NEGATIVAS: readonly AcaoDeJornada[] = [
+  'noshow',
+  'desmarcar',
+  'encerrar',
+  'perder',
+  // Desfazem o que já foi decidido: menos peso que as que avançam.
+  'reabrirOrcamento',
+  'excluirOrcamento',
+]
 
 export function acoesDaEtapa(t: {
   readonly etapa: Etapa | null
@@ -93,6 +101,13 @@ export function acoesDaEtapa(t: {
     // Afordância de tela, não regra: ver `DIAS_PARA_ORCAR`.
     if (x.acao === 'registrarOrcamento' && !aindaDaParaOrcar(t.concluidaEm, t.hoje)) return false
     if (x.acao === 'fechar' && t.podeReceber === false) return false
+    // Reabrir/excluir o orçamento estorna o dinheiro do fechamento: a mesma chave.
+    if (
+      (x.acao === 'reabrirOrcamento' || x.acao === 'excluirOrcamento') &&
+      t.podeReceber === false
+    ) {
+      return false
+    }
     if (x.acao === 'corrigirOrcamento' && t.podeCorrigir === false) return false
     if (x.acao === 'retomarRestante' && t.orcamentoParcial !== true) return false
     return true

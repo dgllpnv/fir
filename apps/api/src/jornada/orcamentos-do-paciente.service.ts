@@ -4,6 +4,7 @@ import {
   type EventoDeJornada,
   type ItemDoOrcamentoLido,
   itensDoOrcamentoDe,
+  orcamentoVigente,
   resumoDoOrcamento,
 } from '@fir/domain'
 import { Inject, Injectable, NotFoundException } from '@nestjs/common'
@@ -51,8 +52,8 @@ export class OrcamentosDoPacienteService {
         etapa: Etapa
         valor_orcamento: string | null
         valor_fechado: string | null
-        itens_orcamento: ItemDoOrcamentoLido[] | null
-        programa_orcado: ItemDoOrcamentoLido[] | null
+        itens_orcamento: (ItemDoOrcamentoLido & { sessoes?: number })[] | null
+        programa_orcado: (ItemDoOrcamentoLido & { sessoes?: number; intervaloDias?: number })[] | null
         historico: EventoDeJornada[]
         proximo_passo_em: string | null
       }>(
@@ -97,6 +98,13 @@ export class OrcamentosDoPacienteService {
           historico: l.historico,
         })
         if (resumo === null) continue
+        // Sessões e intervalo moram em `programa_orcado`, na mesma ordem que
+        // `itensDoOrcamentoDe` numera (`i1`, `i2`…). Só o modo lista tem
+        // `itens_orcamento`, e ele não tem sessões.
+        const doPrograma = new Map<string, { sessoes?: number; intervaloDias?: number }>([
+          ...(l.itens_orcamento ?? []).map((p) => [p.chave, p] as const),
+          ...(l.programa_orcado ?? []).map((p, n) => [p.chave ?? `i${n + 1}`, p] as const),
+        ])
         const registrado = l.historico.find((e) => e.acao === 'registrarOrcamento')
         itens.push({
           tarefaId: l.id,
@@ -108,6 +116,8 @@ export class OrcamentosDoPacienteService {
           valorFechado: l.valor_fechado,
           valorRestante: resumo.valorRestante === null ? null : resumo.valorRestante.toString(),
           itens: resumo.itens.map((i) => ({
+            ...(sessoesDe(doPrograma.get(i.chave))),
+            ...(i.sessoesFechadas === undefined ? {} : { sessoesFechadas: i.sessoesFechadas }),
             chave: i.chave,
             procedimentoId: i.procedimentoId,
             procedimento: nomes.get(i.procedimentoId) ?? 'Procedimento',
@@ -117,6 +127,11 @@ export class OrcamentosDoPacienteService {
           itensFechados: resumo.itensFechados,
           itensTotal: resumo.itens.length,
           retomarRestanteEm: resumo.situacao === 'parcial' ? l.proximo_passo_em : null,
+          notaDoOrcamento: orcamentoVigente(l.historico)?.nota ?? null,
+          notaDoFechamento:
+            l.etapa === 'fechado'
+              ? ([...l.historico].reverse().find((e) => e.acao === 'fechar')?.nota ?? null)
+              : null,
         })
       }
       itens.sort((a, b) =>
@@ -136,5 +151,19 @@ export class OrcamentosDoPacienteService {
         itens,
       }
     })
+  }
+}
+
+/** Só o que a aba pode mostrar: quantas sessões e a cada quantos dias. Nunca a dose. */
+function sessoesDe(p: { sessoes?: number; intervaloDias?: number } | undefined): {
+  sessoes?: number
+  intervaloDias?: number
+} {
+  if (p === undefined || typeof p.sessoes !== 'number') return {}
+  return {
+    sessoes: p.sessoes,
+    ...(typeof p.intervaloDias === 'number' && p.intervaloDias > 0
+      ? { intervaloDias: p.intervaloDias }
+      : {}),
   }
 }

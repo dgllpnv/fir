@@ -19,6 +19,8 @@ export type ItemNoEditor = {
   readonly procedimentoId: string
   /** Texto digitado. Vira centavos na borda, nunca aqui. */
   readonly valor: string
+  /** Sessões orçadas, texto digitado ("" = não informado). Vira inteiro na borda. */
+  readonly sessoes: string
 }
 
 const MAXIMO = 10
@@ -27,6 +29,7 @@ export const itemVazio = (n: number): ItemNoEditor => ({
   chave: `i${n}`,
   procedimentoId: '',
   valor: '',
+  sessoes: '',
 })
 
 export function EditorDeItensDoOrcamento({
@@ -86,6 +89,17 @@ export function EditorDeItensDoOrcamento({
                   </option>
                 ))}
             </select>
+          </label>
+          <label className="campo" style={{ flex: '0 1 100px', margin: 0 }}>
+            Sessões <small>(opcional)</small>
+            <input
+              inputMode="numeric"
+              className="num"
+              placeholder="Ex.: 10"
+              maxLength={2}
+              value={item.sessoes}
+              onChange={(e) => trocar(k, { sessoes: e.target.value.replace(/\D/g, '') })}
+            />
           </label>
           {podeValores ? (
             <label className="campo" style={{ flex: '0 1 140px', margin: 0 }}>

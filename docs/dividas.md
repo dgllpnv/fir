@@ -660,6 +660,14 @@ resposta, porque o rótulo da sessão iria, com a dose, para o setor inteiro.
 
 ---
 
+## Registro de acesso na leitura de dado de saúde (regra 18)
+
+Ler a ficha, o cartão ou a aba Orçamentos de uma paciente (programa, sessões, intervalo) **não grava trilha de leitura**; só a escrita é auditada. Apontado pelo gate de LGPD em 2026-11-13. A decisão das sessões na aba ([ADR](adr/2026-11-13-sessoes-na-leitura-do-orcamento.md)) não piora a lacuna, porque usa a mesma permissão e as mesmas telas.
+
+**Gatilho:** antes da migração da primeira clínica real, ou na primeira solicitação de relatório de acesso de um titular — o que vier primeiro.
+
+---
+
 ## Pendências de produto, não de código
 
 Essas dependem do dono e estão em [`decisoes.md`](decisoes.md), não aqui: P-1 (UX de sessão no balcão), P-2 (hospedagem para dado de saúde), P-3 (DPA com cada clínica), P-4 (modelo comercial), P-5 (janela de migração), P-6 (perfil Consultoria), P-7 (integração com agenda), P-8 (domínio e certificado), ~~P-9 (SMTP — encerrada)~~, P-10 (concessão de acesso do operador a dado clínico).

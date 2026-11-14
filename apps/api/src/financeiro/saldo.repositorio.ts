@@ -188,6 +188,7 @@ export function saldoNoContrato(s: SaldoDoPaciente): SaldoNoContrato {
       programaId: g.programaId,
       // O NOME do programa chega no épico 5, junto com a coluna.
       programa: null,
+      devendo: g.saldo.centavos > 0n,
       aberto: g.aberto.centavos.toString(),
       abatido: g.abatido.centavos.toString(),
       saldo: g.saldo.centavos.toString(),

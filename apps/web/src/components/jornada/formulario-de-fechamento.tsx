@@ -1,11 +1,16 @@
-'use client'
+"use client";
 
-import { FORMAS, type ListaDeProcedimentos, type TarefaNaLista } from '@fir/contracts'
-import { formatarDinheiro } from '@fir/ui'
-import { useState } from 'react'
-import { useDados } from '@/lib/dados'
-import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
-import { calcularFechamento, somaDosItensMarcados } from '@/lib/fechamento'
+import {
+  FORMAS,
+  type ListaDeProcedimentos,
+  type TarefaNaLista,
+} from "@fir/contracts";
+import { Dinheiro, valorFechadoPorSessoes } from "@fir/domain";
+import { formatarDinheiro } from "@fir/ui";
+import { useState } from "react";
+import { useDados } from "@/lib/dados";
+import { centavosDoTexto, textoDeCentavos } from "@/lib/dinheiro-digitado";
+import { calcularFechamento, somaDosItensMarcados } from "@/lib/fechamento";
 
 /**
  * "FECHOU O ORÇAMENTO" — dois blocos, nesta ordem.
@@ -30,134 +35,243 @@ export function FormularioDeFechamento({
   aoFechar,
   aoSalvar,
 }: {
-  tarefa: TarefaNaLista
-  hoje: string
-  podeValores: boolean
-  aoFechar: () => void
-  aoSalvar: (corpo: Record<string, unknown>) => Promise<void>
+  tarefa: TarefaNaLista;
+  hoje: string;
+  podeValores: boolean;
+  aoFechar: () => void;
+  aoSalvar: (corpo: Record<string, unknown>) => Promise<void>;
 }) {
   // Fechar direto de "realizado" não tem orçamento: não há o que declarar.
-  const temOrcamento = t.etapa === 'orcamento'
-  const itens = t.itensOrcamento ?? []
-  const temItens = itens.length > 0
-  const temPrograma = (t.programaOrcado?.length ?? 0) > 0
-  const oferta = podeValores && t.valorOrcamento !== null ? BigInt(t.valorOrcamento) : null
+  const temOrcamento = t.etapa === "orcamento";
+  const itens = t.itensOrcamento ?? [];
+  const temItens = itens.length > 0;
+  const temPrograma = (t.programaOrcado?.length ?? 0) > 0;
+  const oferta =
+    podeValores && t.valorOrcamento !== null ? BigInt(t.valorOrcamento) : null;
 
-  const catalogo = useDados<ListaDeProcedimentos>(temItens ? 'v1/procedimentos' : null)
+  const catalogo = useDados<ListaDeProcedimentos>(
+    temItens ? "v1/procedimentos" : null,
+  );
   const nome = (id: string): string =>
-    (catalogo.dados?.itens ?? []).find((p) => p.id === id)?.nome ?? 'Procedimento'
+    (catalogo.dados?.itens ?? []).find((p) => p.id === id)?.nome ??
+    "Procedimento";
 
-  const [tipo, setTipo] = useState<'' | 'tudo' | 'parte'>('')
-  const [marcados, setMarcados] = useState<ReadonlySet<string>>(new Set())
-  const [fechadoTexto, setFechadoTexto] = useState('')
+  const [tipo, setTipo] = useState<"" | "tudo" | "parte">("");
+  const [marcados, setMarcados] = useState<ReadonlySet<string>>(new Set());
+  /** Sessões que ele vai fazer, por procedimento marcado (só orçamento de programa). */
+  const [sessoesTexto, setSessoesTexto] = useState<
+    Readonly<Record<string, string>>
+  >({});
+  const [fechadoTexto, setFechadoTexto] = useState("");
   /** Uma vez digitado à mão, a soma dos itens não sobrescreve mais. */
-  const [fechadoEditado, setFechadoEditado] = useState(false)
-  const [restanteEm, setRestanteEm] = useState('')
-  const [entrada, setEntrada] = useState('')
-  const [aberto, setAberto] = useState('')
-  const [forma, setForma] = useState<(typeof FORMAS)[number]>(FORMAS[0])
-  const [nota, setNota] = useState('')
-  const [inicio, setInicio] = useState(hoje)
-  const [erro, setErro] = useState<string | null>(null)
-  const [salvando, setSalvando] = useState(false)
+  const [fechadoEditado, setFechadoEditado] = useState(false);
+  const [restanteEm, setRestanteEm] = useState("");
+  const [entrada, setEntrada] = useState("");
+  const [aberto, setAberto] = useState("");
+  const [forma, setForma] = useState<(typeof FORMAS)[number]>(FORMAS[0]);
+  const [nota, setNota] = useState("");
+  const [inicio, setInicio] = useState(hoje);
+  const [erro, setErro] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
 
   const calculo =
-    tipo === '' || oferta === null
+    tipo === "" || oferta === null
       ? null
       : calcularFechamento({
           oferta,
           tipo,
           fechadoDigitado: fechadoTexto,
           entradaDigitada: entrada,
-        })
+        });
 
-  function marcar(chave: string, ligado: boolean) {
-    const novo = new Set(marcados)
-    if (ligado) novo.add(chave)
-    else novo.delete(chave)
-    setMarcados(novo)
-    // O valor fechado nasce da soma dos itens marcados (quando todos têm preço)
-    // e continua DIGITÁVEL: a paciente pode ter negociado.
-    if (podeValores && !fechadoEditado) {
-      const soma = somaDosItensMarcados(itens, novo)
-      setFechadoTexto(soma === null ? '' : textoDeCentavos(soma))
+  /** As sessões orçadas de um procedimento, ou `null` se o orçamento não é de programa. */
+  const orcadasDe = (chave: string): number | null =>
+    (t.programaOrcado ?? []).find((p) => p.chave === chave)?.sessoes ??
+    itens.find((i) => i.chave === chave)?.sessoes ??
+    null;
+
+  /** O que ele vai fazer: o que foi digitado (1 até as orçadas), ou todas as orçadas. */
+  const fechadasDe = (
+    chave: string,
+    textos: Readonly<Record<string, string>>,
+  ): number | null => {
+    const orcadas = orcadasDe(chave);
+    if (orcadas === null) return null;
+    const n = Number.parseInt(textos[chave] ?? "", 10);
+    return Number.isInteger(n) && n >= 1 && n <= orcadas ? n : orcadas;
+  };
+
+  /**
+   * O valor fechado nasce da soma dos itens marcados (quando todos têm preço) —
+   * proporcional às sessões quando ele fecha menos que as orçadas — e continua
+   * DIGITÁVEL: a paciente pode ter negociado.
+   */
+  function sugerirValor(
+    novo: ReadonlySet<string>,
+    textos: Readonly<Record<string, string>>,
+  ) {
+    if (!podeValores || fechadoEditado) return;
+    const escolhidos = itens.filter((i) => novo.has(i.chave));
+    if (
+      escolhidos.length === 0 ||
+      escolhidos.some(
+        (i) => i.valor === undefined || i.valor === null || i.valor === "",
+      )
+    ) {
+      setFechadoTexto("");
+      return;
     }
+    let soma = 0n;
+    for (const i of escolhidos) {
+      const cheio = BigInt(i.valor!);
+      const orcadas = orcadasDe(i.chave);
+      const n = fechadasDe(i.chave, textos);
+      soma +=
+        orcadas === null || n === null
+          ? cheio
+          : valorFechadoPorSessoes(Dinheiro.deCentavos(cheio), n, orcadas)
+              .fechado.centavos;
+    }
+    setFechadoTexto(textoDeCentavos(soma));
   }
 
+  function marcar(chave: string, ligado: boolean) {
+    const novo = new Set(marcados);
+    if (ligado) novo.add(chave);
+    else novo.delete(chave);
+    setMarcados(novo);
+    sugerirValor(novo, sessoesTexto);
+  }
+
+  function mudarSessoes(chave: string, texto: string) {
+    const novo = { ...sessoesTexto, [chave]: texto };
+    setSessoesTexto(novo);
+    sugerirValor(marcados, novo);
+  }
+
+  /** Algum procedimento marcado vai ter MENOS sessões que as orçadas? */
+  const reduziu = (): boolean =>
+    [...marcados].some((k) => {
+      const o = orcadasDe(k);
+      const n = fechadasDe(k, sessoesTexto);
+      return o !== null && n !== null && n < o;
+    });
+
+  /** Só viajam as reduções: ausente = todas as orçadas. */
+  const sessoesFechadas = (): Record<string, number> =>
+    Object.fromEntries(
+      [...marcados].flatMap((k) => {
+        const o = orcadasDe(k);
+        const n = fechadasDe(k, sessoesTexto);
+        return o !== null && n !== null && n < o ? [[k, n] as const] : [];
+      }),
+    );
+
   function montar(): Record<string, unknown> | string {
-    const valorEntrada = centavosDoTexto(entrada)
-    if (valorEntrada === null || valorEntrada <= 0n) return 'Informe o valor recebido agora.'
-    if (temOrcamento && tipo === '') return 'Diga se fechou o orçamento todo ou só uma parte.'
-    if (tipo === 'parte' && temItens) {
-      if (marcados.size === 0) return 'Marque os procedimentos que a paciente fechou.'
-      if (marcados.size >= itens.length) {
-        return 'Todos os procedimentos estão marcados: escolha "O orçamento todo".'
+    const valorEntrada = centavosDoTexto(entrada);
+    if (valorEntrada === null || valorEntrada <= 0n)
+      return "Informe o valor recebido agora.";
+    if (temOrcamento && tipo === "")
+      return "Diga se fechou o orçamento todo ou só uma parte.";
+    if (tipo === "parte" && temItens) {
+      if (marcados.size === 0)
+        return "Marque os procedimentos que a paciente fechou.";
+      if (marcados.size >= itens.length && !reduziu()) {
+        return 'Todos os procedimentos estão marcados, com todas as sessões: escolha "O orçamento todo".';
       }
     }
-    let emAberto: bigint
+    let emAberto: bigint;
     if (calculo !== null) {
-      if (calculo.erro !== null) return calculo.erro
-      if (calculo.pagamentoEmAberto === null) return 'Confira os valores.'
-      emAberto = calculo.pagamentoEmAberto
+      if (calculo.erro !== null) return calculo.erro;
+      if (calculo.pagamentoEmAberto === null) return "Confira os valores.";
+      emAberto = calculo.pagamentoEmAberto;
     } else {
       // Sem `valores` (ou sem orçamento): digitado, e o servidor confere.
-      const d = aberto.trim() === '' ? 0n : centavosDoTexto(aberto)
-      if (d === null || d < 0n) return 'Pagamento em aberto inválido. Use 300,00.'
-      emAberto = d
+      const d = aberto.trim() === "" ? 0n : centavosDoTexto(aberto);
+      if (d === null || d < 0n)
+        return "Pagamento em aberto inválido. Use 300,00.";
+      emAberto = d;
     }
     return {
-      acao: 'fechar',
-      ...(tipo === '' ? {} : { fechamento: tipo }),
-      recebimento: { valor: valorEntrada.toString(), forma, valorAberto: emAberto.toString() },
-      ...(tipo === 'parte' && temItens ? { itensFechados: [...marcados] } : {}),
-      ...(tipo === 'parte' && restanteEm !== '' ? { retomarRestanteEm: restanteEm } : {}),
+      acao: "fechar",
+      ...(tipo === "" ? {} : { fechamento: tipo }),
+      recebimento: {
+        valor: valorEntrada.toString(),
+        forma,
+        valorAberto: emAberto.toString(),
+      },
+      ...(tipo === "parte" && temItens ? { itensFechados: [...marcados] } : {}),
+      ...(tipo === "parte" &&
+      temItens &&
+      Object.keys(sessoesFechadas()).length > 0
+        ? { sessoesFechadas: sessoesFechadas() }
+        : {}),
+      ...(tipo === "parte" && restanteEm !== ""
+        ? { retomarRestanteEm: restanteEm }
+        : {}),
       // Só viaja se a recepção mudou: o padrão é o hoje da clínica, que o servidor aplica.
       ...(temPrograma && inicio !== hoje ? { inicioDoPrograma: inicio } : {}),
-      ...(nota.trim() === '' ? {} : { nota: nota.trim() }),
-    }
+      ...(nota.trim() === "" ? {} : { nota: nota.trim() }),
+    };
   }
 
   async function salvar() {
-    setErro(null)
-    const corpo = montar()
-    if (typeof corpo === 'string') {
-      setErro(corpo)
-      return
+    setErro(null);
+    const corpo = montar();
+    if (typeof corpo === "string") {
+      setErro(corpo);
+      return;
     }
-    setSalvando(true)
+    setSalvando(true);
     try {
-      await aoSalvar(corpo)
+      await aoSalvar(corpo);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Não consegui registrar.')
+      setErro(e instanceof Error ? e.message : "Não consegui registrar.");
     } finally {
-      setSalvando(false)
+      setSalvando(false);
     }
   }
 
-  const mostraPagamento = !temOrcamento || tipo !== ''
+  const mostraPagamento = !temOrcamento || tipo !== "";
 
   return (
     <div className="painel jornada-form">
       <b>Fechou o orçamento</b>
 
       {temOrcamento ? (
-        <fieldset className="campo" style={{ border: 0, padding: 0, margin: 0 }}>
+        <fieldset
+          className="campo"
+          style={{ border: 0, padding: 0, margin: 0 }}
+        >
           <legend>
             O que foi fechado
             {oferta === null ? null : (
-              <small className="num"> (orçamento de {formatarDinheiro(oferta)})</small>
+              <small className="num">
+                {" "}
+                (orçamento de {formatarDinheiro(oferta)})
+              </small>
             )}
           </legend>
           <div className="escolhas">
             <label className="escolha">
-              <input type="radio" name="fechamento" checked={tipo === 'tudo'} onChange={() => setTipo('tudo')} />
+              <input
+                type="radio"
+                name="fechamento"
+                checked={tipo === "tudo"}
+                onChange={() => setTipo("tudo")}
+              />
               <span>
                 <b>Fechamento total</b>
                 <small>O orçamento todo</small>
               </span>
             </label>
             <label className="escolha">
-              <input type="radio" name="fechamento" checked={tipo === 'parte'} onChange={() => setTipo('parte')} />
+              <input
+                type="radio"
+                name="fechamento"
+                checked={tipo === "parte"}
+                onChange={() => setTipo("parte")}
+              />
               <span>
                 <b>Fechamento parcial</b>
                 <small>Só alguns procedimentos</small>
@@ -167,29 +281,67 @@ export function FormularioDeFechamento({
         </fieldset>
       ) : null}
 
-      {tipo === 'parte' ? (
+      {tipo === "parte" ? (
         <>
           {temItens ? (
-            <fieldset className="campo" style={{ border: 0, padding: 0, margin: 0 }}>
+            <fieldset
+              className="campo"
+              style={{ border: 0, padding: 0, margin: 0 }}
+            >
               <legend>Quais procedimentos a paciente fechou?</legend>
               {itens.map((i) => (
-                <label key={i.chave} className="escolha" style={{ marginTop: 6 }}>
-                  <input
-                    type="checkbox"
-                    checked={marcados.has(i.chave)}
-                    onChange={(e) => marcar(i.chave, e.target.checked)}
-                  />
-                  <span>
-                    <b>{nome(i.procedimentoId)}</b>
-                    {podeValores && i.valor !== undefined && i.valor !== null ? (
-                      <small className="num">{formatarDinheiro(BigInt(i.valor))}</small>
-                    ) : null}
-                  </span>
-                </label>
+                <div key={i.chave}>
+                  <label className="escolha" style={{ marginTop: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={marcados.has(i.chave)}
+                      onChange={(e) => marcar(i.chave, e.target.checked)}
+                    />
+                    <span>
+                      <b>{nome(i.procedimentoId)}</b>
+                      {podeValores &&
+                      i.valor !== undefined &&
+                      i.valor !== null ? (
+                        <small className="num">
+                          {formatarDinheiro(BigInt(i.valor))}
+                        </small>
+                      ) : null}
+                      {orcadasDe(i.chave) === null ? null : (
+                        <small>
+                          {orcadasDe(i.chave)}{" "}
+                          {orcadasDe(i.chave) === 1
+                            ? "sessão orçada"
+                            : "sessões orçadas"}
+                        </small>
+                      )}
+                    </span>
+                  </label>
+                  {marcados.has(i.chave) && orcadasDe(i.chave) !== null ? (
+                    <label
+                      className="campo"
+                      style={{ margin: 0, maxWidth: 170 }}
+                    >
+                      Sessões que vai fazer
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={orcadasDe(i.chave) ?? undefined}
+                        className="num"
+                        value={
+                          sessoesTexto[i.chave] ?? String(orcadasDe(i.chave))
+                        }
+                        onChange={(e) => mudarSessoes(i.chave, e.target.value)}
+                      />
+                    </label>
+                  ) : null}
+                </div>
               ))}
             </fieldset>
           ) : (
-            <p className="nota">Este orçamento não lista procedimentos: informe só o valor.</p>
+            <p className="nota">
+              Este orçamento não lista procedimentos: informe só o valor.
+            </p>
           )}
           {oferta !== null ? (
             <div className="par">
@@ -201,27 +353,37 @@ export function FormularioDeFechamento({
                   placeholder="Ex.: 15.000,00"
                   value={fechadoTexto}
                   onChange={(e) => {
-                    setFechadoEditado(true)
-                    setFechadoTexto(e.target.value)
+                    setFechadoEditado(true);
+                    setFechadoTexto(e.target.value);
                   }}
                 />
               </label>
-              <p className="nota num" style={{ alignSelf: 'end', margin: 0 }}>
-                Restante do orçamento (não fechado):{' '}
-                <b>{calculo?.restante == null ? '—' : formatarDinheiro(calculo.restante)}</b>
+              <p className="nota num" style={{ alignSelf: "end", margin: 0 }}>
+                Restante do orçamento (não fechado):{" "}
+                <b>
+                  {calculo?.restante == null
+                    ? "—"
+                    : formatarDinheiro(calculo.restante)}
+                </b>
               </p>
             </div>
           ) : null}
           <label className="campo" style={{ maxWidth: 260 }}>
             Retomar o restante em <small>(opcional)</small>
-            <input type="date" className="num" min={hoje} value={restanteEm} onChange={(e) => setRestanteEm(e.target.value)} />
+            <input
+              type="date"
+              className="num"
+              min={hoje}
+              value={restanteEm}
+              onChange={(e) => setRestanteEm(e.target.value)}
+            />
           </label>
         </>
       ) : null}
 
       {mostraPagamento ? (
         <>
-          <b style={{ marginTop: 8, display: 'block' }}>Pagamento</b>
+          <b style={{ marginTop: 8, display: "block" }}>Pagamento</b>
           <div className="par">
             <label className="campo">
               Recebido agora (R$)
@@ -238,8 +400,8 @@ export function FormularioDeFechamento({
               <select
                 value={forma}
                 onChange={(e) => {
-                  const escolhida = FORMAS.find((f) => f === e.target.value)
-                  if (escolhida !== undefined) setForma(escolhida)
+                  const escolhida = FORMAS.find((f) => f === e.target.value);
+                  if (escolhida !== undefined) setForma(escolhida);
                 }}
               >
                 {FORMAS.map((f) => (
@@ -252,9 +414,11 @@ export function FormularioDeFechamento({
           </div>
           {calculo !== null ? (
             <p className="nota num" style={{ margin: 0 }}>
-              Pagamento em aberto (saldo da paciente):{' '}
+              Pagamento em aberto (saldo da paciente):{" "}
               <b>
-                {calculo.pagamentoEmAberto === null ? '—' : formatarDinheiro(calculo.pagamentoEmAberto)}
+                {calculo.pagamentoEmAberto === null
+                  ? "—"
+                  : formatarDinheiro(calculo.pagamentoEmAberto)}
               </b>
             </p>
           ) : (
@@ -274,19 +438,29 @@ export function FormularioDeFechamento({
             <details>
               <summary>Detalhes do programa</summary>
               <p className="nota">
-                Ao fechar, o programa é montado e as sessões entram na agenda. Por padrão a
-                primeira é hoje.
+                Ao fechar, o programa é montado e as sessões entram na agenda.
+                Por padrão a primeira é hoje.
               </p>
               <label className="campo" style={{ maxWidth: 260 }}>
                 Data da primeira sessão
-                <input type="date" className="num" value={inicio} onChange={(e) => setInicio(e.target.value)} />
+                <input
+                  type="date"
+                  className="num"
+                  value={inicio}
+                  onChange={(e) => setInicio(e.target.value)}
+                />
               </label>
             </details>
           ) : null}
 
           <label className="campo">
             Observação (opcional)
-            <input type="text" maxLength={160} value={nota} onChange={(e) => setNota(e.target.value)} />
+            <input
+              type="text"
+              maxLength={160}
+              value={nota}
+              onChange={(e) => setNota(e.target.value)}
+            />
           </label>
         </>
       ) : null}
@@ -298,13 +472,23 @@ export function FormularioDeFechamento({
       )}
 
       <div className="botoes">
-        <button type="button" className="btn" onClick={() => void salvar()} disabled={salvando}>
-          {salvando ? 'Salvando…' : 'Salvar'}
+        <button
+          type="button"
+          className="btn"
+          onClick={() => void salvar()}
+          disabled={salvando}
+        >
+          {salvando ? "Salvando…" : "Salvar"}
         </button>
-        <button type="button" className="btn ghost" onClick={aoFechar} disabled={salvando}>
+        <button
+          type="button"
+          className="btn ghost"
+          onClick={aoFechar}
+          disabled={salvando}
+        >
           Cancelar
         </button>
       </div>
     </div>
-  )
+  );
 }

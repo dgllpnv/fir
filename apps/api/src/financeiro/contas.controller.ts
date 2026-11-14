@@ -5,6 +5,7 @@ import {
   type ListaDeContas,
   PagarConta,
   type ResultadoDoPagamento,
+  CriarConta,
   SalvarConta,
 } from '@fir/contracts'
 import {
@@ -63,7 +64,7 @@ export class ContasController {
   @Exige('contas.gerir')
   @HttpCode(HttpStatus.CREATED)
   async criar(@Req() req: RequisicaoComContexto, @Body() corpo: unknown): Promise<ContaNaLista> {
-    const dados = SalvarConta.safeParse(corpo)
+    const dados = CriarConta.safeParse(corpo)
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     return this.contas.criar(ctxDe(req), dados.data)
   }

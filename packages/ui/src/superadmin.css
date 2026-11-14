@@ -562,6 +562,17 @@ details.superadmin-dobra[open] > summary::after { transform: rotate(-135deg) tra
   color: var(--bad);
 }
 
+/* O aviso depois de "entrar no sistema dela" (e o erro, se falhar): quadro com
+   respiro, para não ficar uma linha solta colada no cabeçalho da tabela. */
+.aviso-do-painel {
+  margin: 12px 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--gold-soft);
+  color: var(--gold-ink);
+}
+.erro-do-painel.aviso-do-painel { color: var(--bad); }
+
 /* ---------- o segredo da carteira, fora do modal da casa ---------- */
 
 /*

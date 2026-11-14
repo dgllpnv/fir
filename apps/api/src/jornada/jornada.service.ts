@@ -40,6 +40,7 @@ import {
   paraParametro,
   programaParaJsonb,
 } from './cartao'
+import { DesfazerOrcamentoService } from './desfazer-orcamento.service'
 import { FechamentoService } from './fechamento.service'
 
 /**
@@ -74,6 +75,7 @@ export class JornadaService {
     @Inject(RELOGIO) private readonly relogio: Relogio,
     @Inject(ConclusaoService) private readonly conclusao: ConclusaoService,
     @Inject(FechamentoService) private readonly fechamento: FechamentoService,
+    @Inject(DesfazerOrcamentoService) private readonly desfazer: DesfazerOrcamentoService,
   ) {}
 
   async mover(
@@ -86,6 +88,9 @@ export class JornadaService {
     /** `temPerm(…, 'valores')`. Só a correção do orçamento pergunta (S-28). */
     podeVerValores = false,
   ): Promise<TarefasAfetadas> {
+    if (dados.acao === 'reabrirOrcamento' || dados.acao === 'excluirOrcamento') {
+      return this.desfazer.executar(clinicaId, ator, fuso, autor, id, dados)
+    }
     if (dados.acao === 'corrigirOrcamento') {
       return this.corrigir(clinicaId, ator, fuso, autor, id, dados, podeVerValores)
     }
@@ -226,6 +231,7 @@ export class JornadaService {
           ? { valorFechado: centavosNoJsonb(efeitos.valorFechado) }
           : {}),
         ...(efeitos.itensFechados === undefined ? {} : { itensFechados: efeitos.itensFechados }),
+        ...(efeitos.sessoesFechadas === undefined ? {} : { sessoesFechadas: efeitos.sessoesFechadas }),
         ...(efeitos.motivoId === undefined ? {} : { motivoId: efeitos.motivoId }),
         ...(efeitos.motivo === undefined ? {} : { motivo: efeitos.motivo }),
       }
@@ -469,7 +475,10 @@ async function conferirResponsaveis(
  * ramo morto é onde a próxima ação esquecida vai se esconder.
  */
 function efeitosDa(
-  dados: Exclude<MoverEtapa, { acao: 'reabrir' | 'fechar' | 'corrigirOrcamento' }>,
+  dados: Exclude<
+    MoverEtapa,
+    { acao: 'reabrir' | 'fechar' | 'corrigirOrcamento' | 'reabrirOrcamento' | 'excluirOrcamento' }
+  >,
   t: CartaoCarregado,
   hoje: string,
   agora: Date,

@@ -1,12 +1,16 @@
-import type {
-  ConsultaDeRecebimentos,
-  RecebimentoNaLista,
-  RegistrarRecebimento,
+import {
+  CODIGO_CONFIRMACAO_NECESSARIA,
+  type ConfirmacaoNecessaria,
+  type ConsultaDeRecebimentos,
+  type RecebimentoNaLista,
+  type RegistrarRecebimento,
 } from '@fir/contracts'
 import { diaCivil, ehPagamento, exigir, instanteDaConclusao, somarDias } from '@fir/domain'
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   NotFoundException,
@@ -20,6 +24,7 @@ import { RELOGIO, type Relogio } from '../comum/relogio'
 import { campanhaParaVincular } from '../campanhas/vinculo'
 import { unidadeValida } from '../comum/unidade'
 import { DINHEIRO_QUE_ENTROU } from './dinheiro-que-entrou'
+import { saldoDe } from './saldo.repositorio'
 import { confirmacoesDe, conferirAvisosDoRecebimento } from './recebimentos.avisos'
 
 /**
@@ -166,7 +171,13 @@ export class RecebimentosService {
        */
       // A união é estreitada por `dados.ref`, e não pela variável `ref`: ela
       // é um `as`, e um `as` não estreita o objeto de onde saiu.
-      const programaId = dados.ref === 'programa' ? dados.programaId : null
+      // `saldo` também pode apontar a dívida de um programa (ausente = o grupo geral).
+      const programaId =
+        dados.ref === 'programa'
+          ? dados.programaId
+          : dados.ref === 'saldo'
+            ? (dados.programaId ?? null)
+            : null
       if (programaId !== null) {
         const prog = await c.query(
           `SELECT 1 FROM programas
@@ -175,6 +186,31 @@ export class RecebimentosService {
         )
         if (prog.rowCount === 0) {
           throw new ConflictException('Este paciente não tem programa em andamento.')
+        }
+      }
+
+      /**
+       * "SALDO EM ABERTO" NÃO GERA CRÉDITO EM SILÊNCIO.
+       *
+       * Pagar mais do que a dívida do grupo escolhido deixaria o grupo negativo
+       * e o excedente sumiria como "crédito". O servidor — não a tela — decide:
+       * 409 `CONFIRMACAO_NECESSARIA` com o aviso, SEM número (a redação central
+       * não alcança corpo de erro, e o aviso é decidido pelo estado, nunca pelo
+       * valor: quem não tem `valores` não vira oráculo do saldo). Com a
+       * confirmação explícita, o excedente vira crédito, como sempre foi.
+       */
+      if (dados.ref === 'saldo' && dados.confirmarAcimaDaDivida !== true) {
+        const s = await saldoDe(c, ctx.clinicaId, dados.pacienteId)
+        const grupo = s.grupos.find((g) => g.programaId === programaId)
+        const devido = grupo === undefined ? 0n : grupo.saldo.centavos
+        if (dados.valor > devido) {
+          const corpo: ConfirmacaoNecessaria = {
+            statusCode: 409,
+            codigo: CODIGO_CONFIRMACAO_NECESSARIA,
+            avisos: ['VALOR_ACIMA_DA_DIVIDA'],
+            message: 'O valor passa do que está em aberto nesta dívida. Confirme para registrar.',
+          }
+          throw new HttpException(corpo, HttpStatus.CONFLICT)
         }
       }
 

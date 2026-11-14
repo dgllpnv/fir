@@ -5,6 +5,8 @@ import type {
   ConsultaDaJornada,
   PassoDoFunil,
   PassoDoFunilNaSaida,
+  ProgramasEmAndamento,
+  RecebimentosDiretos,
   RespostaDaJornada,
 } from '@fir/contracts'
 import {
@@ -15,6 +17,7 @@ import {
   type EventoDeJornada,
   janela,
   orcadoNaJanela,
+  TIPO_SESSAO,
   type Relogio,
 } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
@@ -25,7 +28,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 import { bordasDoPeriodo } from '../tarefas/consulta.service'
-import { sqlParcial } from './parcial'
+import { sqlEventoDesfeito, sqlParcial } from './parcial'
 
 /**
  * `GET /v1/jornada` — o funil do período e a situação de hoje.
@@ -173,6 +176,123 @@ export class FunilService {
     @Inject(BancoService) private readonly banco: BancoService,
     @Inject(RELOGIO) private readonly relogio: Relogio,
   ) {}
+
+  /**
+   * Os recebimentos AVULSOS do período: os únicos com `requisicao_id` (só
+   * `RecebimentosService.registrar` o preenche; o pagamento embutido no
+   * atendimento e a entrada de programa não). Janela `[início, fim)` no fuso
+   * da clínica, estornados e valor zero (venda a prazo) fora, no máximo 30.
+   */
+  async recebimentosDiretos(
+    clinicaId: ClinicaId,
+    ator: Ator,
+    fuso: string,
+    consulta: ConsultaDaJornada,
+  ): Promise<RecebimentosDiretos> {
+    const hoje = diaCivil(this.relogio.agora(), fuso)
+    const bordas = bordasDoPeriodo(consulta, hoje) ?? { de: hoje, ate: hoje }
+    const i = janela(bordas.de, bordas.ate, fuso)
+    return this.banco.naClinica(clinicaId, ator, async (c) => {
+      const r = await c.query<{
+        id: string
+        paciente_id: string
+        paciente: string
+        tipo: string
+        valor: string
+        forma: string
+        em: string
+        programa: string | null
+        total: string
+      }>(
+        `SELECT r.id, r.paciente_id, p.nome AS paciente, r.tipo, r.valor::text AS valor, r.forma,
+                ((r.recebido_em AT TIME ZONE $2)::date)::text AS em,
+                (SELECT string_agg(DISTINCT pr.nome, ' + ' ORDER BY pr.nome)
+                   FROM itens_do_programa ip JOIN procedimentos pr ON pr.id = ip.procedimento_id
+                  WHERE ip.programa_id = r.programa_id) AS programa,
+                count(*) OVER ()::text AS total
+           FROM recebimentos r
+           JOIN pacientes p ON p.id = r.paciente_id
+          WHERE r.clinica_id = $1 AND r.requisicao_id IS NOT NULL
+            AND r.estornado_em IS NULL AND ${DINHEIRO_QUE_ENTROU}
+            AND r.recebido_em >= $3 AND r.recebido_em < $4
+          ORDER BY r.recebido_em DESC, r.id
+          LIMIT 30`,
+        [clinicaId, fuso, i.de, i.ate],
+      )
+      const total = Number(r.rows[0]?.total ?? '0')
+      return {
+        itens: r.rows.map((x) => ({
+          id: x.id,
+          pacienteId: x.paciente_id,
+          paciente: x.paciente,
+          tipo: x.tipo,
+          valor: x.valor,
+          forma: x.forma,
+          em: x.em,
+          programa: x.programa,
+        })),
+        restantes: Math.max(0, total - r.rows.length),
+      }
+    })
+  }
+
+  /**
+   * Os programas ATIVOS da clínica, um cartão por programa: onde a paciente está
+   * no tratamento. Mostra a SITUAÇÃO DE HOJE (como as colunas do kanban), não um
+   * período. Sessão cancelada não conta; programa excluído ou encerrado nunca
+   * aparece. Dose, produto e dinheiro não saem daqui (regra 18).
+   */
+  async programasEmAndamento(
+    clinicaId: ClinicaId,
+    ator: Ator,
+    fuso: string,
+  ): Promise<ProgramasEmAndamento> {
+    const hoje = diaCivil(this.relogio.agora(), fuso)
+    return this.banco.naClinica(clinicaId, ator, async (c) => {
+      const r = await c.query<{
+        id: string
+        paciente_id: string
+        paciente: string
+        procedimentos: string | null
+        feitas: string
+        total: string
+        proxima: string | null
+        atrasadas: string
+        quantos: string
+      }>(
+        `SELECT p.id, p.paciente_id, pa.nome AS paciente,
+                (SELECT string_agg(DISTINCT i.procedimento_nome, ' + ' ORDER BY i.procedimento_nome)
+                   FROM itens_do_programa i WHERE i.programa_id = p.id) AS procedimentos,
+                count(t.id) FILTER (WHERE t.status = 'concluida')::text AS feitas,
+                count(t.id) FILTER (WHERE t.status <> 'cancelada')::text AS total,
+                (min(t.prazo) FILTER (WHERE t.status = 'aberta'))::text AS proxima,
+                count(t.id) FILTER (WHERE t.status = 'aberta' AND t.prazo < $2::date)::text AS atrasadas,
+                count(*) OVER ()::text AS quantos
+           FROM programas p
+           JOIN pacientes pa ON pa.id = p.paciente_id
+           LEFT JOIN tarefas t ON t.programa_id = p.id AND t.tipo = $3 AND t.excluida_em IS NULL
+          WHERE p.clinica_id = $1 AND p.situacao = 'ativo' AND p.excluido_em IS NULL
+          GROUP BY p.id, pa.nome
+          ORDER BY min(t.prazo) FILTER (WHERE t.status = 'aberta') NULLS LAST, pa.nome, p.id
+          LIMIT 30`,
+        [clinicaId, hoje, TIPO_SESSAO],
+      )
+      const quantos = Number(r.rows[0]?.quantos ?? '0')
+      return {
+        itens: r.rows.map((x) => ({
+          id: x.id,
+          pacienteId: x.paciente_id,
+          paciente: x.paciente,
+          procedimentos: x.procedimentos ?? 'Programa',
+          sessoesFeitas: Number(x.feitas),
+          sessoesTotal: Number(x.total),
+          proximaSessaoEm: x.proxima,
+          atrasadas: Number(x.atrasadas),
+        })),
+        restantes: Math.max(0, quantos - r.rows.length),
+      }
+    })
+  }
 
   async abrir(
     clinicaId: ClinicaId,
@@ -325,6 +445,8 @@ async function contarEventos(
        CROSS JOIN LATERAL jsonb_array_elements(t.historico) WITH ORDINALITY AS e(ev, ord)
       WHERE ${onde}
         AND ev->>'acao' = ANY($${base + 1})
+        -- Reabrir/excluir o orçamento desfaz o evento: ele não conta mais.
+        AND NOT ${sqlEventoDesfeito('t', 'ev', 'e.ord')}
         -- Um cartão fecha UMA vez: com dois eventos "fechar" (histórico migrado da
         -- v20) só o ÚLTIMO conta, senão o valor fechado entra em dobro no funil.
         AND (ev->>'acao' <> 'fechar' OR e.ord = (

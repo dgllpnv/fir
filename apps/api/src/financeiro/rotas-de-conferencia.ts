@@ -228,6 +228,13 @@ export type RotaForaDaConferencia = {
 
 export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   { caminho: '/v1/saude', razao: 'Healthcheck: devolve {ok, banco}, sem dado de clínica.' },
+  {
+    caminho: '/v1/tarefas/:id/orcamento/previa',
+    razao:
+      'A prévia de reabrir/excluir UM orçamento: o pagamento daquele fechamento, uma linha, ' +
+      'nunca o total de um dia. Exige `receber`; sem `valores` o número é apagado pela redação ' +
+      'central. Não soma dia nenhum, então não alcança o esperado de um caixa aberto.',
+  },
   // ---------------------------------------------------------------------
   // O PAINEL DO SUPERADMIN (migration 0013, D-10).
   //
@@ -615,6 +622,19 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     caminho: '/v1/jornada',
     razao:
       'O funil por etapa. Soma valor de ORÇAMENTO, que não é receita e não está na gaveta (regra 4).',
+  },
+  {
+    caminho: '/v1/jornada/programas-em-andamento',
+    razao:
+      'Um cartão por programa ativo (paciente, procedimentos, sessões feitas de total, próxima sessão), ' +
+      'no máximo 30. Nenhum valor, nenhum caixa, nenhum esperado; dose, produto e lote não saem.',
+  },
+  {
+    caminho: '/v1/jornada/recebimentos-diretos',
+    razao:
+      'Linhas de recebimentos AVULSOS do período (paciente, tipo, dia, valor, forma), no máximo 30, ' +
+      'a mesma informação que a lista de Registrar recebimento já mostra. Nenhum total, nenhum ' +
+      'agrupamento por forma, nenhum esperado de caixa. Valor redigido sem `valores`.',
   },
   {
     caminho: '/v1/superadmin/atividades',

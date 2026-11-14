@@ -41,7 +41,26 @@ export class SaldoController {
       // o 404 que não confirma a existência de paciente em outra clínica.
       const p = await cx.query('SELECT 1 FROM pacientes WHERE id = $1', [id])
       if (p.rowCount === 0) throw new NotFoundException('Paciente não encontrado.')
-      return saldoNoContrato(await saldoDe(cx, c.clinicaId, id))
+      const saldo = saldoNoContrato(await saldoDe(cx, c.clinicaId, id))
+      // O NOME do programa, para a tela dizer QUAL dívida: os procedimentos que
+      // ele contém ("Tirzepatida", "Tirzepatida + Semaglutida"). Nome de
+      // procedimento não é dinheiro nem dose.
+      const ids = saldo.grupos.flatMap((g) => (g.programaId === null ? [] : [g.programaId]))
+      if (ids.length === 0) return saldo
+      const nomes = await cx.query<{ programa_id: string; nome: string }>(
+        `SELECT i.programa_id, string_agg(DISTINCT pr.nome, ' + ' ORDER BY pr.nome) AS nome
+           FROM itens_do_programa i JOIN procedimentos pr ON pr.id = i.procedimento_id
+          WHERE i.programa_id = ANY($1::uuid[]) GROUP BY i.programa_id`,
+        [ids],
+      )
+      const porPrograma = new Map(nomes.rows.map((x) => [x.programa_id, x.nome]))
+      return {
+        ...saldo,
+        grupos: saldo.grupos.map((g) => ({
+          ...g,
+          programa: g.programaId === null ? null : (porPrograma.get(g.programaId) ?? 'Programa'),
+        })),
+      }
     })
   }
 }

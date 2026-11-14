@@ -5,6 +5,8 @@ import type {
   ColunaDaJornadaNaSaida,
   PassoDoFunilNaSaida,
   PeriodoDoFunil,
+  ProgramasEmAndamento,
+  RecebimentosDiretos,
   RespostaDaJornada,
   RespostaDeOrcamentos,
 } from '@fir/contracts'
@@ -79,12 +81,16 @@ export function TelaJornada({ podePacientes }: { readonly podePacientes: boolean
       ) : dados === null ? (
         <Carregando linhas={5} />
       ) : (
-        <Conteudo
-          dados={dados}
-          carregando={carregando}
-          podePacientes={podePacientes}
-          periodo={periodo}
-        />
+        <>
+          <Conteudo
+            dados={dados}
+            carregando={carregando}
+            podePacientes={podePacientes}
+            periodo={periodo}
+          />
+          <PacientesEmPrograma podePacientes={podePacientes} />
+          <RecebimentosDiretosDoPeriodo periodo={periodo} podePacientes={podePacientes} />
+        </>
       )}
     </section>
   )
@@ -180,6 +186,133 @@ function Conteudo({
 
       {carregando ? <p className="nota">Atualizando…</p> : null}
     </>
+  )
+}
+
+/**
+ * "Em programa": os pacientes em tratamento agora.
+ *
+ * Pedido da cliente: o sistema vai "puxar programas de tratamento em andamento", e
+ * eles não passam pelo agendamento, então não existiam na jornada. É uma leitura
+ * da situação de HOJE (como as colunas do quadro), sem tarefa nova e fora do funil.
+ */
+function PacientesEmPrograma({ podePacientes }: { podePacientes: boolean }) {
+  const { dados, erro } = useDados<ProgramasEmAndamento>('v1/jornada/programas-em-andamento')
+  if (erro !== null || dados === null || dados.itens.length === 0) return null
+  return (
+    <div className="grupo">
+      <h3>
+        Em programa <span className="n">{dados.itens.length + dados.restantes}</span>
+      </h3>
+      <p className="nota">
+        Pacientes com programa de tratamento em andamento, com a próxima sessão. Não entram nos
+        números do funil.
+      </p>
+      <div className="tabela-rolavel">
+        <table className="lista conferencia">
+          <thead>
+            <tr>
+              <th>Paciente</th>
+              <th>Programa</th>
+              <th className="direita">Sessões</th>
+              <th>Próxima</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dados.itens.map((p) => (
+              <tr key={p.id}>
+                <td data-rotulo="Paciente">
+                  {podePacientes ? (
+                    <Link href={`/pacientes/${p.pacienteId}`}>
+                      <b>{p.paciente}</b>
+                    </Link>
+                  ) : (
+                    <b>{p.paciente}</b>
+                  )}
+                </td>
+                <td data-rotulo="Programa">{p.procedimentos}</td>
+                <td data-rotulo="Sessões" className="num direita">
+                  {p.sessoesFeitas} de {p.sessoesTotal}
+                </td>
+                <td data-rotulo="Próxima" className="num">
+                  {p.proximaSessaoEm === null ? 'Sem sessão aberta' : diaCurto(p.proximaSessaoEm)}
+                  {p.atrasadas > 0 ? ` · ${p.atrasadas} atrasada${p.atrasadas > 1 ? 's' : ''}` : ''}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {dados.restantes > 0 ? <p className="nota">E mais {dados.restantes}.</p> : null}
+    </div>
+  )
+}
+
+/**
+ * Quem pagou direto em Financeiro › Registrar recebimento no período.
+ *
+ * Pedido da cliente: a paciente que já pagou (consulta, sinal, programa, saldo)
+ * não aparecia na jornada, porque o dinheiro não passa por um cartão. Esta lista
+ * só mostra; não entra em nenhum número do funil acima. Fica fora do estado
+ * "nenhum agendamento": quem só tem pagamento direto também precisa vê-lo.
+ */
+function RecebimentosDiretosDoPeriodo({
+  periodo,
+  podePacientes,
+}: {
+  periodo: PeriodoDoFunil
+  podePacientes: boolean
+}) {
+  const { dados, erro } = useDados<RecebimentosDiretos>(
+    `v1/jornada/recebimentos-diretos${consultaEmTexto({ periodo })}`,
+  )
+  if (erro !== null || dados === null || dados.itens.length === 0) return null
+  return (
+    <div className="grupo">
+      <h3>Recebimentos diretos</h3>
+      <p className="nota">
+        Pagamentos registrados em Financeiro, sem passar por um agendamento. Aparecem aqui para
+        você ver quem já pagou, inclusive quem está em programa. Não entram nos números acima.
+      </p>
+      <div className="tabela-rolavel">
+        <table className="lista conferencia">
+          <thead>
+            <tr>
+              <th>Paciente</th>
+              <th>O que pagou</th>
+              <th>Dia</th>
+              <th className="direita">Valor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dados.itens.map((l) => (
+              <tr key={l.id}>
+                <td data-rotulo="Paciente">
+                  {podePacientes ? (
+                    <Link href={`/pacientes/${l.pacienteId}`}>
+                      <b>{l.paciente}</b>
+                    </Link>
+                  ) : (
+                    <b>{l.paciente}</b>
+                  )}
+                </td>
+                <td data-rotulo="O que pagou">
+                  {l.tipo}
+                  {l.programa === null ? '' : ` · ${l.programa}`}
+                </td>
+                <td data-rotulo="Dia" className="num">
+                  {diaCurto(l.em)}
+                </td>
+                <td data-rotulo="Valor" className="num direita">
+                  {l.valor === null ? '' : formatarDinheiro(BigInt(l.valor))} {l.forma}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {dados.restantes > 0 ? <p className="nota">E mais {dados.restantes} no período.</p> : null}
+    </div>
   )
 }
 

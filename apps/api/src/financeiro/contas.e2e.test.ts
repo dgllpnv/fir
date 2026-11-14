@@ -215,6 +215,66 @@ describe('pagamento', () => {
   })
 })
 
+describe('"Conta já paga" — a conta e o pagamento nascem juntos', () => {
+  const REQ = '7d6f2f0e-8a54-4c55-9f43-1a2b3c4d5e60'
+  const jaPaga = (x: Corpo = {}) =>
+    criar({ pagamento: { em: HOJE, valor: '650000', formaPagamento: 'Pix' }, ...x })
+
+  it('nasce paga, com a data, o valor e a forma informados', async () => {
+    const r = await jaPaga()
+    expect(r.statusCode).toBe(201)
+    const l = await listar({ situacao: 'pagas' })
+    const conta = l.body.itens.find((x: { id: string }) => x.id === r.body.id)
+    expect(conta.pagoEm).toBe(HOJE)
+    expect(conta.valorPago).toBe('650000')
+    expect(conta.formaPagamento).toBe('Pix')
+  })
+
+  it('pagar de novo é 409 — não existe segunda baixa', async () => {
+    const r = await jaPaga()
+    expect((await pagar(r.body.id)).statusCode).toBe(409)
+  })
+
+  it('mensal já paga: paga a atual e cria UMA renovação, no mês seguinte', async () => {
+    const r = await jaPaga({ mensal: true, vencimento: '2026-10-10' })
+    expect(r.statusCode).toBe(201)
+    expect(await contarDaSerie(r.body.id)).toBe(2)
+  })
+
+  it('data FUTURA é 400 e nenhuma conta nasce (a transação é uma só)', async () => {
+    const r = await jaPaga({ pagamento: { em: AMANHA, valor: '650000' } })
+    expect(r.statusCode).toBe(400)
+    const n = await c.migrate.query(
+      `SELECT 1 FROM contas_a_pagar WHERE excluida_em IS NULL AND clinica_id = $1`,
+      [c.clinica],
+    )
+    expect(n.rowCount).toBe(0)
+  })
+
+  it('o MESMO envio duas vezes devolve a mesma conta: uma despesa, uma renovação', async () => {
+    const a = await jaPaga({ requisicaoId: REQ, mensal: true, vencimento: '2026-10-10' })
+    const b = await jaPaga({ requisicaoId: REQ, mensal: true, vencimento: '2026-10-10' })
+    expect(a.statusCode).toBe(201)
+    expect(b.body.id).toBe(a.body.id)
+    const n = await c.migrate.query(
+      `SELECT 1 FROM contas_a_pagar WHERE excluida_em IS NULL AND clinica_id = $1`,
+      [c.clinica],
+    )
+    expect(n.rowCount).toBe(2)
+  })
+
+  it('quem tem só `contas` não cria conta, paga ou não: 403', async () => {
+    expect((await jaPaga({ responsavelId: c.pessoas['sonia'] })).statusCode).toBe(201)
+    const r = await postar(
+      c,
+      '/v1/contas',
+      contaBase({ responsavelId: c.pessoas['sonia'], pagamento: { em: HOJE, valor: '650000' } }),
+      'sonia',
+    )
+    expect(r.statusCode).toBe(403)
+  })
+})
+
 describe('os dois alcances de `contas`', () => {
   it('quem tem só `contas` vê as SUAS', async () => {
     await criar({ descricao: 'Pró-labore', responsavelId: c.pessoas['beatriz'] })

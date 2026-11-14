@@ -116,13 +116,37 @@ function Orcamento({
                 <span className="orc-marca" aria-hidden="true">
                   {marca.sinal}
                 </span>
-                <span className="orc-nome">{i.procedimento}</span>
+                <span className="orc-nome">
+                  {i.procedimento}
+                  {i.sessoes === undefined ? null : (
+                    <small className="orc-sessoes">
+                      {' · '}
+                      {i.sessoesFechadas === undefined
+                        ? `${i.sessoes} ${i.sessoes === 1 ? 'sessão' : 'sessões'}`
+                        : `fechou ${i.sessoesFechadas} de ${i.sessoes} sessões`}
+                      {i.sessoes > 1 && i.intervaloDias !== undefined
+                        ? `, a cada ${i.intervaloDias} dias`
+                        : ''}
+                    </small>
+                  )}
+                </span>
                 {preco === null ? null : <span className="num orc-preco">{preco}</span>}
                 <span className="orc-estado">{marca.texto}</span>
               </li>
             )
           })}
         </ul>
+      )}
+
+      {o.notaDoOrcamento === null || o.notaDoOrcamento === '' ? null : (
+        <p className="nota" style={{ margin: '4px 0' }}>
+          <b>O que foi orçado:</b> {o.notaDoOrcamento}
+        </p>
+      )}
+      {o.notaDoFechamento === null || o.notaDoFechamento === '' ? null : (
+        <p className="nota" style={{ margin: '4px 0' }}>
+          <b>Observação do fechamento:</b> {o.notaDoFechamento}
+        </p>
       )}
 
       {o.situacao === 'parcial' ? (

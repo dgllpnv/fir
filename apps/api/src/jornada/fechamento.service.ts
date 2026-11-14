@@ -144,7 +144,9 @@ export class FechamentoService {
     }
     if (
       dados.fechamento !== 'parte' &&
-      (dados.itensFechados !== undefined || dados.retomarRestanteEm !== undefined)
+      (dados.itensFechados !== undefined ||
+        dados.retomarRestanteEm !== undefined ||
+        dados.sessoesFechadas !== undefined)
     ) {
       throw new BadRequestException(
         'Os procedimentos fechados e a data de retomar o restante só valem no fechamento parcial.',
@@ -160,6 +162,28 @@ export class FechamentoService {
         }
       } else {
         const marcados = new Set(dados.itensFechados ?? [])
+        const orcadas = new Map<string, number>([
+          ...itens.flatMap((i) => (typeof i.sessoes === 'number' ? [[i.chave, i.sessoes] as const] : [])),
+          ...(cartao.programaOrcado ?? []).map((p) => [p.chave, p.sessoes] as const),
+        ])
+        const escolhidas = dados.sessoesFechadas ?? {}
+        for (const [k, n] of Object.entries(escolhidas)) {
+          if (!marcados.has(k)) {
+            throw new BadRequestException('Sessões informadas para um procedimento que não foi marcado.')
+          }
+          const orcada = orcadas.get(k)
+          if (orcada === undefined) {
+            throw new BadRequestException('Este procedimento não tem sessões orçadas.')
+          }
+          if (n > orcada) {
+            throw new BadRequestException(
+              `Não dá para fechar mais sessões do que as orçadas (${orcada}).`,
+            )
+          }
+        }
+        // Fechar com MENOS sessões é parcial mesmo com todos os procedimentos
+        // marcados ("de 10 para 5 e fico com os dois").
+        const reduziu = [...marcados].some((k) => (escolhidas[k] ?? orcadas.get(k) ?? 0) < (orcadas.get(k) ?? 0))
         if (marcados.size === 0) {
           throw new BadRequestException('Marque os procedimentos do orçamento que a paciente fechou.')
         }
@@ -167,7 +191,7 @@ export class FechamentoService {
         if ([...marcados].some((k) => !existentes.has(k))) {
           throw new BadRequestException('Algum procedimento marcado não faz parte deste orçamento.')
         }
-        if (marcados.size >= itens.length) {
+        if (marcados.size >= itens.length && !reduziu) {
           throw new BadRequestException(
             'Todos os procedimentos foram marcados: use "O orçamento todo" em vez de "Só uma parte".',
           )
@@ -277,6 +301,11 @@ export class FechamentoService {
           const { depoisDe: _fora, ...resto } = i
           return resto
         })
+        // O programa nasce com as sessões que ela FECHOU, não com as orçadas.
+        .map((i) => {
+          const n = dados.sessoesFechadas?.[i.chave]
+          return n === undefined ? i : { ...i, sessoes: n }
+        })
     }
     if (proposta !== null && proposta.length > 0) {
       const r = await this.montador.montar(c, {
@@ -344,6 +373,11 @@ export class FechamentoService {
         : itens !== null && dados.fechamento === 'parte'
           ? { itensFechados: [...(dados.itensFechados ?? [])] }
           : {}),
+      ...(dados.fechamento === 'parte' &&
+      dados.sessoesFechadas !== undefined &&
+      Object.keys(dados.sessoesFechadas).length > 0
+        ? { sessoesFechadas: dados.sessoesFechadas }
+        : {}),
       // O cartão para de pedir ação: a paciente decidiu. No fechamento parcial
       // pode ficar o lembrete de retomar o RESTANTE (Hoje › Retomar).
       proximoPassoEm: dados.retomarRestanteEm ?? null,

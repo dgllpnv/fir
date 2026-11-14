@@ -367,6 +367,90 @@ describe('ORÇAMENTO SEM PROGRAMA: só valor, ou valor e procedimentos', () => {
     expect(f.statusCode, JSON.stringify(f.body)).toBe(200)
   })
 
+  it('PEDIDO DA CLIENTE: a aba Orçamentos mostra as SESSÕES e o intervalo — e nunca a dose', async () => {
+    const id = await orcar({
+      valor: '3000000',
+      programa: [
+        { chave: 'p1', procedimentoId: proc[0]!.id, sessoes: 10, intervaloDias: 7, dose: '2,5 mg' },
+        { chave: 'p2', procedimentoId: proc[1]!.id, sessoes: 1, intervaloDias: 7 },
+      ],
+    })
+    const r = await orcamentosDaAna()
+    const o = r.itens.find((x: Doc) => x['tarefaId'] === id)!
+    const itens = o['itens'] as Doc[]
+    expect(itens.find((i) => i['chave'] === 'p1')).toMatchObject({ sessoes: 10, intervaloDias: 7 })
+    expect(itens.find((i) => i['chave'] === 'p2')).toMatchObject({ sessoes: 1 })
+    // Regra 18: a dose não atravessa, em nenhum lugar da resposta.
+    expect(JSON.stringify(r)).not.toContain('2,5 mg')
+    expect(JSON.stringify(r)).not.toContain('dose')
+  })
+
+  describe('PEDIDO DA CLIENTE: fechar só parte das SESSÕES (de 10 para 5)', () => {
+    const PROG = () => [
+      { chave: 'p1', procedimentoId: proc[0]!.id, sessoes: 10, intervaloDias: 7 },
+      { chave: 'p2', procedimentoId: proc[1]!.id, sessoes: 8, intervaloDias: 7 },
+    ]
+    const fecharParcial = (id: string, extra: Record<string, unknown>) =>
+      mover(id, {
+        acao: 'fechar',
+        fechamento: 'parte',
+        recebimento: { valor: '100000', forma: 'Pix', valorAberto: '0' },
+        ...extra,
+      })
+    const sessoesDoPrograma = async (): Promise<Record<string, number>> => {
+      const r = await c.migrate.query<{ chave: string; sessoes: number }>(
+        `SELECT i.procedimento_id::text AS chave, i.sessoes
+           FROM itens_do_programa i JOIN programas p ON p.id = i.programa_id
+          WHERE p.paciente_id = $1 AND p.excluido_em IS NULL`,
+        [c.pacientes['ana']],
+      )
+      return Object.fromEntries(r.rows.map((x) => [x.chave, x.sessoes]))
+    }
+
+    it('fica com os DOIS procedimentos em menos sessões: o programa nasce com 5 e 8, e a aba diz "fechou 5 de 10"', async () => {
+      await c.migrate.query('DELETE FROM itens_do_programa WHERE clinica_id = $1', [c.clinica])
+      await c.migrate.query('DELETE FROM programas WHERE clinica_id = $1', [c.clinica])
+      const id = await orcar({ valor: '3000000', programa: PROG() })
+      const f = await fecharParcial(id, {
+        itensFechados: ['p1', 'p2'],
+        sessoesFechadas: { p1: 5 },
+      })
+      expect(f.statusCode, JSON.stringify(f.body)).toBe(200)
+      expect(await sessoesDoPrograma()).toEqual({ [proc[0]!.id]: 5, [proc[1]!.id]: 8 })
+
+      const o = (await orcamentosDaAna()).itens.find((x) => x['tarefaId'] === id)!
+      expect(o['situacao']).toBe('parcial')
+      const itens = o['itens'] as Doc[]
+      expect(itens.find((i) => i['chave'] === 'p1')).toMatchObject({ sessoes: 10, sessoesFechadas: 5 })
+      expect(itens.find((i) => i['chave'] === 'p2')?.['sessoesFechadas']).toBeUndefined()
+    })
+
+    it('mais sessões que as orçadas é 400 e nada é gravado', async () => {
+      const id = await orcar({ valor: '3000000', programa: PROG() })
+      const f = await fecharParcial(id, { itensFechados: ['p1'], sessoesFechadas: { p1: 11 } })
+      expect(f.statusCode).toBe(400)
+      expect((await tarefa(id)).etapa).toBe('orcamento')
+    })
+
+    it('todos os procedimentos com todas as sessões continua sendo "o orçamento todo"', async () => {
+      const id = await orcar({ valor: '3000000', programa: PROG() })
+      const f = await fecharParcial(id, { itensFechados: ['p1', 'p2'] })
+      expect(f.statusCode).toBe(400)
+    })
+
+    it('sessões informadas para procedimento NÃO marcado, ou no fechamento total, são 400', async () => {
+      const id = await orcar({ valor: '3000000', programa: PROG() })
+      expect((await fecharParcial(id, { itensFechados: ['p1'], sessoesFechadas: { p2: 3 } })).statusCode).toBe(400)
+      const t = await mover(id, {
+        acao: 'fechar',
+        fechamento: 'tudo',
+        sessoesFechadas: { p1: 3 },
+        recebimento: { valor: '1000000', forma: 'Pix', valorAberto: '2000000' },
+      })
+      expect(t.statusCode).toBe(400)
+    })
+  })
+
   it('corrigir o orçamento troca a lista de procedimentos (sem programa)', async () => {
     const id = await orcar({ valor: '2500000', itens: TRES_ITENS() })
     const r = await mover(id, {
@@ -581,5 +665,110 @@ describe('SEM `valores`: nenhum valor em nenhuma resposta, nem no 400', () => {
     expect(outra.statusCode).toBe(404)
     const ruim = await pegar(c, '/v1/pacientes/nao-e-uuid/orcamentos', {}, 'beatriz')
     expect(ruim.statusCode).toBe(400)
+  })
+})
+
+describe('ORÇAMENTO EM LISTA COM SESSÕES (pedido da cliente, 2026-11-13)', () => {
+  const COM_SESSOES = () => [
+    { chave: 'a', procedimentoId: proc[0]!.id, valor: '1000000', sessoes: 10 },
+    { chave: 'b', procedimentoId: proc[1]!.id, valor: '500000', sessoes: 4 },
+  ]
+
+  it('guarda as sessões da lista e as mostra no cartão e na aba Orçamentos, sem virar programa', async () => {
+    const id = await orcar({ valor: '1500000', itens: COM_SESSOES() })
+    const t = await tarefa(id)
+    expect(t.programaOrcado).toBeNull()
+    expect(t.itensOrcamento).toMatchObject([
+      { chave: 'a', sessoes: 10 },
+      { chave: 'b', sessoes: 4 },
+    ])
+    const aba = await orcamentosDaAna()
+    const o = aba.itens.find((x) => x['tarefaId'] === id)!
+    const itens = o['itens'] as Doc[]
+    expect(itens.find((i) => i['chave'] === 'a')).toMatchObject({ sessoes: 10 })
+    expect(itens.find((i) => i['chave'] === 'b')).toMatchObject({ sessoes: 4 })
+  })
+
+  it('fechar de 10 para 5 mantendo OS DOIS procedimentos é parcial, e o evento guarda as sessões', async () => {
+    const id = await orcar({ valor: '1500000', itens: COM_SESSOES() })
+    const f = await mover(id, {
+      acao: 'fechar',
+      fechamento: 'parte',
+      itensFechados: ['a', 'b'],
+      sessoesFechadas: { a: 5 },
+      recebimento: { valor: '200000', forma: 'Pix', valorAberto: '300000' },
+    })
+    expect(f.statusCode, JSON.stringify(f.body)).toBe(200)
+    const t = await tarefa(id)
+    expect(t.orcamentoParcial).toBe(true)
+    const ev = (t.historico as Doc[]).find((e) => e['acao'] === 'fechar')!
+    expect(ev['sessoesFechadas']).toEqual({ a: 5 })
+    const aba = await orcamentosDaAna()
+    const itens = aba.itens.find((x) => x['tarefaId'] === id)!['itens'] as Doc[]
+    expect(itens.find((i) => i['chave'] === 'a')).toMatchObject({ sessoes: 10, sessoesFechadas: 5 })
+    expect(itens.find((i) => i['chave'] === 'b')?.['sessoesFechadas']).toBeUndefined()
+  })
+
+  it('recusa fechar mais sessões do que as orçadas, ou sessões de procedimento sem sessões', async () => {
+    const id = await orcar({ valor: '1500000', itens: COM_SESSOES() })
+    const corpo = (sessoesFechadas: Record<string, number>) => ({
+      acao: 'fechar',
+      fechamento: 'parte',
+      itensFechados: ['a', 'b'],
+      sessoesFechadas,
+      recebimento: { valor: '200000', forma: 'Pix', valorAberto: '300000' },
+    })
+    expect((await mover(id, corpo({ a: 11 }))).statusCode).toBe(400)
+    const semSessoes = await orcar({
+      valor: '1500000',
+      itens: [
+        { chave: 'a', procedimentoId: proc[0]!.id },
+        { chave: 'b', procedimentoId: proc[1]!.id },
+      ],
+    })
+    expect((await mover(semSessoes, corpo({ a: 3 }))).statusCode).toBe(400)
+  })
+
+  it('lista SEM sessões continua valendo (o campo é opcional)', async () => {
+    const id = await orcar({ valor: '1500000', itens: TRES_ITENS().slice(0, 2) })
+    const t = await tarefa(id)
+    expect((t.itensOrcamento as Doc[]).every((i) => i['sessoes'] === undefined)).toBe(true)
+  })
+})
+
+describe('A OBSERVAÇÃO DO FECHAMENTO APARECE NA ABA ORÇAMENTOS (vídeo da cliente: "não fica em lugar nenhum")', () => {
+  it('mostra o que foi orçado e o que ficou de fora; sem nota, vem null', async () => {
+    const id = await orcar({
+      valor: '1500000',
+      itens: [
+        { chave: 'a', procedimentoId: proc[0]!.id, valor: '1000000' },
+        { chave: 'b', procedimentoId: proc[1]!.id, valor: '500000' },
+      ],
+      nota: 'Implante e limpeza',
+    })
+    let aba = await orcamentosDaAna()
+    let o = aba.itens.find((x) => x['tarefaId'] === id)!
+    expect(o['notaDoOrcamento']).toBe('Implante e limpeza')
+    expect(o['notaDoFechamento']).toBeNull()
+
+    const f = await mover(id, {
+      acao: 'fechar',
+      fechamento: 'parte',
+      itensFechados: ['b'],
+      nota: 'Não fechou o implante, quer pensar',
+      recebimento: { valor: '200000', forma: 'Pix', valorAberto: '300000' },
+    })
+    expect(f.statusCode, JSON.stringify(f.body)).toBe(200)
+    aba = await orcamentosDaAna()
+    o = aba.itens.find((x) => x['tarefaId'] === id)!
+    expect(o['notaDoFechamento']).toBe('Não fechou o implante, quer pensar')
+    expect(o['notaDoOrcamento']).toBe('Implante e limpeza')
+  })
+
+  it('orçamento sem nenhuma nota devolve null nos dois', async () => {
+    const id = await orcar({ valor: '1500000', itens: TRES_ITENS().slice(0, 2) })
+    const o = (await orcamentosDaAna()).itens.find((x) => x['tarefaId'] === id)!
+    expect(o['notaDoOrcamento']).toBeNull()
+    expect(o['notaDoFechamento']).toBeNull()
   })
 })

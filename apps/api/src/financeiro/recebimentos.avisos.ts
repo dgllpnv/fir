@@ -90,4 +90,5 @@ export async function conferirAvisosDoRecebimento(
 export const confirmacoesDe = (dados: ConfirmacoesDoRecebimento): ConfirmacoesDoRecebimento => ({
   confirmarCaixaFechado: dados.confirmarCaixaFechado,
   confirmarDuplicidade: dados.confirmarDuplicidade,
+  confirmarAcimaDaDivida: dados.confirmarAcimaDaDivida,
 })

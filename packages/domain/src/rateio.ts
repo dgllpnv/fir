@@ -131,3 +131,29 @@ export function ratearValoresDosItens(
     indicesSemPreco.length === 0 ? itens.map((i) => i.valor!.centavos) : itens.map((i) => i.sessoes)
   return ratearPrograma(total, pesos)
 }
+
+/**
+ * O VALOR DE UM ITEM QUANDO SÓ N DAS S SESSÕES FORAM FECHADAS.
+ *
+ * Não é uma regra nova de rateio: é `ratearPrograma` com pesos `[N, S−N]`,
+ * parte 0 — a mesma regra do resto do sistema. O restante é SEMPRE
+ * `valor − fechado` (nunca uma segunda divisão), então `fechado + restante`
+ * é exatamente o valor do item. `N = S` devolve o valor inteiro e `N = 0`
+ * devolve zero.
+ */
+export function valorFechadoPorSessoes(
+  valor: Dinheiro,
+  fechadas: number,
+  orcadas: number,
+): { readonly fechado: Dinheiro; readonly restante: Dinheiro } {
+  if (!Number.isInteger(fechadas) || !Number.isInteger(orcadas) || orcadas < 1) {
+    throw new Error('Sessões precisam ser inteiros, com pelo menos uma orçada.')
+  }
+  if (fechadas < 0 || fechadas > orcadas) {
+    throw new Error('Não dá para fechar mais sessões do que as orçadas.')
+  }
+  if (fechadas === orcadas) return { fechado: valor, restante: Dinheiro.zero() }
+  if (fechadas === 0) return { fechado: Dinheiro.zero(), restante: valor }
+  const fechado = ratearPrograma(valor, [BigInt(fechadas), BigInt(orcadas - fechadas)])[0]!
+  return { fechado, restante: valor.menos(fechado) }
+}

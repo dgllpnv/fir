@@ -75,7 +75,12 @@ export type PagamentoEmbutido = z.infer<typeof PagamentoEmbutido>
 export const CODIGO_CONFIRMACAO_NECESSARIA = 'CONFIRMACAO_NECESSARIA'
 
 /** `MES_ANTERIOR` é o do desfazer pagamento de conta; os dois primeiros, de recebimento. */
-export const AVISOS_DE_CONFIRMACAO = ['CAIXA_FECHADO', 'POSSIVEL_DUPLICIDADE', 'MES_ANTERIOR'] as const
+export const AVISOS_DE_CONFIRMACAO = [
+  'CAIXA_FECHADO',
+  'POSSIVEL_DUPLICIDADE',
+  'MES_ANTERIOR',
+  'VALOR_ACIMA_DA_DIVIDA',
+] as const
 export type AvisoDeConfirmacao = (typeof AVISOS_DE_CONFIRMACAO)[number]
 
 export const ConfirmacaoNecessaria = z
@@ -100,10 +105,13 @@ export type ConfirmacaoNecessaria = z.infer<typeof ConfirmacaoNecessaria>
 export const confirmacoesDoRecebimento = {
   confirmarCaixaFechado: z.literal(true).optional(),
   confirmarDuplicidade: z.literal(true).optional(),
+  /** Só em `saldo`: o valor passa do que está em aberto na dívida escolhida. */
+  confirmarAcimaDaDivida: z.literal(true).optional(),
 }
 export type ConfirmacoesDoRecebimento = {
   readonly confirmarCaixaFechado?: true | undefined
   readonly confirmarDuplicidade?: true | undefined
+  readonly confirmarAcimaDaDivida?: true | undefined
 }
 
 /**
@@ -378,6 +386,8 @@ export const EventoDeJornada = z.object({
   chaveIdempotencia: Uuid.optional(),
   /** Só em `fechar`: as chaves dos procedimentos fechados. Ausente = sem detalhamento. */
   itensFechados: z.array(z.string()).optional(),
+  /** Só em `fechar` parcial por sessões: quantas sessões ele fechou, por procedimento (menos que as orçadas). */
+  sessoesFechadas: z.record(z.string(), z.number().int().positive()).optional(),
   /** Só em `fechar`: o que foi fechado (entrada + em aberto). Redigido sem `valores`. */
   valorFechado: centavosNaSaida.optional(),
 })
@@ -401,6 +411,8 @@ export const ItemDoOrcamentoNaSaida = z.object({
   chave: z.string(),
   procedimentoId: Uuid,
   valor: centavosNaSaida.optional(),
+  /** Sessões orçadas do procedimento, quando informadas (lista ou programa). */
+  sessoes: z.number().int().positive().optional(),
 })
 export type ItemDoOrcamentoNaSaida = z.infer<typeof ItemDoOrcamentoNaSaida>
 

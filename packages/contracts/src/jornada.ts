@@ -1,7 +1,7 @@
 import { ETAPAS } from '@fir/domain'
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Hora, Uuid } from './comum'
-import { confirmacoesDoRecebimento, PagamentoEmbutido } from './tarefas'
+import { confirmacoesDoRecebimento, MotivoDeSuporte, PagamentoEmbutido } from './tarefas'
 
 /**
  * `POST /v1/tarefas/:id/jornada` — UMA AÇÃO, UM CORPO.
@@ -111,6 +111,8 @@ export const ItemDoOrcamento = z
     chave: z.string().trim().min(1).max(20),
     procedimentoId: Uuid,
     valor: valorDeItem.optional(),
+    /** Quantas sessões foram orçadas deste procedimento (opcional: nem todo item é de sessões). */
+    sessoes: z.number().int().min(1).max(60).optional(),
   })
   .strict()
 export type ItemDoOrcamento = z.infer<typeof ItemDoOrcamento>
@@ -215,6 +217,12 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
        * Persiste no evento `fechar`.
        */
       itensFechados: z.array(z.string().trim().min(1).max(20)).max(10).optional(),
+      /**
+       * Só no parcial de um orçamento de PROGRAMA: quantas sessões a paciente
+       * fechou, por chave de procedimento marcado (1 até as orçadas). Ausente =
+       * todas as orçadas. O programa nasce com ESTAS sessões, e o evento as guarda.
+       */
+      sessoesFechadas: z.record(z.string().trim().min(1).max(20), z.number().int().min(1).max(60)).optional(),
       /** Só no parcial: o dia de retomar o restante. Vira lembrete em Hoje › Retomar. */
       retomarRestanteEm: DiaCivil.optional(),
       nota: Nota,
@@ -257,6 +265,28 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
       programa: Programa.optional(),
       /** Os procedimentos do orçamento SEM programa, trocados por inteiro. */
       itens: ItensDoOrcamento.optional(),
+    })
+    .strict(),
+  /**
+   * REABRIR / EXCLUIR SÓ O ORÇAMENTO (pedido da cliente, 2026-11-13).
+   *
+   * O motivo é OBRIGATÓRIO para todos (10 a 200 caracteres): as duas ações
+   * estornam dinheiro e vão para a trilha com o motivo. `confirmarCaixaFechado`
+   * é a mesma confirmação do recebimento: o estorno mexe num dia de caixa já
+   * conferido, e a tela diz qual dia antes de pedir.
+   */
+  z
+    .object({
+      acao: z.literal('reabrirOrcamento'),
+      motivo: MotivoDeSuporte,
+      confirmarCaixaFechado: z.literal(true).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      acao: z.literal('excluirOrcamento'),
+      motivo: MotivoDeSuporte,
+      confirmarCaixaFechado: z.literal(true).optional(),
     })
     .strict(),
 ])
@@ -427,6 +457,61 @@ export const RespostaDaJornada = z.object({
 export type RespostaDaJornada = z.infer<typeof RespostaDaJornada>
 
 /**
+ * RECEBIMENTOS DIRETOS na Jornada do paciente (pedido da cliente, 2026-11-13).
+ *
+ * O dinheiro que entrou por "Registrar recebimento" (consulta, sinal, programa,
+ * saldo) não passa por um cartão da jornada, e por isso a paciente que já pagou
+ * não aparecia ali. Esta lista só ENXERGA esses recebimentos: não conta em
+ * nenhum indicador do funil (a receita tem um caminho só, regra 3). Nunca
+ * carrega dose, lote nem produto: só o nome do programa.
+ */
+export const RecebimentoDireto = z.object({
+  id: Uuid,
+  pacienteId: Uuid,
+  paciente: z.string(),
+  /** O rótulo que a recepção escolheu: "Pagamento de saldo em aberto". */
+  tipo: z.string(),
+  valor: centavosNaSaida,
+  forma: z.string(),
+  em: DiaCivil,
+  /** Nome do programa que o pagamento abateu, quando abateu um. */
+  programa: z.string().nullable(),
+})
+export const RecebimentosDiretos = z.object({
+  itens: z.array(RecebimentoDireto),
+  restantes: z.number().int(),
+})
+export type RecebimentosDiretos = z.infer<typeof RecebimentosDiretos>
+
+/**
+ * **PACIENTE EM PROGRAMA** — a seção "Em programa" da Jornada (pedido da cliente,
+ * 2026-11-13: "puxar programas de tratamento em andamento").
+ *
+ * Leitura derivada, sem tarefa nova: não entra no funil nem na receita. Só o que
+ * a recepção precisa para saber onde a paciente está: quais procedimentos, quantas
+ * sessões já foram feitas e quando vem a próxima. Dose, produto, lote e dinheiro
+ * ficam de fora (regra 18).
+ */
+export const ProgramaEmAndamento = z.object({
+  id: Uuid,
+  pacienteId: Uuid,
+  paciente: z.string(),
+  /** Os procedimentos do programa, em texto: "Semaglutida + Tirzepatida". */
+  procedimentos: z.string(),
+  sessoesFeitas: z.number().int().nonnegative(),
+  sessoesTotal: z.number().int().nonnegative(),
+  /** O prazo da próxima sessão aberta, ou `null` se não há. */
+  proximaSessaoEm: DiaCivil.nullable(),
+  /** Sessões abertas com o prazo já vencido. */
+  atrasadas: z.number().int().nonnegative(),
+})
+export const ProgramasEmAndamento = z.object({
+  itens: z.array(ProgramaEmAndamento),
+  restantes: z.number().int().nonnegative(),
+})
+export type ProgramasEmAndamento = z.infer<typeof ProgramasEmAndamento>
+
+/**
  * **ORÇAMENTOS POR ATENDENTE** — quantos lançou, quantos fechou completos e
  * quantos fechou parciais. Só contagens: nenhum centavo, então a resposta é a
  * mesma com ou sem a permissão `valores`.
@@ -486,6 +571,16 @@ export const ItemDoOrcamentoDoPaciente = z.object({
   procedimento: z.string(),
   /** Preço do item. Redigido sem `valores`. */
   valor: centavosNaSaida.optional(),
+  /**
+   * Quantas sessões foram orçadas e de quanto em quanto tempo. Só no orçamento
+   * de PROGRAMA. Dado de plano terapêutico: sai sob a mesma permissão
+   * (`jornada`) que já mostra o cartão da ficha. Dose, produto, lote e
+   * responsável continuam fora (regra 18; ADR 2026-11-13 sessoes-na-leitura).
+   */
+  sessoes: z.number().int().positive().optional(),
+  intervaloDias: z.number().int().positive().optional(),
+  /** Parcial por sessões: quantas ele fechou (menos que `sessoes`). */
+  sessoesFechadas: z.number().int().positive().optional(),
   situacao: z.enum(SITUACOES_DO_ITEM),
 })
 export type ItemDoOrcamentoDoPaciente = z.infer<typeof ItemDoOrcamentoDoPaciente>
@@ -509,6 +604,14 @@ export const OrcamentoDoPaciente = z.object({
   itensTotal: z.number().int(),
   /** Só no parcial: o dia de retomar o restante, ou `null`. */
   retomarRestanteEm: DiaCivil.nullable(),
+  /** "O que foi orçado", em texto livre (a nota do orçamento vigente), ou `null`. */
+  notaDoOrcamento: z.string().nullable(),
+  /**
+   * A observação do fechamento — por exemplo, o que a paciente NÃO fechou e por
+   * quê (pedido da cliente: "essa observação não fica em lugar nenhum"). Só em
+   * orçamento fechado; `null` nos demais.
+   */
+  notaDoFechamento: z.string().nullable(),
 })
 export type OrcamentoDoPaciente = z.infer<typeof OrcamentoDoPaciente>
 
@@ -525,3 +628,25 @@ export const RespostaDeOrcamentosDoPaciente = z.object({
   itens: z.array(OrcamentoDoPaciente),
 })
 export type RespostaDeOrcamentosDoPaciente = z.infer<typeof RespostaDeOrcamentosDoPaciente>
+
+/**
+ * `GET /v1/tarefas/:id/orcamento/previa` — o que reabrir ou excluir o orçamento
+ * vai desfazer, para a confirmação da tela. Nenhum campo novo de dinheiro: `valor`
+ * já é monetário e a redação central o apaga sem `valores` (a equipe lê "há um
+ * pagamento a estornar", sem o número).
+ */
+export const PreviaDeDesfazerOrcamento = z.object({
+  /** O orçamento tem dinheiro do fechamento a estornar. */
+  temPagamento: z.boolean(),
+  /** O fechamento montou um programa, que será encerrado. */
+  temPrograma: z.boolean(),
+  /** O que será estornado. Redigido sem `valores`. */
+  valor: centavosNaSaida.nullable(),
+  /** O dia do dinheiro (fuso da clínica), quando há pagamento. */
+  diaDoDinheiro: DiaCivil.nullable(),
+  /** Aquele dia já tem caixa fechado: o estorno pede confirmação. */
+  caixaFechado: z.boolean(),
+  /** Se há algo que impede, a frase que diz o que fazer. `null` = pode. */
+  bloqueio: z.string().nullable(),
+})
+export type PreviaDeDesfazerOrcamento = z.infer<typeof PreviaDeDesfazerOrcamento>

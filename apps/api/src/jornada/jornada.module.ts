@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { provedorDeRelogio } from '../comum/relogio'
 import { TarefasModule } from '../tarefas/tarefas.module'
+import { DesfazerOrcamentoService } from './desfazer-orcamento.service'
 import { FechamentoService } from './fechamento.service'
 import { FunilController } from './funil.controller'
 import { FunilService } from './funil.service'
@@ -43,6 +44,7 @@ import { ProgramasModule } from '../programas/programas.module'
   providers: [
     JornadaService,
     FechamentoService,
+    DesfazerOrcamentoService,
     FunilService,
     OrcamentosService,
     OrcamentosDoPacienteService,
