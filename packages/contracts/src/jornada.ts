@@ -412,6 +412,9 @@ export const CartaoDaColuna = z.object({
   valorRestante: centavosNaSaida.optional(),
   itensFechados: z.number().int().nullable().optional(),
   itensTotal: z.number().int().nullable().optional(),
+  /** Soma das sessões do último fechamento / das orçadas; `null` se não foram informadas. */
+  sessoesFechadas: z.number().int().nullable().optional(),
+  sessoesTotal: z.number().int().nullable().optional(),
 })
 export type CartaoDaColuna = z.infer<typeof CartaoDaColuna>
 

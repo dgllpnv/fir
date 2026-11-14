@@ -565,6 +565,8 @@ type LinhaDeColuna = {
   itens_total: number | null
   /** Só nos parciais; `null` = fechado antes do detalhamento. */
   itens_fechados: number | null
+  sessoes_total: number | null
+  sessoes_fechadas: number | null
 }
 
 /**
@@ -611,7 +613,23 @@ async function montarColunas(
                 FROM jsonb_array_elements(t.historico) WITH ORDINALITY f(ev, n)
                WHERE f.ev->>'acao' = 'fechar'
                ORDER BY f.n DESC LIMIT 1
-            ) END AS itens_fechados
+            ) END AS itens_fechados,
+            -- Sessões orçadas: só quando TODOS os procedimentos listam sessões
+            -- (soma parcial compararia coisas diferentes).
+            (SELECT CASE WHEN count(*) = count(i->>'sessoes') THEN sum((i->>'sessoes')::int) END
+               FROM jsonb_array_elements(coalesce(t.itens_orcamento, t.programa_orcado)) i
+            )::int AS sessoes_total,
+            -- Sessões que a paciente FECHOU no último fechamento: dos procedimentos
+            -- marcados, o que foi informado ou, sem informação, as orçadas.
+            CASE WHEN ${sqlParcial('t')} THEN (
+              SELECT sum(coalesce((f.ev->'sessoesFechadas'->>x.chave)::int, x.sessoes))
+                FROM (SELECT h.ev FROM jsonb_array_elements(t.historico) WITH ORDINALITY h(ev, n)
+                       WHERE h.ev->>'acao' = 'fechar' ORDER BY h.n DESC LIMIT 1) f,
+                     LATERAL (SELECT coalesce(i->>'chave', 'i' || k) AS chave, (i->>'sessoes')::int AS sessoes
+                                FROM jsonb_array_elements(coalesce(t.itens_orcamento, t.programa_orcado))
+                                     WITH ORDINALITY it(i, k)) x
+               WHERE NOT (f.ev ? 'itensFechados') OR (f.ev->'itensFechados') ? x.chave
+            ) END::int AS sessoes_fechadas
        FROM tarefas t
        LEFT JOIN pacientes pa ON pa.id = t.paciente_id
        LEFT JOIN LATERAL (
@@ -697,6 +715,8 @@ const paraCartao = (l: LinhaDeColuna, parcial: boolean): CartaoDaColuna => ({
         valorRestante: restanteDe(l).toString(),
         itensFechados: l.itens_fechados,
         itensTotal: l.itens_total,
+        sessoesFechadas: l.sessoes_fechadas,
+        sessoesTotal: l.sessoes_total,
       }
     : {}),
 })

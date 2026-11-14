@@ -171,8 +171,13 @@ export function CartaoDeTarefa({
                 <span className="valor">{formatarDinheiro(emCentavos(t.pagamento.valor))}</span>
                 <span className="pill">{t.pagamento.forma}</span>
                 {t.pagamento.valorAberto === null || t.pagamento.valorAberto === '0' ? null : (
-                  <span className="pill alerta num">
-                    {formatarDinheiro(emCentavos(t.pagamento.valorAberto))} em aberto
+                  // É o que FICOU em aberto neste atendimento, uma foto do dia: pagamentos
+                  // posteriores abatem o saldo da paciente (cabeçalho da ficha), não esta etiqueta.
+                  <span
+                    className="pill alerta num"
+                    title="Valor que ficou em aberto neste atendimento. O saldo atual da paciente está no topo da ficha."
+                  >
+                    {formatarDinheiro(emCentavos(t.pagamento.valorAberto))} ficou em aberto
                   </span>
                 )}
               </>

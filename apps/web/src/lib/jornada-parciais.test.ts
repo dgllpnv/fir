@@ -15,4 +15,12 @@ describe('coluna de parciais', () => {
       'sem detalhamento',
     )
   })
+  it('todos os procedimentos com menos sessões: mostra as sessões, não "2 de 2"', () => {
+    const x = { itensFechados: 2, itensTotal: 2, sessoesFechadas: 7, sessoesTotal: 14, proximoPassoEm: null }
+    expect(linhasDoParcial(x, '2026-11-13').fechou).toBe('fechou 7 de 14 sessões')
+  })
+  it('parcial por procedimento continua dizendo procedimentos, mesmo com sessões', () => {
+    const x = { itensFechados: 1, itensTotal: 2, sessoesFechadas: 10, sessoesTotal: 14, proximoPassoEm: null }
+    expect(linhasDoParcial(x, '2026-11-13').fechou).toBe('fechou 1 de 2 procedimentos')
+  })
 })

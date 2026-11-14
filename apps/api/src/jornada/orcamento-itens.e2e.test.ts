@@ -423,6 +423,12 @@ describe('ORÇAMENTO SEM PROGRAMA: só valor, ou valor e procedimentos', () => {
       const itens = o['itens'] as Doc[]
       expect(itens.find((i) => i['chave'] === 'p1')).toMatchObject({ sessoes: 10, sessoesFechadas: 5 })
       expect(itens.find((i) => i['chave'] === 'p2')?.['sessoesFechadas']).toBeUndefined()
+
+      // O quadro da Jornada diz as SESSÕES (5 + 8 de 18), não "2 de 2 procedimentos".
+      const j = await pegar(c, '/v1/jornada', {}, 'beatriz')
+      const col = (j.body.colunas as Doc[]).find((x) => x['chave'] === 'parciais')!
+      const cartao = (col['itens'] as Doc[]).find((x) => x['id'] === id)!
+      expect(cartao).toMatchObject({ itensFechados: 2, itensTotal: 2, sessoesFechadas: 13, sessoesTotal: 18 })
     })
 
     it('mais sessões que as orçadas é 400 e nada é gravado', async () => {
