@@ -137,12 +137,9 @@ describe('registrar — a tarefa companheira', () => {
     ]
     for (const [ref, tipo] of casos) {
       await limparTarefas(c)
-      // `saldo` sem dívida exige a confirmação de excedente; as outras ignoram a chave.
-      const r = await registrar({
-        ref,
-        valor: '10000',
-        ...(ref === 'saldo' ? { confirmarAcimaDaDivida: true } : {}),
-      })
+      // `saldo` só existe com dívida: sem ela o servidor recusa (não há o que receber).
+      if (ref === 'saldo') await registrar({ ref: 'consulta', valor: '20000', valorAberto: '50000' })
+      const r = await registrar({ ref, valor: '10000' })
       expect(r.statusCode, ref).toBe(201)
       expect((await recebimentoCru(r.body.id as string))!['tipo'], ref).toBe(tipo)
     }

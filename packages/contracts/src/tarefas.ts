@@ -79,7 +79,6 @@ export const AVISOS_DE_CONFIRMACAO = [
   'CAIXA_FECHADO',
   'POSSIVEL_DUPLICIDADE',
   'MES_ANTERIOR',
-  'VALOR_ACIMA_DA_DIVIDA',
   'CREDITO_NA_PACIENTE',
 ] as const
 export type AvisoDeConfirmacao = (typeof AVISOS_DE_CONFIRMACAO)[number]
@@ -106,13 +105,10 @@ export type ConfirmacaoNecessaria = z.infer<typeof ConfirmacaoNecessaria>
 export const confirmacoesDoRecebimento = {
   confirmarCaixaFechado: z.literal(true).optional(),
   confirmarDuplicidade: z.literal(true).optional(),
-  /** Só em `saldo`: o valor passa do que está em aberto na dívida escolhida. */
-  confirmarAcimaDaDivida: z.literal(true).optional(),
 }
 export type ConfirmacoesDoRecebimento = {
   readonly confirmarCaixaFechado?: true | undefined
   readonly confirmarDuplicidade?: true | undefined
-  readonly confirmarAcimaDaDivida?: true | undefined
 }
 
 /**

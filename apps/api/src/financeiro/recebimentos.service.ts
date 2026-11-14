@@ -1,6 +1,4 @@
 import {
-  CODIGO_CONFIRMACAO_NECESSARIA,
-  type ConfirmacaoNecessaria,
   type ConsultaDeRecebimentos,
   type RecebimentoNaLista,
   type RegistrarRecebimento,
@@ -9,8 +7,6 @@ import { diaCivil, ehPagamento, exigir, instanteDaConclusao, somarDias } from '@
 import {
   BadRequestException,
   ConflictException,
-  HttpException,
-  HttpStatus,
   Inject,
   Injectable,
   NotFoundException,
@@ -190,28 +186,23 @@ export class RecebimentosService {
       }
 
       /**
-       * "SALDO EM ABERTO" NÃO GERA CRÉDITO EM SILÊNCIO.
+       * "SALDO EM ABERTO" NUNCA PASSA DA DÍVIDA.
        *
-       * Pagar mais do que a dívida do grupo escolhido deixaria o grupo negativo
-       * e o excedente sumiria como "crédito". O servidor — não a tela — decide:
-       * 409 `CONFIRMACAO_NECESSARIA` com o aviso, SEM número (a redação central
-       * não alcança corpo de erro, e o aviso é decidido pelo estado, nunca pelo
-       * valor: quem não tem `valores` não vira oráculo do saldo). Com a
-       * confirmação explícita, o excedente vira crédito, como sempre foi.
+       * Pedido da cliente: o valor acima do que a paciente deve não vira
+       * crédito — o recebimento é registrado só com o que quita o grupo
+       * escolhido. O servidor, não a tela, faz o corte (regra 5: o saldo é
+       * derivado por adesão, e um grupo negativo é o crédito que não queremos
+       * fabricar aqui). Sem dívida no grupo, não há o que receber.
        */
-      if (dados.ref === 'saldo' && dados.confirmarAcimaDaDivida !== true) {
+      let valor = dados.valor
+      if (dados.ref === 'saldo') {
         const s = await saldoDe(c, ctx.clinicaId, dados.pacienteId)
         const grupo = s.grupos.find((g) => g.programaId === programaId)
         const devido = grupo === undefined ? 0n : grupo.saldo.centavos
-        if (dados.valor > devido) {
-          const corpo: ConfirmacaoNecessaria = {
-            statusCode: 409,
-            codigo: CODIGO_CONFIRMACAO_NECESSARIA,
-            avisos: ['VALOR_ACIMA_DA_DIVIDA'],
-            message: 'O valor passa do que está em aberto nesta dívida. Confirme para registrar.',
-          }
-          throw new HttpException(corpo, HttpStatus.CONFLICT)
+        if (devido <= 0n) {
+          throw new ConflictException('Esta paciente não tem valor em aberto nesta dívida.')
         }
+        if (valor > devido) valor = devido
       }
 
       // DEPOIS de `porRequisicao` (ajuste 3 do gate): o duplo toque devolve a
@@ -219,7 +210,7 @@ export class RecebimentosService {
       await conferirAvisosDoRecebimento(c, {
         clinicaId: ctx.clinicaId,
         pacienteId: dados.pacienteId,
-        valor: dados.valor,
+        valor,
         forma: dados.forma,
         recebidoEm,
         fuso: ctx.fuso,
@@ -283,7 +274,7 @@ export class RecebimentosService {
           tipo,
           // `bigint` vira texto no parâmetro: o driver não serializa bigint, e
           // `Number()` perderia precisão acima de 2^53 (regra 1).
-          dados.valor.toString(),
+          valor.toString(),
           dados.forma,
           aberto.toString(),
           recebidoEm,

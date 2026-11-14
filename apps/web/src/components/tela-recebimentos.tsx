@@ -173,7 +173,7 @@ export function TelaRecebimentos({
     try {
       // O MESMO `requisicaoId` no reenvio confirmado: é o mesmo dinheiro que
       // a pessoa está lançando, e o duplo toque continua idempotente.
-      await postarComConfirmacao(
+      const gravado = await postarComConfirmacao<{ valor?: string | null }>(
         'v1/recebimentos',
         {
           requisicaoId,
@@ -196,7 +196,14 @@ export function TelaRecebimentos({
         },
         { dia: em, hoje, valor: emCentavos, podeVerValores: podeValores },
       )
-      setRecado('Recebimento registrado.')
+      // Acima da dívida o servidor registra só o que quita; a tela diz isso em vez de calar.
+      const registrado =
+        typeof gravado?.valor === 'string' && /^\d+$/.test(gravado.valor) ? BigInt(gravado.valor) : null
+      setRecado(
+        registrado !== null && registrado < emCentavos
+          ? `Recebimento registrado: ${formatarDinheiro(registrado)}, o que quitava a dívida. O que passou disso não foi lançado.`
+          : 'Recebimento registrado.',
+      )
       limpar()
       doDia.recarregar()
       meta.recarregar()

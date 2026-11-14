@@ -106,11 +106,10 @@ describe('a dívida mora no programa', () => {
     const antes = await saldo()
     expect(antes.grupos.find((g) => g['programaId'] === programa)).toMatchObject({ saldo: '600000', devendo: true })
 
-    // Sem programaId, vai ao geral, que não deve nada: o servidor PERGUNTA em vez de gerar crédito.
+    // Sem programaId, vai ao geral, que não deve nada: o servidor RECUSA em vez de gerar crédito.
     const r = await pagarSaldo({})
     expect(r.statusCode).toBe(409)
-    expect(r.body).toMatchObject({ codigo: 'CONFIRMACAO_NECESSARIA', avisos: ['VALOR_ACIMA_DA_DIVIDA'] })
-    expect(JSON.stringify(r.body)).not.toContain('100000') // o aviso não carrega número
+    expect(JSON.stringify(r.body)).not.toContain('100000') // a recusa não carrega número
     expect((await saldo()).credito).toBe('0')
   })
 
@@ -137,14 +136,14 @@ describe('a dívida mora no programa', () => {
     expect(fim.grupos.find((g) => g['programaId'] === programa)).toMatchObject({ devendo: false })
   })
 
-  it('acima da dívida do programa: pergunta; confirmada, o excedente vira crédito', async () => {
+  it('acima da dívida do programa: registra só o que quita, sem crédito', async () => {
     const programa = await programaComDivida()
-    const sem = await pagarSaldo({ programaId: programa, valor: '700000' })
-    expect(sem.statusCode).toBe(409)
-    expect(sem.body).toMatchObject({ avisos: ['VALOR_ACIMA_DA_DIVIDA'] })
-    const com = await pagarSaldo({ programaId: programa, valor: '700000', confirmarAcimaDaDivida: true })
-    expect(com.statusCode, JSON.stringify(com.body)).toBe(201)
-    expect((await saldo()).credito).toBe('100000')
+    const r = await pagarSaldo({ programaId: programa, valor: '700000' })
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201)
+    expect(r.body.valor).toBe('600000')
+    const depois = await saldo()
+    expect(depois.credito).toBe('0')
+    expect(depois.saldo).toBe('0')
   })
 
   it('o duplo toque do MESMO envio não pergunta de novo nem duplica', async () => {

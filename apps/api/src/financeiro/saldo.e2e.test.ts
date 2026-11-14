@@ -83,19 +83,18 @@ describe('GET /v1/pacientes/:id/saldo', () => {
     expect((await saldoDe(c.pacientes['ana']!)).body.saldo).toBe('120000')
   })
 
-  it('O CRÉDITO NÃO SE PERDE: pagar a mais zera o saldo e aparece em `credito`', async () => {
-    // É a mutação que o `greatest(0, …)` em SQL cometia. Ele devolvia `0` e o
-    // excedente sumia — e paciente que pagou a mais é erro de lançamento ou
-    // crédito real, e os dois precisam aparecer.
+  it('PAGAR A MAIS NÃO GERA CRÉDITO: o recebimento é cortado no que quita a dívida', async () => {
+    // Pedido da cliente: acima da dívida, vale só o que a paciente deve.
     await registrar({ ref: 'consulta', valor: '100000', valorAberto: '50000' })
-    // Acima da dívida: o servidor pergunta; a confirmação explícita gera o crédito.
-    await registrar({ ref: 'saldo', valor: '80000', confirmarAcimaDaDivida: true })
+    const pago = await registrar({ ref: 'saldo', valor: '80000' })
+    expect(pago.statusCode, JSON.stringify(pago.body)).toBe(201)
+    expect(pago.body.valor).toBe('50000')
 
     const r = await saldoDe(c.pacientes['ana']!)
     expect(r.body.saldo).toBe('0')
-    expect(r.body.credito).toBe('30000')
+    expect(r.body.credito).toBe('0')
     expect(r.body.temSaldo).toBe(false)
-    expect(r.body.grupos[0].credito).toBe('30000')
+    expect(r.body.grupos[0].credito).toBe('0')
     // E `saldo − credito === aberto − abatido`: o clamp MOVE, não perde.
     const g = r.body.grupos[0]
     expect(BigInt(g.saldo) - BigInt(g.credito)).toBe(BigInt(g.aberto) - BigInt(g.abatido))
@@ -138,14 +137,14 @@ describe('GET /v1/pacientes/:id/saldo', () => {
 })
 
 describe('a lista e a ficha consomem a MESMA função do domínio', () => {
-  it('a ficha traz saldo, credito e temSaldo — e o credito não é engolido', async () => {
+  it('a ficha traz saldo, credito e temSaldo — pagar a mais quita e não gera crédito', async () => {
     await registrar({ ref: 'consulta', valor: '100000', valorAberto: '50000' })
-    await registrar({ ref: 'saldo', valor: '80000', confirmarAcimaDaDivida: true })
+    await registrar({ ref: 'saldo', valor: '80000' })
 
     const r = await fichaDe(c.pacientes['ana']!)
     expect(r.statusCode).toBe(200)
     expect(r.body.saldo).toBe('0')
-    expect(r.body.credito).toBe('30000')
+    expect(r.body.credito).toBe('0')
     expect(r.body.temSaldo).toBe(false)
   })
 
