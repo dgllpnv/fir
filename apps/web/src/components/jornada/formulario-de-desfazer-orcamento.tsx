@@ -34,6 +34,7 @@ export function FormularioDeDesfazerOrcamento({
   const previa = useDados<PreviaDeDesfazerOrcamento>(`v1/tarefas/${t.id}/orcamento/previa`)
   const [motivo, setMotivo] = useState('')
   const [confirmaCaixa, setConfirmaCaixa] = useState(false)
+  const [confirmaCredito, setConfirmaCredito] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
@@ -51,12 +52,17 @@ export function FormularioDeDesfazerOrcamento({
       setErro('Confirme o estorno do dinheiro de um dia de caixa fechado.')
       return
     }
+    if (p?.geraCredito === true && !confirmaCredito) {
+      setErro('Confirme que o que a paciente já pagou em "Saldo em aberto" vira crédito dela.')
+      return
+    }
     setSalvando(true)
     try {
       await aoSalvar({
         acao,
         motivo: motivo.trim(),
         ...(p?.caixaFechado === true ? { confirmarCaixaFechado: true } : {}),
+        ...(p?.geraCredito === true ? { confirmarCredito: true } : {}),
       })
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não consegui desfazer o orçamento.')
@@ -113,6 +119,25 @@ export function FormularioDeDesfazerOrcamento({
           Esse dinheiro entrou em {p.diaDoDinheiro === null ? 'um dia' : DIA_BR(p.diaDoDinheiro)}, com o caixa
           já fechado. Confirmo o estorno.
         </label>
+      ) : null}
+
+      {p?.geraCredito === true ? (
+        <div className="aviso-forte">
+          <b>A paciente já pagou parte desta dívida</b>
+          <p className="nota" style={{ margin: 0 }}>
+            Ela pagou em &ldquo;Saldo em aberto&rdquo;. Sem esta dívida, o que ela pagou sobra e vira{' '}
+            <b>crédito dela</b>. Se não é isso que você quer, estorne esse pagamento em Financeiro ›
+            Recebimentos antes.
+          </p>
+          <label className="caixa">
+            <input
+              type="checkbox"
+              checked={confirmaCredito}
+              onChange={(e) => setConfirmaCredito(e.target.checked)}
+            />
+            Entendi: o que ela já pagou vira crédito.
+          </label>
+        </div>
       ) : null}
 
       <label className="campo">

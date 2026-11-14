@@ -88,9 +88,10 @@ export const RegistrarRecebimento = z.discriminatedUnion('ref', [
   queAbre('consulta'),
   queAbre('sinal'),
   queAbre('novo'),
-  // `programa` só é aceitável a partir do épico 5. Até lá a ROTA recusa com
-  // "Este paciente não tem programa em andamento." — o mesmo texto da tela.
-  // O contrato já exige o id: o épico 5 não mexe neste arquivo.
+  // `programa` exige o id do programa, que precisa ser da paciente (a rota recusa
+  // com "Este paciente não tem programa em andamento." se não for). A tela usa
+  // "Programa em andamento" como atalho de `saldo` com `programaId`, para herdar
+  // o aviso de valor acima da dívida.
   z.object({ ...comumDoRecebimento, ref: z.literal('programa'), programaId: Uuid }).strict(),
   // `saldo` ABATE uma dívida. `programaId` diz QUAL: ausente/nulo = o grupo geral
   // (o que não é de programa); com id = a dívida daquele programa. Sem isto, todo

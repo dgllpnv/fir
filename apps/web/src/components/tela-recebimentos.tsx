@@ -133,7 +133,10 @@ export function TelaRecebimentos({
   const escolhida = REFERENCIAS.find((r) => r.k === ref)
 
   // As dívidas da paciente: cada programa em aberto e o grupo geral. Só as que devem.
-  const dividas = (saldo.dados?.grupos ?? []).filter((g) => g.devendo)
+  const todasAsDividas = (saldo.dados?.grupos ?? []).filter((g) => g.devendo)
+  const dividasDeProgramas = todasAsDividas.filter((g) => g.programaId !== null)
+  // "Programa em andamento" é o atalho de "Saldo em aberto" só para as dívidas de programa.
+  const dividas = ref === 'programa' ? dividasDeProgramas : todasAsDividas
   const dividaPadrao = dividas[0] === undefined ? '' : (dividas[0].programaId ?? 'geral')
   const dividaAtual = dividaEscolhida === '' ? dividaPadrao : dividaEscolhida
 
@@ -179,8 +182,11 @@ export function TelaRecebimentos({
           forma,
           em,
           obs: obs.trim(),
-          ref: escolhida.k,
-          ...(escolhida.k === 'saldo' && dividaAtual !== '' && dividaAtual !== 'geral'
+          // O servidor só checa "acima da dívida" em `saldo`; o atalho do programa vai por ele.
+          ref: escolhida.k === 'programa' ? 'saldo' : escolhida.k,
+          ...((escolhida.k === 'saldo' || escolhida.k === 'programa') &&
+          dividaAtual !== '' &&
+          dividaAtual !== 'geral'
             ? { programaId: dividaAtual }
             : {}),
           ...(campanhaId === '' ? {} : { campanhaId }),
@@ -249,11 +255,15 @@ export function TelaRecebimentos({
             <AvisoDeRepeticao estado={recentes} />
             <AvisoDeSaldo estado={saldo} />
 
-            <Referencias escolhida={ref} aoEscolher={setRef} />
+            <Referencias
+              escolhida={ref}
+              aoEscolher={setRef}
+              temDividaDePrograma={dividasDeProgramas.length > 0}
+            />
 
             {escolhida === undefined ? null : (
               <>
-                {escolhida.k === 'saldo' && dividas.length > 0 ? (
+                {(escolhida.k === 'saldo' || escolhida.k === 'programa') && dividas.length > 0 ? (
                   <label className="campo">
                     Qual dívida a paciente está pagando?
                     <select value={dividaAtual} onChange={(e) => setDividaEscolhida(e.target.value)}>
@@ -422,10 +432,13 @@ function Referencias({
   escolhida,
   aoEscolher,
   desabilitadas = false,
+  temDividaDePrograma = false,
 }: {
   escolhida: Referencia | ''
   aoEscolher: (r: Referencia) => void
   desabilitadas?: boolean
+  /** A paciente tem programa com valor em aberto: só então "Programa em andamento" abre. */
+  temDividaDePrograma?: boolean
 }) {
   return (
     <fieldset className="refs" disabled={desabilitadas} aria-disabled={desabilitadas}>
@@ -436,13 +449,13 @@ function Referencias({
           type="button"
           className="ref"
           aria-pressed={escolhida === r.k}
-          disabled={desabilitadas || r.k === 'programa'}
+          disabled={desabilitadas || (r.k === 'programa' && !temDividaDePrograma)}
           onClick={() => aoEscolher(r.k)}
         >
           <b>{r.t}</b>
           <span>
-            {r.k === 'programa' && !desabilitadas
-              ? 'Esta paciente não tem programa em andamento.'
+            {r.k === 'programa' && !desabilitadas && !temDividaDePrograma
+              ? 'Esta paciente não tem programa com valor em aberto.'
               : r.d}
           </span>
         </button>

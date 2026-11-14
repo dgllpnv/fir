@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   type Cenario,
@@ -210,7 +211,13 @@ describe('REGRAS DO GATE', () => {
     await fechar(id)
     const com = await pegar(c, `/v1/tarefas/${id}/orcamento/previa`, {}, 'beatriz')
     expect(com.statusCode, JSON.stringify(com.body)).toBe(200)
-    expect(com.body).toMatchObject({ temPagamento: true, temPrograma: true, valor: '400000', bloqueio: null })
+    expect(com.body).toMatchObject({
+      temPagamento: true,
+      temPrograma: true,
+      valor: '400000',
+      geraCredito: false,
+      bloqueio: null,
+    })
   })
 
   it('dia de caixa fechado: 409 CONFIRMACAO_NECESSARIA, e com a confirmação passa', async () => {
@@ -270,5 +277,82 @@ describe('QUEM PODE REABRIR E EXCLUIR O ORÇAMENTO (pedido da cliente: superadmi
     expect((await mover(id, { acao: 'reabrirOrcamento', motivo: MOTIVO }, 'rita')).statusCode).toBe(403)
     expect((await mover(id, { acao: 'excluirOrcamento', motivo: MOTIVO }, 'rita')).statusCode).toBe(403)
     expect((await tarefa(id))['etapa']).toBe('fechado')
+  })
+})
+
+describe('REABRIR QUANDO A PACIENTE JÁ PAGOU PARTE DA DÍVIDA (nasceria crédito)', () => {
+  // Orçamento em LISTA (sem programa): a dívida do fechamento mora no grupo geral.
+  async function listaFechada(): Promise<string> {
+    const r = await postar(
+      c,
+      '/v1/tarefas',
+      {
+        vinculo: 'paciente',
+        pacienteId: c.pacientes['ana'],
+        tipo: 'Consulta agendada',
+        responsavelId: c.pessoas['beatriz'],
+        quando: { modo: 'retroativo', em: HOJE },
+      },
+      'beatriz',
+    )
+    const id = r.body.tarefa.id as string
+    const o = await mover(id, {
+      acao: 'registrarOrcamento',
+      valor: '1000000',
+      itens: [{ chave: 'a', procedimentoId: proc[0]!.id, valor: '1000000' }],
+    })
+    expect(o.statusCode, JSON.stringify(o.body)).toBe(200)
+    expect((await fechar(id)).statusCode).toBe(200)
+    return id
+  }
+  const pagarSaldo = () =>
+    postar(
+      c,
+      '/v1/recebimentos',
+      {
+        requisicaoId: randomUUID(),
+        pacienteId: c.pacientes['ana'],
+        valor: '200000',
+        forma: 'Pix',
+        em: HOJE,
+        obs: '',
+        ref: 'saldo',
+      },
+      'beatriz',
+    )
+
+  it('sem pagamento de saldo, não gera crédito e reabre direto', async () => {
+    const id = await listaFechada()
+    const p = await pegar(c, `/v1/tarefas/${id}/orcamento/previa`, {}, 'beatriz')
+    expect(p.body).toMatchObject({ geraCredito: false })
+    expect((await mover(id, { acao: 'reabrirOrcamento', motivo: MOTIVO })).statusCode).toBe(200)
+  })
+
+  it('com saldo já pago: a prévia avisa, o 409 pede confirmação (sem número) e, confirmado, reabre', async () => {
+    const id = await listaFechada()
+    const pg = await pagarSaldo()
+    expect(pg.statusCode, JSON.stringify(pg.body)).toBe(201)
+
+    const previa = await pegar(c, `/v1/tarefas/${id}/orcamento/previa`, {}, 'beatriz')
+    expect(previa.body).toMatchObject({ geraCredito: true, bloqueio: null })
+
+    const sem = await mover(id, { acao: 'reabrirOrcamento', motivo: MOTIVO })
+    expect(sem.statusCode).toBe(409)
+    expect(sem.body).toMatchObject({ codigo: 'CONFIRMACAO_NECESSARIA', avisos: ['CREDITO_NA_PACIENTE'] })
+    expect(JSON.stringify(sem.body)).not.toMatch(/\d{4,}/) // nenhum valor no corpo do erro
+    expect((await tarefa(id))['etapa']).toBe('fechado') // nada mudou
+
+    const com = await mover(id, { acao: 'reabrirOrcamento', motivo: MOTIVO, confirmarCredito: true })
+    expect(com.statusCode, JSON.stringify(com.body)).toBe(200)
+    expect((await tarefa(id))['etapa']).toBe('orcamento')
+  })
+
+  it('excluir também pede a confirmação do crédito', async () => {
+    const id = await listaFechada()
+    expect((await pagarSaldo()).statusCode).toBe(201)
+    const sem = await mover(id, { acao: 'excluirOrcamento', motivo: MOTIVO })
+    expect(sem.statusCode).toBe(409)
+    expect(sem.body).toMatchObject({ avisos: ['CREDITO_NA_PACIENTE'] })
+    expect((await mover(id, { acao: 'excluirOrcamento', motivo: MOTIVO, confirmarCredito: true })).statusCode).toBe(200)
   })
 })

@@ -280,6 +280,7 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
       acao: z.literal('reabrirOrcamento'),
       motivo: MotivoDeSuporte,
       confirmarCaixaFechado: z.literal(true).optional(),
+      confirmarCredito: z.literal(true).optional(),
     })
     .strict(),
   z
@@ -287,6 +288,7 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
       acao: z.literal('excluirOrcamento'),
       motivo: MotivoDeSuporte,
       confirmarCaixaFechado: z.literal(true).optional(),
+      confirmarCredito: z.literal(true).optional(),
     })
     .strict(),
 ])
@@ -649,6 +651,12 @@ export const PreviaDeDesfazerOrcamento = z.object({
   diaDoDinheiro: DiaCivil.nullable(),
   /** Aquele dia já tem caixa fechado: o estorno pede confirmação. */
   caixaFechado: z.boolean(),
+  /**
+   * Pagamentos de "Saldo em aberto" já abateram esta dívida: sem ela, sobram
+   * e viram CRÉDITO da paciente. Booleano de propósito (sem número, nada a
+   * redigir); a tela pede confirmação.
+   */
+  geraCredito: z.boolean(),
   /** Se há algo que impede, a frase que diz o que fazer. `null` = pode. */
   bloqueio: z.string().nullable(),
 })

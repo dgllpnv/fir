@@ -199,3 +199,47 @@ export function saldoNoContrato(s: SaldoDoPaciente): SaldoNoContrato {
     temSaldo: s.temSaldo,
   }
 }
+
+/**
+ * Quanto de CRÉDITO nasceria se estes recebimentos fossem estornados.
+ *
+ * Estornar o fechamento de um orçamento tira o `valor_aberto` dele do grupo;
+ * se a paciente já abateu aquela dívida com "Saldo em aberto", o abatimento
+ * passa a sobrar e vira crédito ("pago a mais"). Mesma conta do domínio —
+ * `max(0, abatido − aberto)` por grupo —, antes e depois do estorno; o que
+ * cresce é o crédito NOVO. Fica aqui para a regra de saldo existir num lugar só.
+ */
+export async function creditoGeradoAoEstornar(
+  c: pg.PoolClient,
+  clinicaId: string,
+  pacienteId: string,
+  recebimentoIds: readonly string[],
+): Promise<bigint> {
+  if (recebimentoIds.length === 0) return 0n
+  const r = await c.query<{ aberto: string; abatido: string; aberto_estornado: string; abatido_estornado: string }>(
+    `SELECT coalesce(sum(valor_aberto), 0)::text AS aberto,
+            coalesce(sum(valor) FILTER (
+              WHERE tipo = ANY($2) OR (tipo = $4 AND modo_de_cobranca = 'saldo')), 0)::text AS abatido,
+            coalesce(sum(valor_aberto) FILTER (WHERE id = ANY($5::uuid[])), 0)::text AS aberto_estornado,
+            coalesce(sum(valor) FILTER (
+              WHERE id = ANY($5::uuid[])
+                AND (tipo = ANY($2) OR (tipo = $4 AND modo_de_cobranca = 'saldo'))), 0)::text AS abatido_estornado
+       FROM (SELECT r.id, r.programa_id, r.valor, r.valor_aberto, r.tipo, p.modo_de_cobranca
+               FROM recebimentos r
+               LEFT JOIN programas p ON p.id = r.programa_id
+              WHERE r.clinica_id = $1 AND r.estornado_em IS NULL AND r.paciente_id = $3) e
+      GROUP BY programa_id
+     HAVING bool_or(id = ANY($5::uuid[]))`,
+    [clinicaId, TIPOS_QUE_ABATEM, pacienteId, TIPO_DA_SESSAO, [...recebimentoIds]],
+  )
+  const maior = (a: bigint): bigint => (a > 0n ? a : 0n)
+  let novo = 0n
+  for (const l of r.rows) {
+    const aberto = BigInt(l.aberto)
+    const abatido = BigInt(l.abatido)
+    const antes = maior(abatido - aberto)
+    const depois = maior(abatido - BigInt(l.abatido_estornado) - (aberto - BigInt(l.aberto_estornado)))
+    if (depois > antes) novo += depois - antes
+  }
+  return novo
+}

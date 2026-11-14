@@ -80,6 +80,7 @@ export const AVISOS_DE_CONFIRMACAO = [
   'POSSIVEL_DUPLICIDADE',
   'MES_ANTERIOR',
   'VALOR_ACIMA_DA_DIVIDA',
+  'CREDITO_NA_PACIENTE',
 ] as const
 export type AvisoDeConfirmacao = (typeof AVISOS_DE_CONFIRMACAO)[number]
 

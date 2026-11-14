@@ -8,6 +8,7 @@ import {
 import { diaCivil, ehErro, ehSessao, type EventoDeJornada, type Relogio, transicao } from '@fir/domain'
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import type pg from 'pg'
+import { creditoGeradoAoEstornar } from '../financeiro/saldo.repositorio'
 import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
@@ -23,6 +24,8 @@ type Analise = {
   readonly efeito: EfeitoDaExclusao
   readonly dia: string | null
   readonly caixaFechado: boolean
+  /** Estornar faria sobrar abatimento de saldo: nasce crédito da paciente. */
+  readonly geraCredito: boolean
   readonly bloqueio: string | null
 }
 
@@ -73,6 +76,7 @@ export class DesfazerOrcamentoService {
         valor: a.efeito.temPagamento ? a.efeito.valor.toString() : null,
         diaDoDinheiro: a.dia,
         caixaFechado: a.caixaFechado,
+        geraCredito: a.geraCredito,
         bloqueio: a.bloqueio,
       }
     })
@@ -121,6 +125,17 @@ export class DesfazerOrcamentoService {
             codigo: CODIGO_CONFIRMACAO_NECESSARIA,
             avisos: ['CAIXA_FECHADO'],
             message: 'O dinheiro deste orçamento entrou num dia de caixa já fechado. Confirme para estornar.',
+          }
+          throw new ConflictException(corpo)
+        }
+        if (a.geraCredito && dados.confirmarCredito !== true) {
+          // Também sem número (o 409 não passa pela redação central).
+          const corpo: ConfirmacaoNecessaria = {
+            statusCode: 409,
+            codigo: CODIGO_CONFIRMACAO_NECESSARIA,
+            avisos: ['CREDITO_NA_PACIENTE'],
+            message:
+              'A paciente já pagou parte desta dívida em "Saldo em aberto". Ao desfazer, o que ela pagou vira crédito dela. Confirme para continuar.',
           }
           throw new ConflictException(corpo)
         }
@@ -236,6 +251,17 @@ export class DesfazerOrcamentoService {
         ? 'O programa deste orçamento já tem outros pagamentos, dentro de atendimentos ou sessões. Reabra esses atendimentos para desfazê-los antes.'
         : 'O programa deste orçamento já tem outros pagamentos. Estorne-os em Financeiro › Recebimentos antes.'
     }
-    return { efeito, dia, caixaFechado, bloqueio }
+    let geraCredito = false
+    if (efeito.temPagamento) {
+      const p = await c.query<{ paciente_id: string | null }>(
+        'SELECT paciente_id FROM tarefas WHERE id = $1',
+        [id],
+      )
+      const pacienteId = p.rows[0]?.paciente_id ?? null
+      if (pacienteId !== null) {
+        geraCredito = (await creditoGeradoAoEstornar(c, clinicaId, pacienteId, efeito.recebimentos)) > 0n
+      }
+    }
+    return { efeito, dia, caixaFechado, geraCredito, bloqueio }
   }
 }
