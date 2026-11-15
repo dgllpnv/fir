@@ -38,6 +38,7 @@ import { NOME_DO_COOKIE } from '../autenticacao/sessao.guard'
 import { SessaoDeSuporteService } from './sessao-de-suporte.service'
 import type { ContextoDoPainel, RequisicaoComPainel } from './contexto-do-painel'
 import {
+  ClienteDaClinicaNovaInvalido,
   ClinicaDesativada,
   ClinicaNaoExiste,
   CodigoDeClinicaJaExiste,
@@ -92,6 +93,9 @@ export class PainelClinicasController {
     } catch (e) {
       if (e instanceof CodigoDeClinicaJaExiste) {
         throw new ConflictException('Já existe uma clínica com esse código.')
+      }
+      if (e instanceof ClienteDaClinicaNovaInvalido) {
+        throw new ConflictException('Esse cliente já tem clínica, ou não está mais na carteira. Escolha outro.')
       }
       if (e instanceof UsuarioJaExiste) {
         throw new ConflictException('Esse usuário já existe nesta clínica. Escolha outro.')

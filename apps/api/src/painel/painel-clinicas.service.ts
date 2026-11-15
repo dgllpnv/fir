@@ -18,6 +18,8 @@ import { registrarNoPainel } from './painel.service'
 const UNICIDADE_VIOLADA = '23505'
 
 export class CodigoDeClinicaJaExiste extends Error {}
+/** 0091: o cliente escolhido não existe, já tem clínica ou não é do grupo padrão. */
+export class ClienteDaClinicaNovaInvalido extends Error {}
 export class ClinicaNaoExiste extends Error {}
 export class ClinicaDesativada extends Error {}
 
@@ -169,6 +171,10 @@ export class PainelClinicasService {
     const provisoria = await gerarProvisoria(this.relogio.agora())
 
     return this.banco.comoPainelCriandoClinica(ator, async (c, fixarClinica) => {
+      // 0091: o gatilho de clínica nova liga ESTE cliente em vez de criar outro.
+      if (dados.clienteCarteiraId !== undefined) {
+        await c.query('SELECT set_config($1, $2, true)', ['app.cliente_da_clinica_nova', dados.clienteCarteiraId])
+      }
       let clinica: { id: string; codigo: string; nome: string; fuso: string }
       try {
         const r = await c.query<{ id: string; codigo: string; nome: string; fuso: string }>(
@@ -182,6 +188,9 @@ export class PainelClinicasService {
         // criações simultâneas do mesmo código criariam as duas clínicas.
         if ((e as { code?: string }).code === UNICIDADE_VIOLADA) {
           throw new CodigoDeClinicaJaExiste()
+        }
+        if ((e as { constraint?: string }).constraint === 'cliente_da_clinica_nova_invalido') {
+          throw new ClienteDaClinicaNovaInvalido()
         }
         throw e
       }

@@ -118,6 +118,13 @@ export const CriarClinicaEntrada = z
         funcao: z.string().trim().max(120).default(''),
       })
       .strict(),
+    /**
+     * A clínica de quem JÁ É cliente da Firmare (0091): o Cliente Firmare sem
+     * clínica, do grupo padrão, que passa a ser o desta clínica. Ausente, a
+     * clínica nasce com um cliente novo — e, se ela já era cliente, a carteira
+     * fica com dois.
+     */
+    clienteCarteiraId: Uuid.optional(),
   })
   .strict()
 export type CriarClinicaEntrada = z.infer<typeof CriarClinicaEntrada>

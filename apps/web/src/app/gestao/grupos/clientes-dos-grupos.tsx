@@ -126,6 +126,7 @@ export function ClientesDosGrupos({
         <EdicaoDoCliente
           cliente={editando}
           grupos={grupos}
+          clinicas={clinicas}
           aoFechar={() => setEditando(null)}
           aoMudouGrupos={() => {
             setTentativa((n) => n + 1)
@@ -145,12 +146,14 @@ export function ClientesDosGrupos({
 function EdicaoDoCliente({
   cliente,
   grupos,
+  clinicas,
   aoFechar,
   aoSalvar,
   aoMudouGrupos,
 }: {
   cliente: ClienteCarteiraNoPainel
   grupos: readonly GrupoNaLista[]
+  clinicas: readonly { id: string; codigo: string; nome: string }[]
   aoFechar: () => void
   aoSalvar: (c: ClienteCarteiraNoPainel) => void
   /** A clínica ganhou ou perdeu um grupo: a lista de clientes precisa reler. */
@@ -161,17 +164,18 @@ function EdicaoDoCliente({
   const [motivo, setMotivo] = useState('')
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [clinicaId, setClinicaId] = useState('')
   const mudandoDeGrupo = grupoId !== cliente.grupoId
+  const ligandoClinica = clinicaId !== ''
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
     setErro('')
     const corpo: Record<string, unknown> = {}
     if (status !== cliente.status) corpo['status'] = status
-    if (mudandoDeGrupo) {
-      corpo['grupoId'] = grupoId
-      if (motivo.trim() !== '') corpo['motivo'] = motivo.trim()
-    }
+    if (mudandoDeGrupo) corpo['grupoId'] = grupoId
+    if (ligandoClinica) corpo['clinicaId'] = clinicaId
+    if ((mudandoDeGrupo || ligandoClinica) && motivo.trim() !== '') corpo['motivo'] = motivo.trim()
     if (Object.keys(corpo).length === 0) {
       aoFechar()
       return
@@ -207,6 +211,7 @@ function EdicaoDoCliente({
         {cliente.clinicaId !== null ? (
           <GruposDaClinica clinicaId={cliente.clinicaId} grupos={grupos} aoMudar={aoMudouGrupos} />
         ) : (
+        <>
         <label className="campo">
           Grupo
           <select value={grupoId} onChange={(e) => setGrupoId(e.target.value)}>
@@ -218,7 +223,32 @@ function EdicaoDoCliente({
             ))}
           </select>
         </label>
+        <label className="campo">
+          Ligar a uma clínica
+          <select value={clinicaId} onChange={(e) => setClinicaId(e.target.value)}>
+            <option value="">Nenhuma</option>
+            {clinicas.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nome} ({c.codigo})
+              </option>
+            ))}
+          </select>
+        </label>
+        {ligandoClinica ? (
+          <p className="nota">
+            Se a clínica ganhou um cliente sozinha quando o Fir dela foi criado, ele é encerrado e o uso dela passa
+            para este cliente. Se aquele cliente já tem histórico próprio, nada muda e o painel avisa.
+          </p>
+        ) : null}
+        </>
         )}
+
+        {ligandoClinica && !mudandoDeGrupo ? (
+          <label className="campo">
+            Motivo
+            <input value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={300} />
+          </label>
+        ) : null}
 
         {mudandoDeGrupo ? (
           <>

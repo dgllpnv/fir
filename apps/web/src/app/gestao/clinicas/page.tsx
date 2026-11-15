@@ -1,9 +1,16 @@
 'use client'
 
-import type { ClinicaCriada, ClinicaNaLista, SessaoDeSuporteCriada } from '@fir/contracts'
+import type {
+  ClienteCarteiraNoPainel,
+  ClinicaCriada,
+  ClinicaNaLista,
+  ListaDeClientesCarteiraNoPainelSaida,
+  ListaDeGruposSaida,
+  SessaoDeSuporteCriada,
+} from '@fir/contracts'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { ConfirmarEstado } from '@/components/confirmar-estado'
 import { Modal } from '@/components/modal'
@@ -317,7 +324,28 @@ function FormularioDeClinica({
     fuso: 'America/Bahia',
     adminNome: '',
     adminUsuario: '',
+    clienteCarteiraId: '',
   })
+  // 0091: os clientes da carteira que ainda não têm clínica — o de quem já
+  // é cliente vira o cliente desta clínica, em vez de nascer um segundo.
+  const [semClinica, setSemClinica] = useState<ClienteCarteiraNoPainel[]>([])
+  useEffect(() => {
+    let valeu = true
+    Promise.all([
+      chamar<ListaDeGruposSaida>('v1/superadmin/grupos'),
+      chamar<ListaDeClientesCarteiraNoPainelSaida>('v1/superadmin/clientes-carteira'),
+    ])
+      .then(([g, c]) => {
+        const padrao = g.grupos.find((x) => x.padrao)?.id
+        if (valeu) setSemClinica(c.clientes.filter((x) => x.clinicaId === null && x.grupoId === padrao))
+      })
+      .catch(() => {
+        // Sem a lista, a clínica ainda pode ser criada: só não oferece a escolha.
+      })
+    return () => {
+      valeu = false
+    }
+  }, [])
 
   async function criar(e: React.FormEvent) {
     e.preventDefault()
@@ -331,6 +359,7 @@ function FormularioDeClinica({
           nome: form.nome,
           fuso: form.fuso,
           admin: { nome: form.adminNome, usuario: form.adminUsuario },
+          ...(form.clienteCarteiraId === '' ? {} : { clienteCarteiraId: form.clienteCarteiraId }),
         }),
       })
       aoCriar(r)
@@ -353,6 +382,24 @@ function FormularioDeClinica({
           A clínica já entra no grupo Firmare, com o cliente criado na carteira. Para mudar de grupo,
           use Grupos.
         </p>
+
+        {semClinica.length === 0 ? null : (
+          <label className="campo">
+            Essa clínica já é cliente da Firmare?
+            <select
+              value={form.clienteCarteiraId}
+              onChange={(e) => setForm({ ...form, clienteCarteiraId: e.target.value })}
+            >
+              <option value="">Não, é cliente nova</option>
+              {semClinica.map((c) => (
+                <option key={c.id} value={c.id}>
+                  Sim: {c.nome}
+                </option>
+              ))}
+            </select>
+            <small>Escolha o cliente da carteira, e a clínica fica ligada a ele, com o histórico que já tem.</small>
+          </label>
+        )}
 
         <label className="campo">
           Código da clínica

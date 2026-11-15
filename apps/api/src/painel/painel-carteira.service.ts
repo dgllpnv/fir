@@ -388,6 +388,74 @@ export class PainelCarteiraService {
   }
 
   /**
+   * 0091 — a clínica de quem JÁ ERA cliente. Ao criar o Fir, a clínica ganha
+   * um Cliente Firmare automático; ligar a ela o cliente antigo (o que tem o
+   * histórico) encerra o automático, desde que ele não tenha histórico
+   * próprio além do que o sistema grava sozinho. Esse uso diário e a
+   * sincronização vão junto para o antigo. O automático é ARQUIVADO como em
+   * `removerGrupoDaClinica`, nunca apagado. Com histórico próprio: 409, e o
+   * Operador decide à mão.
+   */
+  private async encerrarAutomaticoDaClinica(
+    c: PoolClient,
+    ator: OperadorId,
+    clinicaId: string,
+    grupoId: string,
+    clienteId: string,
+    motivo: string | null,
+  ): Promise<void> {
+    const r = await c.query<{ id: string }>(
+      `SELECT id FROM clientes_carteira
+        WHERE clinica_id = $1 AND grupo_id = $2 AND excluido_em IS NULL AND id <> $3 FOR UPDATE`,
+      [clinicaId, grupoId, clienteId],
+    )
+    const automatico = r.rows[0]?.id
+    if (automatico === undefined) return
+    const vazio = await c.query<{ ok: boolean }>('SELECT cliente_carteira_so_tem_o_automatico($1) AS ok', [automatico])
+    if (!vazio.rows[0]?.ok) throw new ClinicaJaTemClienteFirmare()
+
+    const arquivo = (await c.query<{ id: string }>('SELECT id FROM grupos WHERE arquivo')).rows[0]?.id
+    if (!arquivo) throw new Error('grupo de arquivo ausente')
+
+    // Dia que o antigo já tem fica com o automático (único por cliente e dia).
+    const uso = await c.query(
+      `UPDATE uso_diario_cliente u SET cliente_carteira_id = $2
+        WHERE u.cliente_carteira_id = $1
+          AND NOT EXISTS (SELECT 1 FROM uso_diario_cliente x WHERE x.cliente_carteira_id = $2 AND x.dia = u.dia)`,
+      [automatico, clienteId],
+    )
+    const sinc = await c.query(
+      `UPDATE sincronizacao_campanhas_carteira SET cliente_carteira_id = $2
+        WHERE cliente_carteira_id = $1
+          AND NOT EXISTS (SELECT 1 FROM sincronizacao_campanhas_carteira WHERE cliente_carteira_id = $2)`,
+      [automatico, clienteId],
+    )
+    await c.query(
+      `UPDATE clientes_carteira
+          SET excluido_em = now(), conta_na_receita = false, responsavel_usuario_gestao_id = NULL, status = 'encerrado'
+        WHERE id = $1`,
+      [automatico],
+    )
+    const movidas = await moverClienteDeGrupo(c, automatico, arquivo)
+    await registrarNoPainel(c, {
+      atorTipo: 'operador',
+      atorId: ator.id,
+      acao: 'alterou',
+      entidade: 'clientes_carteira',
+      entidadeId: automatico,
+      de: { grupo_id: grupoId, clinica_id: clinicaId },
+      para: {
+        encerrado: true,
+        substituido_por: clienteId,
+        uso_diario_levado: uso.rowCount ?? 0,
+        sincronizacao_levada: sinc.rowCount ?? 0,
+        linhas_movidas: movidas,
+      },
+      motivo: motivo ?? 'a clínica já era cliente: ligada ao cliente com o histórico',
+    })
+  }
+
+  /**
    * 0068: adiciona a clínica a um grupo. A função do banco cria a
    * participação, o histórico e um Cliente Firmare VAZIO no grupo
    * (mensalidade 0, não conta na receita).
@@ -629,6 +697,7 @@ export class PainelCarteiraService {
 
       if (dados.clinicaId !== undefined && dados.clinicaId !== cliente.clinica_id) {
         await this.prenderClinicaAoGrupo(c, ator, dados.clinicaId, grupoFinal, motivo)
+        await this.encerrarAutomaticoDaClinica(c, ator, dados.clinicaId, grupoFinal, id, motivo)
         try {
           await c.query('UPDATE clientes_carteira SET clinica_id = $2 WHERE id = $1', [id, dados.clinicaId])
         } catch (e) {
