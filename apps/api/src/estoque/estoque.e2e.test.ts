@@ -1739,14 +1739,30 @@ describe('entradaNota — a NF-e, e a idempotência é do ESQUEMA (regra 26)', (
     expect(r.body.codigo).toBe('UnidadeNaoDeclarada')
   })
 
-  it('a NOTA exige `estoque.gerir` — ela carrega CUSTO', async () => {
-    await lerNota(enfermagem, XML).expect(403)
-    await registrarNota(enfermagem, corpoDaNota([])).expect(403)
-    // E lançar entrada SEM custo continua sendo `movEstoque`, que ela pode.
-    await mover(enfermagem, {
-      itemId: frasco, tipo: 'entrada', quantidade: '1000', unidade: 'ampola',
-      dia: HOJE_NA_CLINICA, lote: '2027-06-30',
-    }).expect(201)
+  /**
+   * O protótipo deixa todo perfil de estoque lançar a nota (`#bnota` fora do
+   * `adm`), e a cliente pediu a opção de volta: quem lança a compra no dia a dia
+   * é a recepção/enfermagem. O que continua de `estoque.gerir` é o CUSTO —
+   * mesma regra de `movEstoque`: sem a chave, o custo não chega e não entra.
+   */
+  it('a NOTA é de quem tem `estoque`; o CUSTO dela, só de `estoque.gerir`', async () => {
+    const lida = await lerNota(enfermagem, XML).expect(200)
+    const linhas = lida.body.linhas as { valorUnitario: string | null }[]
+    expect(linhas.length).toBeGreaterThan(0)
+    expect(linhas.every((l) => l.valorUnitario === null)).toBe(true)
+
+    // Com custo: recusado, e nada entra.
+    await registrarNota(enfermagem, corpoDaNota(duasLinhas.map((l) => ({ ...l, itemId: frasco })))).expect(403)
+    expect(await saldoDe(gestora, frasco)).toBe('0')
+
+    // Sem custo: entra, e o custo do item fica como estava.
+    const semCusto = duasLinhas.map(({ custoDaNota: _c, ...l }) => ({ ...l, itemId: frasco }))
+    await registrarNota(enfermagem, corpoDaNota(semCusto)).expect(201)
+    expect(await saldoDe(gestora, frasco)).toBe('12000')
+    const item = (await listarItens(gestora).expect(200)).body.itens.find(
+      (i: { id: string }) => i.id === frasco,
+    ) as { custo: string | null }
+    expect(item.custo).toBe('45000')
   })
 
   it('a data da nota NO FUTURO é recusada, com o dia do SERVIDOR (regra 24)', async () => {

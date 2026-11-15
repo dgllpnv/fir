@@ -262,6 +262,11 @@ function AbaItens({
         >
           Registrar saída
         </button>
+        {/* Fora do `podeGerir`, como no protótipo: quem lança a compra é a
+            recepção ou a enfermagem. O custo da nota é que fica com a gestão. */}
+        <button type="button" className="btn ghost" onClick={() => setPainel({ tipo: 'nota' })}>
+          Entrada pela nota
+        </button>
         {podeGerir ? (
           <>
             <button
@@ -277,9 +282,6 @@ function AbaItens({
               onClick={() => setPainel({ tipo: 'importar' })}
             >
               Importar itens
-            </button>
-            <button type="button" className="btn ghost" onClick={() => setPainel({ tipo: 'nota' })}>
-              Entrada pela nota
             </button>
             <button
               type="button"
@@ -366,6 +368,7 @@ function AbaItens({
         <EntradaPelaNota
           itens={ativos}
           hoje={hoje}
+          podeVerCusto={podeGerir}
           aoFechar={() => setPainel(null)}
           aoRegistrar={(r) => {
             setPainel(null)

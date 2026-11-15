@@ -239,18 +239,24 @@ export class ItensController {
    * cabe numa query string. A rota não escreve, e por isso não aparece na
    * varredura de rotas `GET` da conferência às cegas; ela também não tem o que
    * vazar, porque uma nota de compra não é agregado de dia nenhum.
+   *
+   * **Permissão `estoque`**, como no protótipo (`#bnota` aparece fora do
+   * `adm`): quem lança a compra no dia a dia é a recepção ou a enfermagem. O
+   * CUSTO da nota é de `estoque.gerir` — sem a chave, `valorUnitario` sai
+   * `null` aqui, além da redação por `valores` que o interceptor já faz.
    */
   @Post('notas/ler')
-  @Exige('estoque.gerir')
   @HttpCode(HttpStatus.OK)
   async lerNota(@Body() corpo: unknown, @Req() req: RequisicaoComContexto): Promise<NotaLida> {
     const dados = LerNotaFiscal.safeParse(corpo)
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     const c = req.contexto!
-    return this.notas.ler(
+    const lida = await this.notas.ler(
       { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
       dados.data.xml,
     )
+    if (c.pode('estoque.gerir')) return lida
+    return { ...lida, linhas: lida.linhas.map((l) => ({ ...l, valorUnitario: null })) }
   }
 
   /**
@@ -261,14 +267,14 @@ export class ItensController {
    * e não cria nada novo — garantido pelos dois índices únicos da 0017, não por
    * um `SELECT` antes do `INSERT`.
    *
-   * **`estoque.gerir`**, e aqui divergimos do protótipo (que deixa qualquer
-   * perfil de estoque lançar a nota): a nota carrega CUSTO, e custo é dinheiro
-   * — é a mesma razão pela qual `movEstoque` já recusa `custo` de quem não tem
-   * a chave. Lançar entrada sem custo continua sendo
-   * `POST /v1/estoque/movimentos`, que a enfermagem pode.
+   * **Permissão `estoque`, como no protótipo**: qualquer perfil de estoque
+   * lança a nota. O que exige `estoque.gerir` é o CUSTO — a mesma regra de
+   * `movEstoque`: linha com custo, de quem não tem a chave, é recusada inteira
+   * (nada entra), e sem custo a entrada vale e o custo do item não muda.
+   * Até 2026-11-15 a rota inteira exigia `estoque.gerir`, e com isso a
+   * recepção e a enfermagem deixaram de ver a opção que tinham na v20.
    */
   @Post('notas')
-  @Exige('estoque.gerir')
   @HttpCode(HttpStatus.CREATED)
   async registrarNota(
     @Body() corpo: unknown,
@@ -277,6 +283,12 @@ export class ItensController {
     const dados = RegistrarEntradaPelaNota.safeParse(corpo)
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     const c = req.contexto!
+    const temCusto = dados.data.linhas.some((l) =>
+      l.como === 'cadastro' ? l.custo != null : l.custoDaNota != null,
+    )
+    if (temCusto && !c.pode('estoque.gerir')) {
+      throw new ForbiddenException('Sem acesso a esta ação.')
+    }
     return this.notas.registrar(
       { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
       dados.data,

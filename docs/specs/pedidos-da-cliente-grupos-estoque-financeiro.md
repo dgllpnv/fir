@@ -14,6 +14,7 @@ Substitui/implementa a ADR 0025 (setor de atuação), aceita e nunca construída
 
 ### 1.2 XML da NF-e
 - Código está ativo (`entrada-pela-nota.tsx`, `POST /v1/estoque/notas/ler`, exige `estoque.gerir`). Reproduzir no navegador com o XML da cliente (se houver) ou um XML de teste; descobrir se é permissão, arquivo, UI escondida ou erro. Só então decidir correção. Sem mudança de regra de estoque.
+- **Causa achada (2026-11-15): permissão.** O botão e as duas rotas exigiam `estoque.gerir`; em produção, Recepção e Enfermagem (as 7 clínicas) veem Estoque mas não têm a chave, e por isso "a opção sumiu". O protótipo mostra "Entrada pela nota" a todo perfil de estoque e restringe só o custo. Corrigido seguindo o protótipo: rotas com `estoque`; o custo da nota continua de `estoque.gerir` (sai `null` na leitura e é recusado no registro, como em `movEstoque`). Teste: `estoque.e2e.test.ts`, "a NOTA é de quem tem `estoque`; o CUSTO dela, só de `estoque.gerir`".
 
 ## Fatia 2 — grupos, tarefa para grupo, transferência, fluxo
 

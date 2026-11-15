@@ -34,11 +34,14 @@ type LinhaConferida = NotaLida['linhas'][number] & { fatorDigitado: string }
 export function EntradaPelaNota({
   itens,
   hoje,
+  podeVerCusto,
   aoFechar,
   aoRegistrar,
 }: {
   itens: ItemNaLista[]
   hoje: string
+  /** `estoque.gerir`: sem ela o servidor recusa custo, e o campo nem aparece. */
+  podeVerCusto: boolean
   aoFechar: () => void
   aoRegistrar: (recado: string) => void
 }) {
@@ -166,6 +169,7 @@ export function EntradaPelaNota({
           <NotaDigitada
             itens={itens}
             hoje={hoje}
+            podeVerCusto={podeVerCusto}
             aoVoltar={() => setModo('xml')}
             aoFechar={aoFechar}
             aoRegistrar={aoRegistrar}
@@ -311,12 +315,14 @@ const ROTULO_DO_CASAMENTO: Record<NotaLida['linhas'][number]['casamento'], strin
 function NotaDigitada({
   itens,
   hoje,
+  podeVerCusto,
   aoVoltar,
   aoFechar,
   aoRegistrar,
 }: {
   itens: ItemNaLista[]
   hoje: string
+  podeVerCusto: boolean
   aoVoltar: () => void
   aoFechar: () => void
   aoRegistrar: (recado: string) => void
@@ -473,16 +479,18 @@ function NotaDigitada({
             ) : (
               <div />
             )}
-            <label className="campo">
-              Custo unit. (R$)
-              <input
-                type="text"
-                inputMode="decimal"
-                className="num"
-                value={l.custo}
-                onChange={(e) => trocar('custo', e.target.value)}
-              />
-            </label>
+            {podeVerCusto ? (
+              <label className="campo">
+                Custo unit. (R$)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="num"
+                  value={l.custo}
+                  onChange={(e) => trocar('custo', e.target.value)}
+                />
+              </label>
+            ) : null}
           </div>
         )
       })}
