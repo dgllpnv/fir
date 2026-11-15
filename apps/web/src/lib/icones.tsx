@@ -51,6 +51,10 @@ const ICONES: Readonly<Record<string, ReactElement>> = {
     <circle key="b" cx="12" cy="12" r="2.6" />,
     <path key="c" d="M6 9.5v5M18 9.5v5" />,
   ),
+  '/outras-entradas': svg(
+    <rect key="a" x="3" y="11" width="18" height="9" rx="2" />,
+    <path key="b" d="M12 3v9M8.5 8.5 12 12l3.5-3.5" />,
+  ),
   '/caixa': svg(
     <path key="a" d="M3 9.5 5 4h14l2 5.5" />,
     <rect key="b" x="3" y="9.5" width="18" height="10.5" rx="2" />,

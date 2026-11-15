@@ -239,7 +239,7 @@ export function TelaTarefas({
           </label>
 
           <label className="campo">
-            Responsável
+            Responsável <small>(pessoa)</small>
             <select
               value={f.responsavelId}
               onChange={(e) => trocar({ responsavelId: e.target.value })}
@@ -252,6 +252,7 @@ export function TelaTarefas({
                 </option>
               ))}
             </select>
+            <small>Tarefa de grupo que ninguém assumiu ainda não tem responsável.</small>
           </label>
 
           <label className="campo">
@@ -449,6 +450,7 @@ export function TelaTarefas({
           hoje={dados?.hoje ?? ''}
           aoFechar={fecharEdicao}
           aoSalvar={aoSalvarEdicao}
+          transferir={acoes.transferir}
         />
       )}
 

@@ -112,7 +112,33 @@ const fecharOCaixaDeOntem = async (): Promise<void> => {
 }
 
 const PARCELAS = ['45000', '12000', '30000']
+/**
+ * Uma OUTRA ENTRADA (fatia 4.2) — dinheiro que não é de paciente, e que entra no
+ * esperado do caixa POR FORMA. É o que a varredura persegue desta vez: o
+ * esperado do Pix de hoje passa a ser 45.000 + 12.000 + 7.000 = 64.000, um
+ * número que não existe em lugar nenhum da lista individual.
+ */
+const outraEntrada = async (categoriaId: string, valor: string, forma: string, em = HOJE) => {
+  const r = await postar(
+    c,
+    '/v1/outras-entradas',
+    { requisicaoId: randomUUID(), categoriaId, em, valor, forma, descricao: 'Aluguel da sala' },
+    'beatriz',
+  )
+  expect(r.statusCode, 'a outra entrada da fixture não foi criada').toBe(201)
+}
+
 const A_SOMA = [
+  // por forma (Pix), com a OUTRA ENTRADA de 7.000: 45.000 + 12.000 + 7.000
+  '64000',
+  '640,00',
+  '640.00',
+  'R$ 640',
+  // do dia inteiro com ela: + 30.000 em dinheiro
+  '94000',
+  '940,00',
+  '940.00',
+  'R$ 940',
   // por forma (Pix): 45.000 + 12.000
   '57000',
   '570,00',
@@ -208,10 +234,16 @@ beforeEach(async () => {
   // vazar o total do dia, que é a mesma string. Um teste que não distingue
   // mês de dia reprova o certo e aprova o errado na mesma frase.
   await registrar('90000', 'Cartão de crédito', ONTEM)
+  const categoria = await postar(c, '/v1/categorias-de-entrada', { nome: 'Aluguel de sala' }, 'beatriz')
+  expect(categoria.statusCode).toBe(201)
+  // A de ONTEM entra ANTES do fechamento (depois dele exigiria confirmação), e
+  // faz o total do MÊS de outras entradas (12.000) diferir do total do DIA.
+  await outraEntrada(categoria.body.id as string, '5000', 'Cartão de débito', ONTEM)
   await fecharOCaixaDeOntem()
   await registrar('45000', 'Pix')
   await registrar('12000', 'Pix')
   await registrar('30000', 'Dinheiro')
+  await outraEntrada(categoria.body.id as string, '7000', 'Pix')
 })
 
 describe('o esperado não atravessa antes do fechamento', () => {
@@ -278,6 +310,11 @@ describe('o esperado não atravessa antes do fechamento', () => {
     // E o campo não existe nem como `null`: um `esperadoEmEstoque: null` conta
     // ao cliente que existe um número ali, e o próximo refactor o "conserta".
     expect(Object.keys(r.body.itens[0])).not.toContain('esperadoEmEstoque')
+    // Inventário (0085): o aviso "Estoque atualizado para o contado" carrega o
+    // saldo anterior (= o esperado), então só existe DEPOIS de concluída.
+    for (const k of ['estoqueAtualizado', 'diferencaReconhecida']) {
+      expect(Object.keys(r.body.itens[0]), k).not.toContain(k)
+    }
   })
 
   it('DEPOIS DE CONCLUÍDA, o esperado aparece — senão a contagem não mediria nada', async () => {
@@ -303,6 +340,10 @@ describe('o esperado não atravessa antes do fechamento', () => {
     expect(item.esperadoEmEstoque.milesimos).toBe('13000')
     expect(item.contadoEmEstoque.milesimos).toBe('12000')
     expect(item.diferencaEmEstoque.milesimos).toBe('-1000')
+    // E o aviso do inventário: saldo anterior → novo, só agora.
+    expect(item.estoqueAtualizado.de.milesimos).toBe('13000')
+    expect(item.estoqueAtualizado.para.milesimos).toBe('12000')
+    expect(item.diferencaReconhecida).toBeNull()
     expect(salvo.body.contagem.itensComFalta).toBe(1)
   })
 

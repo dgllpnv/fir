@@ -102,6 +102,18 @@ export function centavosDeTexto(bruto: string): bigint | null {
   return Number(decimais[2]) >= 5 ? centavos + 1n : centavos
 }
 
+/**
+ * Os tetos do leiaute da NF-e (Manual de Orientação do Contribuinte, 4.00):
+ * até **990** itens (`nItem` 1–990), `cProd` com até **60** caracteres e
+ * `xProd` com até **120**. Nota acima do teto de itens não é NF-e — é recusada,
+ * não lida pela metade. Código e descrição são cortados no teto, como já se
+ * corta `numero` e `fornecedor`: nenhum texto do fornecedor chega à tela e ao
+ * banco com tamanho arbitrário (achado F4).
+ */
+export const MAX_ITENS_NA_NOTA = 990
+const MAX_CPROD = 60
+const MAX_XPROD = 120
+
 const soDigitos = (s: string) => s.replace(/\D/g, '')
 
 const dia = (bruto: string): string | null => {
@@ -144,19 +156,30 @@ export class LeitorDeNotaXml extends LeitorDeNota {
     const linhas: LinhaLidaDaNota[] = []
     const problemas: string[] = []
 
-    for (const det of filhosDiretos(inf, 'det')) {
+    const dets = filhosDiretos(inf, 'det')
+    if (dets.length > MAX_ITENS_NA_NOTA) {
+      return erro(
+        erroDe(
+          'NotaIlegivel',
+          `A nota tem ${dets.length} itens; uma NF-e tem no máximo ${MAX_ITENS_NA_NOTA}. ` +
+            'Confira o XML com o fornecedor.',
+        ),
+      )
+    }
+
+    for (const det of dets) {
       const prod = primeiro(det, 'prod')
       if (prod === null) continue
 
-      const descricao = textoDe(prod, 'xProd')
+      const descricao = textoDe(prod, 'xProd').slice(0, MAX_XPROD)
       const quantidade = milesimosDeTexto(textoDe(prod, 'qCom'))
       const valor = centavosDeTexto(textoDe(prod, 'vUnCom') || '0')
       if (quantidade === null || valor === null) {
-        problemas.push(descricao || textoDe(prod, 'cProd'))
+        problemas.push(descricao || textoDe(prod, 'cProd').slice(0, MAX_CPROD))
         continue
       }
       const base = {
-        codigo: textoDe(prod, 'cProd'),
+        codigo: textoDe(prod, 'cProd').slice(0, MAX_CPROD),
         descricao,
         unidadeDaNota: textoDe(prod, 'uCom'),
         valorUnitario: valor,

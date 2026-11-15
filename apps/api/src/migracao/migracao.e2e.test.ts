@@ -809,3 +809,63 @@ describe('RLS e trilha — a migração não escapa de nenhuma das duas', () => 
     expect(entidades).toContain('origens_da_v20')
   })
 })
+
+describe('as PARTES do pagamento na migração (fatia 4.1)', () => {
+  const foto = async () => {
+    const r = await migrate.query<{ forma: string; valor: string }>(
+      `SELECT pt.forma, sum(pt.valor)::text AS valor
+         FROM recebimento_partes pt WHERE pt.clinica_id = $1 GROUP BY pt.forma ORDER BY pt.forma`,
+      [clinica],
+    )
+    const ltv = await migrate.query<{ paciente_id: string; v: string }>(
+      `SELECT paciente_id, sum(valor)::text AS v FROM recebimentos
+        WHERE clinica_id = $1 AND estornado_em IS NULL AND valor > 0 GROUP BY paciente_id ORDER BY paciente_id`,
+      [clinica],
+    )
+    const n = await migrate.query<{ n: string }>(
+      'SELECT count(*)::text AS n FROM recebimento_partes WHERE clinica_id = $1',
+      [clinica],
+    )
+    return { porForma: r.rows, ltv: ltv.rows, partes: n.rows[0]!.n }
+  }
+
+  it('migrar grava UMA parte por pagamento com valor, e a forma vazia fica como parte vazia', async () => {
+    await migrar(PLANILHA())
+    const f = await foto()
+    expect(f.porForma).toEqual([
+      { forma: '', valor: '50000' },
+      { forma: 'Cartão de crédito', valor: '75050' },
+      { forma: 'Pix', valor: '30000' },
+    ])
+    // t1 é venda a prazo (valor 0): sem parte. Os outros 3 têm uma.
+    expect(f.partes).toBe('3')
+  })
+
+  it('o relatório ganha as duas linhas novas, e as seis antigas continuam as mesmas', async () => {
+    const r = await migrar(PLANILHA())
+    const nomes = r.relatorio.linhas.map((l) => l.nome)
+    expect(nomes).toContain('Receita por forma de pagamento')
+    expect(nomes.some((x) => x.startsWith('Σ partes = Σ valor por recebimento'))).toBe(true)
+    for (const x of r.relatorio.linhas) expect(x.bate, x.nome).toBe(true)
+    expect(r.relatorio.fechado).toBe(true)
+  })
+
+  it('reimportar 3x: nenhuma parte nova, e receita por forma, LTV e contagem idênticos ao baseline', async () => {
+    await migrar(PLANILHA())
+    const baseline = await foto()
+    for (let i = 0; i < 3; i++) {
+      const r = await migrar(PLANILHA())
+      expect(r.escreveu).toBe(false)
+      expect(r.relatorio.fechado).toBe(true)
+      expect(await foto()).toEqual(baseline)
+    }
+    const diverg = await migrate.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM recebimentos r
+         LEFT JOIN (SELECT recebimento_id, sum(valor) AS s FROM recebimento_partes GROUP BY recebimento_id) p
+                ON p.recebimento_id = r.id
+        WHERE r.clinica_id = $1 AND coalesce(p.s, 0) <> r.valor`,
+      [clinica],
+    )
+    expect(diverg.rows[0]!.n).toBe('0')
+  })
+})

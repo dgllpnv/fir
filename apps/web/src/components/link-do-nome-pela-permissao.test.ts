@@ -47,6 +47,11 @@ const tarefa: TarefaNaLista = {
   solicitanteNome: 'Beatriz',
   responsavelId: 'p1',
   responsavelNome: 'Beatriz',
+  grupoId: null,
+  grupoNome: null,
+  destino: { tipo: 'pessoa', id: 'p1', nome: 'Beatriz' },
+  tarefaOrigemId: null,
+  fluxo: [],
   contatoId: null,
   contatoNome: null,
   descricao: 'Retorno',
@@ -113,6 +118,70 @@ describe('o cartão de tarefa (Hoje, Tarefas)', () => {
     const html = cartao(false)
     expect(html).not.toContain('/pacientes/')
     expect(html).toContain('Ana Lúcia Souza')
+  })
+})
+
+/**
+ * A TAREFA DE GRUPO (ADR 2026-11-14): sem responsável até alguém assumir.
+ * O cartão mostra o grupo como destino, oferece "Assumir" só a quem é do grupo
+ * e não deixa o círculo concluir a quem não é — as mesmas funções do servidor.
+ */
+const GRUPO = '44444444-4444-4444-8444-444444444444'
+const deGrupo: TarefaNaLista = {
+  ...tarefa,
+  solicitanteId: 'p9',
+  solicitanteNome: 'Helena',
+  responsavelId: null,
+  responsavelNome: null,
+  grupoId: GRUPO,
+  grupoNome: 'Recepção',
+  destino: { tipo: 'grupo', id: GRUPO, nome: 'Recepção' },
+  pacienteId: null,
+  pacienteNome: null,
+}
+const cartaoDeGrupo = (meusGrupoIds: readonly string[], t: TarefaNaLista = deGrupo) =>
+  renderToStaticMarkup(
+    createElement(CartaoDeTarefa, {
+      tarefa: t,
+      hoje: '2026-10-24',
+      eu: 'p1',
+      podeEquipe: false,
+      podePacientes: false,
+      acoes: { ...acoes, assumir: async () => {}, transferir: async () => {}, meusGrupoIds },
+    }),
+  )
+
+describe('o cartão de tarefa de grupo', () => {
+  it('mostra o grupo como destino, e nunca "null"', () => {
+    const html = cartaoDeGrupo([GRUPO])
+    expect(html).toContain('grupo Recepção')
+    expect(html).not.toContain('null')
+  })
+
+  it('MEMBRO: vê Assumir e Transferir, e o círculo conclui', () => {
+    const html = cartaoDeGrupo([GRUPO])
+    expect(html).toContain('>Assumir<')
+    expect(html).toContain('>Transferir<')
+    expect(html).not.toMatch(/class="circulo"[^>]*disabled/)
+  })
+
+  it('NÃO membro: sem Assumir, sem Transferir, e o círculo não conclui', () => {
+    const html = cartaoDeGrupo([])
+    expect(html).not.toContain('>Assumir<')
+    expect(html).not.toContain('>Transferir<')
+    expect(html).toMatch(/class="circulo"[^>]*disabled/)
+  })
+
+  it('já assumida (vira tarefa de pessoa): Assumir some', () => {
+    const assumida: TarefaNaLista = {
+      ...deGrupo,
+      responsavelId: 'p1',
+      responsavelNome: 'Beatriz',
+      grupoId: null,
+      grupoNome: null,
+      destino: { tipo: 'pessoa', id: 'p1', nome: 'Beatriz' },
+    }
+    expect(cartaoDeGrupo([GRUPO], assumida)).not.toContain('>Assumir<')
   })
 })
 
@@ -191,6 +260,7 @@ const ficha = (podeJornada: boolean) => {
         ...tarefa,
         solicitanteId: PESSOA,
         responsavelId: PESSOA,
+        destino: { tipo: 'pessoa' as const, id: PESSOA, nome: 'Beatriz' },
         tipo: 'Consulta realizada',
         status: 'concluida',
         concluidaEm: '2026-10-24T12:00:00.000Z',

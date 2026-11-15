@@ -9,6 +9,8 @@ import {
   pegar,
   postar,
   receitaDoDia,
+  recebimentosDe,
+  vivosDe,
 } from '../tarefas/__tests__/cenario'
 
 /**
@@ -277,6 +279,130 @@ describe('QUEM PODE REABRIR E EXCLUIR O ORÇAMENTO (pedido da cliente: superadmi
     expect((await mover(id, { acao: 'reabrirOrcamento', motivo: MOTIVO }, 'rita')).statusCode).toBe(403)
     expect((await mover(id, { acao: 'excluirOrcamento', motivo: MOTIVO }, 'rita')).statusCode).toBe(403)
     expect((await tarefa(id))['etapa']).toBe('fechado')
+  })
+})
+
+/**
+ * ACHADO F5: a consulta foi PAGA na hora (pagamento embutido), o orçamento saiu
+ * depois e foi fechado com dinheiro. Desfazer o orçamento estorna SÓ o que o
+ * fechamento gravou; o pagamento da consulta — que existia antes do orçamento —
+ * continua vivo e na receita (regra 3: "a consulta continua").
+ */
+describe('F5 — CONSULTA PAGA antes do orçamento: desfazer o orçamento não estorna o pagamento dela', () => {
+  async function consultaPagaComOrcamento(forma: 'programa' | 'lista'): Promise<string> {
+    const r = await postar(
+      c,
+      '/v1/tarefas',
+      {
+        vinculo: 'paciente',
+        pacienteId: c.pacientes['ana'],
+        tipo: 'Consulta agendada',
+        responsavelId: c.pessoas['beatriz'],
+        quando: { modo: 'retroativo', em: HOJE, pagamento: { valor: '50000', forma: 'Pix' } },
+      },
+      'beatriz',
+    )
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201)
+    const id = r.body.tarefa.id as string
+    expect(await vivosDe(c, id)).toHaveLength(1)
+    const o = await mover(id, {
+      acao: 'registrarOrcamento',
+      valor: '1000000',
+      ...(forma === 'programa'
+        ? { programa: [{ chave: 'p1', procedimentoId: proc[0]!.id, sessoes: 4, intervaloDias: 7 }] }
+        : { itens: [{ chave: 'a', procedimentoId: proc[0]!.id, valor: '1000000' }] }),
+    })
+    expect(o.statusCode, JSON.stringify(o.body)).toBe(200)
+    return id
+  }
+
+  /** O recebimento do fechamento (na companheira "Pagamento de orçamento"). */
+  const doFechamento = async (id: string) =>
+    (
+      await c.migrate.query<{ id: string; estornado_em: Date | null }>(
+        `SELECT id, estornado_em FROM recebimentos
+          WHERE clinica_id = $1 AND paciente_id = $2 AND tarefa_id <> $3
+            AND tipo = 'Pagamento de orçamento'
+          ORDER BY criado_em DESC LIMIT 1`,
+        [c.clinica, c.pacientes['ana'], id],
+      )
+    ).rows[0]
+
+  for (const acao of ['excluirOrcamento', 'reabrirOrcamento'] as const) {
+    for (const forma of ['programa', 'lista'] as const) {
+      it(`${acao} (${forma}): estorna só o do fechamento; o da consulta continua vivo e na receita`, async () => {
+        const receitaAntes = await receitaDoDia(c)
+        const id = await consultaPagaComOrcamento(forma)
+        expect(await receitaDoDia(c)).toBe(receitaAntes + 50000n)
+
+        const f = await fechar(id)
+        expect(f.statusCode, JSON.stringify(f.body)).toBe(200)
+        expect(await receitaDoDia(c)).toBe(receitaAntes + 50000n + 400000n)
+        const rec = await doFechamento(id)
+        expect(rec).toBeDefined()
+
+        // A prévia já conta só o do fechamento.
+        const p = await pegar(c, `/v1/tarefas/${id}/orcamento/previa`, {}, 'beatriz')
+        expect(p.body).toMatchObject({ temPagamento: true, valor: '400000', bloqueio: null })
+
+        const r = await mover(id, { acao, motivo: MOTIVO })
+        expect(r.statusCode, JSON.stringify(r.body)).toBe(200)
+
+        // O do fechamento foi estornado (append-only: a linha fica)...
+        const depois = await c.migrate.query<{ estornado_em: Date | null }>(
+          'SELECT estornado_em FROM recebimentos WHERE id = $1',
+          [rec!.id],
+        )
+        expect(depois.rows[0]!.estornado_em).not.toBeNull()
+        // ...e o da consulta continua VIVO, uma vez só, e na receita.
+        const daConsulta = await vivosDe(c, id)
+        expect(daConsulta).toHaveLength(1)
+        expect(daConsulta[0]!.valor).toBe('50000')
+        expect((await recebimentosDe(c, id)).length).toBe(1) // nenhum estornado na consulta
+        expect(await receitaDoDia(c)).toBe(receitaAntes + 50000n)
+        expect(await programasVivos()).toBe(0)
+      })
+    }
+  }
+
+  it('excluir um orçamento AINDA ABERTO de consulta paga não estorna nada', async () => {
+    const receitaAntes = await receitaDoDia(c)
+    const id = await consultaPagaComOrcamento('programa')
+    const p = await pegar(c, `/v1/tarefas/${id}/orcamento/previa`, {}, 'beatriz')
+    expect(p.body).toMatchObject({ temPagamento: false })
+    const r = await mover(id, { acao: 'excluirOrcamento', motivo: MOTIVO })
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200)
+    expect(await vivosDe(c, id)).toHaveLength(1)
+    expect(await receitaDoDia(c)).toBe(receitaAntes + 50000n)
+  })
+
+  it('consulta SEM pagamento próprio: o fechamento grava na própria tarefa, e desfazer o estorna', async () => {
+    // O dinheiro do fechamento vai para a tarefa (não há companheira): o carimbo
+    // `recebido_em` = `em` do evento `fechar` é o que o reconhece.
+    const receitaAntes = await receitaDoDia(c)
+    const r0 = await postar(
+      c,
+      '/v1/tarefas',
+      {
+        vinculo: 'paciente',
+        pacienteId: c.pacientes['ana'],
+        tipo: 'Consulta agendada',
+        responsavelId: c.pessoas['beatriz'],
+        quando: { modo: 'retroativo', em: HOJE },
+      },
+      'beatriz',
+    )
+    const id = r0.body.tarefa.id as string
+    await mover(id, {
+      acao: 'registrarOrcamento',
+      valor: '1000000',
+      itens: [{ chave: 'a', procedimentoId: proc[0]!.id, valor: '1000000' }],
+    }).expect(200)
+    await fechar(id).expect(200)
+    expect(await vivosDe(c, id)).toHaveLength(1)
+    await mover(id, { acao: 'excluirOrcamento', motivo: MOTIVO }).expect(200)
+    expect(await vivosDe(c, id)).toHaveLength(0)
+    expect(await receitaDoDia(c)).toBe(receitaAntes)
   })
 })
 

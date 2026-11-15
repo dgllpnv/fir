@@ -14,7 +14,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { declararMotivo, motivoDaAcao } from '../comum/motivo-de-suporte'
 import { RELOGIO } from '../comum/relogio'
-import { efeitoDaExclusao, type EfeitoDaExclusao } from '../tarefas/edicao.service'
+import { efeitoDoDesfazerOrcamento, type EfeitoDaExclusao } from '../tarefas/edicao.service'
 import { type AutorDaRequisicao, lerTarefas } from '../tarefas/leitura'
 import { carregarCartao } from './cartao'
 
@@ -43,8 +43,12 @@ type Analise = {
  *  - `valor_fechado` e o vínculo de campanha deixam de contar, porque a receita
  *    da campanha lê o recebimento estornado, não o evento.
  *
- * O MESMO efeito de `EdicaoService.excluir` (uma só leitura do que o fechamento
- * fez: `efeitoDaExclusao`), com três recusas a mais, todas do gate de risco:
+ * A leitura do que o fechamento fez é `efeitoDoDesfazerOrcamento` — a mesma de
+ * `EdicaoService.excluir`, MENOS o pagamento que a consulta já tinha antes do
+ * orçamento (achado F5): excluir a tarefa estorna tudo dela; desfazer o
+ * orçamento estorna só o que o FECHAMENTO gravou, porque a consulta continua e
+ * o dinheiro dela também (regra 3). Com três recusas a mais, todas do gate de
+ * risco:
  *
  *  1. programa com **sessão já realizada** — o paciente foi tratado e o estoque
  *     baixado; isso não se desfaz por aqui (regra 12);
@@ -214,7 +218,7 @@ export class DesfazerOrcamentoService {
     fuso: string,
     id: string,
   ): Promise<Analise> {
-    const efeito = await efeitoDaExclusao(c, id)
+    const efeito = await efeitoDoDesfazerOrcamento(c, id)
 
     let dia: string | null = null
     let caixaFechado = false

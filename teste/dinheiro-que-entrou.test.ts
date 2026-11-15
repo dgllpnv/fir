@@ -61,7 +61,7 @@ const FILTRO = '${DINHEIRO_QUE_ENTROU}'
  *   `DINHEIRO_QUE_ENTROU` (`valor > 0`) — receita, LTV, Visão do mês, lista do
  *   dia, funil, painel. A D-9 continua inteira: a venda a prazo é `valor = 0`.
  *
- *   `NA_GAVETA` (`valor > 0 AND forma <> ''`) — só o CAIXA DO DIA, que confere
+ *   `NA_GAVETA` (`pt.valor > 0 AND pt.forma <> ''`, na parte) — só o CAIXA DO DIA, que confere
  *   forma por forma contra o que a recepção contou. Um pagamento sem forma não
  *   tem linha de gaveta contra a qual ser conferido.
  *
@@ -196,7 +196,8 @@ describe('D-9 — o filtro do dinheiro que entrou', () => {
     expect(fonte).toContain('DINHEIRO_QUE_ENTROU = `r.valor > 0`')
     // "O que está na gaveta" exige a forma, porque é por forma que a
     // recepção conta a gaveta.
-    expect(fonte).toContain(`NA_GAVETA = \`r.valor > 0 AND r.forma <> ''\``)
+    // (agora sobre a PARTE do pagamento: a forma é da parte, fatia 4.1)
+    expect(fonte).toContain(`NA_GAVETA = \`pt.valor > 0 AND pt.forma <> ''\``)
   })
 
   /**

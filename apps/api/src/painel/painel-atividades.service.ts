@@ -37,6 +37,43 @@ type Linha = {
   campos: string[] | null
 }
 
+/**
+ * Quantas clínicas são lidas AO MESMO TEMPO — e não todas.
+ *
+ * Cada clínica é uma transação própria no `poolDoPainel` (a RLS exige
+ * `app.clinica_id` fixado, e `fir_painel` não tem `BYPASSRLS`), e esse pool
+ * tem `max: 3`. Um `Promise.all` sobre todas as clínicas pedia N conexões de
+ * uma vez: as excedentes ficavam na fila do pool e estouravam o
+ * `connectionTimeoutMillis` (5 s) — com centenas de clínicas no banco (as de
+ * teste, ou a base crescendo), a lista de atividades falhava e levava junto
+ * qualquer outra rota do painel que precisasse de conexão no mesmo instante.
+ *
+ * 2, e não 3: sobra uma conexão do pool para a outra pessoa do painel.
+ */
+const CLINICAS_AO_MESMO_TEMPO = 2
+
+/**
+ * `Promise.all(itens.map(fn))` com no máximo `limite` chamadas em voo, e o
+ * resultado na MESMA ordem de `itens`. Um erro rejeita o todo, como o
+ * `Promise.all` que substitui.
+ */
+export async function mapearComConcorrencia<T, R>(
+  itens: readonly T[],
+  limite: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const saida = new Array<R>(itens.length)
+  let proximo = 0
+  const trabalhador = async (): Promise<void> => {
+    while (proximo < itens.length) {
+      const i = proximo++
+      saida[i] = await fn(itens[i]!)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limite, itens.length) }, trabalhador))
+  return saida
+}
+
 const CURSOR = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\|([0-9a-f-]{36}):(\d{1,18})$/
 
 function lerCursor(bruto: string | undefined) {
@@ -74,8 +111,10 @@ export class PainelAtividadesService {
     const nomesDeOperador = await this.nomesDeOperador(ator)
     const cursor = lerCursor(f.antes)
 
-    const porClinica = await Promise.all(
-      clinicas.rows.map(async (cl) => {
+    const porClinica = await mapearComConcorrencia(
+      clinicas.rows,
+      CLINICAS_AO_MESMO_TEMPO,
+      async (cl) => {
         const filtros: string[] = []
         const p: unknown[] = []
         const arg = (v: unknown) => {
@@ -139,7 +178,7 @@ export class PainelAtividadesService {
             ordem: BigInt(x.id),
           }),
         )
-      }),
+      },
     )
 
     const todas = porClinica.flat().sort((a, b) => {

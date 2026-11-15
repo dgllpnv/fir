@@ -9,7 +9,15 @@ import { CATEGORIAS_DESP, FORMA_NAO_INFORMADA, infoDaCategoria, type TipoDeDespe
  * ela (o mês anterior, que não alimenta o bloco por forma).
  */
 export type DespesaPaga = { readonly categoria: string; readonly valor: Dinheiro; readonly forma?: string }
-export type RecebimentoDoMes = { readonly forma: string; readonly valor: Dinheiro }
+/**
+ * Um recebimento do mês. `forma` é opcional de propósito: com as PARTES
+ * (`recebimento_partes`) a forma deixou de ser do recebimento — quem pergunta
+ * "por forma" lê `conferidos`, que são partes. `recebido` é UM item por
+ * recebimento, com `r.valor`: a receita conta cada pagamento uma vez.
+ */
+export type RecebimentoDoMes = { readonly valor: Dinheiro; readonly forma?: string }
+/** Uma outra entrada do mês (não é de paciente). Só o valor importa aqui. */
+export type OutraEntradaDoMes = { readonly valor: Dinheiro }
 export type ContaEmAberto = { readonly valor: Dinheiro; readonly vencida: boolean }
 export type CaixaDoMes = { readonly diferenca: Dinheiro }
 
@@ -29,7 +37,7 @@ export type EntradaDaVisao = {
    * `porFormaAteODia` e `porFormaDiasSemCaixa`, em vez de mostrar um número
    * que não fecha com o total.
    */
-  readonly conferidos: readonly RecebimentoDoMes[]
+  readonly conferidos: readonly LinhaDeForma[]
   /** O último dia do mês com caixa fechado. `null` = nenhum. */
   readonly conferidoAte: string | null
   /** Quantos dias do mês tiveram recebimento e ainda não têm caixa fechado. */
@@ -42,6 +50,11 @@ export type EntradaDaVisao = {
   readonly recebidoMesAnterior: Dinheiro
   readonly pagas: readonly DespesaPaga[]
   readonly pagasMesAnterior: readonly DespesaPaga[]
+  /**
+   * As OUTRAS ENTRADAS do mês (dinheiro que não é de paciente). Entram só no
+   * resultado — nunca em `recebido`, em meta nem em percentual da meta.
+   */
+  readonly outrasEntradas?: readonly OutraEntradaDoMes[]
   readonly aPagar: readonly ContaEmAberto[]
   /** Saldo a receber dos pacientes — soma dos `total` de `saldoEmAberto`. */
   readonly aReceber: Dinheiro
@@ -82,6 +95,9 @@ export type ResumoDeCaixa = {
 export type VisaoDoMes = {
   readonly recebido: Dinheiro
   readonly quantidadeDeRecebimentos: number
+  /** Linha própria, separada de `recebido`. Sem `valores`, a redação a apaga. */
+  readonly outrasEntradas: Dinheiro
+  readonly quantidadeDeOutrasEntradas: number
   /**
    * Recebido por forma — **só dos dias já conferidos**. Ver `conferidos`, em
    * `EntradaDaVisao`: esta é a regra 6 dentro da Visão do mês.
@@ -112,7 +128,8 @@ export type VisaoDoMes = {
   readonly percentualVariaveis: number | null
 
   /**
-   * `recebido − despesasPagas`. Pode ser negativo.
+   * `recebido + outrasEntradas − despesasPagas`. Pode ser negativo. As duas
+   * parcelas de entrada ficam visíveis separadas (`recebido`, `outrasEntradas`).
    *
    * **Não se chama `resultado`**, e isso não é estilo. `CAMPOS_MONETARIOS` é
    * uma lista de NOMES, e o interceptor apaga toda chave com esses nomes em
@@ -228,12 +245,17 @@ export function diasUteisAte(mes: string, hoje: string): number {
  */
 export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
   const recebido = soma(entrada.recebido)
+  const outras = soma(entrada.outrasEntradas ?? [])
   const despesasPagas = soma(entrada.pagas)
 
   const porFormaMapa = new Map<string, Dinheiro>()
   // `conferidos`, nunca `recebido`: regra 6. Ver a nota em `EntradaDaVisao`.
   for (const r of entrada.conferidos) {
-    porFormaMapa.set(r.forma, (porFormaMapa.get(r.forma) ?? Dinheiro.zero()).mais(r.valor))
+    // A parte de forma VAZIA (legado migrado da v20) sai com o MESMO rótulo do
+    // painel e das contas: "Não informada" (R2). Uma chave `''` seria uma linha
+    // sem nome na tela.
+    const k = r.forma.trim() === '' ? FORMA_NAO_INFORMADA : r.forma
+    porFormaMapa.set(k, (porFormaMapa.get(k) ?? Dinheiro.zero()).mais(r.valor))
   }
   const porForma: LinhaDeForma[] = [...porFormaMapa]
     .map(([forma, valor]) => ({ forma, valor }))
@@ -284,7 +306,7 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
   const fixas = soma(porCategoria.filter((x) => x.tipo === 'fixa'))
   const variaveis = soma(porCategoria.filter((x) => x.tipo === 'variavel'))
 
-  const resultado = recebido.menos(despesasPagas)
+  const resultado = recebido.mais(outras).menos(despesasPagas)
   const restante = entrada.meta?.menos(recebido) ?? null
 
   const comDiferenca = entrada.caixas.filter((c) => !c.diferenca.ehZero()).length
@@ -292,6 +314,8 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
   return {
     recebido,
     quantidadeDeRecebimentos: entrada.recebido.length,
+    outrasEntradas: outras,
+    quantidadeDeOutrasEntradas: (entrada.outrasEntradas ?? []).length,
     porForma,
     porFormaAteODia: entrada.conferidoAte,
     porFormaDiasSemCaixa: entrada.diasSemCaixa,

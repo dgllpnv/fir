@@ -24,7 +24,8 @@ import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
-import { DINHEIRO_QUE_ENTROU } from './dinheiro-que-entrou'
+import { DINHEIRO_QUE_ENTROU, PARTES_VIVAS } from './dinheiro-que-entrou'
+import { outrasEntradasDaJanela } from './outras-entradas.repositorio'
 import { pacientesQuePodemTerSaldo, saldosDe } from './saldo.repositorio'
 
 /** O rótulo que liga a tarefa à rotina que a criou. `CONTEXT.md`: Marcador de rotina. */
@@ -73,10 +74,14 @@ export class VisaoDoMesService {
     const anterior = somarMeses(`${mes}-01`, -1).slice(0, 7)
 
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const [recebido, recebidoAnterior] = await Promise.all([
-        this.recebidoNoMes(c, ctx, mes),
-        this.recebidoNoMes(c, ctx, anterior),
-      ])
+      const [{ recebimentos: recebido, partes }, { recebimentos: recebidoAnterior }] =
+        await Promise.all([this.recebidoNoMes(c, ctx, mes), this.recebidoNoMes(c, ctx, anterior)])
+      const outras = await outrasEntradasDaJanela(
+        c,
+        ctx.clinicaId,
+        janela(`${mes}-01`, fimDoMes(mes), ctx.fuso),
+        ctx.fuso,
+      )
       const [pagas, pagasAnterior] = await Promise.all([
         this.pagasNoMes(c, ctx, mes),
         this.pagasNoMes(c, ctx, anterior),
@@ -90,7 +95,9 @@ export class VisaoDoMesService {
 
       const v = visaoDoMes({
         recebido,
-        conferidos: recebido.filter((x) => conferidos.has(x.dia)),
+        // As PARTES dos dias conferidos: é delas que vem a forma (regra 6 e 4.1).
+        conferidos: partes.filter((x) => conferidos.has(x.dia)),
+        outrasEntradas: outras,
         conferidoAte: ultimoDia(conferidos),
         diasSemCaixa: semCaixa.length,
         recebidoMesAnterior: recebidoAnterior.reduce(
@@ -122,7 +129,7 @@ export class VisaoDoMesService {
   async percentualDaMeta(ctx: Contexto, mes: string): Promise<PercentualDaMeta> {
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const meta = await this.metaDe(c, ctx, mes)
-      const recebido = (await this.recebidoNoMes(c, ctx, mes)).reduce(
+      const recebido = (await this.recebidoNoMes(c, ctx, mes)).recebimentos.reduce(
         (s, x) => s.mais(x.valor),
         Dinheiro.zero(),
       )
@@ -242,18 +249,30 @@ export class VisaoDoMesService {
 
   /* ------------------------------------------------------------- consultas */
 
-  /** Os recebimentos do mês, cada um com o DIA CIVIL da clínica em que caiu. */
+  /**
+   * Os recebimentos do mês (UM item por recebimento, com `r.valor`: a receita
+   * conta cada pagamento uma vez) e as PARTES deles (uma por forma), cada um
+   * com o DIA CIVIL da clínica em que caiu.
+   *
+   * São duas consultas de propósito, e não um JOIN: o JOIN com partes
+   * multiplicaria o recebimento pelo número de formas e dobraria `recebido` —
+   * é o erro clássico desta categoria, e `receita-nao-dobra-com-partes` o mede.
+   * `Σ porForma = recebido` vale porque o banco garante `Σ partes = valor`.
+   */
   private async recebidoNoMes(
     c: pg.PoolClient,
     ctx: Contexto,
     mes: string,
-  ): Promise<readonly (RecebimentoDoMes & { dia: string })[]> {
+  ): Promise<{
+    recebimentos: readonly (RecebimentoDoMes & { dia: string })[]
+    partes: readonly { forma: string; valor: Dinheiro; dia: string }[]
+  }> {
     const j = janela(`${mes}-01`, fimDoMes(mes), ctx.fuso)
     // A RECEITA SOMA `recebimentos`, e **nunca lê `tarefas`** (regra 4): o
     // `valor_orcamento` do épico 3 não tem como entrar aqui, e a regra fica
     // satisfeita por construção em vez de por disciplina.
-    const r = await c.query<{ forma: string; valor: string; dia: string }>(
-      `SELECT r.forma, r.valor::text AS valor,
+    const r = await c.query<{ valor: string; dia: string }>(
+      `SELECT r.valor::text AS valor,
               ((r.recebido_em AT TIME ZONE $4)::date)::text AS dia
          FROM recebimentos r
          LEFT JOIN tarefas t ON t.id = r.tarefa_id
@@ -263,7 +282,20 @@ export class VisaoDoMesService {
           AND (t.id IS NULL OR t.excluida_em IS NULL)`,
       [ctx.clinicaId, j.de, j.ate, ctx.fuso],
     )
-    return r.rows.map((x) => ({ forma: x.forma, valor: dinheiro(x.valor), dia: x.dia }))
+    const p = await c.query<{ forma: string; valor: string; dia: string }>(
+      `SELECT pt.forma, pt.valor::text AS valor,
+              ((r.recebido_em AT TIME ZONE $4)::date)::text AS dia
+         FROM recebimento_partes pt
+         JOIN recebimentos r ON r.id = pt.recebimento_id AND r.clinica_id = pt.clinica_id
+         LEFT JOIN tarefas t ON t.id = r.tarefa_id
+        WHERE r.clinica_id = $1 AND ${PARTES_VIVAS}
+          AND r.recebido_em >= $2 AND r.recebido_em < $3`,
+      [ctx.clinicaId, j.de, j.ate, ctx.fuso],
+    )
+    return {
+      recebimentos: r.rows.map((x) => ({ valor: dinheiro(x.valor), dia: x.dia })),
+      partes: p.rows.map((x) => ({ forma: x.forma, valor: dinheiro(x.valor), dia: x.dia })),
+    }
   }
 
   private async pagasNoMes(
@@ -365,6 +397,8 @@ function paraContrato(mes: string, v: VisaoDoMes): VisaoNoContrato {
     mes,
     recebido: t(v.recebido),
     quantidadeDeRecebimentos: v.quantidadeDeRecebimentos,
+    outrasEntradas: t(v.outrasEntradas),
+    quantidadeDeOutrasEntradas: v.quantidadeDeOutrasEntradas,
     porForma: v.porForma.map((x) => ({ forma: x.forma, valor: t(x.valor) })),
     porFormaAteODia: v.porFormaAteODia,
     porFormaDiasSemCaixa: v.porFormaDiasSemCaixa,

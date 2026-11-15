@@ -23,7 +23,8 @@ import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
-import { NA_GAVETA } from './dinheiro-que-entrou'
+import { NA_GAVETA, PARTES_VIVAS } from './dinheiro-que-entrou'
+import { outrasEntradasDaJanela } from './outras-entradas.repositorio'
 
 /** Quantos fechamentos a tela mostra em "Últimos fechamentos". É o do protótipo. */
 const ULTIMOS = 15
@@ -268,14 +269,22 @@ export class CaixaService {
     const alteracoes = alteracoesDepoisDoFechamento(guardado, vivo)
 
     const j = janela(caixa.dia, caixa.dia, ctx.fuso)
+    // O evento posterior lê PARTES (a forma é da parte) e as OUTRAS ENTRADAS: criar
+    // ou estornar uma outra entrada depois de `fechado_em` é mudança do dia.
     const ev = await c.query<{ houve: boolean }>(
-      `SELECT EXISTS (
-         SELECT 1 FROM recebimentos r
+      `SELECT (EXISTS (
+         SELECT 1 FROM recebimento_partes pt
+           JOIN recebimentos r ON r.id = pt.recebimento_id AND r.clinica_id = pt.clinica_id
            LEFT JOIN tarefas t ON t.id = r.tarefa_id
-          WHERE r.clinica_id = $1 AND ${NA_GAVETA} AND r.forma <> $5
+          WHERE r.clinica_id = $1 AND ${NA_GAVETA} AND pt.forma <> $5
             AND r.recebido_em >= $2 AND r.recebido_em < $3
             AND (r.criado_em > $4 OR r.estornado_em > $4 OR t.excluida_em > $4)
-       ) AS houve`,
+       ) OR EXISTS (
+         SELECT 1 FROM outras_entradas oe
+          WHERE oe.clinica_id = $1
+            AND oe.recebida_em >= $2 AND oe.recebida_em < $3
+            AND (oe.criado_em > $4 OR oe.estornada_em > $4)
+       )) AS houve`,
       [ctx.clinicaId, j.de, j.ate, caixa.fechado_em, FORA_DA_CONFERENCIA],
     )
     return { mudou: mudouDepoisDoFechamento(alteracoes, ev.rows[0]!.houve), alteracoes }
@@ -309,11 +318,17 @@ export class CaixaService {
   }
 
   /**
-   * Os recebimentos VIVOS do dia civil da clínica.
+   * O que ENTROU NA GAVETA no dia civil da clínica, uma linha por PARTE (a
+   * forma é da parte, fatia 4.1) mais uma por OUTRA ENTRADA viva (fatia 4.2).
    *
    * A janela é semiaberta `[início, fim)` com as bordas calculadas no fuso da
    * clínica (regra 23) — nunca `::date` sobre UTC, que mandaria o recebimento
    * das 21h de Salvador para o caixa do dia seguinte.
+   *
+   * É a ÚNICA fonte do esperado, no fechamento e no `depoisDoFechamento`: duas
+   * maneiras de somar dariam "mudou" para um dia que não mudou. As partes vêm
+   * por consulta própria — um JOIN que multiplicasse o recebimento pelas formas
+   * dobraria o esperado.
    */
   private async recebimentosDoDia(
     c: pg.PoolClient,
@@ -322,16 +337,20 @@ export class CaixaService {
   ): Promise<readonly { forma: string; valor: Dinheiro }[]> {
     const j = janela(dia, dia, ctx.fuso)
     const r = await c.query<{ forma: string; valor: string }>(
-      `SELECT r.forma, r.valor::text AS valor
-         FROM recebimentos r
+      `SELECT pt.forma, pt.valor::text AS valor
+         FROM recebimento_partes pt
+         JOIN recebimentos r ON r.id = pt.recebimento_id AND r.clinica_id = pt.clinica_id
          LEFT JOIN tarefas t ON t.id = r.tarefa_id
-        WHERE r.clinica_id = $1 AND r.estornado_em IS NULL
+        WHERE r.clinica_id = $1 AND ${PARTES_VIVAS}
           AND ${NA_GAVETA}
-          AND r.recebido_em >= $2 AND r.recebido_em < $3
-          AND (t.id IS NULL OR t.excluida_em IS NULL)`,
+          AND r.recebido_em >= $2 AND r.recebido_em < $3`,
       [ctx.clinicaId, j.de, j.ate],
     )
-    return r.rows.map((x) => ({ forma: x.forma, valor: dinheiro(x.valor) }))
+    const outras = await outrasEntradasDaJanela(c, ctx.clinicaId, j, ctx.fuso)
+    return [
+      ...r.rows.map((x) => ({ forma: x.forma, valor: dinheiro(x.valor) })),
+      ...outras.map((x) => ({ forma: x.forma, valor: x.valor })),
+    ]
   }
 
   /**
@@ -350,13 +369,15 @@ export class CaixaService {
   ): Promise<CaixaFechado['promissorias']> {
     const j = janela(dia, dia, ctx.fuso)
     const r = await c.query<{ n: string; valor: string }>(
-      `SELECT count(*)::text AS n, coalesce(sum(r.valor), 0)::text AS valor
-         FROM recebimentos r
+      // A promissória é parte ÚNICA do recebimento: contar recebimentos e
+      // somar a parte dão o mesmo número, e `count(DISTINCT r.id)` o diz.
+      `SELECT count(DISTINCT r.id)::text AS n, coalesce(sum(pt.valor), 0)::text AS valor
+         FROM recebimento_partes pt
+         JOIN recebimentos r ON r.id = pt.recebimento_id AND r.clinica_id = pt.clinica_id
          LEFT JOIN tarefas t ON t.id = r.tarefa_id
-        WHERE r.clinica_id = $1 AND r.estornado_em IS NULL AND r.forma = $4
+        WHERE r.clinica_id = $1 AND ${PARTES_VIVAS} AND pt.forma = $4
           AND ${NA_GAVETA}
-          AND r.recebido_em >= $2 AND r.recebido_em < $3
-          AND (t.id IS NULL OR t.excluida_em IS NULL)`,
+          AND r.recebido_em >= $2 AND r.recebido_em < $3`,
       [ctx.clinicaId, j.de, j.ate, FORA_DA_CONFERENCIA],
     )
     return { quantidade: Number(r.rows[0]!.n), valor: r.rows[0]!.valor }

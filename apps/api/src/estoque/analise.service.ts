@@ -1,5 +1,11 @@
 import type { AnaliseDoEstoque, ItemNaAnalise } from '@fir/contracts'
-import { Quantidade, analiseDoPeriodo, somarDias } from '@fir/domain'
+import {
+  Dinheiro,
+  Quantidade,
+  analiseDoPeriodo,
+  somarDias,
+  valorDaFalta as valorDaFaltaNoItem,
+} from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import type { Ator, PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
@@ -80,7 +86,7 @@ export class AnaliseService {
         r.rows.map((l) => l.id),
       )
 
-      let valorDaFalta = 0n
+      let valorDaFalta = Dinheiro.zero()
       let itensComFalta = 0
       let itensSemContagens = 0
 
@@ -112,14 +118,16 @@ export class AnaliseService {
             valorDaFalta: null,
           }
         }
-        const falta = a.diferenca.milesimos < 0n ? -a.diferenca.milesimos : 0n
-        // Milésimos × centavos / mil = centavos. A divisão é por `MEDIDA_INTEIRA`
-        // e vem depois da multiplicação, de propósito: dividir antes perderia o
-        // custo de meia ampola.
-        const valor = (falta * BigInt(l.custo ?? '0')) / 1_000n
-        if (falta > 0n) {
+        // A conta é a de `packages/domain` (`valorDaFalta`): a MESMA da tela da
+        // contagem concluída, meio-para-cima por item, e o total é a soma da
+        // coluna — quem soma os itens desta aba chega ao total, centavo a centavo.
+        const valor = valorDaFaltaNoItem(
+          a.diferenca,
+          Dinheiro.deCentavos(BigInt(l.custo ?? '0')),
+        )
+        if (a.diferenca.milesimos < 0n) {
           itensComFalta++
-          valorDaFalta += valor
+          valorDaFalta = valorDaFalta.mais(valor)
         }
         return {
           ...cabecalho,
@@ -132,7 +140,7 @@ export class AnaliseService {
           esperadoEmEstoque: q(a.esperado.milesimos),
           finalEmEstoque: q(a.contado.milesimos),
           diferencaEmEstoque: q(a.diferenca.milesimos),
-          valorDaFalta: valor.toString(),
+          valorDaFalta: valor.centavos.toString(),
         }
       })
 
@@ -141,7 +149,7 @@ export class AnaliseService {
         ate,
         itens,
         itensComFalta,
-        valorDaFalta: valorDaFalta.toString(),
+        valorDaFalta: valorDaFalta.centavos.toString(),
         itensSemContagens,
       }
     })

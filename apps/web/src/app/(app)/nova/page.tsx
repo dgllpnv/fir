@@ -17,6 +17,9 @@ import { sessaoAtual } from '@/lib/sessao'
  * Os três parâmetros de URL vêm dos atalhos: "Criar tarefa" do aniversariante
  * em Hoje e "Nova tarefa para…" na ficha da paciente.
  */
+const ehUuid = (v: string | undefined): boolean =>
+  v !== undefined && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+
 export default async function Nova({
   searchParams,
 }: {
@@ -34,6 +37,8 @@ export default async function Nova({
       eu={minhaPessoaId}
       podeValores={temPerm(quem, perfis, 'valores')}
       podePacientes={temPerm(quem, perfis, 'pacientes')}
+      // O servidor recusa pagamento sem `receber` (F6); a tela não oferece o bloco.
+      podeReceber={temPerm(quem, perfis, 'receber')}
       inicial={{
         ...(texto('pacienteId') === undefined ? {} : { pacienteId: texto('pacienteId')! }),
         ...(texto('tipo') === undefined ? {} : { tipo: texto('tipo')! }),
@@ -42,6 +47,8 @@ export default async function Nova({
         // campanha, e `voltar=campanha` devolve a pessoa a ela depois de criar.
         ...(texto('campanhaId') === undefined ? {} : { campanhaId: texto('campanhaId')! }),
         ...(texto('voltar') === 'campanha' ? { voltarParaCampanha: true } : {}),
+        // "Concluir e criar nova": só um uuid passa; o servidor ainda confere se a origem vale.
+        ...(ehUuid(texto('origem')) ? { tarefaOrigemId: texto('origem')! } : {}),
       }}
     />
   )

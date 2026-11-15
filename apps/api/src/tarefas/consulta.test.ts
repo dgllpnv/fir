@@ -405,7 +405,9 @@ describe('GET /v1/hoje', () => {
       tipo: 'Consulta realizada',
       responsavelId: c.pessoas['juliana'],
       quando: { modo: 'retroativo', em: HOJE, pagamento: { valor: '45000', forma: 'Pix' } },
-    }).expect(201)
+      // Lançado por `rita` (receber sem valores): desde o F6, juliana — sem
+      // `receber` — não lança pagamento. Ela segue sendo a responsável que LÊ.
+    }, 'rita').expect(201)
 
     const semValores = await hoje({}, 'juliana').expect(200)
     const naTela = semValores.body.concluidas.find(

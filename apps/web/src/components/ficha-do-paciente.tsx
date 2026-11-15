@@ -18,7 +18,13 @@ import { validarMotivoDeSuporte } from '@/lib/motivo-de-suporte'
 import { useDados } from '@/lib/dados'
 import { diaEmTexto, linkDeWhatsApp, plural } from '@/lib/formato'
 import { ICONE_WHATSAPP, inicial } from '@/lib/icones'
-import { type AbaDaFicha, abasDaFicha, proximaAba } from '@/lib/orcamentos-do-paciente'
+import {
+  type AbaDaFicha,
+  abasDaFicha,
+  proximaAba,
+  ROTULO_DA_ABA,
+} from '@/lib/orcamentos-do-paciente'
+import { AbaDeConsumo } from './aba-de-consumo'
 import { AbaDeOrcamentos } from './aba-de-orcamentos'
 import { CartaoDeTarefa } from './cartao-de-tarefa'
 import { CampoDeMotivoDeSuporte, useEhSuporte } from './campo-de-motivo-de-suporte'
@@ -70,6 +76,12 @@ type Props = {
    */
   readonly podeJornada: boolean
   /**
+   * `temPerm(…, 'estoque')`. A aba Consumo (dose e lote aplicados) exige esta
+   * E a `jornada`; o servidor cobra as duas. Opcional e FECHADO por padrão:
+   * quem não passa a chave não ganha a aba.
+   */
+  readonly podeEstoque?: boolean
+  /**
    * `?tarefa={id}` — a tarefa que o link (o mini-cartão da Jornada) veio
    * mostrar. A ficha rola até ela e a destaca.
    */
@@ -85,6 +97,7 @@ export function FichaDoPaciente({
   podeValores,
   podePacientes,
   podeJornada,
+  podeEstoque = false,
   tarefaEmFoco,
 }: Props) {
   const { dados: p, carregando, erro, recarregar } = useDados<Ficha>(`v1/pacientes/${id}`)
@@ -108,7 +121,7 @@ export function FichaDoPaciente({
   const [confirmouTitular, setConfirmouTitular] = useState(false)
   const [motivoDaReativacao, setMotivoDaReativacao] = useState('')
   const [erroDeReativar, setErroDeReativar] = useState<string | null>(null)
-  const abas = abasDaFicha(podeJornada)
+  const abas = abasDaFicha(podeJornada, podeEstoque)
   const abaAtiva: AbaDaFicha = abas.includes(aba) ? aba : 'historico'
   const idDaTarefaEmFoco = focoLocal ?? tarefaEmFoco
 
@@ -445,7 +458,7 @@ export function FichaDoPaciente({
               tabIndex={abaAtiva === a ? 0 : -1}
               onClick={() => setAba(a)}
             >
-              {a === 'historico' ? 'Histórico' : 'Orçamentos'}
+              {ROTULO_DA_ABA[a]}
             </button>
           ))}
         </div>
@@ -454,6 +467,12 @@ export function FichaDoPaciente({
       {abaAtiva === 'orcamentos' ? (
         <div id="painel-orcamentos" role="tabpanel" aria-labelledby="aba-orcamentos">
           <AbaDeOrcamentos pacienteId={id} aoRetomar={retomarRestante} />
+        </div>
+      ) : null}
+
+      {abaAtiva === 'consumo' ? (
+        <div id="painel-consumo" role="tabpanel" aria-labelledby="aba-consumo">
+          <AbaDeConsumo pacienteId={id} />
         </div>
       ) : null}
 
@@ -577,6 +596,7 @@ export function FichaDoPaciente({
           hoje={p.hoje}
           aoFechar={fecharEdicao}
           aoSalvar={aoSalvarEdicao}
+          transferir={acoes.transferir}
         />
       )}
 

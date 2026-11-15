@@ -20,6 +20,8 @@ import {
   type ResultadoDaContagem,
   type ResultadoDaEntradaPelaNota,
   type ResultadoDaImportacaoDeItens,
+  ReconhecerDiferencas,
+  type ResultadoDoReconhecimento,
   SalvarContagem,
   SalvarItemEstoque,
   SalvarLocalEstoque,
@@ -47,6 +49,7 @@ import type { ContextoDaRequisicao, RequisicaoComContexto } from '../comum/conte
 import { primeiroErro } from '../tarefas/tarefas.controller'
 import { AnaliseService } from './analise.service'
 import { ContagensService } from './contagens.service'
+import { DiferencasService } from './diferencas.service'
 import { ImportacaoDeItensService } from './importacao.service'
 import { ItensService } from './itens.service'
 import { LocaisService } from './locais.service'
@@ -97,6 +100,7 @@ export class ItensController {
     @Inject(ContagensService) private readonly contagens: ContagensService,
     @Inject(NotasService) private readonly notas: NotasService,
     @Inject(AnaliseService) private readonly analise: AnaliseService,
+    @Inject(DiferencasService) private readonly diferencas: DiferencasService,
   ) {}
 
   /* ── CONTAGEM ──────────────────────────────────────────────────────────── */
@@ -170,6 +174,30 @@ export class ItensController {
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     const c = req.contexto!
     return this.contagens.salvar(
+      { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
+      id,
+      dados.data,
+    )
+  }
+
+  /**
+   * Reconhece a diferença de itens de uma contagem CONCLUÍDA — **efeito zero no
+   * saldo** (ver `DiferencasService`). `estoque.gerir`: a diferença da contagem
+   * é o esperado de uma contagem fechada, e aceitá-la é ato de gestão.
+   * Idempotente: repetir o pedido não grava de novo.
+   */
+  @Post('contagens/:id/reconhecer')
+  @Exige('estoque.gerir')
+  @HttpCode(HttpStatus.OK)
+  async reconhecerDiferencas(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComContexto,
+  ): Promise<ResultadoDoReconhecimento> {
+    const dados = ReconhecerDiferencas.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.diferencas.reconhecer(
       { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
       id,
       dados.data,

@@ -1,11 +1,28 @@
 'use client'
 
-import type { ListaDaEquipe, ListaDeProcedimentos, ProcedimentoNaLista } from '@fir/contracts'
-import { ehErro, montarCronograma, type ItemParaCronograma } from '@fir/domain'
+import {
+  LIMITES_DO_PROGRAMA,
+  type ListaDaEquipe,
+  type ListaDeProcedimentos,
+  type ProcedimentoNaLista,
+} from '@fir/contracts'
+import { ehErro, montarCronograma } from '@fir/domain'
 import { useState } from 'react'
 import { useDados } from '@/lib/dados'
 import { diaEmTexto, plural } from '@/lib/formato'
 import { Carregando, Erro, Vazio } from '../estados'
+import {
+  comecaEmOutraData,
+  estaEmOutraData,
+  type EstadoDoMontador,
+  type ItemNoMontador,
+  itensParaPrevia,
+  type LimitesDoMontador,
+  numeroDoCampo,
+  removerItem,
+} from './montador-regras'
+
+export type { EstadoDoMontador, ItemNoMontador }
 
 /**
  * **O MONTADOR — UM componente, três entradas** (MANUAL cap. 8).
@@ -28,37 +45,16 @@ import { Carregando, Erro, Vazio } from '../estados'
  * (`docs/design.md` §1).
  */
 
-/** O limite da MONTAGEM é 12 (a proposta do épico 3 é 10, e é subconjunto). */
-const MAXIMO_DE_ITENS = 12
-
-export type ItemNoMontador = {
-  readonly chave: string
-  readonly procedimentoId: string
-  readonly sessoes: number
-  readonly intervaloDias: number
-  /** `''` = começa no início do programa, ou depois de `depoisDe`. */
-  readonly inicio: string
-  readonly depoisDe: string
-  readonly responsavelId: string
-  readonly dose: string
-  /** Texto digitado. Vira centavos na borda, nunca aqui. */
-  readonly valor: string
-}
-
-export type EstadoDoMontador = {
-  readonly inicio: string
-  readonly itens: readonly ItemNoMontador[]
-}
-
 /** A linha nova, já preenchida com o que o CATÁLOGO sugere. */
 export function itemDoProcedimento(
   p: ProcedimentoNaLista | undefined,
   chave: string,
+  limites: LimitesDoMontador = LIMITES_DO_PROGRAMA,
 ): ItemNoMontador {
   return {
     chave,
     procedimentoId: p?.id ?? '',
-    sessoes: p?.sessoesSugeridas ?? 1,
+    sessoes: Math.min(p?.sessoesSugeridas ?? 1, limites.sessoes.max),
     intervaloDias: p?.intervaloSugeridoDias ?? 7,
     inicio: '',
     depoisDe: '',
@@ -77,6 +73,11 @@ type Props = {
   readonly aoMudar: (e: EstadoDoMontador) => void
   /** `temPerm(…, 'valores')`. Sem ela, o campo de valor do item não aparece. */
   readonly podeValores: boolean
+  /**
+   * Os limites do CONTRATO desta entrada. O padrão é o do programa montado
+   * (Nova adesão); o orçamento passa `LIMITES_DO_PROGRAMA_ORCADO`, que é menor.
+   */
+  readonly limites?: LimitesDoMontador
 }
 
 /**
@@ -93,7 +94,7 @@ type Props = {
  * se resolve na PÁGINA**, com `temPerm` — a mesma função do servidor —, e não
  * dentro de um componente de cliente.
  */
-export function Montador({ estado, aoMudar, podeValores }: Props) {
+export function Montador({ estado, aoMudar, podeValores, limites = LIMITES_DO_PROGRAMA }: Props) {
   const catalogo = useDados<ListaDeProcedimentos>('v1/procedimentos')
   const equipeToda = useDados<ListaDaEquipe>('v1/equipe')
   const equipe = (equipeToda.dados?.equipe ?? []).filter((x) => x.ativo)
@@ -130,28 +131,18 @@ export function Montador({ estado, aoMudar, podeValores }: Props) {
   }
 
   function acrescentar() {
-    if (estado.itens.length >= MAXIMO_DE_ITENS) return
+    if (estado.itens.length >= limites.itens.max) return
     aoMudar({
       ...estado,
-      itens: [...estado.itens, itemDoProcedimento(undefined, `i${estado.itens.length + 1}`)],
+      itens: [...estado.itens, itemDoProcedimento(undefined, `i${estado.itens.length + 1}`, limites)],
     })
   }
 
   function remover(k: number) {
-    if (estado.itens.length === 1) return
-    // As chaves são RENUMERADAS, e o `depoisDe` que apontava para a removida é
-    // limpo: um `depoisDe` órfão é 400 na borda, e deixar a tela montar um
-    // corpo que o servidor recusa é fazer a recepção descobrir no envio.
-    const sobraram = estado.itens.filter((_, i) => i !== k)
-    const removida = estado.itens[k]!.chave
-    aoMudar({
-      ...estado,
-      itens: sobraram.map((x, i) => ({
-        ...x,
-        chave: `i${i + 1}`,
-        depoisDe: x.depoisDe === removida ? '' : x.depoisDe,
-      })),
-    })
+    // Renumera as chaves e traduz o `depoisDe` pela chave nova do mesmo item
+    // (`removerItem`): um `depoisDe` órfão é 400 na borda, e um deslocado
+    // aponta para o item errado sem erro nenhum.
+    aoMudar({ ...estado, itens: removerItem(estado.itens, k) })
   }
 
   return (
@@ -175,13 +166,14 @@ export function Montador({ estado, aoMudar, podeValores }: Props) {
           ativos={ativos}
           equipe={equipe}
           podeValores={podeValores}
+          limites={limites}
           aoTrocar={(troca) => trocarItem(k, troca)}
           aoRemover={() => remover(k)}
         />
       ))}
 
-      {estado.itens.length >= MAXIMO_DE_ITENS ? (
-        <p className="nota">Até {MAXIMO_DE_ITENS} procedimentos por programa.</p>
+      {estado.itens.length >= limites.itens.max ? (
+        <p className="nota">Até {limites.itens.max} procedimentos por programa.</p>
       ) : (
         <div>
           <button type="button" className="btn ghost" onClick={acrescentar}>
@@ -202,6 +194,7 @@ function LinhaDoItem({
   ativos,
   equipe,
   podeValores,
+  limites,
   aoTrocar,
   aoRemover,
 }: {
@@ -211,12 +204,13 @@ function LinhaDoItem({
   ativos: readonly ProcedimentoNaLista[]
   equipe: readonly { readonly id: string; readonly nome: string }[]
   podeValores: boolean
+  limites: LimitesDoMontador
   aoTrocar: (troca: Partial<ItemNoMontador>) => void
   aoRemover: () => void
 }) {
   // `comeca` é derivado do par (`inicio`, `depoisDe`) — não um quarto estado.
   // Guardar um terceiro campo "modo" é como ele diverge dos dois que valem.
-  const comeca = item.inicio !== '' ? 'data' : item.depoisDe !== '' ? 'depois' : 'inicio'
+  const comeca = estaEmOutraData(item) ? 'data' : item.depoisDe !== '' ? 'depois' : 'inicio'
 
   return (
     <div className="item-montado">
@@ -241,7 +235,10 @@ function LinhaDoItem({
               const p = ativos.find((x) => x.id === e.target.value)
               aoTrocar({
                 procedimentoId: e.target.value,
-                sessoes: p?.sessoesSugeridas ?? item.sessoes,
+                sessoes:
+                  p?.sessoesSugeridas === undefined
+                    ? item.sessoes
+                    : Math.min(p.sessoesSugeridas, limites.sessoes.max),
                 intervaloDias: p?.intervaloSugeridoDias ?? item.intervaloDias,
                 responsavelId: p?.responsavelId ?? item.responsavelId,
               })
@@ -261,10 +258,10 @@ function LinhaDoItem({
           <input
             type="number"
             className="num"
-            min={1}
-            max={104}
-            value={item.sessoes}
-            onChange={(e) => aoTrocar({ sessoes: Number(e.target.value) })}
+            min={limites.sessoes.min}
+            max={limites.sessoes.max}
+            value={item.sessoes === 0 ? '' : item.sessoes}
+            onChange={(e) => aoTrocar({ sessoes: numeroDoCampo(e.target.value, limites.sessoes) })}
           />
         </label>
 
@@ -273,9 +270,13 @@ function LinhaDoItem({
           <select
             value={comeca}
             onChange={(e) => {
-              if (e.target.value === 'inicio') aoTrocar({ inicio: '', depoisDe: '' })
-              else if (e.target.value === 'depois') aoTrocar({ inicio: '', depoisDe: 'i1' })
-              else aoTrocar({ inicio: '', depoisDe: '' })
+              if (e.target.value === 'inicio') aoTrocar({ inicio: '', depoisDe: '', emOutraData: false })
+              else if (e.target.value === 'depois')
+                aoTrocar({ inicio: '', depoisDe: 'i1', emOutraData: false })
+              // "Em outra data" entra com o campo VAZIO e um flag próprio: a
+              // tela não grava data que a pessoa não escolheu, e o envio só
+              // libera quando ela preencher (`problemasDoMontador`).
+              else aoTrocar(comecaEmOutraData())
             }}
           >
             <option value="inicio">Na data de início do programa</option>
@@ -309,6 +310,9 @@ function LinhaDoItem({
               value={item.inicio}
               onChange={(e) => aoTrocar({ inicio: e.target.value })}
             />
+            {item.inicio === '' ? (
+              <small className="erro">Escolha a data da primeira sessão.</small>
+            ) : null}
           </label>
         ) : null}
       </div>
@@ -321,10 +325,12 @@ function LinhaDoItem({
             <input
               type="number"
               className="num"
-              min={1}
-              max={365}
-              value={item.intervaloDias}
-              onChange={(e) => aoTrocar({ intervaloDias: Number(e.target.value) })}
+              min={limites.intervaloDias.min}
+              max={limites.intervaloDias.max}
+              value={item.intervaloDias === 0 ? '' : item.intervaloDias}
+              onChange={(e) =>
+                aoTrocar({ intervaloDias: numeroDoCampo(e.target.value, limites.intervaloDias) })
+              }
             />
           </label>
 
@@ -338,7 +344,7 @@ function LinhaDoItem({
             Dose por sessão <small>(com a unidade: 2,5 mg)</small>
             <input
               type="text"
-              maxLength={60}
+              maxLength={limites.dose.max}
               value={item.dose}
               placeholder="Ex.: 2,5 mg"
               onChange={(e) => aoTrocar({ dose: e.target.value })}
@@ -408,15 +414,10 @@ function Previa({
     )
   }
 
-  const paraCronograma: ItemParaCronograma[] = completos.map((x) => ({
-    chave: x.chave,
-    sessoes: x.sessoes,
-    intervaloDias: x.intervaloDias,
-    inicio: x.inicio === '' ? null : x.inicio,
-    depoisDe: x.depoisDe === '' ? null : x.depoisDe,
-  }))
-
-  const r = montarCronograma(estado.inicio, paraCronograma)
+  // TODOS os itens entram na conta, inclusive o que ainda não tem procedimento:
+  // "Depois de outro item" pode apontar para ele, e o domínio recusaria o
+  // `depoisDe` órfão com ITEM_INEXISTENTE. Só os completos são MOSTRADOS.
+  const r = montarCronograma(estado.inicio, itensParaPrevia(estado.itens))
   if (ehErro(r)) {
     return (
       <p className="campo erro" role="alert">
@@ -431,7 +432,8 @@ function Previa({
       {/* "12 sessões programadas" — o número já está na frase. O resumo do
           protótipo é exatamente este, e repeti-lo ao lado era ruído meu. */}
       <b>{plural(total, 'sessão programada', 'sessões programadas')}</b>
-      {completos.map((x, i) => {
+      {estado.itens.map((x, i) => {
+        if (x.procedimentoId === '') return null
         const doItem = r.valor.filter((s) => s.itemChave === x.chave)
         const primeira = doItem[0]
         const ultima = doItem.at(-1)

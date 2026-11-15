@@ -29,6 +29,7 @@ import {
 } from '@fir/domain'
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -59,7 +60,9 @@ import { type RealizadoPorIndicador, realizadoDosIndicadores } from './indicador
  *     `CAMPOS_MONETARIOS`; o `RedacaoInterceptor` os apaga num ponto único
  *     (regra 17). **Não há `if (pode('valores'))` nesta classe**, e é isso que
  *     faz "sem `valores`, a meta entrega só o percentual" valer também para a
- *     rota que ninguém revisou.
+ *     rota que ninguém revisou. A única pergunta por `valores` aqui é na
+ *     ESCRITA do alvo em dinheiro (`exigeValoresSeEmDinheiro`): o percentual
+ *     só não revela valor enquanto quem o lê não escolheu o alvo.
  *
  *  3. **Não usa `new Date()`.** `hoje` é `diaDaClinica(relogio, fuso)` — e ele
  *     não é cosmético aqui: é `hoje` que fecha o denominador dos DOIS
@@ -76,6 +79,31 @@ type Contexto = {
   readonly clinicaId: ClinicaId
   readonly ator: Ator
   readonly fuso: string
+  /**
+   * `pode('valores')` de quem pede. Só a ESCRITA de meta em dinheiro pergunta
+   * (ver `exigeValoresSeEmDinheiro`); a leitura continua sem `if` — a redação
+   * é do `RedacaoInterceptor`. Ausente = `false`: quem esquece de dizer não
+   * ganha o direito de definir alvo em reais.
+   */
+  readonly valores?: boolean
+}
+
+/**
+ * **Definir ou alterar o ALVO de uma meta em dinheiro exige `valores`.**
+ *
+ * O `percentual` atravessa a redação de propósito (regra 17: "84% da meta" não
+ * revela a meta) — mas só enquanto quem lê NÃO escolheu o alvo. Quem fixa o
+ * alvo em R$ 1,00 lê no `percentual` o realizado em centavos: o perfil de RH
+ * sem `valores` reconstruiria, pessoa a pessoa e mês a mês, a receita de
+ * orçamento que a regra 17 esconde dele (achado F3 da revisão de segurança de
+ * 2026-11-15). Mesmo desenho da campanha em R$ (`campanhas.service.ts`).
+ */
+function exigeValoresSeEmDinheiro(ctx: Contexto, indicador: IndicadorDeMeta): void {
+  if (tipoDoIndicador(indicador) === 'valor' && ctx.valores !== true) {
+    throw new ForbiddenException(
+      'Definir ou alterar uma meta em R$ exige a permissão de valores. Peça a quem a tem.',
+    )
+  }
 }
 
 type LinhaDeMeta = {
@@ -191,6 +219,7 @@ export class MetasService {
    * mensagem — quem recusa é o índice.
    */
   async criarMeta(ctx: Contexto, mes: string, dados: SalvarMetaDePessoa): Promise<MetasDoMes> {
+    exigeValoresSeEmDinheiro(ctx, dados.indicador)
     await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       await umaFicha(c, dados.fichaId)
 
@@ -248,6 +277,10 @@ export class MetasService {
     id: string,
     dados: EditarMetaDePessoa,
   ): Promise<MetasDoMes> {
+    // Antes de tocar a linha: o indicador gravado é obrigatoriamente o do
+    // corpo (o 422 abaixo recusa o diferente), então perguntar pelo do corpo
+    // é perguntar pelo da meta.
+    exigeValoresSeEmDinheiro(ctx, dados.indicador)
     await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const m = (
         await c.query<{ indicador: IndicadorDeMeta }>(

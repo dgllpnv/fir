@@ -8,7 +8,7 @@ const href = (u: { admin: boolean; perfilId: string | null }) =>
 
 describe('menu por permissão', () => {
   it('administrador vê tudo', () => {
-    expect(href({ admin: true, perfilId: null })).toHaveLength(24)
+    expect(href({ admin: true, perfilId: null })).toHaveLength(25)
   })
 
   it('enfermagem vê programas e estoque, não vê financeiro', () => {
@@ -69,17 +69,17 @@ describe('seções do menu', () => {
       return b ? hrefsDoBloco(b) : []
     }
     expect(g('Comercial')).toEqual(['/jornada', '/pacientes', '/programas', '/campanhas'])
-    expect(g('Financeiro')).toEqual(['/recebimentos', '/caixa', '/contas', '/cobrancas', '/visao-do-mes'])
+    expect(g('Financeiro')).toEqual(['/recebimentos', '/outras-entradas', '/caixa', '/contas', '/cobrancas', '/visao-do-mes'])
     expect(g('Pessoas')).toEqual(['/equipe', '/minhas-metas'])
     expect(g('Configurações')).toEqual([
       '/unidades', '/usuarios', '/procedimentos', '/atividades', '/agenda-do-sistema', '/grupos-da-clinica',
     ])
   })
 
-  it('o administrador continua com os 24 itens, só reorganizados', () => {
+  it('o administrador continua com os 25 itens, só reorganizados', () => {
     const todos = blocosDe(ADMIN).flatMap(hrefsDoBloco)
-    expect(todos).toHaveLength(24)
-    expect(new Set(todos).size).toBe(24)
+    expect(todos).toHaveLength(25)
+    expect(new Set(todos).size).toBe(25)
   })
 
   it('grupo sem item não vira título órfão', () => {

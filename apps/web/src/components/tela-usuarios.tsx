@@ -1,6 +1,8 @@
 'use client'
 
 import type {
+  GrupoDaEquipeParaAdministrar,
+  GruposDaEquipeParaAdministrar,
   ListaDePerfis,
   ListaDePessoas,
   PerfilPublico,
@@ -14,11 +16,13 @@ import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { Carregando, Erro, Toast } from './estados'
 import { ExcluirPessoa } from './excluir-pessoa'
+import { AbaGrupos, CampoDeGrupos } from './grupos-da-equipe'
 import { SenhaProvisoria } from './senha-provisoria'
 
 /**
- * **Configurações › Usuários e acessos** — duas abas, como na tela dela:
- * **Pessoas** e **Perfis de acesso**.
+ * **Configurações › Usuários e acessos** — as duas abas da tela dela,
+ * **Pessoas** e **Perfis de acesso**, e a de **Grupos** (listas de pessoas que
+ * recebem tarefa em conjunto — ADR 2026-11-14; não é perfil de acesso).
  *
  * ────────────────────────────────────────────────────────────────────────────
  * O QUE MUDA EM RELAÇÃO À TELA DELA, E POR QUÊ
@@ -43,7 +47,7 @@ import { SenhaProvisoria } from './senha-provisoria'
  * ────────────────────────────────────────────────────────────────────────────
  */
 
-type Aba = 'pessoas' | 'perfis'
+type Aba = 'pessoas' | 'grupos' | 'perfis'
 
 /**
  * `souAdmin` é **conveniência**: o servidor é a barreira (ADR 2026-11-11). Quem
@@ -55,6 +59,8 @@ export function TelaUsuarios({ souAdmin }: { souAdmin: boolean }) {
   const [aba, setAba] = useState<Aba>('pessoas')
   const pessoas = useDados<ListaDePessoas>('v1/pessoas')
   const perfis = useDados<ListaDePerfis>('v1/pessoas/perfis')
+  // Com a composição (membroIds): só esta tela, que exige `config`, a lê.
+  const grupos = useDados<GruposDaEquipeParaAdministrar>('v1/grupos/administracao')
   const [recado, setRecado] = useState<string | null>(null)
 
   return (
@@ -76,6 +82,14 @@ export function TelaUsuarios({ souAdmin }: { souAdmin: boolean }) {
         <button
           type="button"
           role="tab"
+          aria-pressed={aba === 'grupos'}
+          onClick={() => setAba('grupos')}
+        >
+          Grupos
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-pressed={aba === 'perfis'}
           onClick={() => setAba('perfis')}
         >
@@ -88,9 +102,13 @@ export function TelaUsuarios({ souAdmin }: { souAdmin: boolean }) {
           souAdmin={souAdmin}
           pessoas={pessoas}
           perfis={perfis.dados?.perfis ?? []}
+          grupos={grupos.dados?.grupos ?? []}
           aoAvisar={setRecado}
           aoVerPerfis={() => setAba('perfis')}
+          aoMudarGrupos={grupos.recarregar}
         />
+      ) : aba === 'grupos' ? (
+        <AbaGrupos grupos={grupos} pessoas={pessoas.dados} aoAvisar={setRecado} />
       ) : (
         <AbaPerfis souAdmin={souAdmin} perfis={perfis} aoAvisar={setRecado} />
       )}
@@ -108,14 +126,19 @@ function AbaPessoas({
   souAdmin,
   pessoas,
   perfis,
+  grupos,
   aoAvisar,
   aoVerPerfis,
+  aoMudarGrupos,
 }: {
   souAdmin: boolean
   pessoas: ReturnType<typeof useDados<ListaDePessoas>>
   perfis: readonly PerfilPublico[]
+  grupos: readonly GrupoDaEquipeParaAdministrar[]
   aoAvisar: (recado: string) => void
   aoVerPerfis: () => void
+  /** Os grupos mudaram (alguém entrou ou saiu): a contagem da aba Grupos fica velha. */
+  aoMudarGrupos: () => void
 }) {
   const [editando, setEditando] = useState<string | 'nova' | null>(null)
   /**
@@ -169,9 +192,11 @@ function AbaPessoas({
         <FormularioDePessoa
           souAdmin={souAdmin}
           perfis={perfis}
+          grupos={grupos}
           aoFechar={() => setEditando(null)}
           aoVerPerfis={aoVerPerfis}
-          aoCriar={(p) => {
+          aoMudarGrupos={aoMudarGrupos}
+          aoCriar={(p, gruposFalharam) => {
             setEditando(null)
             setProvisoria({
               nome: p.nome,
@@ -179,7 +204,11 @@ function AbaPessoas({
               senha: p.senhaProvisoria,
               expiraEm: p.senhaProvisoriaExpiraEm,
             })
-            aoAvisar(`${p.nome} foi adicionada.`)
+            aoAvisar(
+              gruposFalharam
+                ? `${p.nome} foi adicionada, mas não consegui colocá-la nos grupos. Abra o cadastro dela e tente de novo.`
+                : `${p.nome} foi adicionada.`,
+            )
             pessoas.recarregar()
           }}
         />
@@ -197,6 +226,8 @@ function AbaPessoas({
               souAdmin={souAdmin}
               p={p}
               perfis={perfis}
+              grupos={grupos}
+              aoMudarGrupos={aoMudarGrupos}
               aberto={editando === p.id}
               aoAbrir={() => setEditando(editando === p.id ? null : p.id)}
               aoVerPerfis={aoVerPerfis}
@@ -239,6 +270,8 @@ function LinhaDePessoa({
   souAdmin,
   p,
   perfis,
+  grupos,
+  aoMudarGrupos,
   aberto,
   aoAbrir,
   aoVerPerfis,
@@ -248,6 +281,8 @@ function LinhaDePessoa({
   souAdmin: boolean
   p: PessoaNaLista
   perfis: readonly PerfilPublico[]
+  grupos: readonly GrupoDaEquipeParaAdministrar[]
+  aoMudarGrupos: () => void
   aberto: boolean
   aoAbrir: () => void
   aoVerPerfis: () => void
@@ -310,6 +345,8 @@ function LinhaDePessoa({
           souAdmin={souAdmin}
           p={p}
           perfis={perfis}
+          grupos={grupos}
+          aoMudarGrupos={aoMudarGrupos}
           aoFechar={aoAbrir}
           aoVerPerfis={aoVerPerfis}
           aoMudar={aoMudar}
@@ -337,6 +374,8 @@ function FormularioDePessoa({
   souAdmin,
   p,
   perfis,
+  grupos,
+  aoMudarGrupos,
   aoFechar,
   aoVerPerfis,
   aoCriar,
@@ -346,9 +385,11 @@ function FormularioDePessoa({
   souAdmin: boolean
   p?: PessoaNaLista
   perfis: readonly PerfilPublico[]
+  grupos: readonly GrupoDaEquipeParaAdministrar[]
+  aoMudarGrupos: () => void
   aoFechar: () => void
   aoVerPerfis: () => void
-  aoCriar?: (p: PessoaCriada) => void
+  aoCriar?: (p: PessoaCriada, gruposFalharam: boolean) => void
   aoMudar?: (aviso: string) => void
   aoRedefinir?: (s: SenhaRedefinida) => void
 }) {
@@ -358,6 +399,8 @@ function FormularioDePessoa({
   /** `__admin` é a opção "Administradora"; o resto é id de perfil. */
   const [acesso, setAcesso] = useState(p === undefined ? '' : p.admin ? '__admin' : (p.perfilId ?? ''))
   const [ativo, setAtivo] = useState(p?.ativo ?? true)
+  /** Os grupos marcados, ou `null` se a pessoa não mexeu (então nada é enviado). */
+  const [gruposEscolhidos, setGruposEscolhidos] = useState<string[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [ocupado, setOcupado] = useState(false)
   const [confirmandoSenha, setConfirmandoSenha] = useState(false)
@@ -422,7 +465,17 @@ function FormularioDePessoa({
             acesso: acesso === '__admin' ? { admin: true } : { admin: false, perfilId: acesso },
           }),
         })
-        aoCriar?.(criada)
+        // A pessoa já existe (e a senha só aparece agora): se os grupos falharem,
+        // ela é entregue do mesmo jeito e o aviso diz o que faltou.
+        let gruposFalharam = false
+        if (gruposEscolhidos !== null && gruposEscolhidos.length > 0) {
+          try {
+            await definirGrupos(criada.id, gruposEscolhidos)
+          } catch {
+            gruposFalharam = true
+          }
+        }
+        aoCriar?.(criada, gruposFalharam)
         return
       }
 
@@ -441,14 +494,29 @@ function FormularioDePessoa({
         corpo['acesso'] =
           acesso === '__admin' ? { admin: true } : { admin: false, perfilId: acesso }
       }
-      if (Object.keys(corpo).length === 0) {
+      const mudouGrupos = gruposEscolhidos !== null && !p.euMesma
+      if (Object.keys(corpo).length === 0 && !mudouGrupos) {
         aoFechar()
         return
       }
-      await chamar<PessoaNaLista>(`v1/pessoas/${p.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(corpo),
-      })
+      if (Object.keys(corpo).length > 0) {
+        await chamar<PessoaNaLista>(`v1/pessoas/${p.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(corpo),
+        })
+      }
+      if (mudouGrupos) {
+        try {
+          await definirGrupos(p.id, gruposEscolhidos)
+        } catch (e) {
+          setErro(
+            `${Object.keys(corpo).length > 0 ? 'Os dados foram salvos, mas ' : ''}não consegui atualizar os grupos: ${
+              e instanceof Error ? e.message : 'tente de novo.'
+            }`,
+          )
+          return
+        }
+      }
       aoMudar?.('Alterações salvas.')
     } catch (e) {
       // A MENSAGEM DO SERVIDOR INTEIRA: o 422 dele já explica a saída ("dê
@@ -459,6 +527,15 @@ function FormularioDePessoa({
       setOcupado(false)
       setConfirmandoAcesso(null)
     }
+  }
+
+  /** `PUT` do CONJUNTO de grupos da pessoa (substitui). Avisa a aba Grupos. */
+  async function definirGrupos(pessoaId: string, grupoIds: readonly string[]) {
+    await chamar(`v1/pessoas/${pessoaId}/grupos`, {
+      method: 'PUT',
+      body: JSON.stringify({ grupoIds }),
+    })
+    aoMudarGrupos()
   }
 
   async function redefinirSenha() {
@@ -585,6 +662,14 @@ function FormularioDePessoa({
           conversas 1:1 e banco de horas).
         </p>
       ) : null}
+
+      <CampoDeGrupos
+        pessoaId={p?.id}
+        grupos={grupos}
+        escolhidos={gruposEscolhidos}
+        aoMudar={setGruposEscolhidos}
+        proprio={p?.euMesma ?? false}
+      />
 
       {p === undefined ? (
         <p className="nota">

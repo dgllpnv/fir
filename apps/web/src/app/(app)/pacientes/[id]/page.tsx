@@ -39,6 +39,7 @@ export default async function Ficha({
       podeValores={temPerm(usuario, perfis, 'valores')}
       podePacientes={temPerm(usuario, perfis, 'pacientes')}
       podeJornada={temPerm(usuario, perfis, 'jornada')}
+      podeEstoque={temPerm(usuario, perfis, 'estoque')}
       tarefaEmFoco={typeof tarefa === 'string' && tarefa !== '' ? tarefa : null}
     />
   )

@@ -1,4 +1,5 @@
 import {
+  AssumirTarefa,
   Cancelar,
   Concluir,
   ConsultaDeTarefas,
@@ -7,10 +8,12 @@ import {
   EditarTarefa,
   type ExclusaoDeTarefa,
   ExcluirTarefa,
+  type FluxoDaTarefa,
   type ListaDeTarefas,
   type PrevisaoDeExclusao,
   type TarefaParaEditar,
   type TarefasAfetadas,
+  TransferirTarefa,
 } from '@fir/contracts'
 import {
   BadRequestException,
@@ -27,14 +30,19 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common'
+import { DadoSensivel } from '../auditoria/acesso.decorator'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { primeiroErro } from '../comum/primeiro-erro'
 import { ConclusaoService } from './conclusao.service'
 import { ConsultaDeTarefasService } from './consulta.service'
 import { EdicaoDeTarefasService } from './edicao.service'
+import { FluxoService } from './fluxo.service'
+import { LimiteDeEscritaDoFluxoGuard } from './limite-de-escrita.guard'
 import { autorDe, exigirEscopo, leitorDe } from './leitura'
 import { TarefasService } from './tarefas.service'
+import { TransferenciaService } from './transferencia.service'
 
 /**
  * Tarefas — SEM `@Exige`.
@@ -57,6 +65,8 @@ export class TarefasController {
     @Inject(ConclusaoService) private readonly conclusao: ConclusaoService,
     @Inject(EdicaoDeTarefasService) private readonly edicao: EdicaoDeTarefasService,
     @Inject(ConsultaDeTarefasService) private readonly consulta: ConsultaDeTarefasService,
+    @Inject(TransferenciaService) private readonly transferencia: TransferenciaService,
+    @Inject(FluxoService) private readonly fluxo: FluxoService,
   ) {}
 
   @Get()
@@ -104,7 +114,15 @@ export class TarefasController {
     // guarda uma PESSOA. A sessão de suporte do painel é recusada aqui — ver
     // `autorDe` em `leitura.ts` (D-13).
     const autor = autorDe(c)
-    return this.tarefas.criar(c.clinicaId, c.ator, c.clinicaFuso, autor.id, dados.data, autor.podeJornada)
+    return this.tarefas.criar(
+      c.clinicaId,
+      c.ator,
+      c.clinicaFuso,
+      autor.id,
+      dados.data,
+      autor.podeJornada,
+      autor.podeEquipe,
+    )
   }
 
   @Post(':id/concluir')
@@ -118,6 +136,63 @@ export class TarefasController {
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     const c = req.contexto!
     return this.conclusao.concluir(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id, dados.data)
+  }
+
+  /**
+   * O membro do grupo fixa a tarefa em si. O perdedor da corrida recebe 409.
+   * Sem `@Exige`: quem pode é decidido por tarefa (membro do grupo, ou
+   * `tarefas.equipe`) e conferido no banco na mesma transação.
+   */
+  @Post(':id/assumir')
+  @UseGuards(LimiteDeEscritaDoFluxoGuard)
+  @HttpCode(HttpStatus.OK)
+  async assumir(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() corpo: unknown,
+  ): Promise<TarefasAfetadas> {
+    const dados = AssumirTarefa.safeParse(corpo ?? {})
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.transferencia.assumir(c.clinicaId, c.ator, c.clinicaFuso, autorDe(c), id, dados.data)
+  }
+
+  @Post(':id/transferir')
+  @UseGuards(LimiteDeEscritaDoFluxoGuard)
+  @HttpCode(HttpStatus.OK)
+  async transferir(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() corpo: unknown,
+  ): Promise<TarefasAfetadas> {
+    const dados = TransferirTarefa.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.transferencia.transferir(
+      c.clinicaId,
+      c.ator,
+      c.clinicaFuso,
+      autorDe(c),
+      id,
+      dados.data,
+    )
+  }
+
+  /**
+   * A cadeia de "concluir e criar nova". `@DadoSensivel('pacientes')`: um nó
+   * pode ser tarefa de paciente identificado. O `id` da trilha é o da TAREFA
+   * pedida, sob a entidade `pacientes` — a mistura é conhecida e está no teste
+   * de `acesso-sensivel` (a trilha responde "quem olhou" por tarefa, e a tarefa
+   * leva ao paciente).
+   */
+  @Get(':id/fluxo')
+  @DadoSensivel('pacientes')
+  async fluxoDaTarefa(
+    @Req() req: RequisicaoComContexto,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<FluxoDaTarefa> {
+    const c = req.contexto!
+    return this.fluxo.fluxo(c.clinicaId, c.ator, leitorDe(c), c.pode('pacientes'), id)
   }
 
   @Post(':id/cancelar')

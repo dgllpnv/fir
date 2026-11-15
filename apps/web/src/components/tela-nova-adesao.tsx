@@ -1,7 +1,7 @@
 'use client'
 
 import type { ClinicaAtual, TPacienteEncontrado } from '@fir/contracts'
-import { FORMAS } from '@fir/contracts'
+import { LIMITES_DO_PROGRAMA } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -10,11 +10,18 @@ import {
   montadorVazio,
   type EstadoDoMontador,
 } from '@/components/programas/montador'
+import { problemasDoMontador } from '@/components/programas/montador-regras'
 import { SeletorDePaciente } from '@/components/seletor-de-paciente'
 import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { useDados } from '@/lib/dados'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
+import {
+  corpoDaForma,
+  corpoDaFormaEmTexto,
+  estadoInicialDasFormas,
+} from '@/lib/partes-do-pagamento'
 import { Carregando, Erro, Toast } from './estados'
+import { FormasDePagamento, partesFecham } from './formas-de-pagamento'
 
 /**
  * **Programas › Nova adesão.**
@@ -77,7 +84,7 @@ function Formulario({
   const [hora, setHora] = useState('')
   const [total, setTotal] = useState('')
   const [entrada, setEntrada] = useState('')
-  const [forma, setForma] = useState<(typeof FORMAS)[number]>(FORMAS[0])
+  const [formas, setFormas] = useState(() => estadoInicialDasFormas())
   const [erro, setErro] = useState<string | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
@@ -91,8 +98,11 @@ function Formulario({
       setErro('Escolha a paciente.')
       return
     }
-    if (montagem.itens.some((x) => x.procedimentoId === '')) {
-      setErro('Escolha o procedimento de cada item.')
+    // Sessões em branco, dose longa e itens demais, ditos antes do envio com os
+    // limites do contrato deste programa.
+    const problema = problemasDoMontador(montagem, LIMITES_DO_PROGRAMA, hoje)
+    if (problema !== null) {
+      setErro(problema)
       return
     }
 
@@ -117,14 +127,21 @@ function Formulario({
        * contrato recusa a combinação errada nos dois sentidos, e o banco
        * também (`recebimento_forma_so_com_dinheiro`).
        */
-      pagamento =
-        centavosDaEntrada > 0n
-          ? {
-              valorTotal: centavosDoTotal.toString(),
-              valorEntrada: centavosDaEntrada.toString(),
-              forma,
-            }
-          : { valorTotal: centavosDoTotal.toString(), valorEntrada: '0' }
+      if (centavosDaEntrada > 0n) {
+        // `forma` OU `partes` (várias formas), conferido contra o valor pago.
+        const daForma = corpoDaForma(centavosDaEntrada, formas)
+        if (daForma.tipo === 'erro') {
+          setErro(daForma.mensagem)
+          return
+        }
+        pagamento = {
+          valorTotal: centavosDoTotal.toString(),
+          valorEntrada: centavosDaEntrada.toString(),
+          ...corpoDaFormaEmTexto(daForma.corpo),
+        }
+      } else {
+        pagamento = { valorTotal: centavosDoTotal.toString(), valorEntrada: '0' }
+      }
     }
 
     setSalvando(true)
@@ -245,19 +262,11 @@ function Formulario({
             {/* A FORMA só aparece quando entrou dinheiro — é o
                 `adformal.hidden = !(ent > 0)` do protótipo, medido. */}
             {centavosDaEntrada !== null && centavosDaEntrada > 0n ? (
-              <label className="campo" style={{ maxWidth: 260 }}>
-                Forma de pagamento da entrada
-                <select
-                  value={forma}
-                  onChange={(e) => setForma(e.target.value as typeof forma)}
-                >
-                  {FORMAS.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <FormasDePagamento
+                estado={formas}
+                aoMudar={setFormas}
+                total={centavosDaEntrada}
+              />
             ) : null}
 
             <p className="nota">
@@ -285,7 +294,18 @@ function Formulario({
         )}
 
         <div className="botoes">
-          <button type="button" className="btn" onClick={() => void salvar()} disabled={salvando}>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void salvar()}
+            disabled={
+              salvando ||
+              (centavosDoTotal !== null &&
+                centavosDaEntrada !== null &&
+                centavosDaEntrada > 0n &&
+                !partesFecham(formas, centavosDaEntrada))
+            }
+          >
             {salvando ? 'Criando…' : 'Criar programa e sessões'}
           </button>
           <button

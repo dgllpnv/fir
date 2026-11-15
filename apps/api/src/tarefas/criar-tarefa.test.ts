@@ -231,7 +231,9 @@ describe('POST /v1/tarefas · o lançamento retroativo', () => {
         tipo: 'Consulta realizada',
         quando: { modo: 'retroativo', em: HOJE, pagamento: { valor: '45000', forma: 'Pix' } },
       }),
-      'juliana',
+      // `rita` (receber sem valores), e não `juliana`: desde o F6, lançar o
+      // pagamento embutido exige `receber`, e juliana não tem.
+      'rita',
     ).expect(201)
     expect(r.body.tarefa.pagamento.valor).toBeNull()
     expect(await receitaDoDia(c)).toBe(45000n)

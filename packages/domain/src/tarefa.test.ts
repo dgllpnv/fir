@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { diaCivil } from './relogio'
 import { ehErro, ehOk, exigir, type Result } from './resultado'
 import {
+  enxergaParaConcluir,
   instanteDaConclusao,
   podeCancelar,
   podeConcluir,
@@ -130,5 +131,28 @@ describe('o instante da conclusão', () => {
         expect(diaCivil(exigir(r), fuso), `${fuso} ${dia}`).toBe(dia)
       }
     }
+  })
+})
+
+describe('enxergaParaConcluir (achado F7) — quem enxerga a tarefa para concluí-la', () => {
+  const interna = { ...ABERTA, pacienteId: null }
+  const dePaciente = { ...ABERTA, pacienteId: 'pac-1' }
+
+  it('tarefa interna: só quem pode editá-la (solicitante, responsável, equipe)', () => {
+    for (const a of [ana, bia, sup]) expect(ehOk(enxergaParaConcluir(interna, a, false))).toBe(true)
+    expect(codigoDe(enxergaParaConcluir(interna, cao, false))).toBe('SEM_ACESSO_A_TAREFA')
+  })
+
+  it('tarefa interna: ter `pacientes` NÃO abre a tarefa de outra pessoa', () => {
+    expect(codigoDe(enxergaParaConcluir(interna, cao, true))).toBe('SEM_ACESSO_A_TAREFA')
+  })
+
+  it('tarefa de paciente: quem tem `pacientes` conclui (protótipo, `visivel`)', () => {
+    expect(ehOk(enxergaParaConcluir(dePaciente, cao, true))).toBe(true)
+  })
+
+  it('tarefa de paciente sem `pacientes`: volta à regra de editar', () => {
+    expect(codigoDe(enxergaParaConcluir(dePaciente, cao, false))).toBe('SEM_ACESSO_A_TAREFA')
+    expect(ehOk(enxergaParaConcluir(dePaciente, bia, false))).toBe(true)
   })
 })

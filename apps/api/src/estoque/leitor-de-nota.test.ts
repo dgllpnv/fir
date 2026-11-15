@@ -3,10 +3,11 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import {
   LeitorDeNotaXml,
+  MAX_ITENS_NA_NOTA,
   centavosDeTexto,
   milesimosDeTexto,
 } from './leitor-de-nota'
-import { lerXml, primeiro, textoDe } from './xml'
+import { lerAtributos, lerXml, primeiro, textoDe } from './xml'
 
 /**
  * O seam `LeitorDeNota`, com um arquivo e nada mais.
@@ -193,5 +194,100 @@ describe('lerXml — entrada externa não confiável', () => {
 
   it('aninhamento sem fim é recusado, não estoura a pilha', () => {
     expect(() => lerXml('<a>'.repeat(200))).toThrow()
+  })
+})
+
+/**
+ * **Achado F4 (revisão de segurança 2026-11-15, CWE-1333).** A leitura de
+ * atributos era uma regex não ancorada que retrocedia em tempo quadrático; o
+ * `POST /v1/estoque/notas/ler` aceita 900 mil caracteres, e um só pedido
+ * travava o event loop da API de todas as clínicas.
+ */
+describe('lerXml — tempo linear e tetos (achado F4)', () => {
+  it('a carga do ataque termina rápido, recusada como XML inválido', () => {
+    const ataque = `<infNFe a${'b'.repeat(899_000)}>`
+    const t0 = performance.now()
+    expect(() => lerXml(ataque)).toThrow(/tag grande demais/)
+    expect(performance.now() - t0).toBeLessThan(1_000)
+    // E pelo seam, como a rota chama: erro de domínio, não exceção.
+    const r = leitor.ler(ataque)
+    expect(ehErro(r)).toBe(true)
+  })
+
+  it('a leitura de atributos é linear mesmo sem o teto de tag', () => {
+    // O teto de tag barra a carga acima; isto mede o leitor DE ATRIBUTOS
+    // sozinho, com a sequência sem `=` que fazia a regex retroceder.
+    const t0 = performance.now()
+    expect(lerAtributos(` a${'b'.repeat(899_000)}`)).toEqual({})
+    expect(lerAtributos(` ${'a '.repeat(400_000)}x="1"`)).toEqual({ x: '1' })
+    expect(lerAtributos(` a="${'b'.repeat(899_000)}`)).toEqual({})
+    expect(performance.now() - t0).toBeLessThan(1_000)
+  })
+
+  it('lê atributo como a regex lia: aspas simples, espaços no `=`, lixo pulado', () => {
+    expect(lerAtributos(` Id="NFe1" versao = '4.00' xmlns:ds="http://x/y#z"`)).toEqual({
+      Id: 'NFe1',
+      versao: '4.00',
+      'xmlns:ds': 'http://x/y#z',
+    })
+    expect(lerAtributos(' solto  9x="a&amp;b" sem= y="2"')).toEqual({ x: 'a&b', y: '2' })
+  })
+
+  it('uma NF-e real continua lida igual', () => {
+    const nfe = `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><NFe>
+<infNFe Id="NFe35261100000000000191550010000009991000099910" versao="4.00">
+<ide><cUF>35</cUF><nNF>999</nNF><serie>1</serie><dhEmi>2026-11-10T10:00:00-03:00</dhEmi></ide>
+<emit><CNPJ>00000000000191</CNPJ><xNome>Distribuidora Ficticia de Teste LTDA</xNome></emit>
+<det nItem="1"><prod><cProd>TESTE-001</cProd><cEAN>SEM GTIN</cEAN><xProd>Soro Fisiologico Teste 500ml</xProd>
+<uCom>FR</uCom><qCom>10.0000</qCom><vUnCom>12.5000000000</vUnCom><vProd>125.00</vProd>
+<rastro><nLote>LT-TESTE-01</nLote><qLote>10.000</qLote><dFab>2026-09-01</dFab><dVal>2028-09-01</dVal></rastro></prod></det>
+<det nItem="2"><prod><cProd>TESTE-002</cProd><xProd>Seringa Descartavel Teste 5ml</xProd>
+<uCom>CX</uCom><qCom>4.0000</qCom><vUnCom>30.0000000000</vUnCom></prod></det>
+</infNFe></NFe>
+<protNFe versao="4.00"><infProt><chNFe>35261100000000000191550010000009991000099910</chNFe></infProt></protNFe>
+</nfeProc>`
+    const n = exigir(leitor.ler(nfe))
+    expect(n.chave).toBe('35261100000000000191550010000009991000099910')
+    expect(n.numero).toBe('999')
+    expect(n.fornecedor).toBe('Distribuidora Ficticia de Teste LTDA')
+    expect(n.dia).toBe('2026-11-10')
+    expect(n.linhas).toEqual([
+      {
+        codigo: 'TESTE-001',
+        descricao: 'Soro Fisiologico Teste 500ml',
+        unidadeDaNota: 'FR',
+        quantidade: 10_000n,
+        valorUnitario: 1_250n,
+        loteDoFabricante: 'LT-TESTE-01',
+        validade: '2028-09-01',
+      },
+      {
+        codigo: 'TESTE-002',
+        descricao: 'Seringa Descartavel Teste 5ml',
+        unidadeDaNota: 'CX',
+        quantidade: 4_000n,
+        valorUnitario: 3_000n,
+        loteDoFabricante: '',
+        validade: null,
+      },
+    ])
+  })
+
+  const det = (i: number, cProd = `C${i}`, xProd = `ITEM ${i}`) =>
+    `<det nItem="${i}"><prod><cProd>${cProd}</cProd><xProd>${xProd}</xProd><uCom>UN</uCom><qCom>1</qCom><vUnCom>1.00</vUnCom></prod></det>`
+  const notaCom = (dets: string) => `<NFe><infNFe Id="NFe1">${dets}</infNFe></NFe>`
+
+  it(`até ${MAX_ITENS_NA_NOTA} itens é lido; um a mais é recusado`, () => {
+    const no990 = Array.from({ length: MAX_ITENS_NA_NOTA }, (_, i) => det(i + 1)).join('')
+    expect(exigir(leitor.ler(notaCom(no990))).linhas).toHaveLength(MAX_ITENS_NA_NOTA)
+    const r = leitor.ler(notaCom(no990 + det(991)))
+    expect(ehErro(r)).toBe(true)
+  })
+
+  it('cProd e xProd são cortados no teto do leiaute (60 e 120)', () => {
+    const n = exigir(leitor.ler(notaCom(det(1, 'C'.repeat(5_000), 'X'.repeat(50_000)))))
+    expect(n.linhas[0]!.codigo).toBe('C'.repeat(60))
+    expect(n.linhas[0]!.descricao).toBe('X'.repeat(120))
   })
 })

@@ -1,13 +1,23 @@
 'use client'
 
-import type { TarefaNaLista, TarefasAfetadas } from '@fir/contracts'
+import type {
+  DestinoDaTarefa,
+  GruposDaEquipe,
+  ListaDaEquipe,
+  MeusGrupos,
+  TarefaNaLista,
+  TarefasAfetadas,
+} from '@fir/contracts'
 import { type Autor, podeCorrigirOrcamento } from '@fir/domain'
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { AcoesDoCartao, DadosDaConclusao } from '@/components/cartao-de-tarefa'
 import type { MoverEtapa } from '@/components/jornada/faixa-da-jornada'
 import { chamar } from './api'
+import { useDados } from './dados'
 import { postarComConfirmacao } from './dialogo-de-confirmacao'
+import { mensagemDoFluxo, type Nomes } from './fluxo-da-tarefa'
 import { corpoComMotivo } from './motivo-de-suporte'
+import { pagamentoEmbutidoEmTexto } from './partes-do-pagamento'
 
 /**
  * Concluir · cancelar · reabrir · editar — escritos UMA vez.
@@ -64,6 +74,19 @@ export function useAcoesDeTarefa(
   const [emEdicao, setEmEdicao] = useState<TarefaNaLista | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
 
+  // Os MEUS grupos e os nomes, lidos UMA vez por tela e repassados ao cartão:
+  // um pedido por cartão seriam dezenas de idas ao servidor. O que o cartão faz
+  // com eles é só mostrar o botão certo — o servidor decide (`podeAssumir`).
+  const meus = useDados<MeusGrupos>('v1/grupos/meus')
+  const equipe = useDados<ListaDaEquipe>('v1/equipe')
+  const grupos = useDados<GruposDaEquipe>('v1/grupos')
+  const meusGrupoIds = meus.dados?.grupoIds
+  const nomes = useMemo<Nomes>(() => {
+    const p = new Map((equipe.dados?.equipe ?? []).map((x) => [x.id, x.nome] as const))
+    const g = new Map((grupos.dados?.grupos ?? []).map((x) => [x.id, x.nome] as const))
+    return { pessoa: (id) => p.get(id) ?? null, grupo: (id) => g.get(id) ?? null }
+  }, [equipe.dados, grupos.dados])
+
   const agir = useCallback(
     async (fn: () => Promise<TarefasAfetadas>, aviso: string) => {
       try {
@@ -95,11 +118,7 @@ export function useAcoesDeTarefa(
               ...(d.pagamento === undefined
                 ? {}
                 : {
-                    pagamento: {
-                      valor: d.pagamento.valor.toString(),
-                      forma: d.pagamento.forma,
-                      valorAberto: (d.pagamento.valorAberto ?? 0n).toString(),
-                    },
+                    pagamento: pagamentoEmbutidoEmTexto(d.pagamento),
                   }),
             },
             {
@@ -122,6 +141,40 @@ export function useAcoesDeTarefa(
         'Tarefa reaberta. Se havia pagamento, ele foi estornado.',
       ),
     editar: (t: TarefaNaLista) => setEmEdicao(t),
+    meusGrupoIds: meusGrupoIds ?? [],
+    nomes,
+    assumir: async (id: string, nota?: string) => {
+      try {
+        await chamar<TarefasAfetadas>(`v1/tarefas/${id}/assumir`, {
+          method: 'POST',
+          body: JSON.stringify(nota === undefined || nota.trim() === '' ? {} : { nota: nota.trim() }),
+        })
+        setRecado('Tarefa assumida. Agora ela é sua.')
+        recarregar()
+      } catch (e) {
+        setRecado(mensagemDoFluxo(e, 'assumir'))
+        // 409: perdeu a corrida — a lista está velha, e é o que a pessoa precisa ver.
+        recarregar()
+        throw e
+      }
+    },
+    transferir: async (id: string, para: DestinoDaTarefa, nota?: string) => {
+      try {
+        await chamar<TarefasAfetadas>(`v1/tarefas/${id}/transferir`, {
+          method: 'POST',
+          body: JSON.stringify({
+            para,
+            ...(nota === undefined || nota.trim() === '' ? {} : { nota: nota.trim() }),
+          }),
+        })
+        setRecado('Tarefa transferida.')
+        recarregar()
+      } catch (e) {
+        // Sem toast: o modal de transferência mostra o erro ao lado do botão, e
+        // duas mensagens para a mesma falha é o que a casa evita.
+        throw new Error(mensagemDoFluxo(e, 'transferir'))
+      }
+    },
     // O motivo vai no CORPO (a URL vai para log); só o Suporte Firmare o envia.
     excluir: (id: string, motivo?: string) =>
       agir(
@@ -153,7 +206,8 @@ export function useAcoesDeTarefa(
     autor === undefined
       ? enviar
       : Object.assign(enviar, {
-          podeCorrigirOrcamento: (t: TarefaNaLista) => podeCorrigirOrcamento(t, autor),
+          podeCorrigirOrcamento: (t: TarefaNaLista) =>
+            podeCorrigirOrcamento(t, { ...autor, grupoIds: meusGrupoIds ?? [] }),
         })
 
   return {

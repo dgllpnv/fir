@@ -16,6 +16,7 @@ import { useState } from 'react'
 import { consultaEmTexto, useDados } from '@/lib/dados'
 import { diaCurto, diaEmTexto } from '@/lib/formato'
 import { linhasDoParcial, textoDeRetomar } from '@/lib/jornada-parciais'
+import { resumoDasPartes } from '@/lib/partes-do-pagamento'
 import { Carregando, Erro } from './estados'
 
 /**
@@ -304,7 +305,8 @@ function RecebimentosDiretosDoPeriodo({
                   {diaCurto(l.em)}
                 </td>
                 <td data-rotulo="Valor" className="num direita">
-                  {l.valor === null ? '' : formatarDinheiro(BigInt(l.valor))} {l.forma}
+                  {l.valor === null ? '' : formatarDinheiro(BigInt(l.valor))}{' '}
+                  {resumoDasPartes(l.partes, formatarDinheiro) ?? l.forma}
                 </td>
               </tr>
             ))}

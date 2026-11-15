@@ -1,4 +1,4 @@
-import type { Cancelar, Concluir, TarefasAfetadas } from '@fir/contracts'
+import type { Cancelar, Concluir, EventoDeFluxo, TarefasAfetadas } from '@fir/contracts'
 import {
   type AcaoDeJornada,
   anexar,
@@ -11,9 +11,11 @@ import {
   ETAPA_AO_CANCELAR,
   type EventoDeJornada,
   instanteDaConclusao,
+  ok,
   podeCancelar,
   podeConcluir,
   podeEditar,
+  enxergaParaConcluir,
   type Relogio,
   type Result,
   type StatusDeTarefa,
@@ -34,6 +36,8 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { SESSAO_PELA_ROTA_PROPRIA } from '../programas/mensagens'
+import { comGrupos } from './grupos-do-autor'
+import { TETO_DO_HISTORICO } from './transferencia.service'
 import { type AutorDaRequisicao, lerTarefas, TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from './leitura'
 import { confirmacoesDe } from '../financeiro/recebimentos.avisos'
 import { exigirDominio, registrarPagamento } from './tarefas.service'
@@ -50,7 +54,8 @@ import { exigirDominio, registrarPagamento } from './tarefas.service'
 type TarefaCarregada = {
   readonly id: string
   readonly solicitanteId: string
-  readonly responsavelId: string
+  readonly responsavelId: string | null
+  readonly grupoId: string | null
   readonly status: StatusDeTarefa
   readonly tipo: string
   readonly descricao: string
@@ -93,7 +98,8 @@ async function carregar(c: pg.PoolClient, id: string): Promise<TarefaCarregada> 
   const r = await c.query<{
     id: string
     solicitante_id: string
-    responsavel_id: string
+    responsavel_id: string | null
+    grupo_id: string | null
     status: StatusDeTarefa
     tipo: string
     descricao: string
@@ -102,7 +108,7 @@ async function carregar(c: pg.PoolClient, id: string): Promise<TarefaCarregada> 
     historico: EventoDeJornada[]
     unidade_id: string | null
   }>(
-    `SELECT id, solicitante_id, responsavel_id, status, tipo, descricao, paciente_id,
+    `SELECT id, solicitante_id, responsavel_id, grupo_id, status, tipo, descricao, paciente_id,
             etapa::text AS etapa, historico, unidade_id
        FROM tarefas WHERE id = $1 AND excluida_em IS NULL FOR UPDATE`,
     [id],
@@ -113,6 +119,7 @@ async function carregar(c: pg.PoolClient, id: string): Promise<TarefaCarregada> 
     id: l.id,
     solicitanteId: l.solicitante_id,
     responsavelId: l.responsavel_id,
+    grupoId: l.grupo_id,
     status: l.status,
     tipo: l.tipo,
     descricao: l.descricao,
@@ -143,7 +150,14 @@ export class ConclusaoService {
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const t = await carregar(c, id)
-      exigirAutorizacao(podeConcluir(t, autor))
+      const quem = await comGrupos(c, clinicaId, autor)
+      // QUEM ANTES DO ESTADO (achado F7): concluir é de quem ENXERGA a tarefa, e
+      // a resposta devolve a tarefa inteira — quem não pode lê-la não a conclui
+      // e não sabe em que estado ela está. 403, como `GET /v1/tarefas/:id`.
+      exigirAutorizacao(enxergaParaConcluir(t, quem, autor.podePaciente))
+      // Tarefa de grupo: só membro (ou `tarefas.equipe`) conclui. `grupoIds` vem do
+      // banco, nesta transação — nunca do cliente.
+      exigirAutorizacao(podeConcluir(t, quem))
 
       /**
        * **A ROTA GENÉRICA RECUSA UMA SESSÃO** (decisão P-5 do épico 5).
@@ -178,6 +192,42 @@ export class ConclusaoService {
         historico = [...anexar(historico, evento('concluir', 'realizado', concluidaEm, autor.id))]
       }
 
+      // Quem concluiu a tarefa de GRUPO fica registrado: ela não tem responsável,
+      // então o `porId` do evento é a única autoria (ADR 2026-11-14).
+      // Na tarefa de PESSOA, `executar` registra quem concluiu — que pode não ser o
+      // responsável. Acima do teto ele é omitido em vez de bloquear a conclusão: a
+      // autoria continua na trilha de auditoria.
+      const historicoGravado: unknown[] =
+        t.grupoId === null
+          ? historico.length < TETO_DO_HISTORICO
+            ? [
+                ...historico,
+                {
+                  acao: 'executar',
+                  em: concluidaEm.toISOString(),
+                  porId: autor.id,
+                  de: t.responsavelId === null ? null : { tipo: 'pessoa', id: t.responsavelId },
+                  para: null,
+                } satisfies EventoDeFluxo,
+              ]
+            : historico
+          : [
+              ...historico,
+              {
+                acao: 'concluirPeloGrupo',
+                em: concluidaEm.toISOString(),
+                porId: autor.id,
+                de: { tipo: 'grupo', id: t.grupoId },
+                para: null,
+              } satisfies EventoDeFluxo,
+            ]
+
+      // O evento do grupo respeita o MESMO teto do assumir/transferir: sem ele a
+      // autoria da conclusão se perderia, e histórico sem teto é crescimento sem fim.
+      if (t.grupoId !== null && historicoGravado.length > TETO_DO_HISTORICO) {
+        throw new ConflictException('O histórico desta tarefa está cheio. Peça ajuda ao suporte.')
+      }
+
       await c.query(
         `UPDATE tarefas
             SET status = 'concluida', concluida_em = $2, tipo = $3, descricao = $4,
@@ -190,7 +240,7 @@ export class ConclusaoService {
           tipo,
           descricao,
           etapa,
-          JSON.stringify(historico),
+          JSON.stringify(historicoGravado),
           dados.resultado,
           dados.obs ?? null,
         ],
@@ -305,7 +355,7 @@ export class ConclusaoService {
       const t = await carregar(c, id)
       // A autorização ANTES do estado: quem não pode mexer na tarefa não
       // merece saber em que estado ela está.
-      exigirAutorizacao(podeEditar(t, autor))
+      exigirAutorizacao(podeEditar(t, await comGrupos(c, clinicaId, autor)))
       // A tarefa "Pagamento de ..." existe para dar linha do tempo ao dinheiro:
       // desfazê-lo é ESTORNAR em Recebimentos, que também tira a tarefa das listas.
       // Reabri-la estornaria o dinheiro por uma segunda porta e deixaria a tarefa

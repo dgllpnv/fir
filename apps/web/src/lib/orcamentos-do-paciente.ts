@@ -29,10 +29,24 @@ export function fechouXdeY(fechados: number | null | undefined, total: number | 
   return `fechou ${fechados} de ${total} ${total === 1 ? 'procedimento' : 'procedimentos'}`
 }
 
-/** A ordem das abas da ficha: sem `jornada`, só o Histórico existe. */
-export type AbaDaFicha = 'historico' | 'orcamentos'
-export const abasDaFicha = (podeJornada: boolean): readonly AbaDaFicha[] =>
-  podeJornada ? ['historico', 'orcamentos'] : ['historico']
+/**
+ * A ordem das abas da ficha: sem `jornada`, só o Histórico existe. O Consumo
+ * (o que foi aplicado, com lote) exige `estoque` E `jornada` — as mesmas duas
+ * que o servidor cobra em `GET /v1/pacientes/:id/consumo`.
+ */
+export type AbaDaFicha = 'historico' | 'orcamentos' | 'consumo'
+export const abasDaFicha = (podeJornada: boolean, podeEstoque = false): readonly AbaDaFicha[] =>
+  podeJornada
+    ? podeEstoque
+      ? ['historico', 'orcamentos', 'consumo']
+      : ['historico', 'orcamentos']
+    : ['historico']
+
+export const ROTULO_DA_ABA: Readonly<Record<AbaDaFicha, string>> = {
+  historico: 'Histórico',
+  orcamentos: 'Orçamentos',
+  consumo: 'Consumo',
+}
 
 /** Setas/Home/End nas abas (padrão WAI-ARIA, ativação automática). */
 export function proximaAba(

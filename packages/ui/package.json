@@ -18,7 +18,8 @@
     "./superadmin.css": "./src/superadmin.css",
     "./carteira.css": "./src/carteira.css",
     "./portal.css": "./src/portal.css",
-    "./asana.css": "./src/asana.css"
+    "./asana.css": "./src/asana.css",
+    "./financeiro.css": "./src/financeiro.css"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

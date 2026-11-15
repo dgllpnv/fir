@@ -65,7 +65,7 @@ type Aberta =
       readonly prefixo?: { nome: string; cargo: string; pessoaId: string }
     }
 
-export function TelaEquipe({ hoje }: { hoje: string }) {
+export function TelaEquipe({ hoje, podeValores }: { hoje: string; podeValores: boolean }) {
   const [aba, setAba] = useState<Aba>('geral')
   const [aberta, setAberta] = useState<Aberta>({ tipo: 'nenhuma' })
   const [recado, setRecado] = useState<string | null>(null)
@@ -132,7 +132,7 @@ export function TelaEquipe({ hoje }: { hoje: string }) {
       {aba === 'geral' ? (
         <VisaoGeral key={versao} abrir={(a) => setAberta(a)} avisar={setRecado} />
       ) : aba === 'metas' ? (
-        <AbaMetas hoje={hoje} avisar={setRecado} />
+        <AbaMetas hoje={hoje} avisar={setRecado} podeValores={podeValores} />
       ) : aba === 'conversas' ? (
         <AbaConversas hoje={hoje} avisar={setRecado} />
       ) : (

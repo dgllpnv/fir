@@ -41,7 +41,8 @@ export type CartaoCarregado = {
   readonly itens: ItemDoOrcamentoLido[] | null
   /** Quem pode editar o cartão (`podeEditar`): a correção do orçamento pergunta (B1). */
   readonly solicitanteId: string
-  readonly responsavelId: string
+  /** `null` na tarefa de grupo ainda não assumida (0084). */
+  readonly responsavelId: string | null
   readonly proximoPassoEm: string | null
 }
 
@@ -77,7 +78,7 @@ export async function carregarCartao(
     programa_orcado: ItemOrcadoNaSaida[] | null
     itens_orcamento: ItemDoOrcamentoNaSaida[] | null
     solicitante_id: string
-    responsavel_id: string
+    responsavel_id: string | null
     proximo_passo_em: string | null
   }>(
     `SELECT etapa::text AS etapa, status, prazo::text AS prazo, hora::text AS hora, historico,

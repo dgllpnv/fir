@@ -3,7 +3,15 @@ import {
   type RecebimentoNaLista,
   type RegistrarRecebimento,
 } from '@fir/contracts'
-import { diaCivil, ehPagamento, exigir, instanteDaConclusao, somarDias } from '@fir/domain'
+import {
+  diaCivil,
+  Dinheiro,
+  ehPagamento,
+  exigir,
+  formaPrincipal,
+  instanteDaConclusao,
+  somarDias,
+} from '@fir/domain'
 import {
   BadRequestException,
   ConflictException,
@@ -15,13 +23,25 @@ import type pg from 'pg'
 import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
+import { CODIGO_PARTES_ACIMA_DA_DIVIDA, type PartesAcimaDaDivida, partesDoPagamento } from '@fir/contracts'
 import { declararMotivo, motivoDaAcao } from '../comum/motivo-de-suporte'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { campanhaParaVincular } from '../campanhas/vinculo'
 import { unidadeValida } from '../comum/unidade'
 import { DINHEIRO_QUE_ENTROU } from './dinheiro-que-entrou'
 import { saldoDe } from './saldo.repositorio'
-import { confirmacoesDe, conferirAvisosDoRecebimento } from './recebimentos.avisos'
+import {
+  confirmacoesDe,
+  conferirCaixaDoRecebimento,
+  conferirDuplicidadeDoRecebimento,
+} from './recebimentos.avisos'
+import {
+  emDominio,
+  exigirMesmasPartes,
+  gravarRecebimento,
+  PARTES_EM_JSON,
+  partesDoJson,
+} from './partes'
 
 /**
  * O QUE o paciente está pagando → o TIPO de tarefa que o faturamento
@@ -59,6 +79,8 @@ type Contexto = {
   readonly clinicaId: ClinicaId
   readonly ator: Ator
   readonly fuso: string
+  /** Quem pergunta vê valores? Decide se o 409 de partes acima da dívida leva o devido. */
+  readonly valores?: boolean
 }
 
 type LinhaCrua = {
@@ -69,14 +91,18 @@ type LinhaCrua = {
   tipo: string
   valor: string
   valor_aberto: string
-  forma: string
+  partes: unknown
   em: string
   obs: string
   registrado_por: string
   estornado: boolean
 }
 
-const paraSaida = (l: LinhaCrua): RecebimentoNaLista => ({
+const paraSaida = (l: LinhaCrua): RecebimentoNaLista => {
+  // As partes (da maior para a menor): é DELAS que vem a forma. A venda a
+  // prazo não tem parte e sai com a forma vazia, como sempre saiu.
+  const partes = partesDoJson(l.partes)
+  return {
   id: l.id,
   tarefaId: l.tarefa_id,
   pacienteId: l.paciente_id,
@@ -84,18 +110,21 @@ const paraSaida = (l: LinhaCrua): RecebimentoNaLista => ({
   tipo: l.tipo,
   valor: l.valor,
   valorAberto: l.valor_aberto,
-  // `forma` do banco é restrita pelo `CHECK` da 0006 às mesmas cinco do
-  // contrato; o `as` existe porque o driver devolve `string`.
-  forma: l.forma as RecebimentoNaLista['forma'],
+  // `forma` da parte é restrita pelo `CHECK` da 0086 às cinco do contrato (ou
+  // à vazia do legado); o `as` existe porque o jsonb devolve `string`.
+  forma: (partes[0]?.forma ?? '') as RecebimentoNaLista['forma'],
+  partes,
   em: l.em,
   obs: l.obs,
   registradoPor: l.registrado_por,
   estornado: l.estornado,
-})
+  }
+}
 
 const SELECT_BASE = `
   SELECT r.id, r.tarefa_id, r.paciente_id, p.nome AS paciente, r.tipo,
-         r.valor::text AS valor, r.valor_aberto::text AS valor_aberto, r.forma,
+         r.valor::text AS valor, r.valor_aberto::text AS valor_aberto,
+         ${PARTES_EM_JSON} AS partes,
          ((r.recebido_em AT TIME ZONE $2)::date)::text AS em,
          coalesce(t.obs, '') AS obs, q.nome AS registrado_por,
          (r.estornado_em IS NOT NULL) AS estornado
@@ -148,8 +177,19 @@ export class RecebimentosService {
       ])
       if (pac.rowCount === 0) throw new NotFoundException('Paciente não encontrado.')
 
+      // As partes pedidas: a lista, ou a parte única com a forma de sempre.
+      let partes = partesDoPagamento(dados)
+
       const jaExiste = await this.porRequisicao(c, ctx, dados.requisicaoId)
-      if (jaExiste !== undefined) return jaExiste
+      if (jaExiste !== undefined) {
+        // Mesma chave com OUTRAS formas é outro pedido, não um duplo toque (409).
+        // Só compara quando o total bate: o "Saldo em aberto" corta o valor e o
+        // reenvio vê um saldo que o primeiro já abateu.
+        if (jaExiste.valor === dados.valor.toString()) {
+          await exigirMesmasPartes(c, jaExiste.id, emDominio(partes))
+        }
+        return jaExiste
+      }
 
       /**
        * O PAGAMENTO DE UM PROGRAMA — e o `programa_id` que o saldo agrupa.
@@ -185,33 +225,27 @@ export class RecebimentosService {
         }
       }
 
-      /**
-       * "SALDO EM ABERTO" NUNCA PASSA DA DÍVIDA.
+      /*
+       * A ORDEM DAQUI PARA BAIXO É DE SEGURANÇA (achados F2 e F8).
        *
-       * Pedido da cliente: o valor acima do que a paciente deve não vira
-       * crédito — o recebimento é registrado só com o que quita o grupo
-       * escolhido. O servidor, não a tela, faz o corte (regra 5: o saldo é
-       * derivado por adesão, e um grupo negativo é o crédito que não queremos
-       * fabricar aqui). Sem dívida no grupo, não há o que receber.
+       * Primeiro tudo o que NÃO depende de valor oculto (caixa fechado,
+       * unidade, campanha); depois a duplicidade (igualdade com recebimentos
+       * que, sem `valores`, chegam redigidos); por último a comparação com a
+       * DÍVIDA, que é oculta e bisectável. Se a comparação viesse antes de uma
+       * recusa neutra, quem não vê valores provocaria a recusa neutra (dia de
+       * caixa fechado, `campanhaId` qualquer) e leria pelo código — 409 de
+       * partes ou a recusa neutra — se V passa do saldo, sem gravar nada: o
+       * saldo exato em ~30 pedidos. Com a comparação por último, a única
+       * resposta distinguível depois dela é GRAVAR de verdade.
+       *
+       * Ainda DEPOIS de `porRequisicao` (ajuste 3 do gate): o duplo toque
+       * devolve a linha que o primeiro gravou, e nunca um 409 sobre ela mesma.
        */
-      let valor = dados.valor
-      if (dados.ref === 'saldo') {
-        const s = await saldoDe(c, ctx.clinicaId, dados.pacienteId)
-        const grupo = s.grupos.find((g) => g.programaId === programaId)
-        const devido = grupo === undefined ? 0n : grupo.saldo.centavos
-        if (devido <= 0n) {
-          throw new ConflictException('Esta paciente não tem valor em aberto nesta dívida.')
-        }
-        if (valor > devido) valor = devido
-      }
-
-      // DEPOIS de `porRequisicao` (ajuste 3 do gate): o duplo toque devolve a
-      // linha que o primeiro gravou, e nunca um 409 sobre ela mesma.
-      await conferirAvisosDoRecebimento(c, {
+      const forma = formaPrincipal(emDominio(partes))
+      await conferirCaixaDoRecebimento(c, {
         clinicaId: ctx.clinicaId,
-        pacienteId: dados.pacienteId,
-        valor,
-        forma: dados.forma,
+        valor: dados.valor,
+        forma,
         recebidoEm,
         fuso: ctx.fuso,
         confirmacoes: confirmacoesDe(dados),
@@ -237,6 +271,56 @@ export class RecebimentosService {
         fuso: ctx.fuso,
       })
 
+      // A duplicidade compara o valor DIGITADO, antes do corte do "Saldo em
+      // aberto": comparar o valor cortado (= a dívida) faria do aviso uma
+      // pergunta sobre a dívida oculta, e a comparação com ela vem a seguir.
+      await conferirDuplicidadeDoRecebimento(c, {
+        clinicaId: ctx.clinicaId,
+        pacienteId: dados.pacienteId,
+        valor: dados.valor,
+        recebidoEm,
+        fuso: ctx.fuso,
+        confirmacoes: confirmacoesDe(dados),
+      })
+
+      /**
+       * "SALDO EM ABERTO" NUNCA PASSA DA DÍVIDA — e é a ÚLTIMA recusa antes da
+       * escrita (ver o bloco acima).
+       *
+       * Pedido da cliente: o valor acima do que a paciente deve não vira
+       * crédito — o recebimento é registrado só com o que quita o grupo
+       * escolhido. O servidor, não a tela, faz o corte (regra 5: o saldo é
+       * derivado por adesão, e um grupo negativo é o crédito que não queremos
+       * fabricar aqui). Sem dívida no grupo, não há o que receber.
+       */
+      let valor = dados.valor
+      if (dados.ref === 'saldo') {
+        const s = await saldoDe(c, ctx.clinicaId, dados.pacienteId)
+        const grupo = s.grupos.find((g) => g.programaId === programaId)
+        const devido = grupo === undefined ? 0n : grupo.saldo.centavos
+        if (devido <= 0n) {
+          throw new ConflictException('Esta paciente não tem valor em aberto nesta dívida.')
+        }
+        if (valor > devido) {
+          // VETO V-1: com VÁRIAS formas o servidor não escolhe de qual tirar —
+          // a escolhida dependeria da ordem digitada, e o caixa acusaria uma
+          // sobra que ninguém causou. Recusa, e a tela pede nova divisão.
+          if (partes.length > 1) {
+            const corpo: PartesAcimaDaDivida = {
+              statusCode: 409,
+              codigo: CODIGO_PARTES_ACIMA_DA_DIVIDA,
+              message:
+                'O valor passa do que a paciente deve nesta dívida. Divida de novo entre as formas, sem passar do valor em aberto.',
+              ...(ctx.valores === true ? { devido: devido.toString() } : {}),
+            }
+            throw new ConflictException(corpo)
+          }
+          // Com UMA forma, o corte do pedido 6: entra só o que quita.
+          valor = devido
+          partes = partes.map((p) => ({ forma: p.forma, valor: devido }))
+        }
+      }
+
       const tarefa = await c.query<{ id: string }>(
         `INSERT INTO tarefas
            (clinica_id, solicitante_id, responsavel_id, descricao, prazo, prioridade,
@@ -260,44 +344,29 @@ export class RecebimentosService {
       )
 
       const aberto = 'valorAberto' in dados ? (dados.valorAberto ?? 0n) : 0n
-      const inserido = await c.query<{ id: string }>(
-        `INSERT INTO recebimentos
-           (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, valor_aberto, recebido_em,
-            unidade_id, registrado_por, requisicao_id, programa_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-         ON CONFLICT (clinica_id, requisicao_id) WHERE requisicao_id IS NOT NULL DO NOTHING
-         RETURNING id`,
-        [
-          ctx.clinicaId,
-          dados.pacienteId,
-          tarefa.rows[0]!.id,
-          tipo,
-          // `bigint` vira texto no parâmetro: o driver não serializa bigint, e
-          // `Number()` perderia precisão acima de 2^53 (regra 1).
-          valor.toString(),
-          dados.forma,
-          aberto.toString(),
-          recebidoEm,
-          unidade,
-          exigePessoa(ctx.ator),
-          dados.requisicaoId,
-          programaId,
-        ],
-      )
+      const gravado = await gravarRecebimento(c, {
+        clinicaId: ctx.clinicaId,
+        pacienteId: dados.pacienteId,
+        tarefaId: tarefa.rows[0]!.id,
+        tipo,
+        valor,
+        valorAberto: aberto,
+        recebidoEm,
+        unidadeId: unidade,
+        registradoPor: exigePessoa(ctx.ator),
+        requisicaoId: dados.requisicaoId,
+        programaId,
+        partes,
+      })
 
-      if (inserido.rowCount === 0) {
+      if (!gravado.criado) {
         // Outra requisição com a MESMA chave ganhou a corrida entre o `SELECT`
         // acima e este `INSERT`. Desfaz a tarefa que acabou de nascer — ela
         // não tem recebimento e não pode ficar — e devolve o que já existe.
         await c.query('DELETE FROM tarefas WHERE id = $1', [tarefa.rows[0]!.id])
-        const existente = await this.porRequisicao(c, ctx, dados.requisicaoId)
-        if (existente === undefined) {
-          throw new ConflictException('Não consegui registrar o recebimento. Tente de novo.')
-        }
-        return existente
       }
 
-      return this.lerUm(c, ctx, inserido.rows[0]!.id)
+      return this.lerUm(c, ctx, gravado.id)
     })
   }
 

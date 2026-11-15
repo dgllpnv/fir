@@ -1,4 +1,5 @@
 import { apagarClinicaDeTeste, declararAtorSistema } from '@fir/api/banco/limpeza-de-teste'
+import { ACOES_DO_FLUXO } from '@fir/contracts'
 import { ACOES, ETAPAS } from '@fir/domain'
 import pg from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -601,14 +602,28 @@ describe('o vocabulário do banco é o do domínio', () => {
   })
 
   it('todo evento do banco usa ação e etapa do vocabulário', async () => {
+    // Os eventos do FLUXO (ADR 2026-11-14) moram no mesmo `historico`, sem `etapa`;
+    // têm vocabulário próprio, conferido no teste seguinte.
     const r = await migrate.query<{ acao: string; etapa: string }>(
       `SELECT DISTINCT ev->>'acao' AS acao, ev->>'etapa' AS etapa FROM tarefas t
-        CROSS JOIN LATERAL jsonb_array_elements(t.historico) ev`,
+        CROSS JOIN LATERAL jsonb_array_elements(t.historico) ev
+        WHERE NOT (ev->>'acao' = ANY($1))`,
+      [[...ACOES_DO_FLUXO]],
     )
     for (const linha of r.rows) {
       expect(ACOES, `ação "${linha.acao}"`).toContain(linha.acao)
       expect(ETAPAS, `etapa "${linha.etapa}"`).toContain(linha.etapa)
     }
+  })
+
+  it('todo evento de FLUXO do banco tem ação do fluxo, quem (`porId`) e quando (`em`), e nunca `etapa`', async () => {
+    const r = await migrate.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM tarefas t
+        CROSS JOIN LATERAL jsonb_array_elements(t.historico) ev
+        WHERE ev->>'acao' = ANY($1) AND (NOT (ev ? 'porId') OR NOT (ev ? 'em') OR ev ? 'etapa')`,
+      [[...ACOES_DO_FLUXO]],
+    )
+    expect(r.rows[0]!.n).toBe('0')
   })
 })
 
@@ -625,11 +640,13 @@ describe('o histórico depois da 0007', () => {
     expect(r.rows[0]!.n).toBe('0')
   })
 
-  it('todo evento do banco tem `acao` e `etapa`', async () => {
+  it('todo evento de JORNADA do banco tem `acao` e `etapa` (os do fluxo não têm etapa)', async () => {
     const r = await migrate.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM tarefas t
         CROSS JOIN LATERAL jsonb_array_elements(t.historico) ev
-        WHERE NOT (ev ? 'acao') OR NOT (ev ? 'etapa') OR NOT (ev ? 'em')`,
+        WHERE NOT (coalesce(ev->>'acao', '') = ANY($1))
+          AND (NOT (ev ? 'acao') OR NOT (ev ? 'etapa') OR NOT (ev ? 'em'))`,
+      [[...ACOES_DO_FLUXO]],
     )
     expect(r.rows[0]!.n).toBe('0')
   })

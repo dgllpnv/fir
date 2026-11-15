@@ -65,7 +65,7 @@ export class RecebimentosController {
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     const c = req.contexto!
     return this.recebimentos.registrar(
-      { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso },
+      { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso, valores: c.pode('valores') },
       dados.data,
     )
   }

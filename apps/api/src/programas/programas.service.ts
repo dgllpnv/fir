@@ -7,10 +7,12 @@ import type {
   ProgramaEncerradoNaSaida,
   ProgramaMontadoNaSaida,
 } from '@fir/contracts'
+import { partesDoPagamento } from '@fir/contracts'
 import {
   diaCivil,
   Dinheiro,
   ehErro,
+  formaPrincipal,
   Quantidade,
   TIPO_RETORNO,
   TIPO_SESSAO,
@@ -30,6 +32,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { Transacao } from '../banco/transacao'
 import { RELOGIO, type Relogio } from '../comum/relogio'
+import { emDominio, gravarRecebimento } from '../financeiro/partes'
 import { conferirAvisosDoRecebimento, confirmacoesDe } from '../financeiro/recebimentos.avisos'
 import { BaixaDeInsumos } from './baixa-de-insumos'
 import {
@@ -409,13 +412,23 @@ export class ProgramasService {
     unidade: string | null,
   ): Promise<string> {
     const pagamento = dados.pagamento!
+    // Sem entrada (D-9) não há parte; com entrada, a lista de formas ou a forma
+    // única de sempre (fatia 4.1). O contrato já garantiu `Σ partes = entrada`.
+    const partes =
+      pagamento.valorEntrada > 0n
+        ? partesDoPagamento({
+            valor: pagamento.valorEntrada,
+            forma: pagamento.forma,
+            partes: pagamento.partes,
+          })
+        : []
     // A entrada da adesão é dinheiro que entra HOJE (`agora`): pode cair num
     // caixa já fechado e repetir um pagamento já lançado (D-21).
     await conferirAvisosDoRecebimento(c, {
       clinicaId: ctx.clinicaId,
       pacienteId: dados.pacienteId,
       valor: pagamento.valorEntrada,
-      forma: pagamento.forma ?? '',
+      forma: formaPrincipal(emDominio(partes)),
       recebidoEm: agora,
       fuso: ctx.fuso,
       confirmacoes: confirmacoesDe(dados),
@@ -439,32 +452,21 @@ export class ProgramasService {
         unidade,
       ],
     )
-    const r = await c.query<{ id: string }>(
-      `INSERT INTO recebimentos
-         (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, valor_aberto, recebido_em,
-          unidade_id, registrado_por)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING id`,
-      [
-        ctx.clinicaId,
-        dados.pacienteId,
-        tarefa.rows[0]!.id,
-        TIPO_DA_ADESAO,
-        // `bigint` vira texto no parâmetro: o driver não serializa bigint, e
-        // `Number()` perderia precisão acima de 2^53 (regra 1).
-        pagamento.valorEntrada.toString(),
-        // D-9: sem entrada não há forma de pagamento — dinheiro que não se
-        // moveu não tem como ter se movido por Pix. A string vazia é o que o
-        // protótipo grava (`formaPagamento: ""`) e o que a constraint
-        // `recebimento_forma_so_com_dinheiro` exige.
-        pagamento.forma ?? '',
-        aberto.toString(),
-        agora,
-        unidade,
-        exigePessoa(ctx.ator),
-      ],
-    )
-    return r.rows[0]!.id
+    const gravado = await gravarRecebimento(c, {
+      clinicaId: ctx.clinicaId,
+      pacienteId: dados.pacienteId,
+      tarefaId: tarefa.rows[0]!.id,
+      tipo: TIPO_DA_ADESAO,
+      valor: pagamento.valorEntrada,
+      valorAberto: aberto,
+      recebidoEm: agora,
+      unidadeId: unidade,
+      // `tarefas.solicitante_id` e `recebimentos.registrado_por` sao NOT NULL
+      // — a adesao e dinheiro e e ritual da clinica (D-13).
+      registradoPor: exigePessoa(ctx.ator),
+      partes,
+    })
+    return gravado.id
   }
 
   /**

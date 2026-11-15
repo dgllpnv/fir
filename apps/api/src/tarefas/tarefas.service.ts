@@ -1,6 +1,7 @@
 import type {
   ConfirmacoesDoRecebimento,
   CriarTarefa,
+  EventoDeFluxo,
   PagamentoEmbutido,
   TarefasAfetadas,
 } from '@fir/contracts'
@@ -10,23 +11,31 @@ import {
   diaCivil,
   type EventoDeJornada,
   ehErro,
+  ehOk,
+  formaPrincipal,
   gerarSerie,
   instanteDaConclusao,
+  podeEditar,
   type Relogio,
   type Result,
   rotuloDaSerie,
+  temPerm,
   tipoAoConcluir,
 } from '@fir/domain'
-import { BadRequestException, Inject, Injectable } from '@nestjs/common'
+import { partesDoPagamento } from '@fir/contracts'
+import { BadRequestException, ForbiddenException, Inject, Injectable } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import type pg from 'pg'
-import type { Ator, PessoaId } from '../banco/ator'
+import { type Ator, type PessoaId, pessoaDoAtor } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { campanhaParaVincular } from '../campanhas/vinculo'
 import { unidadeValida } from '../comum/unidade'
+import { emDominio, gravarRecebimento } from '../financeiro/partes'
 import { conferirAvisosDoRecebimento, confirmacoesDe } from '../financeiro/recebimentos.avisos'
+import { lerAtorDeAcesso, lerPerfisDoDominio } from '../pessoas/acesso-do-ator'
+import { comGrupos } from './grupos-do-autor'
 import { brAno, lerTarefas, TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from './leitura'
 
 /**
@@ -42,11 +51,13 @@ export function exigirDominio<T>(r: Result<T>): T {
   return r.valor
 }
 
-/** As 19 colunas que toda tarefa nova preenche, na ordem. */
+/** As 21 colunas que toda tarefa nova preenche, na ordem. */
 const COLUNAS = [
   'clinica_id',
   'solicitante_id',
   'responsavel_id',
+  'grupo_id',
+  'tarefa_origem_id',
   'descricao',
   'prazo',
   'hora',
@@ -117,20 +128,48 @@ export class TarefasService {
     autor: PessoaId,
     dados: CriarTarefa,
     podeJornada: boolean,
+    podeEquipe = false,
   ): Promise<TarefasAfetadas> {
     const agora = this.relogio.agora()
     const hoje = diaCivil(agora, fuso)
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
-      // `Code.gs:355`: o responsável precisa estar ATIVO. Tarefa atribuída a
-      // quem saiu da clínica não aparece no "Para mim" de ninguém — ela some,
-      // e ninguém descobre que ela existe.
-      const resp = await c.query<{ ativo: boolean }>(
-        'SELECT ativo FROM pessoas WHERE id = $1',
-        [dados.responsavelId],
-      )
-      if (resp.rowCount === 0 || resp.rows[0]!.ativo !== true) {
-        throw new BadRequestException('Escolha um responsável ativo.')
+      // O destino é UM só (o contrato já exige; o `CHECK tarefa_tem_destino` é a
+      // terceira camada).
+      let responsavelId: string | null = null
+      let grupoId: string | null = null
+      if (dados.grupoId !== undefined) {
+        // Tarefa de grupo é ritual da clínica: a sessão de suporte (que assina
+        // como administradora) não a cria (E3).
+        if (pessoaDoAtor(ator) === null) {
+          throw new ForbiddenException('A sessão de suporte não cria tarefa para um grupo.')
+        }
+        if (dados.quando.modo === 'retroativo') {
+          // "Já aconteceu" precisa de quem fez; o grupo não é ninguém.
+          throw new BadRequestException(
+            'Um lançamento que já aconteceu precisa de uma pessoa, não de um grupo.',
+          )
+        }
+        const g = await c.query<{ ativo: boolean }>(
+          'SELECT ativo FROM grupos_da_equipe WHERE id = $1 AND clinica_id = $2',
+          [dados.grupoId, clinicaId],
+        )
+        if (g.rowCount === 0 || g.rows[0]!.ativo !== true) {
+          throw new BadRequestException('Escolha um grupo ativo.')
+        }
+        grupoId = dados.grupoId
+      } else {
+        // `Code.gs:355`: o responsável precisa estar ATIVO. Tarefa atribuída a
+        // quem saiu da clínica não aparece no "Para mim" de ninguém — ela some,
+        // e ninguém descobre que ela existe.
+        const resp = await c.query<{ ativo: boolean }>(
+          'SELECT ativo FROM pessoas WHERE id = $1 AND clinica_id = $2',
+          [dados.responsavelId, clinicaId],
+        )
+        if (resp.rowCount === 0 || resp.rows[0]!.ativo !== true) {
+          throw new BadRequestException('Escolha um responsável ativo.')
+        }
+        responsavelId = dados.responsavelId ?? null
       }
 
       let pacienteId: string | null = null
@@ -176,10 +215,55 @@ export class TarefasService {
         fuso,
       })
 
+      // A tarefa de origem ("concluir e criar nova"): da clínica, que a pessoa
+      // enxerga (mesmo filtro de `GET tarefas/:id`), e do MESMO paciente ou sem
+      // paciente — a cadeia nunca atravessa de um paciente para outro (appsec S2).
+      let tarefaOrigemId: string | null = null
+      if (dados.tarefaOrigemId !== undefined) {
+        const o = await c.query<{
+          solicitante_id: string
+          responsavel_id: string | null
+          grupo_id: string | null
+          status: 'aberta' | 'concluida' | 'cancelada'
+          paciente_id: string | null
+        }>(
+          `SELECT solicitante_id, responsavel_id, grupo_id, status, paciente_id
+             FROM tarefas WHERE id = $1 AND clinica_id = $2 AND excluida_em IS NULL`,
+          [dados.tarefaOrigemId, clinicaId],
+        )
+        const origem = o.rows[0]
+        const eu = await comGrupos(c, clinicaId, { id: autor, podeEquipe })
+        if (
+          origem === undefined ||
+          !ehOk(
+            podeEditar(
+              {
+                solicitanteId: origem.solicitante_id,
+                responsavelId: origem.responsavel_id,
+                grupoId: origem.grupo_id,
+                status: origem.status,
+              },
+              eu,
+            ),
+          )
+        ) {
+          throw new BadRequestException('Tarefa de origem não encontrada.')
+        }
+        if (origem.paciente_id !== null && origem.paciente_id !== pacienteId) {
+          throw new BadRequestException(
+            'A tarefa de origem é de outro paciente, então não pode ser ligada a esta.',
+          )
+        }
+        tarefaOrigemId = dados.tarefaOrigemId
+      }
+
       const comum = {
         clinicaId,
         autor,
-        responsavelId: dados.responsavelId,
+        responsavelId,
+        grupoId,
+        tarefaOrigemId,
+        atribuidaEm: agora.toISOString(),
         descricao,
         prioridade: dados.prioridade,
         obs: dados.obs,
@@ -362,7 +446,11 @@ export class TarefasService {
 type Comum = {
   readonly clinicaId: ClinicaId
   readonly autor: PessoaId
-  readonly responsavelId: string
+  readonly responsavelId: string | null
+  readonly grupoId: string | null
+  readonly tarefaOrigemId: string | null
+  /** O instante do evento `atribuir`, quando a tarefa nasce num grupo. */
+  readonly atribuidaEm: string
   readonly descricao: string
   readonly prioridade: 'normal' | 'urgente'
   readonly obs: string
@@ -371,6 +459,24 @@ type Comum = {
   readonly unidade: string | null
   readonly campanhaId: string | null
 }
+
+/**
+ * A tarefa que nasce NUM GRUPO registra de onde veio: `atribuir`, de ninguém para
+ * o grupo, por quem a criou. Tarefa de pessoa não ganha evento (o histórico
+ * dela continua exatamente como era).
+ */
+const eventoDeAtribuicao = (t: Comum): EventoDeFluxo[] =>
+  t.grupoId === null
+    ? []
+    : [
+        {
+          acao: 'atribuir',
+          em: t.atribuidaEm,
+          porId: t.autor,
+          de: null,
+          para: { tipo: 'grupo', id: t.grupoId },
+        },
+      ]
 
 const linha = (
   t: Comum,
@@ -389,6 +495,8 @@ const linha = (
   t.clinicaId,
   t.autor,
   t.responsavelId,
+  t.grupoId,
+  t.tarefaOrigemId,
   t.descricao,
   x.prazo,
   x.hora,
@@ -398,7 +506,7 @@ const linha = (
   t.pacienteId,
   x.tipo,
   x.etapa,
-  JSON.stringify(x.historico),
+  JSON.stringify([...x.historico, ...eventoDeAtribuicao(t)]),
   '',
   t.obs,
   x.serieId,
@@ -406,6 +514,32 @@ const linha = (
   t.unidade,
   t.campanhaId,
 ]
+
+/**
+ * **`receber` é cobrada AQUI, uma vez, para toda porta de pagamento embutido**
+ * (achado F6): concluir tarefa, criar tarefa já concluída, concluir sessão e
+ * fechar na jornada. Antes, só a rota de sessão e a jornada cobravam, no
+ * controlador — e concluir/criar retroativo gravavam dinheiro com qualquer
+ * perfil. Uma checagem por rota é a que a quinta porta esquece.
+ *
+ * A permissão é RELIDA dentro da transação (pessoa e perfis, como
+ * `pessoas/acesso-do-ator.ts`) e decidida por `temPerm` — a mesma função da
+ * tela e do guard (regra 16). Na sessão de suporte, `autor` é a administradora
+ * que assina por ela (D-13): admin, e `temPerm` diz sim, como `c.pode` diz.
+ */
+async function exigirPermissaoDeReceber(c: pg.PoolClient, autor: PessoaId): Promise<void> {
+  const ator = await lerAtorDeAcesso(c, autor)
+  const usuario = {
+    admin: ator.admin,
+    perfilId: ator.tipo === 'pessoa' ? (ator.perfilId ?? '') : '',
+  }
+  if (!temPerm(usuario, await lerPerfisDoDominio(c), 'receber')) {
+    throw new ForbiddenException(
+      'Para lançar o pagamento você precisa da permissão de recebimentos. ' +
+        'Conclua sem pagamento e registre o dinheiro pela tela Recebimentos.',
+    )
+  }
+}
 
 /**
  * O pagamento embutido: UMA linha em `recebimentos`, presa à tarefa.
@@ -433,6 +567,7 @@ export async function registrarPagamento(
     confirmacoes: ConfirmacoesDoRecebimento
   },
 ): Promise<string> {
+  await exigirPermissaoDeReceber(c, x.autor)
   if (x.pacienteId === null) {
     throw new BadRequestException(
       'Só uma tarefa de paciente guarda pagamento — o dinheiro precisa de a quem pertencer.',
@@ -445,12 +580,17 @@ export async function registrarPagamento(
       'Este tipo de tarefa não guarda pagamento. Use Recebimento para registrar dinheiro recebido.',
     )
   }
+  // A lista de formas, ou a parte única com a forma de sempre (fatia 4.1).
+  const partes = partesDoPagamento(x.pagamento)
   // O MESMO instante que vai ser gravado (`quando`): retroativo incluído.
+  // Caixa e depois duplicidade (F8): quem chama e ainda tem recusa depois desta
+  // função a põe ANTES dela, ou move a recusa dele para antes (ver
+  // `fechamento.service.ts` e `sessoes.service.ts`).
   await conferirAvisosDoRecebimento(c, {
     clinicaId: x.clinicaId,
     pacienteId: x.pacienteId,
     valor: x.pagamento.valor,
-    forma: x.pagamento.forma,
+    forma: formaPrincipal(emDominio(partes)),
     recebidoEm: x.quando,
     fuso: x.fuso,
     confirmacoes: x.confirmacoes,
@@ -460,26 +600,17 @@ export async function registrarPagamento(
   // linha, na MESMA transação: é só isso que falta para o saldo em aberto
   // deixar de ser um grupo só (regra 5). Quem não precisa do id ignora o
   // retorno, e nada mais muda.
-  const r = await c.query<{ id: string }>(
-    `INSERT INTO recebimentos
-       (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, valor_aberto, recebido_em,
-        unidade_id, registrado_por)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-     RETURNING id`,
-    [
-      x.clinicaId,
-      x.pacienteId,
-      x.tarefaId,
-      x.tipo,
-      // `bigint` do JS vira texto no parâmetro: o driver não serializa bigint,
-      // e `Number()` perderia precisão acima de 2^53 (regra 1).
-      x.pagamento.valor.toString(),
-      x.pagamento.forma,
-      (x.pagamento.valorAberto ?? 0n).toString(),
-      x.quando,
-      x.unidade,
-      x.autor,
-    ],
-  )
-  return r.rows[0]!.id
+  const gravado = await gravarRecebimento(c, {
+    clinicaId: x.clinicaId,
+    pacienteId: x.pacienteId,
+    tarefaId: x.tarefaId,
+    tipo: x.tipo,
+    valor: x.pagamento.valor,
+    valorAberto: x.pagamento.valorAberto ?? 0n,
+    recebidoEm: x.quando,
+    unidadeId: x.unidade,
+    registradoPor: x.autor,
+    partes,
+  })
+  return gravado.id
 }

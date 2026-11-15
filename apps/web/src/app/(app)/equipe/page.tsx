@@ -25,5 +25,7 @@ import { sessaoAtual } from '@/lib/sessao'
 export default async function EquipePage() {
   const { eu, perfis, quem } = await sessaoAtual()
   if (!temPerm(quem, perfis, 'pessoas.gerir')) return <SemAcesso tela="Equipe" />
-  return <TelaEquipe hoje={eu.hoje} />
+  // `valores` só decide se a tela OFERECE criar meta em R$ — conveniência; a
+  // API recusa com 403 de qualquer jeito (achado F3).
+  return <TelaEquipe hoje={eu.hoje} podeValores={temPerm(quem, perfis, 'valores')} />
 }

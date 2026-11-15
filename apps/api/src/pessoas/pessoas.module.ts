@@ -3,6 +3,8 @@ import { provedorDeRelogio } from '../comum/relogio'
 import { AcessoService } from './acesso.service'
 import { EquipeController } from './equipe.controller'
 import { EquipeService } from './equipe.service'
+import { GruposDaEquipeController } from './grupos-da-equipe.controller'
+import { GruposDaEquipeService } from './grupos-da-equipe.service'
 import {
   ConversasController,
   MetasDePessoaController,
@@ -41,7 +43,15 @@ import { PessoasService } from './pessoas.service'
     MetasDePessoaController,
     MinhasMetasController,
     ConversasController,
+    GruposDaEquipeController,
   ],
-  providers: [PessoasService, AcessoService, EquipeService, MetasService, provedorDeRelogio],
+  providers: [
+    PessoasService,
+    AcessoService,
+    EquipeService,
+    MetasService,
+    GruposDaEquipeService,
+    provedorDeRelogio,
+  ],
 })
 export class PessoasModule {}

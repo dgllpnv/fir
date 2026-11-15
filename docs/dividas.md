@@ -668,6 +668,36 @@ Ler a ficha, o cartão ou a aba Orçamentos de uma paciente (programa, sessões,
 
 ---
 
+## Resíduos da varredura de segurança de 2026-11-15 (F1–F8 corrigidos)
+
+O relatório (`CLAUDE-SECURITY-20261115-015306/`, fora do git) teve os 8 achados corrigidos. O que sobrou foi aceito conscientemente:
+
+### D-S1 · Oráculo de IGUALDADE da duplicidade onde há comparação com valor oculto depois dela (F8, LOW)
+
+No `fechar` da jornada e no recebimento `saldo` com várias formas, o 409 `POSSIVEL_DUPLICIDADE` vem **antes** da comparação com a oferta/dívida oculta. Quem não tem `valores` ainda consegue perguntar "existe um pagamento de exatamente X hoje para esta paciente?" sem gravar. Inverter a ordem reabriria a bisseção do valor (F1/F2, MEDIUM), que é pior. O mesmo resíduo existe na adesão de `programas.service.ts` (a duplicidade roda antes das recusas do montador, que precisa do id do recebimento).
+
+**Gatilho:** perfil sem `valores` passar a lançar pagamento em volume (ex.: recepção sem `valores` com `receber`), ou um incidente de valor descoberto. **Saída:** para quem não tem `valores`, a duplicidade deixa de olhar o valor exato (avisa a cada segundo pagamento do dia) — decisão de produto.
+
+### D-S2 · Metas em R$ gravadas antes da correção F3 continuam, e `copiarMetas` as leva adiante
+
+O F3 fechou criar/editar meta em R$ sem `valores`. Metas já gravadas por quem não tinha `valores` (antes de hoje) podem ser copiadas para o mês seguinte; o alvo é copiado, não escolhido, então só vaza proporção entre meses, nunca o valor.
+
+**Gatilho:** antes da migração da primeira clínica (banco novo não tem metas antigas — na prática morre sozinha), ou se aparecer meta em R$ com `criada_por` sem `valores` no banco.
+
+### D-S3 · A adesão do programa cobra `receber` só no controlador
+
+`registrarPagamento` cobra `receber` no ponto único (F6); a adesão (`programas.service.ts` → `gravarRecebimento`) depende do `@Exige` de `programas.controller.ts:113`. Não é furo hoje.
+
+**Gatilho:** qualquer nova rota que chame `ProgramasService.montar` ou `gravarRecebimento`.
+
+### D-S4 · A tela calcula o "valor em estoque"
+
+`apps/web/src/components/tela-estoque.tsx:210` faz `saldo × custo / 1000n` (truncando), contra "o front não calcula" e com arredondamento diferente do valor da falta (meio-para-cima, `packages/domain/src/estoque/valor-da-falta.ts`). `MEDIDA_INTEIRA` e `MIL` são duas constantes para a mesma escala.
+
+**Gatilho:** a primeira clínica comparar o valor do estoque com o da análise e achar um centavo de diferença — ou o próximo trabalho na tela de estoque.
+
+---
+
 ## Pendências de produto, não de código
 
 Essas dependem do dono e estão em [`decisoes.md`](decisoes.md), não aqui: P-1 (UX de sessão no balcão), P-2 (hospedagem para dado de saúde), P-3 (DPA com cada clínica), P-4 (modelo comercial), P-5 (janela de migração), P-6 (perfil Consultoria), P-7 (integração com agenda), P-8 (domínio e certificado), ~~P-9 (SMTP — encerrada)~~, P-10 (concessão de acesso do operador a dado clínico).

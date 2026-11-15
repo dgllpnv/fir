@@ -748,6 +748,37 @@ export const ItemDaContagemConcluida = z
     diferencaEmEstoque: QuantidadeNaSaida.nullable(),
     /** `true` quando há mínimo declarado e o contado ficou abaixo dele. */
     abaixoDoMinimo: z.boolean(),
+    /**
+     * "Estoque atualizado para o contado": concluir a contagem JÁ fixou o saldo
+     * (saldo = última contagem + movimentos depois). `de` é o saldo que o
+     * sistema tinha (`null` na primeira contagem), `para` é o novo. Só existe na
+     * contagem CONCLUÍDA — a aberta continua sem esperado (regra 14).
+     * `null` = o item não foi contado.
+     *
+     * Chaves `de`/`para`, e não `esperado`/`saldo`: estas duas são nomes de
+     * campo monetário e a redação as apagaria para quem não tem `valores`.
+     */
+    estoqueAtualizado: z
+      .object({ de: QuantidadeNaSaida.nullable(), para: QuantidadeNaSaida })
+      .strict()
+      .nullable(),
+    /** A diferença que a gestão reconheceu. `null` = ainda não reconhecida. Efeito zero no saldo. */
+    diferencaReconhecida: z
+      .object({
+        /** Congelada no instante do reconhecimento, em quantidade (não dinheiro). */
+        quantidadeEmEstoque: QuantidadeNaSaida,
+        /**
+         * A diferença de HOJE, recalculada a cada leitura. Pode divergir da
+         * congelada (lançamento retroativo entre as duas contagens): a tela
+         * mostra as duas. `null` = a análise de hoje não tem esperado.
+         */
+        hojeEmEstoque: QuantidadeNaSaida.nullable(),
+        por: z.string(),
+        /** Dia civil NO FUSO DA CLÍNICA (regra 22), nunca o corte do ISO em UTC. */
+        dia: DiaCivil,
+      })
+      .strict()
+      .nullable(),
   })
   .strict()
 export type ItemDaContagemConcluida = z.infer<typeof ItemDaContagemConcluida>
@@ -790,9 +821,38 @@ export const ContagemNaLista = z
     atrasada: z.boolean(),
     quantidadeDeItens: z.number().int(),
     anotados: z.number().int(),
+    /** Diferenças reconhecidas nesta contagem: quantas, e quem/quando por último. `null` = nenhuma. */
+    reconhecidas: z
+      .object({ quantidade: z.number().int(), por: z.string(), dia: DiaCivil })
+      .strict()
+      .nullable(),
   })
   .strict()
 export type ContagemNaLista = z.infer<typeof ContagemNaLista>
+
+/**
+ * `POST /v1/estoque/contagens/:id/reconhecer` — a gestão marca os itens cuja
+ * diferença ela viu. O corpo traz SÓ os itens: a diferença é recalculada no
+ * servidor (nunca do cliente) e o efeito no saldo é zero. Limite por chamada.
+ */
+export const MAX_ITENS_POR_RECONHECIMENTO = 50
+export const ReconhecerDiferencas = z
+  .object({
+    itens: z.array(Uuid).min(1).max(MAX_ITENS_POR_RECONHECIMENTO),
+  })
+  .strict()
+export type ReconhecerDiferencas = z.infer<typeof ReconhecerDiferencas>
+
+export const ResultadoDoReconhecimento = z
+  .object({
+    contagem: ContagemConcluida,
+    /** Gravadas agora. */
+    reconhecidas: z.number().int(),
+    /** Já estavam reconhecidas (idempotência): nada foi gravado para elas. */
+    jaReconhecidas: z.number().int(),
+  })
+  .strict()
+export type ResultadoDoReconhecimento = z.infer<typeof ResultadoDoReconhecimento>
 
 export const ListaDeContagens = z.object({ contagens: z.array(ContagemNaLista) }).strict()
 export type ListaDeContagens = z.infer<typeof ListaDeContagens>

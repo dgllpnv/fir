@@ -16,6 +16,13 @@ export class ErroDaApi extends Error {
      * Quem os transforma em pergunta é `lib/confirmacao.tsx`.
      */
     readonly avisos?: readonly string[],
+    /**
+     * O corpo do erro, inteiro e sem tipo. Para os 409 que carregam um dado
+     * além da mensagem (`devido` de `PARTES_ACIMA_DA_DIVIDA`, `tarefasAbertas` de
+     * `GRUPO_COM_TAREFAS_ABERTAS`): a tela estreita com o esquema do contrato,
+     * em vez de pescar o número no texto.
+     */
+    readonly corpo?: Readonly<Record<string, unknown>>,
   ) {
     super(mensagem)
   }
@@ -114,6 +121,7 @@ export async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Prom
       Array.isArray(corpo.avisos)
         ? corpo.avisos.filter((a): a is string => typeof a === 'string')
         : undefined,
+      corpo,
     )
   }
   return r.status === 204 ? (undefined as T) : ((await r.json()) as T)

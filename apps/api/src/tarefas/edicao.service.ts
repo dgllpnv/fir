@@ -29,6 +29,7 @@ import { RELOGIO } from '../comum/relogio'
 import { campanhaParaVincular } from '../campanhas/vinculo'
 import { unidadeValida } from '../comum/unidade'
 import { SESSAO_NAO_SE_EXCLUI } from '../programas/mensagens'
+import { comGrupos } from './grupos-do-autor'
 import { type AutorDaRequisicao, lerTarefas, type LeitorDaRequisicao } from './leitura'
 import { exigirDominio } from './tarefas.service'
 
@@ -45,7 +46,9 @@ const ALCANCE_DA_SERIE = `
 type TarefaCarregada = {
   readonly id: string
   readonly solicitanteId: string
-  readonly responsavelId: string
+  readonly responsavelId: string | null
+  readonly grupoId: string | null
+  readonly grupoAtivo: boolean | undefined
   readonly status: StatusDeTarefa
   readonly tipo: string
   readonly pacienteId: string | null
@@ -62,7 +65,9 @@ async function carregar(
   const r = await c.query<{
     id: string
     solicitante_id: string
-    responsavel_id: string
+    responsavel_id: string | null
+    grupo_id: string | null
+    grupo_ativo: boolean | null
     status: StatusDeTarefa
     tipo: string
     paciente_id: string | null
@@ -70,12 +75,15 @@ async function carregar(
     serie_id: string | null
     campanha_id: string | null
   }>(
-    `SELECT id, solicitante_id, responsavel_id, status, tipo, paciente_id,
-            prazo::text AS prazo, serie_id, campanha_id::text AS campanha_id
-       FROM tarefas
+    `SELECT t.id, t.solicitante_id, t.responsavel_id, t.grupo_id,
+            (SELECT g.ativo FROM grupos_da_equipe g
+              WHERE g.id = t.grupo_id AND g.clinica_id = t.clinica_id) AS grupo_ativo,
+            t.status, t.tipo, t.paciente_id,
+            t.prazo::text AS prazo, t.serie_id, t.campanha_id::text AS campanha_id
+       FROM tarefas t
       -- A clínica TAMBÉM no filtro: a RLS é a primeira camada, não a única
       -- (regra 19). É o mesmo filtro de \`carregarCartao\` (jornada/cartao.ts).
-      WHERE id = $1 AND clinica_id = $2 AND excluida_em IS NULL FOR UPDATE`,
+      WHERE t.id = $1 AND t.clinica_id = $2 AND t.excluida_em IS NULL FOR UPDATE OF t`,
     [id, clinicaId],
   )
   const l = r.rows[0]
@@ -84,12 +92,47 @@ async function carregar(
     id: l.id,
     solicitanteId: l.solicitante_id,
     responsavelId: l.responsavel_id,
+    grupoId: l.grupo_id,
+    grupoAtivo: l.grupo_ativo ?? undefined,
     status: l.status,
     tipo: l.tipo,
     pacienteId: l.paciente_id,
     prazo: l.prazo,
     serieId: l.serie_id,
     campanhaId: l.campanha_id,
+  }
+}
+
+async function exigirCadeiaDoMesmoPaciente(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  id: string,
+  pacienteDepois: string | null,
+): Promise<void> {
+  const origem = await c.query<{ paciente_id: string | null }>(
+    `SELECT o.paciente_id FROM tarefas x
+       JOIN tarefas o ON o.id = x.tarefa_origem_id AND o.clinica_id = x.clinica_id
+      WHERE x.id = $1 AND x.clinica_id = $2`,
+    [id, clinicaId],
+  )
+  const doPaciente = origem.rows[0]?.paciente_id ?? null
+  if (doPaciente !== null && doPaciente !== pacienteDepois) {
+    throw new BadRequestException(
+      'Esta tarefa nasceu de outra, de outro paciente. Ela não pode mudar de paciente.',
+    )
+  }
+  if (pacienteDepois !== null) {
+    const filhas = await c.query(
+      `SELECT 1 FROM tarefas f
+        WHERE f.tarefa_origem_id = $1 AND f.clinica_id = $2
+          AND f.paciente_id IS DISTINCT FROM $3::uuid LIMIT 1`,
+      [id, clinicaId, pacienteDepois],
+    )
+    if (filhas.rowCount !== 0) {
+      throw new BadRequestException(
+        'Há tarefas derivadas desta, de outro paciente. Ela não pode mudar de paciente.',
+      )
+    }
   }
 }
 
@@ -118,7 +161,7 @@ export class EdicaoDeTarefasService {
 
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const t = await carregar(c, clinicaId, id)
-      exigirAutorizacao(podeEditar(t, autor))
+      exigirAutorizacao(podeEditar(t, await comGrupos(c, clinicaId, autor)))
 
       const campos: string[] = []
       const params: unknown[] = [id]
@@ -128,6 +171,14 @@ export class EdicaoDeTarefasService {
       }
 
       if (dados.responsavelId !== undefined) {
+        // Tarefa de GRUPO muda de dono por Assumir ou Transferir, que conferem
+        // quem pode e deixam o evento: trocar `responsavel_id` aqui violaria
+        // `tarefa_tem_destino` (e burlaria a trilha do fluxo).
+        if (t.grupoId !== null) {
+          throw new BadRequestException(
+            'Esta tarefa é de um grupo. Para mudar quem faz, use Transferir ou Assumir.',
+          )
+        }
         // `clinica_id` também na aplicação: a RLS é a primeira camada, não a única.
         const r = await c.query<{ ativo: boolean }>(
           'SELECT ativo FROM pessoas WHERE id = $1 AND clinica_id = $2',
@@ -152,6 +203,9 @@ export class EdicaoDeTarefasService {
           ])
           if (p.rowCount === 0) throw new BadRequestException('Paciente não encontrado.')
         }
+        // A cadeia de tarefas (fluxo) nunca cruza de um paciente para outro (S2). O
+        // trigger da 0089 é a última camada; aqui a mensagem é de tela.
+        await exigirCadeiaDoMesmoPaciente(c, clinicaId, id, pacienteDepois)
         por('paciente_id', pacienteDepois)
         // Trocar o paciente limpa o vínculo com o programa — `Code.gs:519`,
         // "sessão pendurada no paciente errado é dose no frasco errado".
@@ -278,7 +332,11 @@ export class EdicaoDeTarefasService {
     }
 
     const r = await c.query<{ id: string }>(
-      `UPDATE tarefas SET ${campos.join(', ')} WHERE ${ALCANCE_DA_SERIE} RETURNING id`,
+      // `grupo_id IS NULL` quando troca o responsável: a série pode ter ocorrência
+      // de grupo (`tarefa_tem_destino`), e essa só muda por Transferir.
+      `UPDATE tarefas SET ${campos.join(', ')} WHERE ${ALCANCE_DA_SERIE}${
+        dados.responsavelId === undefined ? '' : ' AND grupo_id IS NULL'
+      } RETURNING id`,
       params,
     )
     return r.rows.map((x) => x.id)
@@ -468,6 +526,40 @@ function mensagemDeOutrosPagamentos(avulsos: boolean, embutidos: boolean): strin
  * estornado em silêncio — bloqueia a exclusão.
  */
 export async function efeitoDaExclusao(c: pg.PoolClient, id: string): Promise<EfeitoDaExclusao> {
+  return lerEfeito(c, id, false)
+}
+
+/**
+ * O que desfazer SÓ O ORÇAMENTO desfaz (Reabrir / Excluir orçamento) — a
+ * consulta fica, e o pagamento DELA também (achado F5; regra 3).
+ *
+ * Difere de `efeitoDaExclusao` num ponto só: o recebimento embutido na própria
+ * tarefa conta como do fechamento apenas se o FECHAMENTO o gravou — e o
+ * fechamento o reconhece por dois carimbos dele:
+ *
+ *  - `recebido_em` igual ao `em` de um evento `fechar` (o fechamento grava os
+ *    dois com o mesmo instante, `agora`), ou
+ *  - `programa_id` de um programa que esta tarefa criou (a adesão).
+ *
+ * E nunca quando o fechamento usou a companheira "Pagamento de orçamento"
+ * (reconhecida pelo `concluida_em` do mesmo evento): ele só a cria quando a
+ * tarefa JÁ tinha o pagamento dela, então o recebimento da tarefa é da
+ * consulta. Esta segunda guarda não depende de relógio — os carimbos de
+ * instante sozinhos confundiriam a consulta concluída "hoje" no mesmo instante
+ * do fechamento.
+ */
+export async function efeitoDoDesfazerOrcamento(
+  c: pg.PoolClient,
+  id: string,
+): Promise<EfeitoDaExclusao> {
+  return lerEfeito(c, id, true)
+}
+
+async function lerEfeito(
+  c: pg.PoolClient,
+  id: string,
+  soDoFechamento: boolean,
+): Promise<EfeitoDaExclusao> {
   const progs = await c.query<{ id: string }>(
     'SELECT id FROM programas WHERE tarefa_de_origem_id = $1 AND excluido_em IS NULL',
     [id],
@@ -482,7 +574,22 @@ export async function efeitoDaExclusao(c: pg.PoolClient, id: string): Promise<Ef
     do_programa: boolean
   }>(
     `SELECT r.id, r.valor::text AS valor, r.tarefa_id, r.tipo,
-            (r.tarefa_id = o.id
+            ((r.tarefa_id = o.id
+              AND (NOT $4::boolean
+                   OR ((coalesce(r.programa_id = ANY($2::uuid[]), false)
+                        OR EXISTS (SELECT 1 FROM jsonb_array_elements(o.historico) f
+                                    WHERE f->>'acao' = 'fechar'
+                                      AND (f->>'em')::timestamptz = r.recebido_em))
+                       -- O fechamento pôs o dinheiro numa companheira VIVA: então a
+                       -- tarefa já estava paga, e o recebimento dela é da CONSULTA.
+                       AND NOT EXISTS (
+                         SELECT 1 FROM tarefas tc
+                           JOIN recebimentos rc ON rc.tarefa_id = tc.id AND rc.estornado_em IS NULL
+                          WHERE tc.tipo = $3 AND tc.paciente_id = o.paciente_id
+                            AND tc.excluida_em IS NULL
+                            AND EXISTS (SELECT 1 FROM jsonb_array_elements(o.historico) f2
+                                         WHERE f2->>'acao' = 'fechar'
+                                           AND (f2->>'em')::timestamptz = tc.concluida_em)))))
              OR (tt.tipo = $3 AND tt.paciente_id = o.paciente_id AND EXISTS (
                    SELECT 1 FROM jsonb_array_elements(o.historico) e
                     WHERE e->>'acao' = 'fechar'
@@ -495,7 +602,7 @@ export async function efeitoDaExclusao(c: pg.PoolClient, id: string): Promise<Ef
         AND (r.tarefa_id = o.id
              OR r.programa_id = ANY($2::uuid[])
              OR (tt.tipo = $3 AND tt.paciente_id = o.paciente_id AND tt.excluida_em IS NULL))`,
-    [id, programas, TIPO_PAGAMENTO_DE_ORCAMENTO],
+    [id, programas, TIPO_PAGAMENTO_DE_ORCAMENTO, soDoFechamento],
   )
   const dela = r.rows.filter((x) => x.da_adesao)
   return {

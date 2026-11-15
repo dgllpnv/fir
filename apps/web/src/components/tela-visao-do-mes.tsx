@@ -99,6 +99,12 @@ function Corpo({
           valor={v.recebido}
           abaixo={`${plural(v.quantidadeDeRecebimentos, 'recebimento', 'recebimentos')} · ${rotuloDeComparacao(v.recebido, v.mesAnterior.recebido, anterior)}`}
         />
+        {/* Fora de "Recebido no mês" (não é de paciente): a meta e o percentual seguem só sobre o recebido. */}
+        <Indicador
+          rotulo="Outras entradas"
+          valor={v.outrasEntradas}
+          abaixo={`${plural(v.quantidadeDeOutrasEntradas, 'entrada', 'entradas')} · não é de paciente`}
+        />
         <Indicador
           rotulo="Despesas pagas"
           valor={v.despesasPagas}
@@ -110,7 +116,7 @@ function Corpo({
           cor={corDoResultado(v.resultadoDoMes)}
           abaixo={
             v.percentualDoResultado === null
-              ? 'recebido − despesas pagas'
+              ? 'recebido + outras entradas − despesas pagas'
               : `${v.percentualDoResultado}% do recebido`
           }
         />
@@ -121,6 +127,29 @@ function Corpo({
           abaixo={`${plural(v.quantidadeAPagar, 'conta', 'contas')}${v.quantidadeVencidas > 0 ? ` · ${v.quantidadeVencidas} vencidas` : ''}`}
         />
         <Indicador rotulo="Saldo a receber" valor={v.aReceber} abaixo="dos pacientes" link="/cobrancas" />
+      </div>
+
+      {/* A conta do resultado, com as parcelas: todas vêm prontas do servidor. */}
+      <div className="grupo">
+        <h3>Como chega o resultado do mês</h3>
+        <div className="resultado-parcelas">
+          <div className="resultado-parcela">
+            <span>Recebido no mês</span>
+            <span>{formatarDinheiro(centavos(v.recebido))}</span>
+          </div>
+          <div className="resultado-parcela">
+            <span>+ Outras entradas</span>
+            <span>{formatarDinheiro(centavos(v.outrasEntradas))}</span>
+          </div>
+          <div className="resultado-parcela">
+            <span>− Despesas pagas</span>
+            <span>{formatarDinheiro(centavos(v.despesasPagas))}</span>
+          </div>
+          <div className="resultado-parcela" data-total="sim">
+            <span>= Resultado do mês</span>
+            <span>{formatarDinheiro(centavos(v.resultadoDoMes))}</span>
+          </div>
+        </div>
       </div>
 
       {v.percentualDaMeta === null ? null : (

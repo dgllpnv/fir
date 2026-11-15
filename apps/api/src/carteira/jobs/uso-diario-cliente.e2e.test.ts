@@ -473,7 +473,10 @@ describe('executarUsoDiarioCliente — G4', () => {
   it('R13: uso crítico vira UMA tarefa interna por (cliente, dia), mesmo rodando três vezes', async () => {
     for (let i = 0; i < 3; i++) {
       const r = await executarUsoDiarioCliente(banco, relogio, DIA)
-      expect(r.falhas).toEqual([])
+      // O job percorre TODAS as clínicas do banco; outro arquivo de teste rodando em
+      // paralelo pode apagar a sua no meio (FK). Só as falhas DESTE cenário contam,
+      // como nos testes acima.
+      expect(r.falhas.filter((x) => [clienteA, clienteB, clienteOnboarding, clienteD].includes(x.clienteCarteiraId))).toEqual([])
     }
     const t = await migrate.query<{ titulo: string; descricao: string; prioridade: string; prazo: string; grupo_id: string }>(
       `SELECT titulo, descricao, prioridade, prazo::text AS prazo, grupo_id FROM tarefas_internas

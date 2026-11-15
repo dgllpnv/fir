@@ -157,6 +157,13 @@ export const PacientesNoPainel = z
   .object({
     receita: centavosNaSaida,
     pagamentos: z.number().int(),
+    /**
+     * A linha "Outras entradas" (fatia 4.2): dinheiro que NÃO é de paciente, na
+     * mesma janela e por `recebida_em`. FORA de `receita`, ticket e conversão;
+     * sem `valores`, a redação a apaga (`outrasEntradas` é campo monetário).
+     */
+    outrasEntradas: centavosNaSaida,
+    quantidadeDeOutrasEntradas: z.number().int(),
     /** Pacientes DISTINTOS com atendimento concluído no período. */
     pacientesAtendidos: z.number().int(),
     /**

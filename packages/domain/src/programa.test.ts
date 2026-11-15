@@ -1,13 +1,15 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
-import { diasEntre } from './relogio'
+import { diasEntre, somarDias as somarDiasDe } from './relogio'
 import {
   datasDasSessoes,
+  inicioJaPassou,
   montarCronograma,
   ordenarItens,
   reprogramar,
   situacaoDoPrograma,
   type ItemParaCronograma,
+  ultimoInicioPermitido,
   type SessaoExistente,
 } from './programa'
 import { ehErro, exigir } from './resultado'
@@ -652,3 +654,42 @@ function diasDepois(dia: string, n: number): string {
   const dois = (x: number) => String(x).padStart(2, '0')
   return `${t.getUTCFullYear()}-${dois(t.getUTCMonth() + 1)}-${dois(t.getUTCDate())}`
 }
+
+describe('a data de início por item: faixa e "já passou"', () => {
+  it('o limite é um ano depois de hoje, no calendário', () => {
+    expect(ultimoInicioPermitido('2026-11-14')).toBe('2027-11-14')
+    expect(ultimoInicioPermitido('2027-12-31')).toBe('2028-12-31')
+  })
+
+  it('29/02 cai em 28/02 do ano seguinte, que não é bissexto', () => {
+    expect(ultimoInicioPermitido('2028-02-29')).toBe('2029-02-28')
+  })
+
+  it('o limite é sempre posterior a hoje e a menos de 367 dias', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 0, max: 365 * 30 }), (n) => {
+        const hoje = somarDiasDe('2000-01-01', n)
+        const lim = ultimoInicioPermitido(hoje)
+        const dias = diasEntre(hoje, lim)
+        expect(dias).toBeGreaterThanOrEqual(364)
+        expect(dias).toBeLessThanOrEqual(366)
+      }),
+    )
+  })
+
+  it('já passou é estritamente antes de hoje: hoje não conta', () => {
+    expect(inicioJaPassou('2026-11-13', '2026-11-14')).toBe(true)
+    expect(inicioJaPassou('2026-11-14', '2026-11-14')).toBe(false)
+    expect(inicioJaPassou('2026-11-15', '2026-11-14')).toBe(false)
+  })
+
+  it('o início próprio do item vence o depoisDe e o início do programa', () => {
+    const r = montarCronograma('2026-11-01', [
+      { chave: 'a', sessoes: 2, intervaloDias: 7, inicio: '2026-12-10', depoisDe: null },
+      { chave: 'b', sessoes: 1, intervaloDias: 7, inicio: '2026-11-20', depoisDe: 'a' },
+    ])
+    if (r.tipo !== 'ok') throw new Error('esperava ok')
+    expect(r.valor.filter((x) => x.itemChave === 'a').map((x) => x.prazo)).toEqual(['2026-12-10', '2026-12-17'])
+    expect(r.valor.find((x) => x.itemChave === 'b')!.prazo).toBe('2026-11-20')
+  })
+})

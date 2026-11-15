@@ -31,7 +31,9 @@ import { type CorpoDaMeta, MetaDoMes } from './meta-do-mes'
  *
  *  2. **Não decide quem vê valor.** `orc_valor` é a única meta em dinheiro, e
  *     sem `valores` o servidor a entrega com `metaEmDinheiro: null` e o
- *     `percentual` intacto (regra 17). Não há `if` de permissão aqui.
+ *     `percentual` intacto (regra 17). O único uso de `podeValores` aqui é
+ *     não OFERECER criar meta em R$ a quem não a tem — o servidor recusa
+ *     com 403, porque quem escolhe o alvo lê o valor no percentual.
  *
  *  3. **Não escolhe o mês pelo relógio do navegador.** O mês de partida vem do
  *     `hoje` do servidor, no fuso da clínica (regra 24).
@@ -40,7 +42,16 @@ import { type CorpoDaMeta, MetaDoMes } from './meta-do-mes'
  * **390 px:** uma pessoa por bloco, com o nome e a média no topo e as metas
  * empilhadas. Nada rola na horizontal.
  */
-export function AbaMetas({ hoje, avisar }: { hoje: string; avisar: (a: string) => void }) {
+export function AbaMetas({
+  hoje,
+  avisar,
+  podeValores,
+}: {
+  hoje: string
+  avisar: (a: string) => void
+  /** `temPerm(…, 'valores')`. Sem ela, a meta em R$ não é oferecida (a API dá 403). */
+  podeValores: boolean
+}) {
   const [mes, setMes] = useState(hoje.slice(0, 7))
   const [versao, setVersao] = useState(0)
   const dados = useDados<MetasDoMes>(`v1/metas-de-pessoa/${mes}?v=${versao}`)
@@ -143,6 +154,7 @@ export function AbaMetas({ hoje, avisar }: { hoje: string; avisar: (a: string) =
               abrindo={abrindo === p.fichaId}
               aoAbrir={() => setAbrindo(abrindo === p.fichaId ? null : p.fichaId)}
               salvando={salvando}
+              podeValores={podeValores}
               aoAdicionar={(corpo) =>
                 agir(
                   () =>
@@ -194,6 +206,7 @@ function BlocoDaPessoa({
   abrindo,
   aoAbrir,
   salvando,
+  podeValores,
   aoAdicionar,
   aoRemover,
   aoLancar,
@@ -205,6 +218,7 @@ function BlocoDaPessoa({
   abrindo: boolean
   aoAbrir: () => void
   salvando: boolean
+  podeValores: boolean
   aoAdicionar: (corpo: CorpoDaMeta) => void
   aoRemover: (id: string) => void
   aoLancar: (id: string, valor: number | null) => void
@@ -260,6 +274,7 @@ function BlocoDaPessoa({
         <NovaMeta
           jaUsados={pessoa.metas.map((m) => m.indicador)}
           salvando={salvando}
+          podeValores={podeValores}
           aoSalvar={aoAdicionar}
           aoCancelar={aoAbrir}
         />
@@ -286,11 +301,13 @@ function BlocoDaPessoa({
 function NovaMeta({
   jaUsados,
   salvando,
+  podeValores,
   aoSalvar,
   aoCancelar,
 }: {
   jaUsados: readonly string[]
   salvando: boolean
+  podeValores: boolean
   aoSalvar: (corpo: CorpoDaMeta) => void
   aoCancelar: () => void
 }) {
@@ -344,12 +361,20 @@ function NovaMeta({
           value={indicador}
           onChange={(e) => setIndicador(e.target.value as IndicadorDeMeta)}
         >
-          {INDICADORES.map((i) => (
-            <option key={i.chave} value={i.chave} disabled={i.chave !== 'manual' && jaUsados.includes(i.chave)}>
-              {i.nome}
-              {i.chave !== 'manual' && jaUsados.includes(i.chave) ? ' (já definida)' : ''}
-            </option>
-          ))}
+          {/* Meta em R$ some para quem não tem `valores`: quem escolhe o alvo
+              lê o valor no percentual, e a API recusa (403, achado F3). */}
+          {INDICADORES.filter((i) => podeValores || tipoDoIndicador(i.chave) !== 'valor').map(
+            (i) => (
+              <option
+                key={i.chave}
+                value={i.chave}
+                disabled={i.chave !== 'manual' && jaUsados.includes(i.chave)}
+              >
+                {i.nome}
+                {i.chave !== 'manual' && jaUsados.includes(i.chave) ? ' (já definida)' : ''}
+              </option>
+            ),
+          )}
         </select>
       </label>
 

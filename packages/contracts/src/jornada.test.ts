@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MoverEtapa } from './jornada'
+import { LIMITES_DO_PROGRAMA_ORCADO, MoverEtapa } from './jornada'
 
 const uuid = '11111111-1111-4111-8111-111111111111'
 const outro = '22222222-2222-4222-8222-222222222222'
@@ -158,6 +158,58 @@ describe('o programa orçado — a costura com o épico 5', () => {
     expect(passa(orcar([item({ intervaloDias: 0 })]))).toBe(false)
     expect(passa(orcar([item({ intervaloDias: 366 })]))).toBe(false)
     expect(passa(orcar([item({ sessoes: 1.5 })]))).toBe(false)
+  })
+
+  it('`inicio` por item: aceita YYYY-MM-DD real e devolve o texto, sem Date', () => {
+    const r = MoverEtapa.parse(orcar([item({ inicio: '2026-12-05' })]))
+    expect(r).toMatchObject({ programa: [{ inicio: '2026-12-05' }] })
+    expect(passa(orcar([item()]))).toBe(true) // continua opcional
+  })
+
+  it('`inicio` por item recusa data que não existe, formato torto e lixo', () => {
+    for (const ruim of ['2026-02-31', '2026-13-01', '05/12/2026', '2026-12-5', '', 'amanha', 20261205]) {
+      expect(passa(orcar([item({ inicio: ruim })])), String(ruim)).toBe(false)
+    }
+  })
+
+  it('`inicio` e `depoisDe` juntos no mesmo item são recusados, com mensagem clara', () => {
+    const dois = [item({ chave: 'i1' }), item({ chave: 'i2', depoisDe: 'i1', inicio: '2026-12-05' })]
+    expect(passa(orcar(dois))).toBe(false)
+    expect(erroDe(orcar(dois))).toContain('Escolha uma só')
+    expect(passa(orcar([item({ chave: 'i1' }), item({ chave: 'i2', depoisDe: 'i1' })]))).toBe(true)
+  })
+
+  it('o mesmo `inicio` vale na correção do orçamento', () => {
+    const corpo = (inicio: string) => ({
+      acao: 'corrigirOrcamento',
+      chaveIdempotencia: uuid,
+      programa: [item({ inicio })],
+    })
+    expect(passa(corpo('2026-12-05'))).toBe(true)
+    expect(passa(corpo('2026-02-31'))).toBe(false)
+  })
+
+  it('o fechamento aceita `confirmarInicioNoPassado: true` e recusa `false`', () => {
+    const f = (extra: Record<string, unknown>) => ({
+      acao: 'fechar',
+      recebimento: { valor: '1000', forma: 'Pix' },
+      ...extra,
+    })
+    expect(passa(f({ confirmarInicioNoPassado: true }))).toBe(true)
+    expect(passa(f({ confirmarInicioNoPassado: false }))).toBe(false)
+  })
+
+  it('os limites que a tela importa são os mesmos que o contrato aplica', () => {
+    const L = LIMITES_DO_PROGRAMA_ORCADO
+    expect(passa(orcar([item({ sessoes: L.sessoes.max })]))).toBe(true)
+    expect(passa(orcar([item({ sessoes: L.sessoes.max + 1 })]))).toBe(false)
+    expect(passa(orcar([item({ dose: 'x'.repeat(L.dose.max) })]))).toBe(true)
+    expect(passa(orcar([item({ dose: 'x'.repeat(L.dose.max + 1) })]))).toBe(false)
+    expect(passa(orcar([item({ intervaloDias: L.intervaloDias.max })]))).toBe(true)
+    expect(passa(orcar([item({ intervaloDias: L.intervaloDias.max + 1 })]))).toBe(false)
+    const n = (k: number) => Array.from({ length: k }, (_, i) => item({ chave: `i${i + 1}` }))
+    expect(passa(orcar(n(L.itens.max)))).toBe(true)
+    expect(passa(orcar(n(L.itens.max + 1)))).toBe(false)
   })
 
   it('CHAVE REPETIDA é recusada — `depoisDe` deixaria de ter resposta única', () => {

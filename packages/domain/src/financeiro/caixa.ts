@@ -158,32 +158,46 @@ export function mudouDepoisDoFechamento(
 export const AVISOS_DE_RECEBIMENTO = ['CAIXA_FECHADO', 'POSSIVEL_DUPLICIDADE'] as const
 export type AvisoDeRecebimento = (typeof AVISOS_DE_RECEBIMENTO)[number]
 
-/**
+/*
  * Decide o que avisar — os FATOS vêm do banco, a regra mora aqui.
  *
- *  - `CAIXA_FECHADO` só para o que vai à gaveta: nota promissória e valor zero
- *    (a venda a prazo) não mudam conferência nenhuma, e avisar sobre eles
- *    ensinaria a recepção a confirmar sem ler.
- *  - `POSSIVEL_DUPLICIDADE` ignora a forma (o mesmo dinheiro lançado em Pix e
- *    em Dinheiro continua sendo o mesmo dinheiro) e nunca vale para zero.
+ * SÃO DUAS FUNÇÕES, E NÃO UMA LISTA, DE PROPÓSITO (achado F8 de segurança).
+ * `CAIXA_FECHADO` não depende de nenhum valor que a pessoa não vê; o
+ * `POSSIVEL_DUPLICIDADE` compara o valor digitado com recebimentos que, sem
+ * `valores`, chegam redigidos. Avaliados juntos, a lista `[CAIXA_FECHADO]` vs.
+ * `[CAIXA_FECHADO, POSSIVEL_DUPLICIDADE]` respondia "existe um pagamento de
+ * exatamente X hoje?" sem gravar nada. Separados, o caixa é conferido entre as
+ * validações que não dependem de valor, e a duplicidade fica no fim — perto da
+ * escrita. Quem chama decide a POSIÇÃO; a regra de cada aviso mora aqui.
  *
  * É só aviso: quem garante a regra 3 é o índice único por tarefa.
  */
-export function avisosDoRecebimento(x: {
+
+/**
+ * `CAIXA_FECHADO` só para o que vai à gaveta: nota promissória e valor zero
+ * (a venda a prazo) não mudam conferência nenhuma, e avisar sobre eles
+ * ensinaria a recepção a confirmar sem ler.
+ */
+export function avisoDeCaixaFechado(x: {
   readonly forma: string
   readonly valor: Dinheiro
   readonly caixaFechado: boolean
-  readonly haRecebimentoIgual: boolean
   readonly confirmarCaixaFechado: boolean
+}): readonly AvisoDeRecebimento[] {
+  const vaiAGaveta = x.valor.centavos > 0n && x.forma !== FORA_DA_CONFERENCIA
+  return vaiAGaveta && x.caixaFechado && !x.confirmarCaixaFechado ? ['CAIXA_FECHADO'] : []
+}
+
+/**
+ * `POSSIVEL_DUPLICIDADE` ignora a forma (o mesmo dinheiro lançado em Pix e em
+ * Dinheiro continua sendo o mesmo dinheiro) e nunca vale para zero.
+ */
+export function avisoDeDuplicidade(x: {
+  readonly valor: Dinheiro
+  readonly haRecebimentoIgual: boolean
   readonly confirmarDuplicidade: boolean
 }): readonly AvisoDeRecebimento[] {
-  const temDinheiro = x.valor.centavos > 0n
-  const avisos: AvisoDeRecebimento[] = []
-  if (temDinheiro && x.forma !== FORA_DA_CONFERENCIA && x.caixaFechado && !x.confirmarCaixaFechado) {
-    avisos.push('CAIXA_FECHADO')
-  }
-  if (temDinheiro && x.haRecebimentoIgual && !x.confirmarDuplicidade) {
-    avisos.push('POSSIVEL_DUPLICIDADE')
-  }
-  return avisos
+  return x.valor.centavos > 0n && x.haRecebimentoIgual && !x.confirmarDuplicidade
+    ? ['POSSIVEL_DUPLICIDADE']
+    : []
 }

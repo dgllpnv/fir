@@ -56,7 +56,16 @@ export type ConferenciaDaOrigem = {
   /** Chave = `adesaoId`. O grupo geral (sem adesão) **não** entra aqui. */
   readonly saldoPorAdesao: PorChave
   readonly receitaPorCampanha: PorChave
+  /**
+   * A receita por FORMA de pagamento (fatia 4.1), conferida contra a soma das
+   * PARTES no destino. A forma vazia da v20 (nunca perguntada antes da v17)
+   * entra sob `SEM_FORMA`. Acrescentada às seis: não altera nenhuma delas.
+   */
+  readonly receitaPorForma: PorChave
 }
+
+/** A chave da receita sem forma registrada (a parte `''` do legado migrado). */
+export const SEM_FORMA = '(sem forma)'
 
 /** Os tipos cujo `valor` abate saldo — derivado de `TIPOS`, nunca à mão. */
 const TIPOS_QUE_ABATEM = new Set(TIPOS.filter((t) => t.recebimento === true).map((t) => t.nome))
@@ -115,6 +124,7 @@ function eventosDeSaldo(
 export function conferirOrigem(dados: DadosDaV20): ConferenciaDaOrigem {
   const ltv = new Map<string, Dinheiro>()
   const porCampanha = new Map<string, Dinheiro>()
+  const porForma = new Map<string, Dinheiro>()
   let receitaTotal = Dinheiro.zero()
 
   for (const t of dados.tarefas) {
@@ -122,6 +132,7 @@ export function conferirOrigem(dados: DadosDaV20): ConferenciaDaOrigem {
     receitaTotal = receitaTotal.mais(t.valor)
     somar(ltv, t.pacienteId, t.valor)
     if (t.campanhaId !== '') somar(porCampanha, t.campanhaId, t.valor)
+    if (t.valor.centavos > 0n) somar(porForma, t.formaPagamento === '' ? SEM_FORMA : t.formaPagamento, t.valor)
   }
 
   // **TODA CHAVE APARECE, INCLUSIVE A DE VALOR ZERO.**
@@ -167,6 +178,7 @@ export function conferirOrigem(dados: DadosDaV20): ConferenciaDaOrigem {
     creditoPorPaciente,
     saldoPorAdesao,
     receitaPorCampanha: porCampanha,
+    receitaPorForma: porForma,
   }
 }
 

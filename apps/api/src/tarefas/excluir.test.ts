@@ -146,8 +146,15 @@ describe('DELETE /v1/tarefas/:id', () => {
       pacienteId: c.pacientes['ana'],
       tipo: 'Consulta realizada',
       responsavelId: c.pessoas['juliana'],
-      quando: { modo: 'retroativo', em: HOJE, pagamento: { valor: '45000', forma: 'Pix' } },
+      quando: { modo: 'retroativo', em: HOJE },
     }, 'juliana')
+    // O pagamento entra direto no banco: desde o F6, juliana (sem `receber`) não
+    // LANÇA pagamento pela API. O que se mede aqui é a exclusão.
+    await c.migrate.query(
+      `INSERT INTO recebimentos (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, recebido_em, registrado_por)
+       VALUES ($1,$2,$3,'Consulta realizada',45000,'Pix','2026-10-24T12:00:00-03:00',$4)`,
+      [c.clinica, c.pacientes['ana'], t.id, c.pessoas['beatriz']],
+    )
     // juliana é a solicitante, então pode excluir a tarefa; não pode estornar dinheiro.
     const r = await excluir(t.id, {}, 'juliana')
     expect(r.statusCode).toBe(403)

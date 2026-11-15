@@ -140,6 +140,13 @@ export const CAMPOS_MONETARIOS = [
   'aReceber',
   'metaRestante',
 
+  // A fatia 4.2: a linha "Outras entradas" da Visão do mês (dinheiro que não é de
+  // paciente). O `valor` de cada entrada já está acima.
+  'outrasEntradas',
+  // O devido do 409 PARTES_ACIMA_DA_DIVIDA (V-1). O serviço já o omite sem
+  // `valores`; estar aqui é a segunda camada se o 409 passar pela redação.
+  'devido',
+
   // O épico 5 (programas). `valor` (o do item do programa) e `valorTotal` já
   // estavam acima. `valorPorSessao` é o PREÇO DE REFERÊNCIA do catálogo — não
   // é receita (regra 4), mas é dinheiro na tela, e a enfermagem que monta o

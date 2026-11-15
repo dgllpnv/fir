@@ -96,7 +96,12 @@ export function TelaEstoque({
       {aba === 'itens' ? (
         <AbaItens hoje={hoje} podeGerir={podeGerir} avisar={setRecado} />
       ) : aba === 'contagens' ? (
-        <AbaContagens hoje={hoje} minhaPessoaId={minhaPessoaId} avisar={setRecado} />
+        <AbaContagens
+          hoje={hoje}
+          minhaPessoaId={minhaPessoaId}
+          podeGerir={podeGerir}
+          avisar={setRecado}
+        />
       ) : (
         <AbaAnalise hoje={hoje} />
       )}

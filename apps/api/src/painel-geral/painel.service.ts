@@ -34,6 +34,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { diaDaClinica } from '../estoque/dia-da-clinica'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
+import { outrasEntradasDaJanela } from '../financeiro/outras-entradas.repositorio'
 import { FORA_DE_PACIENTE_DESATIVADO } from '../tarefas/leitura'
 import {
   TIPOS_DE_SESSAO,
@@ -323,12 +324,17 @@ export class PainelService {
     // duas vezes é a chance de um dos dois perder o `AT TIME ZONE` da clínica.
     const FECHADO = caixaFechado('$1', '$6')
     const formas = await c.query<{ forma: string; n: string; valor: string }>(
-      `SELECT CASE WHEN r.forma = '' THEN 'Não informada' ELSE r.forma END AS forma,
-              count(*)::text AS n,
-              sum(r.valor)::text AS valor
+      // POR PARTE (fatia 4.1): `sum(parte.valor)` e `count(DISTINCT r.id)` — o
+      // recebimento de Pix 300 + Dinheiro 200 aparece uma vez em cada forma, e a
+      // soma das fatias continua sendo a receita da tabela.
+      `SELECT CASE WHEN pt.forma = '' THEN 'Não informada' ELSE pt.forma END AS forma,
+              count(DISTINCT r.id)::text AS n,
+              sum(pt.valor)::text AS valor
          FROM tarefas t
          JOIN recebimentos r
            ON r.tarefa_id = t.id AND r.estornado_em IS NULL AND ${DINHEIRO_QUE_ENTROU}
+         JOIN recebimento_partes pt
+           ON pt.recebimento_id = r.id AND pt.clinica_id = r.clinica_id
         WHERE t.clinica_id = $1
           AND t.excluida_em IS NULL
           AND t.status = 'concluida'
@@ -337,7 +343,7 @@ export class PainelService {
           AND ${EH_RECEITA}
           AND ${FECHADO}
         GROUP BY 1
-        ORDER BY sum(r.valor) DESC`,
+        ORDER BY sum(pt.valor) DESC`,
       argsDeForma,
     )
 
@@ -426,9 +432,13 @@ export class PainelService {
 
     const somaDasFormas = formas.rows.reduce((s2, f) => s2 + BigInt(f.valor), 0n)
     const receitaTexto = receita.centavos.toString()
+    // As OUTRAS ENTRADAS da janela, em linha própria: nunca somadas à receita.
+    const outras = await outrasEntradasDaJanela(c, ctx.clinicaId, j, ctx.fuso)
     return {
       receita: receitaTexto,
       pagamentos,
+      outrasEntradas: outras.reduce((s2, x) => s2.mais(x.valor), Dinheiro.zero()).centavos.toString(),
+      quantidadeDeOutrasEntradas: outras.length,
       pacientesAtendidos: Number(t.atendidos),
       // **Pelo value object** (regra 1), e `null` sem pagamento nenhum:
       // `R$ 0,00` diria que o ticket médio é zero, e ele não existe.

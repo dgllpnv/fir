@@ -140,33 +140,6 @@ export class SessoesService {
       const afetadas = new Set<string>([id])
 
       /**
-       * O DINHEIRO DA SESSÃO — uma linha, com o `programa_id`.
-       *
-       * A regra 3 continua sob a guarda do índice `recebimento_por_tarefa`: a
-       * segunda tentativa na mesma sessão é recusada pelo BANCO, não por um
-       * `if` aqui. O carimbo do programa é o que faz o pagamento abater o
-       * saldo DAQUELE programa, e não o do outro (regra 5).
-       */
-      if (dados.pagamento !== undefined) {
-        const recebimentoId = await registrarPagamento(c, {
-          clinicaId,
-          pacienteId: s.pacienteId,
-          tarefaId: id,
-          tipo: s.tipo,
-          pagamento: dados.pagamento,
-          quando: concluidaEm,
-          unidade: s.unidadeId,
-          autor: autor.id,
-          fuso,
-          confirmacoes: confirmacoesDe(dados),
-        })
-        await c.query('UPDATE recebimentos SET programa_id = $1 WHERE id = $2', [
-          s.programaId,
-          recebimentoId,
-        ])
-      }
-
-      /**
        * REPROGRAMAR É ESCOLHA, NÃO PADRÃO — e grava SÓ o que mudou.
        *
        * O contrato torna `reprogramar` obrigatório: um padrão silencioso aqui
@@ -214,11 +187,10 @@ export class SessoesService {
       for (const x of doRetorno) afetadas.add(x)
 
       /**
-       * A BAIXA, **por último e dentro da transação**.
+       * A BAIXA, **dentro da transação** — e só o pagamento vem depois dela.
        *
-       * Inerte até o épico 6. Quando ela passar a falhar por saldo
-       * insuficiente, a sessão NÃO pode ficar concluída — e é esta posição na
-       * ordem que faz o rollback significar algo.
+       * Quando ela falha por saldo insuficiente, a sessão NÃO pode ficar
+       * concluída: a exceção desfaz a conclusão, a reprogramação e o retorno.
        */
       const item = itens.find((i) => i.chave === s.itemChave)
       if (item !== undefined) {
@@ -234,6 +206,40 @@ export class SessoesService {
           insumos: await this.insumosDa(c, item),
         })
         if (ehErro(r)) throw new ConflictException(r.erro.mensagem)
+      }
+
+      /**
+       * O DINHEIRO DA SESSÃO — uma linha, com o `programa_id`.
+       *
+       * A regra 3 continua sob a guarda do índice `recebimento_por_tarefa`: a
+       * segunda tentativa na mesma sessão é recusada pelo BANCO, não por um
+       * `if` aqui. O carimbo do programa é o que faz o pagamento abater o
+       * saldo DAQUELE programa, e não o do outro (regra 5).
+       *
+       * DEPOIS da baixa, de propósito (achado F8): o aviso de duplicidade
+       * compara com valores que quem não tem `valores` vê redigidos, e uma
+       * recusa da baixa (saldo insuficiente) depois dele deixaria a pessoa
+       * perguntar "existe um pagamento de X hoje?" sem gravar nada. Aqui ele é
+       * a última recusa antes do COMMIT. A ordem das escritas não muda o
+       * resultado: é tudo a mesma transação.
+       */
+      if (dados.pagamento !== undefined) {
+        const recebimentoId = await registrarPagamento(c, {
+          clinicaId,
+          pacienteId: s.pacienteId,
+          tarefaId: id,
+          tipo: s.tipo,
+          pagamento: dados.pagamento,
+          quando: concluidaEm,
+          unidade: s.unidadeId,
+          autor: autor.id,
+          fuso,
+          confirmacoes: confirmacoesDe(dados),
+        })
+        await c.query('UPDATE recebimentos SET programa_id = $1 WHERE id = $2', [
+          s.programaId,
+          recebimentoId,
+        ])
       }
 
       return umaSo(await lerTarefas(c, clinicaId, hoje, [...afetadas], autor.podeJornada), id)

@@ -1210,8 +1210,13 @@ describe('editar — o alvo muda, o indicador não', () => {
     expect((await realizado(fichaDaAna, 'agendamentos')).metaEmNumero).toBe(10)
   })
 
-  /** Mesma regra 17 do `criar` e do `GET` — a edição não é uma segunda porta. */
-  it('sem `valores`, a resposta da edição também apaga o dinheiro', async () => {
+  /**
+   * **Achado F3 (revisão de segurança 2026-11-15).** O `percentual` atravessa a
+   * redação — e por isso quem não tem `valores` não pode ESCOLHER o alvo em
+   * reais: com alvo R$ 1,00, `percentual` = realizado em centavos. Criar e
+   * editar meta em R$ sem `valores` é 403, e nada é gravado.
+   */
+  it('sem `valores`, criar ou editar meta em R$ é 403 e o alvo fica intacto', async () => {
     const criada = await criarMeta(fichaDaAna, 'orc_valor', '400000').expect(201)
     const pessoas = criada.body.pessoas as { fichaId: string; metas: (MetaNaResposta & { id: string })[] }[]
     const meta = pessoas.find((p) => p.fichaId === fichaDaAna)!.metas[0]!
@@ -1237,16 +1242,33 @@ describe('editar — o alvo muda, o indicador não', () => {
       await srv().post('/v1/entrar').send({ clinica: codigo, usuario, senha: SENHA }).expect(200),
     )
 
-    const r = await srv()
+    // O ataque: alvo de R$ 1,00 para ler o realizado em centavos no percentual.
+    await srv()
       .put(`/v1/metas-de-pessoa/${MES}/${meta.id}`)
       .set('Cookie', semValor)
-      .send({ indicador: 'orc_valor', nome: '', metaEmNumero: null, metaEmDinheiro: '500000' })
-      .expect(200)
+      .send({ indicador: 'orc_valor', nome: '', metaEmNumero: null, metaEmDinheiro: '100' })
+      .expect(403)
+    expect((await realizado(fichaDaAna, 'orc_valor')).metaEmDinheiro).toBe('400000')
 
-    const pessoasResp = r.body.pessoas as { fichaId: string; metas: MetaNaResposta[] }[]
-    const emReais = pessoasResp
-      .find((p) => p.fichaId === fichaDaAna)!
-      .metas.find((m) => m.indicador === 'orc_valor')!
-    expect(emReais.metaEmDinheiro).toBeNull()
+    // Criar é a mesma porta: removida a meta, recriá-la com R$ 1,00 é recusado.
+    await srv().delete(`/v1/metas-de-pessoa/${MES}/${meta.id}`).set('Cookie', rh).expect(200)
+    await srv()
+      .post(`/v1/metas-de-pessoa/${MES}`)
+      .set('Cookie', semValor)
+      .send({ fichaId: fichaDaAna, indicador: 'orc_valor', nome: '', metaEmDinheiro: '100' })
+      .expect(403)
+    const n = await migrate.query<{ n: string }>(
+      `SELECT count(*)::text AS n FROM metas_de_pessoa
+        WHERE ficha_id = $1 AND mes = $2 AND indicador = 'orc_valor' AND excluida_em IS NULL`,
+      [fichaDaAna, MES],
+    )
+    expect(n.rows[0]!.n).toBe('0')
+
+    // E meta que não é dinheiro continua livre para o mesmo perfil.
+    await srv()
+      .post(`/v1/metas-de-pessoa/${MES}`)
+      .set('Cookie', semValor)
+      .send({ fichaId: fichaDaAna, indicador: 'orc_qtd', nome: '', metaEmNumero: 5 })
+      .expect(201)
   })
 })

@@ -1,19 +1,33 @@
 'use client'
 
-import type { PagamentoEmbutido, TarefaNaLista } from '@fir/contracts'
-import { FORMAS } from '@fir/contracts'
-import { aceitaPagamento, tipoAoConcluir } from '@fir/domain'
+import type { DestinoDaTarefa, PagamentoEmbutido, TarefaNaLista } from '@fir/contracts'
+import {
+  aceitaPagamento,
+  type Autor,
+  ehMembroDoGrupo,
+  podeAssumir,
+  enxergaParaConcluir as enxergaParaConcluirTarefa,
+  podeConcluir,
+  podeEditar,
+  podeTransferir,
+  tipoAoConcluir,
+} from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
 import { urlDaProximaTarefa } from '@/lib/proxima-tarefa'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
+import { corpoDaForma, estadoInicialDasFormas, resumoDasPartes } from '@/lib/partes-do-pagamento'
+import { FormasDePagamento, partesFecham } from './formas-de-pagamento'
 import { diaEmTexto, linkDeWhatsApp } from '@/lib/formato'
+import { quemConcluiu, type Nomes } from '@/lib/fluxo-da-tarefa'
 import { ICONE_CHECK, ICONE_WHATSAPP } from '@/lib/icones'
+import { LinhaDoTempoDoFluxo } from './linha-do-tempo-do-fluxo'
 import { ConfirmarExclusao } from './painel-de-edicao'
 import { FaixaDaJornada, type MoverEtapa } from './jornada/faixa-da-jornada'
 import { SeloConferirCadastro } from './selo-conferir-cadastro'
+import { TransferirTarefa } from './transferir-tarefa'
 
 /**
  * O cartão de tarefa — usado por Hoje e por Tarefas, UM componente só.
@@ -37,6 +51,17 @@ export type AcoesDoCartao = {
   readonly excluir?: (id: string, motivo?: string) => Promise<void>
   /** A ação da jornada. Ausente, a faixa não aparece. */
   readonly mover?: MoverEtapa
+  /** Assumir uma tarefa de grupo. Ausente, o botão não aparece. */
+  readonly assumir?: (id: string, nota?: string) => Promise<void>
+  /** Transferir para uma pessoa ou um grupo. Ausente, a ação não aparece. */
+  readonly transferir?: (id: string, para: DestinoDaTarefa, nota?: string) => Promise<void>
+  /**
+   * Os ids dos MEUS grupos ativos (`GET v1/grupos/meus`), lidos uma vez pela
+   * tela. Só decide qual botão mostrar — o servidor valida em toda chamada.
+   */
+  readonly meusGrupoIds?: readonly string[]
+  /** Nome de pessoa e de grupo, para a frase "concluída por…". */
+  readonly nomes?: Nomes
 }
 
 export type DadosDaConclusao = {
@@ -84,7 +109,8 @@ export function CartaoDeTarefa({
   eu,
   podeEquipe,
   podePacientes,
-  podeReceber = true,
+  // Padrão seguro: página que esquecer de passar não oferece o pagamento (F6).
+  podeReceber = false,
   podeValores = false,
   acoes,
   semPrazo,
@@ -94,23 +120,64 @@ export function CartaoDeTarefa({
   const [concluindo, setConcluindo] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
   const [ocupado, setOcupado] = useState(false)
+  const [transferindo, setTransferindo] = useState(false)
+  const [verFluxo, setVerFluxo] = useState(false)
+  const fecharTransferencia = useCallback(() => setTransferindo(false), [])
 
   const feita = t.status === 'concluida'
   const cancelada = t.status === 'cancelada'
-  const souResponsavel = t.responsavelId === eu
+  // `responsavelId` é nulo na tarefa de GRUPO ainda não assumida: a comparação
+  // com `eu` não pode ser a única forma de saber "é minha".
+  const souResponsavel = t.responsavelId !== null && t.responsavelId === eu
   const souSolicitante = t.solicitanteId === eu
-  // Espelha `packages/domain/src/tarefa.ts`. O servidor sempre valida; isto é
-  // só conveniência, para a recepção não tocar num botão que vai dar 403.
-  const podeCancelar = !feita && !cancelada && (souSolicitante || podeEquipe)
-  const podeEditar = souSolicitante || souResponsavel || podeEquipe
+  const deGrupo = t.grupoId !== null
+  // Espelha `packages/domain/src/tarefa.ts` — as MESMAS funções do servidor, com
+  // os grupos a que a pessoa pertence. O servidor sempre valida; isto é só
+  // conveniência, para a recepção não tocar num botão que vai dar 403.
+  const autor: Autor = { id: eu, podeEquipe, grupoIds: acoes.meusGrupoIds ?? [] }
+  const paraAutorizar = {
+    solicitanteId: t.solicitanteId,
+    responsavelId: t.responsavelId,
+    grupoId: t.grupoId,
+    status: t.status,
+  }
+  const podeCancelar =
+    !feita && !cancelada && (souSolicitante || podeEquipe)
+  const podeEditarTarefa = podeEditar(paraAutorizar, autor).tipo === 'ok'
+  // Assumir é do MEMBRO do grupo (quem só acompanha a equipe não "pega" a tarefa
+  // de um grupo a que não pertence — transfere, se for o caso).
+  const mostraAssumir =
+    acoes.assumir !== undefined &&
+    podeAssumir(paraAutorizar, autor).tipo === 'ok' &&
+    ehMembroDoGrupo(paraAutorizar, autor)
+  const mostraTransferir =
+    acoes.transferir !== undefined && podeTransferir(paraAutorizar, autor).tipo === 'ok'
+  // A MESMA regra do servidor (`conclusao.service.ts`, achado F7), nas duas
+  // etapas dele: (1) ENXERGA a tarefa — pode editá-la (solicitante,
+  // responsável, membro do grupo ou `tarefas.equipe`) ou, sendo de paciente,
+  // tem `pacientes`; (2) `podeConcluir` — tarefa de grupo só por quem é do
+  // grupo (ou acompanha a equipe). As funções são as de `packages/domain`.
+  const enxergaParaConcluir =
+    enxergaParaConcluirTarefa({ ...paraAutorizar, pacienteId: t.pacienteId }, autor, podePacientes)
+      .tipo === 'ok'
+  const conclusaoPermitida = podeConcluir(paraAutorizar, autor).tipo === 'ok'
+  const semPermissaoParaConcluir =
+    !feita && !cancelada && (!enxergaParaConcluir || !conclusaoPermitida)
+  const motivoSemConcluir = !enxergaParaConcluir
+    ? 'Esta tarefa não é sua nem da sua equipe. Só quem pediu, quem está com ela ou quem acompanha a equipe conclui.'
+    : 'Esta tarefa é de um grupo. Só quem é do grupo conclui.'
+  const concluidaPor = acoes.nomes === undefined ? null : quemConcluiu(t, acoes.nomes)
+  const temFluxo = t.fluxo.length > 0 || t.tarefaOrigemId !== null
 
+  // Quem recebe: a pessoa ou o grupo (`destino` já diz qual, com o nome).
+  const paraQuem = deGrupo ? `grupo ${t.destino.nome}` : primeiroNome(t.destino.nome)
   const quem = souResponsavel
     ? souSolicitante
       ? 'Para mim'
       : `Pedida por ${primeiroNome(t.solicitanteNome)}`
     : souSolicitante
-      ? `Para ${primeiroNome(t.responsavelNome)}`
-      : `${primeiroNome(t.solicitanteNome)} → ${primeiroNome(t.responsavelNome)}`
+      ? `Para ${paraQuem}`
+      : `${primeiroNome(t.solicitanteNome)} → ${paraQuem}`
 
   const whats = semPaciente ? null : linkDeWhatsApp(t.pacienteTelefone)
 
@@ -142,8 +209,11 @@ export function CartaoDeTarefa({
         type="button"
         className="circulo"
         onClick={aoTocarNoCirculo}
-        disabled={ocupado}
+        disabled={ocupado || semPermissaoParaConcluir}
         aria-label={`${feita || cancelada ? 'Reabrir' : 'Concluir'}: ${t.descricao}`}
+        title={
+          semPermissaoParaConcluir ? motivoSemConcluir : undefined
+        }
       >
         {ICONE_CHECK}
       </button>
@@ -169,7 +239,9 @@ export function CartaoDeTarefa({
                     permissão `valores` vê, porque o servidor já apagou o
                     campo. Nenhum `if` de permissão mora aqui. */}
                 <span className="valor">{formatarDinheiro(emCentavos(t.pagamento.valor))}</span>
-                <span className="pill">{t.pagamento.forma}</span>
+                <span className="pill">
+                  {resumoDasPartes(t.pagamento.partes, formatarDinheiro) ?? t.pagamento.forma}
+                </span>
                 {t.pagamento.valorAberto === null || t.pagamento.valorAberto === '0' ? null : (
                   // É o que FICOU em aberto neste atendimento, uma foto do dia: pagamentos
                   // posteriores abatem o saldo da paciente (cabeçalho da ficha), não esta etiqueta.
@@ -218,7 +290,11 @@ export function CartaoDeTarefa({
           {t.prioridade === 'urgente' && !feita && !cancelada ? (
             <span className="pill mau">Urgente</span>
           ) : null}
-          {feita ? <span className="pill bom">Concluída</span> : null}
+          {feita ? (
+            <span className="pill bom">
+              {concluidaPor === null ? 'Concluída' : `Concluída por ${primeiroNome(concluidaPor)}`}
+            </span>
+          ) : null}
           {cancelada ? <span className="pill">Cancelada</span> : null}
           {t.serieId === null ? null : (
             <span className="pill">{t.recorrencia === '' ? 'Recorrente' : t.recorrencia}</span>
@@ -245,6 +321,7 @@ export function CartaoDeTarefa({
           <PainelDeConclusao
             tarefa={t}
             hoje={hoje}
+            podeReceber={podeReceber}
             aoFechar={() => setConcluindo(false)}
             aoConcluir={async (dados) => {
               await acoes.concluir(t.id, dados)
@@ -267,7 +344,28 @@ export function CartaoDeTarefa({
           />
         ) : (
           <div className="acoes-da-tarefa">
-            {podeEditar ? (
+            {mostraAssumir ? (
+              <button
+                type="button"
+                className="link"
+                disabled={ocupado}
+                onClick={() => {
+                  setOcupado(true)
+                  void acoes
+                    .assumir?.(t.id)
+                    .catch(() => undefined)
+                    .finally(() => setOcupado(false))
+                }}
+              >
+                Assumir
+              </button>
+            ) : null}
+            {mostraTransferir ? (
+              <button type="button" className="link" onClick={() => setTransferindo(true)}>
+                Transferir
+              </button>
+            ) : null}
+            {podeEditarTarefa ? (
               <button type="button" className="link" onClick={() => acoes.editar(t)}>
                 Editar
               </button>
@@ -289,8 +387,34 @@ export function CartaoDeTarefa({
                 Cancelar tarefa
               </button>
             ) : null}
+            {temFluxo ? (
+              <button
+                type="button"
+                className="link"
+                aria-expanded={verFluxo}
+                onClick={() => setVerFluxo((v) => !v)}
+              >
+                {verFluxo ? 'Ocultar fluxo' : 'Ver fluxo'}
+              </button>
+            ) : null}
           </div>
         )}
+
+        {verFluxo && temFluxo ? (
+          <LinhaDoTempoDoFluxo
+            tarefaId={t.id}
+            solicitanteNome={t.solicitanteNome}
+            criadaEm={t.criadaEm}
+          />
+        ) : null}
+
+        {transferindo && acoes.transferir !== undefined ? (
+          <TransferirTarefa
+            tarefa={t}
+            transferir={acoes.transferir}
+            aoFechar={fecharTransferencia}
+          />
+        ) : null}
       </div>
     </article>
   )
@@ -308,11 +432,18 @@ export function CartaoDeTarefa({
 function PainelDeConclusao({
   tarefa: t,
   hoje,
+  podeReceber,
   aoFechar,
   aoConcluir,
 }: {
   tarefa: TarefaNaLista
   hoje: string
+  /**
+   * `temPerm(…, 'receber')`. Sem ela, o bloco "Recebeu algum valor?" não
+   * aparece — o servidor responderia 403 (F6), e perguntar o que não se pode
+   * gravar é a pergunta que ensina a ignorar a tela.
+   */
+  podeReceber: boolean
   aoFechar: () => void
   aoConcluir: (dados: DadosDaConclusao) => Promise<void>
 }) {
@@ -324,7 +455,7 @@ function PainelDeConclusao({
   const [houvePagamento, setHouvePagamento] = useState(false)
   const [valor, setValor] = useState('')
   const [aberto, setAberto] = useState('')
-  const [forma, setForma] = useState<PagamentoEmbutido['forma']>(FORMAS[0])
+  const [formas, setFormas] = useState(() => estadoInicialDasFormas())
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
   // "Concluir e criar a próxima tarefa" (pedido da cliente, 12/11): concluir não
@@ -337,7 +468,7 @@ function PainelDeConclusao({
   // e é o segundo que aceita pagamento. Perguntar pelo primeiro esconderia o
   // bloco justamente na tarefa em que a recepção vai receber o dinheiro.
   const tipoDepois = tipoAoConcluirNaTela(t.tipo)
-  const guardaPagamento = t.pacienteId !== null && aceitaPagamento(tipoDepois)
+  const guardaPagamento = podeReceber && t.pacienteId !== null && aceitaPagamento(tipoDepois)
 
   async function salvar() {
     setErro(null)
@@ -353,7 +484,13 @@ function PainelDeConclusao({
         setErro('Valor em aberto inválido. Use o formato 300,00.')
         return
       }
-      pagamento = { valor: centavos, forma, valorAberto: emAberto }
+      // `forma` OU `partes` (várias formas), conferido contra o valor.
+      const corpo = corpoDaForma(centavos, formas)
+      if (corpo.tipo === 'erro') {
+        setErro(corpo.mensagem)
+        return
+      }
+      pagamento = { valor: centavos, ...corpo.corpo, valorAberto: emAberto }
     }
     setSalvando(true)
     try {
@@ -427,25 +564,11 @@ function PainelDeConclusao({
                     onChange={(e) => setValor(e.target.value)}
                   />
                 </label>
-                <label className="campo">
-                  Forma de pagamento
-                  <select
-                    value={forma}
-                    onChange={(e) => {
-                      // O `<select>` só oferece os valores de `FORMAS`, mas
-                      // `e.target.value` é `string` para o compilador. A busca
-                      // devolve o membro da união em vez de afirmá-lo com `as`.
-                      const escolhida = FORMAS.find((f) => f === e.target.value)
-                      if (escolhida !== undefined) setForma(escolhida)
-                    }}
-                  >
-                    {FORMAS.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <FormasDePagamento
+                  estado={formas}
+                  aoMudar={setFormas}
+                  total={centavosDoTexto(valor)}
+                />
               </div>
               <label className="campo">
                 Valor em aberto (R$) <small>(opcional · o que ainda falta pagar)</small>
@@ -503,7 +626,12 @@ function PainelDeConclusao({
       )}
 
       <div className="botoes">
-        <button type="button" className="btn" onClick={() => void salvar()} disabled={salvando}>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => void salvar()}
+          disabled={salvando || (houvePagamento && !partesFecham(formas, centavosDoTexto(valor)))}
+        >
           {salvando ? 'Concluindo…' : criarProxima ? 'Concluir e criar nova tarefa' : 'Concluir'}
         </button>
         <button type="button" className="btn ghost" onClick={aoFechar} disabled={salvando}>

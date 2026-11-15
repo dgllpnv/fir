@@ -345,6 +345,8 @@ export async function limparTarefas(c: Cenario): Promise<void> {
  */
 export async function limparFinanceiro(c: Cenario): Promise<void> {
   for (const tabela of [
+    'outras_entradas',
+    'categorias_de_entrada',
     'caixa_por_forma',
     'caixas_do_dia',
     'cobrancas',

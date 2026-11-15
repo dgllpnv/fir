@@ -131,7 +131,8 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
    * método e caminho. Promessa não cumprida reprova, e caminho escrito errado
    * também.
    */
-  { metodo: 'POST', caminho: '/v1/recebimentos', camposDeDinheiro: ['valor', 'valorAberto'] },
+  // `devido` é o do 409 PARTES_ACIMA_DA_DIVIDA (V-1): só com `valores`.
+  { metodo: 'POST', caminho: '/v1/recebimentos', camposDeDinheiro: ['valor', 'valorAberto', 'devido'] },
   { metodo: 'GET', caminho: '/v1/recebimentos', camposDeDinheiro: ['valor', 'valorAberto'] },
   { metodo: 'DELETE', caminho: '/v1/recebimentos/:id', camposDeDinheiro: ['valor', 'valorAberto'] },
   {
@@ -142,6 +143,9 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     camposDeDinheiro: ['saldo', 'aberto', 'abatido', 'credito'],
   },
   { metodo: 'GET', caminho: '/v1/cobrancas', camposDeDinheiro: ['saldo', 'aReceber'] },
+  // Outras entradas (fatia 4.2): `valor` na lista e no corpo devolvido ao lançar.
+  { metodo: 'GET', caminho: '/v1/outras-entradas', camposDeDinheiro: ['valor'] },
+  { metodo: 'POST', caminho: '/v1/outras-entradas', camposDeDinheiro: ['valor'] },
   /**
    * `GET /v1/caixa` devolve `esperado`, `contado` e `diferenca` — **só depois
    * do fechamento**. Antes dele as chaves NÃO EXISTEM no corpo (regra 6), e é
@@ -181,6 +185,7 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     caminho: '/v1/visao-do-mes',
     camposDeDinheiro: [
       'recebido',
+      'outrasEntradas',
       'despesasPagas',
       'resultadoDoMes',
       'aPagar',
@@ -473,6 +478,7 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
     caminho: '/v1/painel',
     camposDeDinheiro: [
       'receita',
+      'outrasEntradas',
       'ticketMedio',
       'valorDosOrcamentosPagos',
       'valor',
@@ -743,6 +749,13 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'metas_de_pessoa',
   'contagens_de_estoque',
   'contas_a_pagar',
+  // A diferença reconhecida (0085): APPEND-ONLY, efeito zero no saldo.
+  'diferencas_reconhecidas',
+  // Os grupos de colaboradores (0083): nome é dado de configuração, a
+  // composição (`membros_de_grupo`) é dado de RH. Os dois com RLS forçada e
+  // trilha de auditoria.
+  'grupos_da_equipe',
+  'membros_de_grupo',
   'documentos_da_pessoa',
   'ferias_da_pessoa',
   'fichas_de_pessoa',
@@ -778,6 +791,10 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'perfis',
   'pessoas',
   'recebimentos',
+  // As partes do pagamento (0086) e as outras entradas (0087).
+  'recebimento_partes',
+  'categorias_de_entrada',
+  'outras_entradas',
   'sessoes',
   'tarefas',
   'tentativas_login',

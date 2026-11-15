@@ -35,7 +35,7 @@ const VAZIA: EntradaDaVisao = {
 const entrada = (p: Partial<EntradaDaVisao>): EntradaDaVisao => ({
   ...VAZIA,
   ...p,
-  conferidos: p.conferidos ?? p.recebido ?? [],
+  conferidos: p.conferidos ?? (p.recebido ?? []).map((x) => ({ forma: x.forma ?? '', valor: x.valor })),
 })
 const pix = (n: number) => ({ forma: 'Pix', valor: c(n) })
 
@@ -544,5 +544,111 @@ describe('pago por forma de pagamento', () => {
       ['TED', 5_000n],
     ])
     expect(v.despesasPagas.centavos).toBe(15_000n)
+  })
+})
+
+describe('visaoDoMes — PARTES e OUTRAS ENTRADAS (fatia 4)', () => {
+  it('Σ porForma (partes) = recebido: o recebimento de 500 em Pix 300 + Dinheiro 200', () => {
+    // `recebido` é um item por RECEBIMENTO (r.valor); `conferidos` são as PARTES.
+    const v = visaoDoMes(
+      entrada({
+        recebido: [{ valor: c(50000) }],
+        conferidos: [pix(30000), { forma: 'Dinheiro', valor: c(20000) }],
+      }),
+    )
+    expect(v.recebido.centavos).toBe(50000n)
+    expect(v.quantidadeDeRecebimentos).toBe(1) // um recebimento, duas partes
+    expect(v.porForma.reduce((s, x) => s.mais(x.valor), ZERO).centavos).toBe(50000n)
+  })
+
+  it('outras entradas somam no resultado, e NUNCA em recebido, meta ou percentual da meta', () => {
+    const v = visaoDoMes(
+      entrada({
+        recebido: [{ valor: c(100000) }],
+        pagas: [{ categoria: 'Aluguel', valor: c(30000) }],
+        outrasEntradas: [{ valor: c(5000) }, { valor: c(2500) }],
+        meta: c(200000),
+      }),
+    )
+    expect(v.recebido.centavos).toBe(100000n)
+    expect(v.outrasEntradas.centavos).toBe(7500n)
+    expect(v.quantidadeDeOutrasEntradas).toBe(2)
+    expect(v.resultadoDoMes.centavos).toBe(100000n + 7500n - 30000n)
+    expect(v.percentualDaMeta).toBe(50) // só sobre o recebido
+    expect(v.metaRestante!.centavos).toBe(100000n)
+  })
+
+  it('sem outras entradas, nada muda (compatível)', () => {
+    const v = visaoDoMes(entrada({ recebido: [{ valor: c(100) }] }))
+    expect(v.outrasEntradas.centavos).toBe(0n)
+    expect(v.resultadoDoMes.centavos).toBe(100n)
+  })
+
+  it('propriedade: resultado = recebido + outras − despesas, e a soma das partes fecha com o recebido', () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.bigInt({ min: 1n, max: 10_000_000n }), { maxLength: 8 }),
+        fc.array(fc.bigInt({ min: 1n, max: 10_000_000n }), { maxLength: 8 }),
+        fc.array(fc.bigInt({ min: 1n, max: 10_000_000n }), { maxLength: 8 }),
+        (rec, outras, desp) => {
+          const v = visaoDoMes(
+            entrada({
+              recebido: rec.map((n) => ({ valor: Dinheiro.deCentavos(n) })),
+              conferidos: rec.map((n) => ({ forma: 'Pix', valor: Dinheiro.deCentavos(n) })),
+              outrasEntradas: outras.map((n) => ({ valor: Dinheiro.deCentavos(n) })),
+              pagas: desp.map((n) => ({ categoria: 'Aluguel', valor: Dinheiro.deCentavos(n) })),
+            }),
+          )
+          const soma = (xs: readonly bigint[]) => xs.reduce((s, x) => s + x, 0n)
+          expect(v.resultadoDoMes.centavos).toBe(soma(rec) + soma(outras) - soma(desp))
+          expect(v.porForma.reduce((s, x) => s + x.valor.centavos, 0n)).toBe(v.recebido.centavos)
+        },
+      ),
+    )
+  })
+
+  it('propriedade: recebido, meta e TODOS os percentuais são invariantes às outras entradas', () => {
+    const valor = fc.bigInt({ min: 1n, max: 10_000_000n })
+    fc.assert(
+      fc.property(
+        fc.array(valor, { maxLength: 6 }),
+        fc.array(valor, { minLength: 1, maxLength: 6 }),
+        fc.array(valor, { maxLength: 6 }),
+        fc.option(valor, { nil: undefined }),
+        (rec, outras, desp, meta) => {
+          const base = {
+            recebido: rec.map((n) => ({ valor: Dinheiro.deCentavos(n) })),
+            conferidos: rec.map((n) => ({ forma: 'Pix', valor: Dinheiro.deCentavos(n) })),
+            pagas: desp.map((n) => ({ categoria: 'Aluguel', valor: Dinheiro.deCentavos(n) })),
+            ...(meta === undefined ? {} : { meta: Dinheiro.deCentavos(meta) }),
+          }
+          const sem = visaoDoMes(entrada(base))
+          const com = visaoDoMes(
+            entrada({ ...base, outrasEntradas: outras.map((n) => ({ valor: Dinheiro.deCentavos(n) })) }),
+          )
+          const soma = (xs: readonly bigint[]) => xs.reduce((s, x) => s + x, 0n)
+          expect(com.recebido).toEqual(sem.recebido)
+          expect(com.quantidadeDeRecebimentos).toBe(sem.quantidadeDeRecebimentos)
+          expect(com.porForma).toEqual(sem.porForma)
+          expect(com.percentualDaMeta).toBe(sem.percentualDaMeta)
+          expect(com.metaRestante).toEqual(sem.metaRestante)
+          // Mantido por spec: o percentual do resultado é sobre o RECEBIDO.
+          expect(com.percentualDoResultado === null || typeof com.percentualDoResultado === 'number').toBe(true)
+          expect(com.outrasEntradas.centavos).toBe(soma(outras))
+          expect(com.resultadoDoMes.centavos).toBe(sem.resultadoDoMes.centavos + soma(outras))
+        },
+      ),
+    )
+  })
+
+  it('a parte de forma VAZIA (legado) sai como "Não informada", o rótulo do painel (R2)', () => {
+    const v = visaoDoMes(
+      entrada({
+        recebido: [{ valor: c(500) }, { valor: c(300) }],
+        conferidos: [{ forma: '', valor: c(500) }, pix(300)],
+      }),
+    )
+    expect(v.porForma.map((x) => x.forma)).toEqual([FORMA_NAO_INFORMADA, 'Pix'])
+    expect(v.porForma.some((x) => x.forma === '')).toBe(false)
   })
 })

@@ -93,6 +93,11 @@ export const MENU: readonly ItemDeMenu[] = [
     promessa:
       'Recebimento avulso e o saldo em aberto, agrupado por adesão.',
   },
+  { href: '/outras-entradas', rotulo: 'Outras entradas', grupo: 'Financeiro', perm: 'receber',
+    epico: null,
+    promessa:
+      'Dinheiro que entrou e não é de paciente, como aluguel de sala, com categorias e estorno.',
+  },
   { href: '/caixa', rotulo: 'Caixa do dia', grupo: 'Financeiro', perm: 'caixa',
     epico: null,
     promessa:
@@ -279,7 +284,7 @@ export const LAYOUT_DO_MENU: readonly EntradaDoLayout[] = [
   {
     tipo: 'grupo',
     titulo: 'Financeiro',
-    hrefs: ['/recebimentos', '/caixa', '/contas', '/cobrancas', '/visao-do-mes'],
+    hrefs: ['/recebimentos', '/outras-entradas', '/caixa', '/contas', '/cobrancas', '/visao-do-mes'],
   },
   { tipo: 'grupo', titulo: 'Processos', hrefs: ['/estoque'] },
   { tipo: 'grupo', titulo: 'Pessoas', hrefs: ['/equipe', '/minhas-metas'] },

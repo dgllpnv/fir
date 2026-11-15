@@ -26,6 +26,7 @@ import { SISTEMA } from '../banco/ator'
 import { conferirMigracao } from './conferencia.service'
 import type { RelatorioDaMigracao } from './relatorio'
 import { BancoService } from '../banco/banco.service'
+import { gravarRecebimento } from '../financeiro/partes'
 import type { ClinicaId } from '../banco/clinica-id'
 
 /**
@@ -1044,29 +1045,27 @@ export class Migrador {
       if (!this.contaNoSaldoOuNaReceita(t)) continue
 
       await criar('Recebimento', 'recebimentos', t.id, async () => {
-        const q = await c.query<{ id: string }>(
-          `INSERT INTO recebimentos
-             (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, valor_aberto,
-              recebido_em, unidade_id, registrado_por, programa_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-          [
-            clinicaId,
-            mapa('Pacientes').get(t.pacienteId)!,
-            tarefaId,
-            t.tipo,
-            t.valor.centavos.toString(),
-            // A forma VAZIA é o caso real do dado migrado: a v20 só passou a
-            // pedi-la na v17, e `migrarPagamentos()` grava `''`. A migration
-            // 0021 relaxou o `CHECK` para aceitá-la — ver a nota lá.
-            t.valor.centavos > 0n ? t.formaPagamento : '',
-            t.valorAberto.centavos.toString(),
-            this.instante(t.concluidaEm, fuso)!,
-            unidadeDe(t.unidadeId),
-            (await pessoaIdDe(t.responsavelId, t.responsavelNome)) ?? criadoPorPadrao!,
-            t.adesaoId === '' ? null : mapa('Adesoes').get(t.adesaoId)!,
-          ],
-        )
-        return q.rows[0]!.id
+        // UMA função grava recebimento e partes (`gravarRecebimento`), na MESMA
+        // operação idempotente do `criar` (a ponte `origens_da_v20`): reimportar
+        // o arquivo não cria recebimento nem parte nova. A forma VAZIA é o caso
+        // real do dado migrado — a v20 só passou a pedi-la na v17 e
+        // `migrarPagamentos()` grava `''` (migration 0021): vira a parte `''`,
+        // que entra na receita e fica fora do caixa.
+        const gravado = await gravarRecebimento(c, {
+          clinicaId,
+          pacienteId: mapa('Pacientes').get(t.pacienteId)!,
+          tarefaId,
+          tipo: t.tipo,
+          valor: t.valor.centavos,
+          valorAberto: t.valorAberto.centavos,
+          recebidoEm: this.instante(t.concluidaEm, fuso)!,
+          unidadeId: unidadeDe(t.unidadeId),
+          registradoPor: (await pessoaIdDe(t.responsavelId, t.responsavelNome)) ?? criadoPorPadrao!,
+          programaId: t.adesaoId === '' ? null : mapa('Adesoes').get(t.adesaoId)!,
+          partes: t.valor.centavos > 0n ? [{ forma: t.formaPagamento, valor: t.valor.centavos }] : [],
+          aceitaFormaVazia: true,
+        })
+        return gravado.id
       })
     }
 

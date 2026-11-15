@@ -233,12 +233,20 @@ describe('DELETE /v1/tarefas/:id com pagamento e orçamento fechado', () => {
         pacienteId: c.pacientes['ana'],
         tipo: 'Consulta realizada',
         responsavelId: c.pessoas['juliana'],
-        quando: { modo: 'retroativo', em: HOJE, pagamento: { valor: '50000', forma: 'Pix' } },
+        quando: { modo: 'retroativo', em: HOJE },
       },
       'juliana',
     )
     expect(r.statusCode, JSON.stringify(r.body)).toBe(201)
     const id = r.body.tarefa.id as string
+    // O pagamento embutido entra direto no banco: desde o F6, juliana (sem
+    // `receber`) não consegue mais LANÇAR o pagamento pela API — e o que este
+    // teste mede é que ela, solicitante, não consegue EXCLUIR o que tem dinheiro.
+    await c.migrate.query(
+      `INSERT INTO recebimentos (clinica_id, paciente_id, tarefa_id, tipo, valor, forma, recebido_em, registrado_por)
+       VALUES ($1,$2,$3,'Consulta realizada',50000,'Pix','2026-10-24T12:00:00-03:00',$4)`,
+      [c.clinica, c.pacientes['ana'], id, c.pessoas['beatriz']],
+    )
     const ex = await apagar(c, `/v1/tarefas/${id}`, {}, 'juliana')
     expect(ex.statusCode, JSON.stringify(ex.body)).toBe(403)
     expect((await tarefaCrua(c, id))!['excluida_em']).toBeNull()

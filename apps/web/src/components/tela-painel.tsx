@@ -668,6 +668,15 @@ function PacientesNoPeriodo({ painel }: { painel: Painel }) {
             {p.pacientesAtendidos === 1 ? 'paciente' : 'pacientes'}
           </span>
         </div>
+        {/* Dinheiro que não é de paciente: fora da receita, do ticket e da conversão. */}
+        <div className="kpi">
+          <span>Outras entradas</span>
+          <b className="num">{formatarDinheiro(centavos(p.outrasEntradas))}</b>
+          <span>
+            {p.quantidadeDeOutrasEntradas}{' '}
+            {p.quantidadeDeOutrasEntradas === 1 ? 'entrada' : 'entradas'} · não é de paciente
+          </span>
+        </div>
         <div className="kpi">
           <span>Ticket médio</span>
           {/*

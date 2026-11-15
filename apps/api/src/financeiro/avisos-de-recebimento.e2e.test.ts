@@ -356,7 +356,10 @@ describe('a janela do dia é a da CLÍNICA, semiaberta', () => {
 
     // 00h00 de 25/10 em Noronha: o MESMO dia. Agora avisa.
     await caixaFechadoNoBanco(AMANHA)
-    esperar409(await avulso({ em: AMANHA }), ['CAIXA_FECHADO', 'POSSIVEL_DUPLICIDADE'])
+    // Os dois avisos vêm em DUAS voltas, caixa primeiro (achado F8): juntos, a
+    // lista revelava a quem não vê valores se havia um pagamento igual.
+    esperar409(await avulso({ em: AMANHA }), ['CAIXA_FECHADO'])
+    esperar409(await avulso({ em: AMANHA, confirmarCaixaFechado: true }), ['POSSIVEL_DUPLICIDADE'])
   })
 })
 
@@ -430,10 +433,17 @@ describe('POSSIVEL_DUPLICIDADE', () => {
     expect(await contarRecebimentos()).toBe(1)
   })
 
-  it('os dois avisos juntos; cada confirmação apaga só o seu', async () => {
+  /**
+   * Os dois avisos pendentes vêm em DUAS voltas, o caixa primeiro (achado F8).
+   * Antes vinham juntos — `[CAIXA_FECHADO, POSSIVEL_DUPLICIDADE]` —, e a
+   * diferença para `[CAIXA_FECHADO]` dizia a quem não vê valores se existia um
+   * pagamento de exatamente X hoje, sem gravar nada. A tela já acumula as
+   * confirmações (`comConfirmacao`): a recepção responde às duas perguntas.
+   */
+  it('os dois avisos em duas voltas, caixa primeiro; cada confirmação apaga só o seu', async () => {
     await avulso({ valor: '15000' })
     await fecharCaixa(HOJE, { Pix: '15000' })
-    esperar409(await avulso({ valor: '15000' }), ['CAIXA_FECHADO', 'POSSIVEL_DUPLICIDADE'])
+    esperar409(await avulso({ valor: '15000' }), ['CAIXA_FECHADO'])
     esperar409(await avulso({ valor: '15000', confirmarCaixaFechado: true }), ['POSSIVEL_DUPLICIDADE'])
     esperar409(await avulso({ valor: '15000', confirmarDuplicidade: true }), ['CAIXA_FECHADO'])
     const r = await avulso({ valor: '15000', confirmarCaixaFechado: true, confirmarDuplicidade: true })

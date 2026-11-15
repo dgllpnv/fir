@@ -11,6 +11,7 @@ import type {
   SalvarContagem,
 } from '@fir/contracts'
 import {
+  Dinheiro,
   Quantidade,
   analiseDaContagem,
   curvaABC,
@@ -18,6 +19,7 @@ import {
   saldoEmMedida,
   somarDias,
   somarMeses,
+  valorDaFalta as valorDaFaltaNoItem,
 } from '@fir/domain'
 import {
   ConflictException,
@@ -118,7 +120,14 @@ const SELECT_CONTAGEM_COM_CONTAGENS = `
          c.tarefa_id, c.criada_em,
          (SELECT count(*) FROM itens_da_contagem x WHERE x.contagem_id = c.id)::text AS itens,
          (SELECT count(DISTINCT y.item_id) FROM contado_na_contagem y
-           WHERE y.contagem_id = c.id)::text AS anotados
+           WHERE y.contagem_id = c.id)::text AS anotados,
+         (SELECT count(*) FROM diferencas_reconhecidas d
+           WHERE d.contagem_id = c.id)::text AS reconhecidas,
+         (SELECT pr.nome FROM diferencas_reconhecidas d
+            JOIN pessoas pr ON pr.id = d.reconhecida_por
+           WHERE d.contagem_id = c.id ORDER BY d.em DESC, d.id DESC LIMIT 1) AS reconhecida_por,
+         (SELECT to_char(d.em AT TIME ZONE $1, 'YYYY-MM-DD') FROM diferencas_reconhecidas d
+           WHERE d.contagem_id = c.id ORDER BY d.em DESC, d.id DESC LIMIT 1) AS reconhecida_dia
     FROM contagens_de_estoque c
     JOIN pessoas p ON p.id = c.responsavel_id
     LEFT JOIN locais_de_estoque l ON l.id = c.local_id`
@@ -160,10 +169,20 @@ export class ContagensService {
   async listar(ctx: Contexto): Promise<ListaDeContagens> {
     const hoje = diaDaClinica(this.relogio, ctx.fuso)
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const r = await c.query<LinhaDeContagem & { itens: string; anotados: string }>(
+      const r = await c.query<
+        LinhaDeContagem & {
+          itens: string
+          anotados: string
+          reconhecidas: string
+          reconhecida_por: string | null
+          reconhecida_dia: string | null
+        }
+      >(
         `${SELECT_CONTAGEM_COM_CONTAGENS}
          ORDER BY c.situacao, c.prazo DESC, c.criada_em DESC
          LIMIT 100`,
+        // O dia do reconhecimento é do FUSO DA CLÍNICA (regra 22).
+        [ctx.fuso],
       )
       return {
         contagens: r.rows.map(
@@ -181,6 +200,14 @@ export class ContagensService {
             atrasada: l.situacao === 'aberta' && l.prazo < hoje,
             quantidadeDeItens: Number(l.itens),
             anotados: Number(l.anotados),
+            reconhecidas:
+              Number(l.reconhecidas) === 0 || l.reconhecida_por === null || l.reconhecida_dia === null
+                ? null
+                : {
+                    quantidade: Number(l.reconhecidas),
+                    por: l.reconhecida_por,
+                    dia: l.reconhecida_dia,
+                  },
           }),
         ),
       }
@@ -577,7 +604,7 @@ export class ContagensService {
    * número seja escondido: ele não é calculado, e a forma devolvida não tem
    * onde guardá-lo.
    */
-  private async montar(
+  async montar(
     c: pg.PoolClient,
     ctx: Contexto,
     id: string,
@@ -644,7 +671,21 @@ export class ContagensService {
       c,
       itens.map((i) => i.item_id),
     )
-    let valorDaFalta = 0n
+    // As diferenças que a gestão reconheceu — só LEITURA, e nada daqui entra no
+    // saldo (efeito zero): `analiseDaContagem` abaixo nem as conhece.
+    const reconhecidas = new Map(
+      (
+        await c.query<{ item_id: string; diferenca_milesimos: string; por: string; dia: string }>(
+          `SELECT d.item_id, d.diferenca_milesimos::text AS diferenca_milesimos,
+                  pr.nome AS por, to_char(d.em AT TIME ZONE $2, 'YYYY-MM-DD') AS dia
+             FROM diferencas_reconhecidas d
+             JOIN pessoas pr ON pr.id = d.reconhecida_por
+            WHERE d.contagem_id = $1 AND d.lote IS NULL`,
+          [id, ctx.fuso],
+        )
+      ).rows.map((x) => [x.item_id, x] as const),
+    )
+    let valorDaFalta = Dinheiro.zero()
     let itensComFalta = 0
     const saida = itens.map((i): ItemDaContagemConcluida => {
       const a = analiseDaContagem(movs.get(i.item_id) ?? [], id, i.medida)
@@ -667,12 +708,18 @@ export class ContagensService {
           contadoEmEstoque: null,
           diferencaEmEstoque: null,
           abaixoDoMinimo: false,
+          estoqueAtualizado: null,
+          diferencaReconhecida: null,
         }
       }
-      const falta = a.temEsperado && a.diferenca.milesimos < 0n ? -a.diferenca.milesimos : 0n
-      if (falta > 0n) {
+      // A conta é a de `packages/domain` (`valorDaFalta`), a MESMA da aba
+      // Análise: meio-para-cima por item, total = soma dos itens. Antes era uma
+      // divisão inteira escrita aqui e lá, truncando a perda item a item.
+      if (a.temEsperado && a.diferenca.milesimos < 0n) {
         itensComFalta++
-        valorDaFalta += (falta * BigInt(i.custo ?? '0')) / 1_000n
+        valorDaFalta = valorDaFalta.mais(
+          valorDaFaltaNoItem(a.diferenca, Dinheiro.deCentavos(BigInt(i.custo ?? '0'))),
+        )
       }
       return {
         itemId: i.item_id,
@@ -691,6 +738,23 @@ export class ContagensService {
         contadoEmEstoque: q(a.contado.milesimos),
         diferencaEmEstoque: a.temEsperado ? q(a.diferenca.milesimos) : null,
         abaixoDoMinimo: i.minimo !== null && a.contado.milesimos < BigInt(i.minimo),
+        // "Estoque atualizado para o contado": o saldo que o sistema tinha
+        // (o esperado) → o novo (o contado). Só nesta ramificação, a da contagem
+        // CONCLUÍDA: na aberta nem se chama `analiseDaContagem` (regra 14).
+        estoqueAtualizado: { de: a.temEsperado ? q(a.esperado.milesimos) : null, para: q(a.contado.milesimos) },
+        diferencaReconhecida: ((r) =>
+          r === undefined
+            ? null
+            : {
+                quantidadeEmEstoque: q(BigInt(r.diferenca_milesimos)),
+                // A diferença de HOJE: um lançamento retroativo entre as duas
+                // contagens a muda, e a congelada não acompanha — mostram-se as duas.
+                hojeEmEstoque: a.temEsperado ? q(a.diferenca.milesimos) : null,
+                por: r.por,
+                dia: r.dia,
+              })(
+          reconhecidas.get(i.item_id),
+        ),
       }
     })
 
@@ -700,7 +764,7 @@ export class ContagensService {
       concluidaEm: l.concluida_em!,
       itens: saida,
       itensComFalta,
-      valorDaFalta: valorDaFalta.toString(),
+      valorDaFalta: valorDaFalta.centavos.toString(),
     } satisfies ContagemConcluida
   }
 }

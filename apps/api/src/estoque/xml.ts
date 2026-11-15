@@ -73,10 +73,72 @@ const fechar = (n: EmConstrucao): NoXml => ({
   texto: n.pedacos.join('').trim(),
 })
 
-function lerAtributos(bruto: string): Record<string, string> {
+/**
+ * Tamanho máximo de UMA tag, de `<` a `>`, em caracteres.
+ *
+ * A maior tag de uma NF-e real é a raiz com `xmlns` ou o `<infNFe Id="NFe…"
+ * versao="4.00">` — menos de 200 caracteres; as da assinatura (`Algorithm=
+ * "http://…"`) ficam abaixo de 150. 4 096 é folga larga com teto: uma tag de
+ * 900 mil caracteres não é nota fiscal, é ataque (achado F4).
+ */
+export const TAG_MAXIMA = 4_096
+
+const ehInicioDeNome = (c: number): boolean =>
+  (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95 /* _ */ || c === 58 /* : */
+
+/** `[\w.:-]` em ASCII — o mesmo conjunto que a regex antiga aceitava. */
+const ehParteDeNome = (c: number): boolean =>
+  ehInicioDeNome(c) || (c >= 48 && c <= 57) || c === 46 /* . */ || c === 45 /* - */
+
+/** `\s` do XML: espaço, tab, CR, LF. */
+const ehEspaco = (c: number): boolean => c === 32 || c === 9 || c === 10 || c === 13
+
+/**
+ * Os atributos de uma tag, numa **varredura linear**.
+ *
+ * Era uma regex não ancorada, `([A-Za-z_:][\w.:-]*)\s*=…`, e ela retrocedia em
+ * tempo quadrático sobre uma sequência longa de letras sem `=`: a tentativa em
+ * cada posição relia o resto da sequência. `"<infNFe a" + "b".repeat(899000)`
+ * travava o event loop — e com ele a API de TODAS as clínicas (achado F4,
+ * CWE-1333). Aqui o índice só anda para a frente: nenhum caractere é visitado
+ * mais que um punhado de vezes, qualquer que seja a entrada.
+ *
+ * Mesmo resultado da regex para todo atributo bem formado (`nome="v"`,
+ * `nome='v'`, espaços em volta do `=`); lixo entre atributos é pulado, como
+ * ela pulava.
+ */
+export function lerAtributos(bruto: string): Record<string, string> {
   const fora: Record<string, string> = {}
-  for (const m of bruto.matchAll(/([A-Za-z_:][\w.:-]*)\s*=\s*("([^"]*)"|'([^']*)')/g)) {
-    fora[m[1]!] = texto(m[3] ?? m[4] ?? '')
+  const n = bruto.length
+  let i = 0
+  while (i < n) {
+    if (!ehInicioDeNome(bruto.charCodeAt(i))) {
+      i++
+      continue
+    }
+    const inicio = i
+    i++
+    while (i < n && ehParteDeNome(bruto.charCodeAt(i))) i++
+    const nome = bruto.slice(inicio, i)
+
+    let j = i
+    while (j < n && ehEspaco(bruto.charCodeAt(j))) j++
+    // Sem `=`, não é atributo. `i` já está DEPOIS do nome e nunca recua — é
+    // o recuo que fazia a regex ser quadrática.
+    if (bruto[j] !== '=') continue
+    j++
+    while (j < n && ehEspaco(bruto.charCodeAt(j))) j++
+    const aspa = bruto[j]
+    if (aspa !== '"' && aspa !== "'") {
+      i = j
+      continue
+    }
+    const fim = bruto.indexOf(aspa, j + 1)
+    // Aspa sem par: nada adiante é atributo bem formado. Parar aqui (em vez de
+    // tentar de novo na posição seguinte) é o que mantém isto linear.
+    if (fim === -1) break
+    fora[nome] = texto(bruto.slice(j + 1, fim))
+    i = fim + 1
   }
   return fora
 }
@@ -127,6 +189,9 @@ export function lerXml(fonte: string): NoXml {
 
     const fecha = fonte.indexOf('>', abre)
     if (fecha === -1) throw new XmlInvalido('O arquivo termina no meio de uma tag.')
+    if (fecha - abre > TAG_MAXIMA) {
+      throw new XmlInvalido('O arquivo tem uma tag grande demais para uma nota fiscal.')
+    }
     const dentro = fonte.slice(abre + 1, fecha)
     i = fecha + 1
 

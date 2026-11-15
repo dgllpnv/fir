@@ -25,6 +25,18 @@ describe('orçamentos do paciente', () => {
     expect(abasDaFicha(false)).toEqual(['historico'])
     expect(abasDaFicha(true)).toEqual(['historico', 'orcamentos'])
   })
+  it('o Consumo exige estoque E jornada — uma só não basta', () => {
+    expect(abasDaFicha(true, true)).toEqual(['historico', 'orcamentos', 'consumo'])
+    expect(abasDaFicha(true, false)).toEqual(['historico', 'orcamentos'])
+    expect(abasDaFicha(false, true)).toEqual(['historico'])
+    expect(abasDaFicha(false)).toEqual(['historico'])
+  })
+  it('as setas alcançam o Consumo', () => {
+    const a = abasDaFicha(true, true)
+    expect(proximaAba(a, 'orcamentos', 'ArrowRight')).toBe('consumo')
+    expect(proximaAba(a, 'consumo', 'ArrowRight')).toBe('historico')
+    expect(proximaAba(a, 'historico', 'End')).toBe('consumo')
+  })
   it('setas circulam, Home/End vão às pontas', () => {
     const a = abasDaFicha(true)
     expect(proximaAba(a, 'historico', 'ArrowRight')).toBe('orcamentos')

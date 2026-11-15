@@ -57,23 +57,42 @@
 export const DINHEIRO_QUE_ENTROU = `r.valor > 0`
 
 /**
- * **O QUE ESTÁ NA GAVETA** — o filtro do caixa do dia, POR FORMA.
+ * **O QUE ESTÁ NA GAVETA** — o filtro do caixa do dia, POR FORMA, sobre a
+ * PARTE do pagamento (`recebimento_partes pt`, fatia 4.1).
  *
- * É a string antiga de `DINHEIRO_QUE_ENTROU`, com o nome que ela sempre
- * mereceu. A diferença entre as duas perguntas é física:
+ * É o filtro antigo (`r.valor > 0 AND r.forma <> ''`) com o nome que ele sempre
+ * mereceu, agora na parte: a forma é da parte, não do recebimento — um
+ * recebimento de Pix 300 + Dinheiro 200 tem duas formas e nenhuma é "a" forma.
+ * A diferença entre as duas perguntas é física:
  *
  *   *"quanto entrou"*  → receita, LTV, Visão do mês. Inclui o pagamento cuja
  *   forma a v20 não registrou: o dinheiro entrou.
  *
  *   *"quanto deveria estar em cada forma"* → o caixa do dia, que compara o
  *   esperado com o que a recepção CONTOU, forma por forma. Um pagamento sem
- *   forma não tem linha de gaveta contra a qual ser conferido; incluí-lo
- *   criaria um grupo de nome vazio no esperado, e a conferência acusaria uma
- *   diferença que ninguém causou — a recepcionista procuraria por uma hora um
- *   erro que ela não cometeu.
+ *   forma (a parte `''` do legado migrado) não tem linha de gaveta contra a
+ *   qual ser conferido; incluí-lo criaria um grupo de nome vazio no esperado, e
+ *   a conferência acusaria uma diferença que ninguém causou — a recepcionista
+ *   procuraria por uma hora um erro que ela não cometeu.
  *
- * Nenhuma linha escrita PELO PRODUTO cai nessa diferença: `recebimentos.service`
+ * Nenhuma linha escrita PELO PRODUTO cai nessa diferença: `gravarRecebimento`
  * exige a forma quando há valor. A diferença existe só para o dado migrado, e
  * só nos dias que já passaram.
+ *
+ * Pressupõe `recebimento_partes` aliasada como `pt`.
  */
-export const NA_GAVETA = `r.valor > 0 AND r.forma <> ''`
+export const NA_GAVETA = `pt.valor > 0 AND pt.forma <> ''`
+
+/**
+ * **AS PARTES VIVAS — o estado do PAI, escrito uma vez** (irmã de `NA_GAVETA`).
+ *
+ * A parte não tem `estornado_em` nem `excluida_em`: ela vale enquanto o
+ * recebimento vale. Quem lê partes cola isto no `WHERE`, e estornar o pai zera
+ * TODAS as partes de uma vez nos cinco caminhos de estorno (recebimento avulso,
+ * excluir orçamento, reabrir sessão, reabrir tarefa, editar/excluir tarefa)
+ * sem que nenhum deles conheça a tabela de partes.
+ *
+ * Pressupõe `recebimentos r`, `recebimento_partes pt` e `tarefas t` (LEFT JOIN
+ * pela tarefa do recebimento) no `FROM`.
+ */
+export const PARTES_VIVAS = `r.estornado_em IS NULL AND (t.id IS NULL OR t.excluida_em IS NULL)`

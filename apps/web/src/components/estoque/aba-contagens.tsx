@@ -8,6 +8,7 @@ import type {
   ListaDeContagens,
   ListaDeLocais,
   ResultadoDaContagem,
+  ResultadoDoReconhecimento,
 } from '@fir/contracts'
 import { fimDoMes } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
@@ -47,10 +48,13 @@ const FILTROS = [
 export function AbaContagens({
   hoje,
   minhaPessoaId,
+  podeGerir,
   avisar,
 }: {
   hoje: string
   minhaPessoaId: string
+  /** `estoque.gerir`: só quem gere reconhece a diferença. O servidor valida de novo. */
+  podeGerir: boolean
   avisar: (r: string) => void
 }) {
   const [abertaId, setAbertaId] = useState<string | null>(null)
@@ -64,6 +68,7 @@ export function AbaContagens({
           setAbertaId(null)
           lista.recarregar()
         }}
+        podeGerir={podeGerir}
         avisar={avisar}
       />
     )
@@ -135,6 +140,9 @@ function Grupo({
                     ? `concluída em ${diaEmTexto(c.concluidaEm ?? c.prazo)} · ${c.quantidadeDeItens} itens`
                     : `contar até ${diaEmTexto(c.prazo)} · ${c.anotados} de ${c.quantidadeDeItens} contados`}
                   {c.repetir === '' ? '' : ` · repete ${c.repetir}`}
+                  {c.reconhecidas === null
+                    ? ''
+                    : ` · ${c.reconhecidas.quantidade} ${c.reconhecidas.quantidade === 1 ? 'diferença reconhecida' : 'diferenças reconhecidas'} por ${c.reconhecidas.por} em ${diaEmTexto(c.reconhecidas.dia)}`}
                 </small>
               </div>
               <span className={c.concluida ? 'pill bom' : c.atrasada ? 'pill mau' : 'pill'}>
@@ -321,10 +329,12 @@ type Rascunho = { lote: string; quantidade: string }[]
 function UmaContagem({
   id,
   aoVoltar,
+  podeGerir,
   avisar,
 }: {
   id: string
   aoVoltar: () => void
+  podeGerir: boolean
   avisar: (r: string) => void
 }) {
   const contagem = useDados<ConferenciaDeContagem>(`v1/estoque/contagens/${id}`)
@@ -341,7 +351,12 @@ function UmaContagem({
         ← Contagens
       </button>
       {contagem.dados.concluida ? (
-        <Concluida c={contagem.dados} />
+        <Concluida
+          c={contagem.dados}
+          podeGerir={podeGerir}
+          avisar={avisar}
+          aoReconhecer={() => contagem.recarregar()}
+        />
       ) : (
         <Contar
           c={contagem.dados}
@@ -467,7 +482,7 @@ function Contar({
       }
       avisar(
         [
-          'Contagem concluída',
+          'Contagem concluída · estoque atualizado para o contado',
           r.proximaEm === null ? '' : `próxima em ${diaEmTexto(r.proximaEm)}`,
           r.reposicoes === 0
             ? ''
@@ -581,7 +596,57 @@ function Contar({
   )
 }
 
-function Concluida({ c }: { c: ContagemConcluida }) {
+function Concluida({
+  c,
+  podeGerir,
+  avisar,
+  aoReconhecer,
+}: {
+  c: ContagemConcluida
+  podeGerir: boolean
+  avisar: (r: string) => void
+  aoReconhecer: () => void
+}) {
+  const [marcados, setMarcados] = useState<ReadonlySet<string>>(new Set())
+  const [enviando, setEnviando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  // Só item com diferença e ainda não reconhecida: o servidor recusa o resto.
+  const reconheciveis = c.itens.filter(
+    (i) =>
+      i.diferencaEmEstoque !== null &&
+      i.diferencaEmEstoque.milesimos !== '0' &&
+      i.diferencaReconhecida === null,
+  )
+  const alternar = (id: string) =>
+    setMarcados((atual) => {
+      const novo = new Set(atual)
+      if (novo.has(id)) novo.delete(id)
+      else novo.add(id)
+      return novo
+    })
+
+  async function reconhecer(): Promise<void> {
+    setErro(null)
+    setEnviando(true)
+    try {
+      const r = await chamar<ResultadoDoReconhecimento>(
+        `v1/estoque/contagens/${c.id}/reconhecer`,
+        { method: 'POST', body: JSON.stringify({ itens: [...marcados] }) },
+      )
+      avisar(
+        r.reconhecidas === 1
+          ? '1 diferença reconhecida. O saldo não mudou.'
+          : `${r.reconhecidas} diferenças reconhecidas. O saldo não mudou.`,
+      )
+      setMarcados(new Set())
+      aoReconhecer()
+    } catch (e) {
+      setErro(e instanceof ErroDaApi ? e.message : 'Não consegui falar com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
   return (
     <section>
       <div className="eyebrow">Contagem concluída</div>
@@ -590,6 +655,10 @@ function Concluida({ c }: { c: ContagemConcluida }) {
       </div>
       <p className="nota">
         {c.responsavel} · concluída em {diaEmTexto(c.concluidaEm)} · {c.quantidadeDeItens} itens
+      </p>
+      <p className="nota">
+        <b>Estoque atualizado para o contado.</b> O saldo de cada item contado já é o número da
+        coluna “Estoque atualizado”.
       </p>
 
       <div className="indicadores">
@@ -619,6 +688,8 @@ function Concluida({ c }: { c: ContagemConcluida }) {
               <th className="direita">Esperado</th>
               <th className="direita">Contado</th>
               <th className="direita">Diferença</th>
+              <th className="direita">Estoque atualizado</th>
+              <th>Reconhecimento</th>
             </tr>
           </thead>
           <tbody>
@@ -653,16 +724,68 @@ function Concluida({ c }: { c: ContagemConcluida }) {
                 <td className="direita" data-rotulo="Diferença">
                   <Diferenca q={i.diferencaEmEstoque} />
                 </td>
+                <td className="direita num" data-rotulo="Estoque atualizado">
+                  {i.estoqueAtualizado === null
+                    ? '—'
+                    : `${i.estoqueAtualizado.de?.texto ?? 'sem saldo anterior'} → ${i.estoqueAtualizado.para.texto}`}
+                </td>
+                <td data-rotulo="Reconhecimento">
+                  {i.diferencaReconhecida !== null ? (
+                    <small>
+                      Reconhecida por {i.diferencaReconhecida.por} em{' '}
+                      {diaEmTexto(i.diferencaReconhecida.dia)}
+                      {i.diferencaReconhecida.hojeEmEstoque !== null &&
+                      i.diferencaReconhecida.hojeEmEstoque.milesimos !==
+                        i.diferencaReconhecida.quantidadeEmEstoque.milesimos ? (
+                        <span className="num">
+                          {' '}
+                          · reconhecida: {i.diferencaReconhecida.quantidadeEmEstoque.texto}; hoje:{' '}
+                          {i.diferencaReconhecida.hojeEmEstoque.texto}
+                        </span>
+                      ) : null}
+                    </small>
+                  ) : podeGerir && reconheciveis.some((x) => x.itemId === i.itemId) ? (
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={marcados.has(i.itemId)}
+                        onChange={() => alternar(i.itemId)}
+                      />{' '}
+                      Reconhecer
+                    </label>
+                  ) : (
+                    <span className="muted">—</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
+      {podeGerir && reconheciveis.length > 0 ? (
+        <div style={{ margin: '12px 0' }}>
+          <button
+            type="button"
+            className="botao"
+            disabled={enviando || marcados.size === 0}
+            onClick={() => void reconhecer()}
+          >
+            {enviando ? 'Gravando…' : 'Reconhecer diferença'}
+          </button>
+          {erro === null ? null : (
+            <p className="nota" role="alert">
+              {erro}
+            </p>
+          )}
+        </div>
+      ) : null}
+
       <p className="nota">
         Esperado = contagem anterior + entradas − saídas registradas (uso em pacientes, descartes,
         uso interno e ajustes). <b>A diferença é relatada, nunca corrigida</b>: é ela que mostra o
-        que saiu sem registro. Para acertar o saldo, lance um ajuste com motivo.
+        que saiu sem registro. Reconhecer a diferença registra que a gestão a viu (quem e quando) e{' '}
+        <b>não altera o saldo</b>: concluir a contagem já atualizou o estoque para o contado.
       </p>
     </section>
   )

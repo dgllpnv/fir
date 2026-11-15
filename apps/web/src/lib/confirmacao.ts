@@ -22,6 +22,7 @@ const CHAVE_DO_AVISO: Readonly<Record<string, string>> = {
   CAIXA_FECHADO: 'confirmarCaixaFechado',
   POSSIVEL_DUPLICIDADE: 'confirmarDuplicidade',
   MES_ANTERIOR: 'confirmarMesAnterior',
+  INICIO_NO_PASSADO: 'confirmarInicioNoPassado',
 }
 
 export type ContextoDaPergunta = {
@@ -49,6 +50,18 @@ export class ConfirmacaoRecusada extends ErroDaApi {
   }
 }
 
+/**
+ * Título e botão do diálogo. Os de recebimento ("Lançar mesmo assim") só valem
+ * quando há aviso de dinheiro; a data de início de programa pergunta sobre
+ * FECHAR, e dizer "lançar" ali é prometer outra coisa.
+ */
+export function textosDoDialogo(avisos: readonly string[]): { titulo: string; confirmar: string } {
+  if (avisos.length > 0 && avisos.every((a) => a === 'INICIO_NO_PASSADO')) {
+    return { titulo: 'Confirme a data de início', confirmar: 'Fechar mesmo assim' }
+  }
+  return { titulo: 'Confirme antes de lançar', confirmar: 'Lançar mesmo assim' }
+}
+
 /** As frases da pergunta, uma por aviso, na ordem em que o servidor os mandou. */
 export function perguntasDosAvisos(
   avisos: readonly string[],
@@ -66,6 +79,8 @@ export function perguntasDosAvisos(
           : `Já existe um pagamento de mesmo valor para esta paciente ${quando}. É outro pagamento?`
       case 'MES_ANTERIOR':
         return 'Este pagamento é de um mês anterior, que já pode ter sido fechado. Continuar mesmo assim?'
+      case 'INICIO_NO_PASSADO':
+        return 'Há procedimento do programa com a primeira sessão em uma data que já passou. As sessões vão nascer atrasadas. Fechar mesmo assim?'
       default:
         return a
     }

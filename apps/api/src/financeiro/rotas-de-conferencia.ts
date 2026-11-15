@@ -93,6 +93,11 @@ export const ROTAS_DE_CONFERENCIA: readonly RotaDeConferencia[] = [
       'Devolve os recebimentos do dia, um a um. A lista individual é o instrumento de trabalho e fica; o que não pode é um AGREGADO por forma — o servidor nunca faz a soma por quem vai contar a gaveta.',
   },
   {
+    caminho: '/v1/outras-entradas?dia=:dia',
+    razao:
+      'As outras entradas do dia (dinheiro que não é de paciente), uma a uma — o instrumento de quem lança. Elas entram no esperado do caixa por forma (fatia 4.2), então a lista individual fica e o AGREGADO por forma continua não existindo em rota nenhuma.',
+  },
+  {
     caminho: '/v1/hoje',
     razao:
       'A tela do dia. O épico 4 lhe acrescenta o bloco financeiro ("fechar o caixa de hoje"), e ele é BOOLEANO: um valor ali seria o esperado chegando pela porta dos fundos.',
@@ -201,6 +206,10 @@ export const ROTAS_DE_CONFERENCIA: readonly RotaDeConferencia[] = [
       'diferencaEmEstoque',
       'saldoEmEstoque',
       'loteSugerido',
+      // "Estoque atualizado para o contado" e a diferença reconhecida só existem
+      // na contagem CONCLUÍDA (0085) — na aberta, nem a chave.
+      'estoqueAtualizado',
+      'diferencaReconhecida',
       'esperado',
       'diferenca',
     ],
@@ -576,6 +585,26 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'Lista de tarefas. O pagamento embutido aparece POR TAREFA; não há soma por forma nem por dia.',
   },
   {
+    caminho: '/v1/grupos',
+    razao: 'Nome dos grupos de colaboradores ativos. Nenhum dinheiro, nenhuma contagem, nenhum esperado.',
+  },
+  {
+    caminho: '/v1/grupos/meus',
+    razao: 'Os grupos da própria pessoa (ids e nomes), para decidir o botão Assumir. Nada monetário.',
+  },
+  {
+    caminho: '/v1/grupos/administracao',
+    razao: 'Composição e contagem de tarefas abertas por grupo (dado de RH, `config`). Sem valor, sem esperado de caixa ou de contagem.',
+  },
+  {
+    caminho: '/v1/pessoas/:id/grupos',
+    razao: 'Os grupos ativos de UMA pessoa (`config`). Nenhum campo monetário nem esperado.',
+  },
+  {
+    caminho: '/v1/tarefas/:id/fluxo',
+    razao: 'A cadeia de tarefas ligadas por origem: ids, descrição, destino e eventos de fluxo. Nenhum pagamento nem valor atravessa, e nada agrega um dia de caixa.',
+  },
+  {
     caminho: '/v1/tarefas/:id',
     razao:
       'UMA tarefa, para preencher o painel de edição. Carrega o pagamento e o orçamento DAQUELA tarefa — um registro, nunca um agregado de dia, e portanto nada que o fechamento de caixa fosse conferir.',
@@ -596,6 +625,11 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'Rascunho de campanha para o mes seguinte: copia de cadastro, nada financeiro e nada gravado.',
   },
   {
+    caminho: '/v1/pacientes/:id/consumo',
+    razao:
+      'Consumo de estoque de UM paciente (o que foi aplicado, com lote): linhas ja gravadas, sem custo e sem agregado de dia. Nao toca caixa nem esperado de contagem aberta.',
+  },
+  {
     caminho: '/v1/pacientes/:id/orcamentos',
     razao:
       'Orcamentos de UM paciente (orcado/fechado/restante): orcamento nao e receita (regra 4) e nenhum valor e esperado de caixa; valores saem null sem `valores`.',
@@ -604,6 +638,10 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     caminho: '/v1/tarefas/:id/exclusao',
     razao:
       'Prévia da exclusão de UMA tarefa: o que o estorno vai desfazer (soma do pagamento daquela tarefa). Um registro, nunca um agregado de dia, e o valor sai null sem `valores`.',
+  },
+  {
+    caminho: '/v1/categorias-de-entrada',
+    razao: 'O cadastro de categorias de entrada (nome e estado). Nenhum valor, nenhum recorte por dia.',
   },
   {
     caminho: '/v1/contas',

@@ -1,6 +1,17 @@
-import type { MoverEtapa } from '@fir/contracts'
-import { Dinheiro, ehErro, TIPO_PAGAMENTO_DE_ORCAMENTO } from '@fir/domain'
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common'
+import {
+  CODIGO_CONFIRMACAO_NECESSARIA,
+  type ConfirmacaoNecessaria,
+  type MoverEtapa,
+} from '@fir/contracts'
+import { Dinheiro, ehErro, inicioJaPassou, TIPO_PAGAMENTO_DE_ORCAMENTO } from '@fir/domain'
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+} from '@nestjs/common'
 import type pg from 'pg'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { AutorDaRequisicao } from '../tarefas/leitura'
@@ -117,8 +128,9 @@ export class FechamentoService {
      * orçamento (regra 17, S-28): se esta comparação falhasse ANTES das demais
      * validações, "X acima da oferta" e "X abaixo da oferta" voltariam
      * respostas diferentes e a Recepção descobriria o número por tentativa. Por
-     * isso, sem `valores`, ela roda por último (logo antes de qualquer escrita):
-     * quem erra outra coisa recebe o MESMO erro, qualquer que seja o valor.
+     * isso, sem `valores`, ela roda por último — depois até das escritas, que a
+     * recusa desfaz (F1): quem erra outra coisa recebe o MESMO erro, qualquer
+     * que seja o valor.
      */
     const conferirOferta = (): void => {
       if (dados.fechamento === 'tudo' && oferta !== null && doFechamento !== oferta) {
@@ -219,7 +231,54 @@ export class FechamentoService {
       }
     }
 
-    if (!x.podeVerValores) conferirOferta()
+    // Sem `valores`, a conferência da oferta NÃO roda aqui: vai para o fim,
+    // depois de toda recusa que não depende dela (ver o fim desta função).
+
+    // A PROPOSTA que vira programa (no parcial, só os itens fechados) é
+    // resolvida ANTES de qualquer escrita: a pergunta da data de início tem de
+    // ser feita com a transação ainda limpa.
+    let proposta = cartao.programaOrcado
+    if (dados.fechamento === 'parte' && dados.itensFechados !== undefined) {
+      // Só os itens que a paciente contratou viram programa. O rateio e a
+      // agenda de sessões partem dos itens marcados, não de tudo o que foi
+      // oferecido (a paciente que fechou 15 de 25 não ganha as sessões dos 10).
+      // A conferência dos marcados já foi feita acima, contra `cartao.itens`.
+      const mantidos = new Set(dados.itensFechados)
+      proposta = (proposta ?? [])
+        .filter((i) => mantidos.has(i.chave))
+        .map((i) => {
+          if (i.depoisDe === undefined || i.depoisDe === null || mantidos.has(i.depoisDe)) return i
+          // Depende de um item que não foi fechado: passa a começar no início.
+          const { depoisDe: _fora, ...resto } = i
+          return resto
+        })
+        // O programa nasce com as sessões que ela FECHOU, não com as orçadas.
+        .map((i) => {
+          const n = dados.sessoesFechadas?.[i.chave]
+          return n === undefined ? i : { ...i, sessoes: n }
+        })
+    }
+    /**
+     * "EM OUTRA DATA" NO PASSADO É PERGUNTA, NUNCA CORREÇÃO (spec 1.1).
+     *
+     * O item que a recepção datou para antes de hoje (dia da clínica, do
+     * servidor) geraria sessões já atrasadas. Pode ser exatamente o que ela
+     * quer — o tratamento começou na semana passada e o orçamento só fechou
+     * agora —, então o servidor pergunta e, confirmado, usa a data pedida. O
+     * 409 não leva data nem valor: a tela escreve a frase.
+     */
+    if (
+      dados.confirmarInicioNoPassado !== true &&
+      (proposta ?? []).some((i) => i.inicio !== undefined && inicioJaPassou(i.inicio, x.hojeDaClinica))
+    ) {
+      const corpo: ConfirmacaoNecessaria = {
+        statusCode: HttpStatus.CONFLICT,
+        codigo: CODIGO_CONFIRMACAO_NECESSARIA,
+        avisos: ['INICIO_NO_PASSADO'],
+        message: 'Confirme antes de fechar: há procedimento com a primeira sessão em data que já passou.',
+      }
+      throw new HttpException(corpo, HttpStatus.CONFLICT)
+    }
 
     // O recebimento é o MESMO serviço do épico 2 — uma linha em
     // `recebimentos` com `tarefa_id`. Nenhuma segunda implementação, e
@@ -286,27 +345,6 @@ export class FechamentoService {
      * entrou e o programa não existe", e só a primeira a recepção resolve
      * sozinha.
      */
-    let proposta = cartao.programaOrcado
-    if (dados.fechamento === 'parte' && dados.itensFechados !== undefined) {
-      // Só os itens que a paciente contratou viram programa. O rateio e a
-      // agenda de sessões partem dos itens marcados, não de tudo o que foi
-      // oferecido (a paciente que fechou 15 de 25 não ganha as sessões dos 10).
-      // A conferência dos marcados já foi feita acima, contra `cartao.itens`.
-      const mantidos = new Set(dados.itensFechados)
-      proposta = (proposta ?? [])
-        .filter((i) => mantidos.has(i.chave))
-        .map((i) => {
-          if (i.depoisDe === undefined || i.depoisDe === null || mantidos.has(i.depoisDe)) return i
-          // Depende de um item que não foi fechado: passa a começar no início.
-          const { depoisDe: _fora, ...resto } = i
-          return resto
-        })
-        // O programa nasce com as sessões que ela FECHOU, não com as orçadas.
-        .map((i) => {
-          const n = dados.sessoesFechadas?.[i.chave]
-          return n === undefined ? i : { ...i, sessoes: n }
-        })
-    }
     if (proposta !== null && proposta.length > 0) {
       const r = await this.montador.montar(c, {
         clinicaId: x.clinicaId,
@@ -320,7 +358,9 @@ export class FechamentoService {
           procedimentoId: i.procedimentoId,
           sessoes: i.sessoes,
           intervaloDias: i.intervaloDias,
-          inicio: null,
+          // O `inicio` do item precede `depoisDe` e o início do programa
+          // (precedência de `montarCronograma`).
+          inicio: i.inicio ?? null,
           depoisDe: i.depoisDe ?? null,
           responsavelId: i.responsavelId ?? null,
           dose: i.dose ?? null,
@@ -360,6 +400,28 @@ export class FechamentoService {
        */
       if (ehErro(r)) throw traduzirErroDeMontagem(r.erro)
     }
+
+    /**
+     * SEM `valores`, A OFERTA É CONFERIDA POR ÚLTIMO — depois das escritas, que
+     * a exceção desfaz (achado F1, regra 17).
+     *
+     * Antes ela rodava no meio: depois das validações de corpo, mas ANTES do
+     * `INICIO_NO_PASSADO`, do caixa fechado, da duplicidade, da permissão de
+     * receber e das recusas do montador. Quem não vê o orçamento provocava uma
+     * dessas (um item com início no passado, o caixa de hoje fechado) e lia
+     * pelo código — 400 da oferta ou 409 da outra — se a soma passava do valor
+     * oculto, sem gravar nada; em ~30 pedidos tinha o número.
+     *
+     * Aqui, todas as recusas que não dependem da oferta já passaram. O que
+     * sobra é: a soma confere e o fechamento GRAVA, ou não confere e a
+     * transação inteira volta com o mesmo 400 sem número. A diferença só se
+     * observa gravando de verdade — com trilha e com dinheiro no caixa.
+     *
+     * Quem TEM `valores` continua recebendo a recusa da oferta logo no começo
+     * (vê o número de qualquer jeito, e assim não responde a um "confirme a
+     * data" para depois ouvir que o valor estava errado).
+     */
+    if (!x.podeVerValores) conferirOferta()
 
     return {
       ...(cartao.valorOrcamento === negocio ? {} : { valorOrcamento: negocio }),

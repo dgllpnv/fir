@@ -10,6 +10,12 @@ describe('urlDaProximaTarefa', () => {
   it('só paciente', () => {
     expect(urlDaProximaTarefa({ pacienteId: 'p1', campanhaId: null })).toBe('/nova?pacienteId=p1')
   })
+  it('leva a tarefa de origem, para a cadeia do fluxo', () => {
+    expect(urlDaProximaTarefa({ id: 't1', pacienteId: 'p1', campanhaId: null })).toBe(
+      '/nova?pacienteId=p1&origem=t1',
+    )
+    expect(urlDaProximaTarefa({ id: 't1', pacienteId: null })).toBe('/nova?origem=t1')
+  })
   it('tarefa interna sem campanha abre /nova limpo', () => {
     expect(urlDaProximaTarefa({ pacienteId: null })).toBe('/nova')
   })

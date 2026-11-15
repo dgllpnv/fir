@@ -1,4 +1,13 @@
-import { ACOES, ehPagamento, ETAPAS, FREQUENCIAS, TIPOS } from '@fir/domain'
+import {
+  ACOES,
+  Dinheiro,
+  ehPagamento,
+  ETAPAS,
+  FREQUENCIAS,
+  MAX_PARTES,
+  TIPOS,
+  validarPartes,
+} from '@fir/domain'
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Hora, Uuid } from './comum'
 
@@ -44,20 +53,83 @@ const valorEmAberto = dinheiroEmTexto.refine((v): v is bigint => v !== null && v
 })
 
 /**
+ * UMA FORMA DE PAGAMENTO e o valor dela — a parte (`recebimento_partes`).
+ * O formulário "Incluir mais de uma forma de pagamento" manda uma lista delas.
+ */
+export const ParteDoPagamento = z.object({ forma: z.enum(FORMAS), valor: valorRecebido }).strict()
+export type ParteDoPagamento = z.infer<typeof ParteDoPagamento>
+
+/** De 1 a 5 (uma por forma). A soma = valor e a promissória sozinha ficam em `conferirPartes`. */
+export const PartesDoPagamento = z.array(ParteDoPagamento).min(1).max(MAX_PARTES)
+
+/**
+ * **A FORMA OU AS PARTES — nunca as duas, nunca nenhuma — e a soma fecha.**
+ *
+ * `forma` sozinha é o contrato de sempre (parte única, compatível). `partes`
+ * é o novo: várias formas, com `Σ partes = valor` exato, forma repetida
+ * recusada e nota promissória só como parte única. A validação mora no
+ * domínio (`validarPartes`); aqui só se traduz o erro para o Zod, e o serviço
+ * a repete (`gravarRecebimento`) porque o migrador e o seed não passam por
+ * este esquema.
+ */
+export function conferirPartes(
+  p: {
+    readonly valor: bigint
+    readonly forma?: string | undefined
+    readonly partes?: readonly { readonly forma: string; readonly valor: bigint }[] | undefined
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if ((p.forma === undefined) === (p.partes === undefined)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['partes'],
+      message: 'Informe a forma de pagamento OU a lista de formas — uma das duas, nunca as duas.',
+    })
+    return
+  }
+  if (p.partes === undefined) return
+  const r = validarPartes(
+    Dinheiro.deCentavos(p.valor),
+    p.partes.map((x) => ({ forma: x.forma, valor: Dinheiro.deCentavos(x.valor) })),
+  )
+  if (r.tipo === 'erro') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['partes'], message: r.erro.mensagem })
+  }
+}
+
+/**
+ * As partes de um pagamento já validado, na forma única que o servidor
+ * grava: `partes` quando vieram, senão a parte única com a `forma` de sempre.
+ */
+export const partesDoPagamento = (p: {
+  readonly valor: bigint
+  readonly forma?: string | undefined
+  readonly partes?: readonly { readonly forma: string; readonly valor: bigint }[] | undefined
+}): { forma: string; valor: bigint }[] =>
+  p.partes !== undefined
+    ? p.partes.map((x) => ({ forma: x.forma, valor: x.valor }))
+    : p.forma === undefined
+      ? []
+      : [{ forma: p.forma, valor: p.valor }]
+
+/**
  * O pagamento embutido no atendimento — o bloco "Houve pagamento?" da tela.
  *
  * Ele e o recebimento avulso do épico 4 produzem a MESMA linha de
  * `recebimentos`. Nunca as duas para o mesmo dinheiro (regra 3), e quem
  * garante isso não é este esquema: é o índice único parcial da migration
- * `0006`. Aqui só se declara a forma.
+ * `0006`. Aqui só se declara a forma — ou, desde a fatia 4.1, as formas.
  */
 export const PagamentoEmbutido = z
   .object({
     valor: valorRecebido,
-    forma: z.enum(FORMAS),
+    forma: z.enum(FORMAS).optional(),
+    partes: PartesDoPagamento.optional(),
     valorAberto: valorEmAberto.optional(),
   })
   .strict()
+  .superRefine(conferirPartes)
 export type PagamentoEmbutido = z.infer<typeof PagamentoEmbutido>
 
 /**
@@ -80,6 +152,7 @@ export const AVISOS_DE_CONFIRMACAO = [
   'POSSIVEL_DUPLICIDADE',
   'MES_ANTERIOR',
   'CREDITO_NA_PACIENTE',
+  'INICIO_NO_PASSADO',
 ] as const
 export type AvisoDeConfirmacao = (typeof AVISOS_DE_CONFIRMACAO)[number]
 
@@ -173,8 +246,25 @@ export const tipoQueNaoEhPagamento = NomeDeTipo.refine((t) => !ehPagamento(t), {
   message: 'Pagamento não é tarefa. Use Recebimento para registrar dinheiro recebido.',
 })
 
+/**
+ * O texto livre de um evento do fluxo (nota da transferência, motivo). ≤ 200 e
+ * **a tela avisa**: "Não escreva nome de paciente nem dado de saúde" (L3). Nunca
+ * em log, nunca em mensagem de erro.
+ */
+export const NOTA_DO_FLUXO_MAXIMA = 200
+export const AVISO_DA_NOTA_DO_FLUXO = 'Não escreva nome de paciente nem dado de saúde.'
+const NotaDoFluxo = z.string().trim().max(NOTA_DO_FLUXO_MAXIMA)
+
 const comumDaTarefa = {
-  responsavelId: Uuid,
+  /** Pessoa OU grupo (`grupoId`) — exatamente um, conferido no fim do esquema (Q1). */
+  responsavelId: Uuid.optional(),
+  /** O grupo destino. Tarefa de grupo não nasce já concluída (retroativo recusa). */
+  grupoId: Uuid.optional(),
+  /**
+   * A tarefa de onde esta nasce ("concluir e criar nova"). Só vale se for do
+   * mesmo paciente ou sem paciente; o servidor confere (appsec S2).
+   */
+  tarefaOrigemId: Uuid.optional(),
   // Opcional porque o serviço a preenche com o nome do tipo quando vier vazia
   // — é o que a tela faz, e é por isso que o rótulo dela vira "Descrição
   // (opcional)" no modo paciente.
@@ -202,17 +292,29 @@ const comumDaTarefa = {
  * — que é literalmente o que a tela antiga mandava — passaria com o `serie`
  * descartado em silêncio, criando UMA tarefa onde a recepção pediu doze.
  */
-export const CriarTarefa = z.discriminatedUnion('vinculo', [
-  z.object({ ...comumDaTarefa, vinculo: z.literal('interna') }).strict(),
-  z
-    .object({
-      ...comumDaTarefa,
-      vinculo: z.literal('paciente'),
-      pacienteId: Uuid,
-      tipo: tipoQueNaoEhPagamento,
-    })
-    .strict(),
-])
+export const CriarTarefa = z
+  .discriminatedUnion('vinculo', [
+    z.object({ ...comumDaTarefa, vinculo: z.literal('interna') }).strict(),
+    z
+      .object({
+        ...comumDaTarefa,
+        vinculo: z.literal('paciente'),
+        pacienteId: Uuid,
+        tipo: tipoQueNaoEhPagamento,
+      })
+      .strict(),
+  ])
+  .superRefine((d, ctx) => {
+    // Destino EXCLUSIVO (Q1, `CHECK tarefa_tem_destino`): a recusa chega aqui, como
+    // erro de campo, antes de o banco ter de recusá-la.
+    if ((d.responsavelId === undefined) === (d.grupoId === undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [d.grupoId === undefined ? 'responsavelId' : 'grupoId'],
+        message: 'Escolha uma pessoa ou um grupo — não os dois, e não nenhum.',
+      })
+    }
+  })
 export type CriarTarefa = z.infer<typeof CriarTarefa>
 
 /**
@@ -298,6 +400,26 @@ export type MotivoDeSuporte = z.infer<typeof MotivoDeSuporte>
 export const CorpoComMotivo = z.object({ motivo: MotivoDeSuporte.optional() }).strict()
 export type CorpoComMotivo = z.infer<typeof CorpoComMotivo>
 
+/**
+ * Para onde uma tarefa vai: uma pessoa OU um grupo. União discriminada, e não
+ * dois campos opcionais, para que "os dois" e "nenhum" não tenham como ser escritos.
+ */
+export const DestinoDaTarefa = z.discriminatedUnion('tipo', [
+  z.object({ tipo: z.literal('pessoa'), id: Uuid }).strict(),
+  z.object({ tipo: z.literal('grupo'), id: Uuid }).strict(),
+])
+export type DestinoDaTarefa = z.infer<typeof DestinoDaTarefa>
+
+/** `POST v1/tarefas/:id/transferir`. A clínica vem da sessão; "de" vem do banco. */
+export const TransferirTarefa = z
+  .object({ para: DestinoDaTarefa, nota: NotaDoFluxo.optional() })
+  .strict()
+export type TransferirTarefa = z.infer<typeof TransferirTarefa>
+
+/** `POST v1/tarefas/:id/assumir`. Corpo vazio ou só com a nota. */
+export const AssumirTarefa = z.object({ nota: NotaDoFluxo.optional() }).strict()
+export type AssumirTarefa = z.infer<typeof AssumirTarefa>
+
 export const ExcluirTarefa = z
   .object({ serie: BooleanoDeConsulta.default(false) })
   .strict()
@@ -327,7 +449,10 @@ export const PagamentoNaSaida = z.object({
   id: Uuid,
   valor: centavosNaSaida,
   valorAberto: centavosNaSaida,
+  /** A forma da MAIOR parte (compatível com quem só conhece uma forma). */
   forma: z.string(),
+  /** As partes, da maior para a menor. `forma` vazia = legado migrado. Vazia na venda a prazo. */
+  partes: z.array(z.object({ forma: z.string(), valor: centavosNaSaida })),
   tipo: z.string(),
   recebidoEm: z.string(),
 })
@@ -390,6 +515,32 @@ export const EventoDeJornada = z.object({
 })
 export type EventoDeJornada = z.infer<typeof EventoDeJornada>
 
+/** As ações do FLUXO da tarefa (ADR 2026-11-14) — separadas das da jornada. */
+// `executar`: quem concluiu uma tarefa de PESSOA (pedido 3 — "registrar o usuário
+// que executou"). Qualquer um pode concluir a tarefa de outra pessoa, então o
+// responsável não prova quem fez; o evento prova.
+export const ACOES_DO_FLUXO = ['atribuir', 'transferir', 'assumir', 'concluirPeloGrupo', 'executar'] as const
+
+export const DestinoNaSaida = z.object({ tipo: z.enum(['pessoa', 'grupo']), id: Uuid })
+export type DestinoNaSaida = z.infer<typeof DestinoNaSaida>
+
+/**
+ * Um evento do FLUXO, como ele SAI. Mora em `historico` (jsonb) ao lado dos da
+ * jornada, mas sem `etapa`: os leitores da jornada filtram por `acao`/`etapa` e o
+ * ignoram. `de` é `null` em `atribuir` (a tarefa nasceu no grupo) e `para` é
+ * `null` em `concluirPeloGrupo` (o grupo é de onde saiu). `porId` é SEMPRE a
+ * pessoa que agiu.
+ */
+export const EventoDeFluxo = z.object({
+  acao: z.enum(ACOES_DO_FLUXO),
+  em: z.string(),
+  porId: z.string(),
+  de: DestinoNaSaida.nullable(),
+  para: DestinoNaSaida.nullable(),
+  nota: z.string().optional(),
+})
+export type EventoDeFluxo = z.infer<typeof EventoDeFluxo>
+
 /** Um item do programa proposto no orçamento, como ele sai. A costura com o épico 5. */
 export const ItemOrcadoNaSaida = z.object({
   procedimentoId: Uuid,
@@ -400,6 +551,8 @@ export const ItemOrcadoNaSaida = z.object({
   valor: centavosNaSaida.optional(),
   chave: z.string(),
   depoisDe: z.string().optional(),
+  /** A data da primeira sessão deste item ("Em outra data"), quando houver. */
+  inicio: DiaCivil.optional(),
 })
 export type ItemOrcadoNaSaida = z.infer<typeof ItemOrcadoNaSaida>
 
@@ -425,8 +578,16 @@ export const TarefaNaLista = z.object({
   id: Uuid,
   solicitanteId: Uuid,
   solicitanteNome: z.string(),
-  responsavelId: Uuid,
-  responsavelNome: z.string(),
+  /** `null` na tarefa de GRUPO ainda não assumida (`tarefa_tem_destino`). */
+  responsavelId: Uuid.nullable(),
+  responsavelNome: z.string().nullable(),
+  /** O grupo destino, ou `null` na tarefa de pessoa. O NOME do grupo não é dado pessoal. */
+  grupoId: Uuid.nullable(),
+  grupoNome: z.string().nullable(),
+  /** Para onde a tarefa está AGORA: a pessoa ou o grupo, com o nome. Sempre um dos dois. */
+  destino: z.object({ tipo: z.enum(['pessoa', 'grupo']), id: Uuid, nome: z.string() }),
+  /** A tarefa de onde esta nasceu, ou `null`. Só o id: a cadeia vem de `/fluxo`. */
+  tarefaOrigemId: Uuid.nullable(),
   descricao: z.string(),
   prazo: DiaCivil,
   hora: z.string().nullable(),
@@ -442,6 +603,12 @@ export const TarefaNaLista = z.object({
   tipo: z.string(),
   etapa: z.enum(ETAPAS).nullable(),
   historico: z.array(EventoDeJornada),
+  /**
+   * Os eventos do FLUXO (atribuir, transferir, assumir, concluir pelo grupo),
+   * separados dos da jornada. Fica visível mesmo sem a permissão `jornada`: a
+   * tarefa interna não tem jornada, e quem a enxerga vê por onde ela passou.
+   */
+  fluxo: z.array(EventoDeFluxo),
   /**
    * Centavos do negócio proposto — **nunca receita** (regra 4).
    *
@@ -599,6 +766,40 @@ export const ConsultaDeTarefas = z.object({
   deslocamento: z.coerce.number().int().min(0).max(100_000).default(0),
 })
 export type ConsultaDeTarefas = z.infer<typeof ConsultaDeTarefas>
+
+/**
+ * `GET v1/tarefas/:id/fluxo` — a cadeia de tarefas ligadas por `tarefaOrigemId`.
+ *
+ * O nó que a pessoa NÃO enxerga sai como marcador OPACO (`visivel: false`, sem
+ * descrição, sem destino, sem nome): a existência da cadeia aparece, o conteúdo
+ * não (appsec S2). `posicao` é a ordem do mais antigo (0) ao mais novo.
+ */
+export const NoDoFluxo = z.discriminatedUnion('visivel', [
+  z.object({ visivel: z.literal(false), id: Uuid, posicao: z.number().int() }),
+  z.object({
+    visivel: z.literal(true),
+    id: Uuid,
+    posicao: z.number().int(),
+    descricao: z.string(),
+    status: z.enum(['aberta', 'concluida', 'cancelada']),
+    prazo: DiaCivil,
+    criadaEm: z.string(),
+    concluidaEm: z.string().nullable(),
+    destino: z.object({ tipo: z.enum(['pessoa', 'grupo']), id: Uuid, nome: z.string() }),
+    pacienteId: Uuid.nullable(),
+    eventos: z.array(EventoDeFluxo),
+  }),
+])
+export type NoDoFluxo = z.infer<typeof NoDoFluxo>
+
+export const FluxoDaTarefa = z.object({
+  /** A tarefa pedida. */
+  raizId: Uuid,
+  nos: z.array(NoDoFluxo),
+  /** A cadeia foi cortada (profundidade 20 ou ciclo). */
+  truncado: z.boolean(),
+})
+export type FluxoDaTarefa = z.infer<typeof FluxoDaTarefa>
 
 export const ListaDeTarefas = z.object({
   tarefas: z.array(TarefaNaLista),

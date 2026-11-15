@@ -1,4 +1,10 @@
-import type { ItemDoOrcamentoNaSaida, ItemOrcadoNaSaida, TarefaNaLista } from '@fir/contracts'
+import {
+  ACOES_DO_FLUXO,
+  type EventoDeFluxo,
+  type ItemDoOrcamentoNaSaida,
+  type ItemOrcadoNaSaida,
+  type TarefaNaLista,
+} from '@fir/contracts'
 import {
   type Autor,
   type Etapa,
@@ -11,6 +17,7 @@ import type pg from 'pg'
 import { exigePessoa, pessoaDoAtor, type PessoaId } from '../banco/ator'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { ContextoDaRequisicao } from '../comum/contexto'
+import { PARTES_EM_JSON, partesDoJson } from '../financeiro/partes'
 
 /**
  * O autor como as regras de `packages/domain` o querem, com o id ainda
@@ -33,6 +40,13 @@ export type AutorDaRequisicao = Autor & {
    * alguém vai chamar de outro lugar sem resolvê-la.
    */
   readonly podeJornada: boolean
+  /**
+   * `temPerm(…, 'pacientes')` JÁ RESOLVIDO. Concluir a tarefa de PACIENTE de
+   * outra pessoa é de quem enxerga o paciente (a ficha lista todas as tarefas
+   * dele); sem isto, concluir pelo id entregaria nome e telefone a quem a
+   * leitura recusa (achado F7).
+   */
+  readonly podePaciente: boolean
 }
 
 /**
@@ -75,6 +89,7 @@ export const autorDe = (c: ContextoDaRequisicao): AutorDaRequisicao => ({
   id: exigePessoa(c.ator),
   podeEquipe: c.pode('tarefas.equipe'),
   podeJornada: c.pode('jornada'),
+  podePaciente: c.pode('pacientes'),
 })
 
 /**
@@ -95,6 +110,7 @@ export const leitorDe = (c: ContextoDaRequisicao): LeitorDaRequisicao => ({
   id: pessoaDoAtor(c.ator) ?? '',
   podeEquipe: c.pode('tarefas.equipe'),
   podeJornada: c.pode('jornada'),
+  podePaciente: c.pode('pacientes'),
 })
 
 /**
@@ -152,7 +168,10 @@ export const FORA_DE_PACIENTE_DESATIVADO = `NOT (t.status = 'aberta'
 export const SELECT_TAREFA = `
   SELECT t.id,
          t.solicitante_id, ps.nome AS solicitante_nome,
+         -- NULL na tarefa de GRUPO ainda não assumida (tarefa_tem_destino, 0084):
+         -- por isso o JOIN de pessoas é LEFT, e o de grupos também.
          t.responsavel_id, pr.nome AS responsavel_nome,
+         t.grupo_id, gr.nome AS grupo_nome, t.tarefa_origem_id,
          t.contato_id, pc.nome AS contato_nome,
          t.descricao, t.prazo::text AS prazo, t.hora::text AS hora, t.prioridade, t.status,
          t.concluida_em, t.criada_em,
@@ -184,10 +203,15 @@ export const SELECT_TAREFA = `
          -- estornado não conta receita, e o índice único parcial garante que
          -- no máximo um esteja vivo — então este JOIN não multiplica linhas.
          r.id AS rec_id, r.valor::text AS rec_valor, r.valor_aberto::text AS rec_valor_aberto,
-         r.forma AS rec_forma, r.tipo AS rec_tipo, r.recebido_em AS rec_recebido_em
+         -- As PARTES (a forma é delas, fatia 4.1) como subconsulta jsonb_agg,
+         -- NUNCA JOIN: um JOIN com as partes multiplicaria a linha da tarefa
+         -- pelo número de formas, e a lista mostraria o atendimento duas vezes.
+         ${PARTES_EM_JSON} AS rec_partes,
+         r.tipo AS rec_tipo, r.recebido_em AS rec_recebido_em
     FROM tarefas t
     JOIN pessoas ps ON ps.id = t.solicitante_id
-    JOIN pessoas pr ON pr.id = t.responsavel_id
+    LEFT JOIN pessoas pr ON pr.id = t.responsavel_id
+    LEFT JOIN grupos_da_equipe gr ON gr.id = t.grupo_id AND gr.clinica_id = t.clinica_id
     LEFT JOIN pessoas pc ON pc.id = t.contato_id
     LEFT JOIN pacientes pa ON pa.id = t.paciente_id
     LEFT JOIN recebimentos r ON r.tarefa_id = t.id AND r.estornado_em IS NULL
@@ -197,8 +221,11 @@ export type LinhaDeTarefa = {
   id: string
   solicitante_id: string
   solicitante_nome: string
-  responsavel_id: string
-  responsavel_nome: string
+  responsavel_id: string | null
+  responsavel_nome: string | null
+  grupo_id: string | null
+  grupo_nome: string | null
+  tarefa_origem_id: string | null
   contato_id: string | null
   contato_nome: string | null
   descricao: string
@@ -214,7 +241,8 @@ export type LinhaDeTarefa = {
   paciente_conferir_cadastro: boolean
   tipo: string
   etapa: string | null
-  historico: EventoDeJornada[]
+  /** Eventos da jornada E do fluxo, misturados no mesmo jsonb; `paraSaida` os separa. */
+  historico: (EventoDeJornada | EventoDeFluxo)[]
   valor_orcamento: string | null
   valor_fechado: string | null
   valor_de_referencia: string | null
@@ -237,7 +265,7 @@ export type LinhaDeTarefa = {
   rec_id: string | null
   rec_valor: string | null
   rec_valor_aberto: string | null
-  rec_forma: string | null
+  rec_partes: unknown
   rec_tipo: string | null
   rec_recebido_em: Date | null
   total?: string
@@ -257,12 +285,25 @@ export type LinhaDeTarefa = {
  * leitura de toda lista — e devolver o quê, quando falhasse? `null` esconde o
  * cartão da tela sem dizer nada, que é o defeito que este épico combate.
  */
+const ehEventoDeFluxo = (e: EventoDeJornada | EventoDeFluxo): e is EventoDeFluxo =>
+  (ACOES_DO_FLUXO as readonly string[]).includes(e.acao)
+
+/** Para onde a tarefa está AGORA. Por `tarefa_tem_destino`, é um dos dois. */
+const destinoDe = (l: LinhaDeTarefa): TarefaNaLista['destino'] =>
+  l.responsavel_id !== null
+    ? { tipo: 'pessoa', id: l.responsavel_id, nome: l.responsavel_nome ?? '' }
+    : { tipo: 'grupo', id: l.grupo_id ?? '', nome: l.grupo_nome ?? '' }
+
 export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   id: l.id,
   solicitanteId: l.solicitante_id,
   solicitanteNome: l.solicitante_nome,
   responsavelId: l.responsavel_id,
   responsavelNome: l.responsavel_nome,
+  grupoId: l.grupo_id,
+  grupoNome: l.grupo_nome,
+  destino: destinoDe(l),
+  tarefaOrigemId: l.tarefa_origem_id,
   contatoId: l.contato_id,
   contatoNome: l.contato_nome,
   descricao: l.descricao,
@@ -279,7 +320,8 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   pacienteConferirCadastro: l.paciente_conferir_cadastro,
   tipo: l.tipo,
   etapa: l.etapa as Etapa | null,
-  historico: l.historico,
+  historico: l.historico.filter((e): e is EventoDeJornada => !ehEventoDeFluxo(e)),
+  fluxo: l.historico.filter(ehEventoDeFluxo),
   valorOrcamento: l.valor_orcamento,
   valorFechado: l.valor_fechado,
   valorDeReferencia: l.valor_de_referencia,
@@ -324,7 +366,9 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
           id: l.rec_id,
           valor: l.rec_valor,
           valorAberto: l.rec_valor_aberto,
-          forma: l.rec_forma ?? '',
+          // A forma da MAIOR parte (compatível com quem só conhece uma forma).
+          forma: partesDoJson(l.rec_partes)[0]?.forma ?? '',
+          partes: partesDoJson(l.rec_partes),
           tipo: l.rec_tipo ?? '',
           recebidoEm: (l.rec_recebido_em ?? new Date(0)).toISOString(),
         },

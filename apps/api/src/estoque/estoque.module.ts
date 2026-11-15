@@ -3,7 +3,10 @@ import { provedorDeRelogio } from '../comum/relogio'
 import { BaixaDeInsumos } from '../programas/baixa-de-insumos'
 import { AnaliseService } from './analise.service'
 import { BaixaRelacional } from './baixa-relacional'
+import { ConsumoDoPacienteController } from './consumo-do-paciente.controller'
+import { ConsumoDoPacienteService } from './consumo-do-paciente.service'
 import { ContagensService } from './contagens.service'
+import { DiferencasService } from './diferencas.service'
 import { ImportacaoDeItensService } from './importacao.service'
 import { LeitorDeNota, LeitorDeNotaXml } from './leitor-de-nota'
 import { NotasService } from './notas.service'
@@ -22,13 +25,15 @@ import { MovimentosService } from './movimentos.service'
  * programas passaria a conhecer o esquema do estoque.
  */
 @Module({
-  controllers: [ItensController],
+  controllers: [ItensController, ConsumoDoPacienteController],
   providers: [
     ItensService,
     LocaisService,
     MovimentosService,
     ImportacaoDeItensService,
     ContagensService,
+    DiferencasService,
+    ConsumoDoPacienteService,
     NotasService,
     AnaliseService,
     provedorDeRelogio,

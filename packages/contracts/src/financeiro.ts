@@ -1,7 +1,14 @@
 import { CATEGORIAS_DESP, FORMAS_DE_CONFERENCIA, FORMAS_DE_SAIDA } from '@fir/domain'
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Mes, Uuid } from './comum'
-import { confirmacoesDoRecebimento, FORMAS, RespostaDeHoje } from './tarefas'
+import {
+  BooleanoDeConsulta,
+  conferirPartes,
+  confirmacoesDoRecebimento,
+  FORMAS,
+  PartesDoPagamento,
+  RespostaDeHoje,
+} from './tarefas'
 
 /**
  * As formas de ENTRADA são as mesmas de `tarefas.ts` — `FORMAS` —, e esta
@@ -64,7 +71,10 @@ const comumDoRecebimento = {
   requisicaoId: Uuid,
   pacienteId: Uuid,
   valor: valorRecebido,
-  forma: z.enum(FORMAS_DE_ENTRADA),
+  // `forma` OU `partes` (fatia 4.1), conferido na união abaixo: sem `partes` é
+  // a parte única com a forma de sempre.
+  forma: z.enum(FORMAS_DE_ENTRADA).optional(),
+  partes: PartesDoPagamento.optional(),
   em: DiaCivil,
   obs: Obs,
   unidadeId: Uuid.nullish(),
@@ -84,7 +94,33 @@ export type Referencia = (typeof REFERENCIAS)[number]
 const queAbre = <R extends string>(ref: R) =>
   z.object({ ...comumDoRecebimento, ref: z.literal(ref), valorAberto: valorEmAberto.optional() }).strict()
 
-export const RegistrarRecebimento = z.discriminatedUnion('ref', [
+/**
+ * O 409 de "Saldo em aberto" pago em VÁRIAS formas acima da dívida (veto V-1).
+ *
+ * Com uma forma só, o servidor corta o valor no que quita a dívida (pedido 6).
+ * Com mais de uma, cortar exigiria escolher DE QUAL forma tirar — e a escolhida
+ * dependeria da ordem digitada, e o caixa acusaria uma sobra que ninguém causou.
+ * Então o servidor recusa, e a tela pede uma nova divisão.
+ *
+ * `devido` só existe para quem tem `valores`. Sem ela, a chave NÃO EXISTE (o
+ * 409 não passa pela redação central, e um `null` contaria que há número ali).
+ */
+/** As partes de um recebimento na SAÍDA (lista, tarefa, funil), da maior para a menor. */
+export const PartesNaSaida = z.array(z.object({ forma: z.string(), valor: centavosNaSaida }))
+
+export const CODIGO_PARTES_ACIMA_DA_DIVIDA = 'PARTES_ACIMA_DA_DIVIDA'
+export const PartesAcimaDaDivida = z
+  .object({
+    statusCode: z.literal(409),
+    codigo: z.literal(CODIGO_PARTES_ACIMA_DA_DIVIDA),
+    message: z.string(),
+    devido: centavosNaSaida.optional(),
+  })
+  .strict()
+export type PartesAcimaDaDivida = z.infer<typeof PartesAcimaDaDivida>
+
+export const RegistrarRecebimento = z
+  .discriminatedUnion('ref', [
   queAbre('consulta'),
   queAbre('sinal'),
   queAbre('novo'),
@@ -98,7 +134,8 @@ export const RegistrarRecebimento = z.discriminatedUnion('ref', [
   // "Saldo em aberto" caía no grupo geral, e a paciente que devia num programa
   // ficava com a dívida do programa e um crédito no geral.
   z.object({ ...comumDoRecebimento, ref: z.literal('saldo'), programaId: Uuid.nullish() }).strict(),
-])
+  ])
+  .superRefine(conferirPartes)
 export type RegistrarRecebimento = z.infer<typeof RegistrarRecebimento>
 
 export const RecebimentoNaLista = z.object({
@@ -109,7 +146,10 @@ export const RecebimentoNaLista = z.object({
   tipo: z.string(),
   valor: centavosNaSaida,
   valorAberto: centavosNaSaida,
+  /** A forma da MAIOR parte. Quem mostra o detalhe lê `partes`. */
   forma: z.enum(FORMAS_DE_ENTRADA),
+  /** As partes, da maior para a menor. `forma` vazia = legado migrado (entra na receita, fora do caixa). */
+  partes: PartesNaSaida,
   em: DiaCivil,
   obs: z.string(),
   registradoPor: z.string(),
@@ -138,7 +178,8 @@ export const ConsultaDeRecebimentos = z
     ate: DiaCivil.optional(),
     pacienteId: Uuid.optional(),
     ultimosDias: z.coerce.number().int().min(1).max(31).optional(),
-    incluirEstornados: z.coerce.boolean().optional(),
+    // `z.coerce.boolean()` faria "false" virar true (string não vazia).
+    incluirEstornados: BooleanoDeConsulta.optional(),
   })
   .strict()
   .refine((q) => (q.de === undefined) === (q.ate === undefined), {
@@ -604,6 +645,13 @@ export const VisaoDoMes = z
 
     recebido: centavosNaSaida,
     quantidadeDeRecebimentos: z.number().int(),
+    /**
+     * A linha "Outras entradas" (fatia 4.2): dinheiro que NÃO é de paciente.
+     * Fora de `recebido`, de meta e de `porForma`; dentro de `resultadoDoMes`
+     * (recebido + outras − despesas pagas). Sem `valores`, a redação a apaga.
+     */
+    outrasEntradas: centavosNaSaida,
+    quantidadeDeOutrasEntradas: z.number().int(),
     /**
      * Recebido por forma — **só dos dias com o caixa já fechado** (regra 6).
      *

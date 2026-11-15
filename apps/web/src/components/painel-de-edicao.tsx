@@ -1,6 +1,8 @@
 'use client'
 
 import type {
+  ClinicaAtual,
+  DestinoDaTarefa,
   ExclusaoDeTarefa,
   ListaDaEquipe,
   ListaDeUnidades,
@@ -8,13 +10,15 @@ import type {
   PrevisaoDeExclusao,
   TarefasAfetadas,
 } from '@fir/contracts'
+import { diaCivil } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { validarMotivoDeSuporte } from '@/lib/motivo-de-suporte'
 import { CampoDeCampanha } from './campo-de-campanha'
 import { CampoDeMotivoDeSuporte } from './campo-de-motivo-de-suporte'
+import { TransferirTarefa } from './transferir-tarefa'
 
 /**
  * Editar — e **Excluir dentro de Editar**, como no MANUAL cap. 4.
@@ -33,24 +37,42 @@ export function PainelDeEdicao({
   hoje,
   aoFechar,
   aoSalvar,
+  transferir,
 }: {
   tarefa: TarefaNaLista
   hoje: string
   aoFechar: () => void
   aoSalvar: (aviso: string) => void
+  /**
+   * Transferir a tarefa (`useAcoesDeTarefa().acoes.transferir`). Ausente, a
+   * tarefa de grupo mostra só quem a tem — sem o botão.
+   */
+  transferir?: ((id: string, para: DestinoDaTarefa, nota?: string) => Promise<void>) | undefined
 }) {
   const [descricao, setDescricao] = useState(t.descricao)
   const [prazo, setPrazo] = useState(t.prazo)
   const [hora, setHora] = useState(t.hora ?? '')
-  const [responsavelId, setResponsavelId] = useState(t.responsavelId)
+  // Tarefa de GRUPO não tem responsável até alguém assumir: o seletor não existe
+  // e `responsavelId` nunca viaja (um `''` seria recusado, e `null` desfaria o grupo).
+  const deGrupo = t.grupoId !== null
+  const [responsavelId, setResponsavelId] = useState(t.responsavelId ?? '')
+  const [transferindo, setTransferindo] = useState(false)
+  const fecharTransferencia = useCallback(() => setTransferindo(false), [])
   const [prioridade, setPrioridade] = useState(t.prioridade)
   const [obs, setObs] = useState(t.obs)
   const [unidadeId, setUnidadeId] = useState(t.unidadeId ?? '')
   const [campanhaId, setCampanhaId] = useState(t.campanhaId ?? '')
   const trocouCampanha = campanhaId !== (t.campanhaId ?? '')
-  const [realizadaEm, setRealizadaEm] = useState(
-    t.concluidaEm === null ? '' : t.concluidaEm.slice(0, 10),
-  )
+  // O dia da realização é o dia NO FUSO DA CLÍNICA, e não o do ISO UTC: uma
+  // tarefa concluída às 22h em Salvador já é o dia seguinte em UTC. `null` = a
+  // pessoa não mexeu, e então a data nem viaja.
+  const clinica = useDados<ClinicaAtual>('v1/clinica')
+  const [realizadaEmEditada, setRealizadaEm] = useState<string | null>(null)
+  const realizadaEm =
+    realizadaEmEditada ??
+    (t.concluidaEm === null || clinica.dados === null
+      ? ''
+      : diaCivil(new Date(t.concluidaEm), clinica.dados.fuso))
   const [serie, setSerie] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
@@ -73,7 +95,8 @@ export function PainelDeEdicao({
     const origem = document.activeElement
     painel.current?.querySelector('input')?.focus()
     const esc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') aoFechar()
+      // Com o modal de transferência por cima, o Esc é DELE: fecha só ele.
+      if (e.key === 'Escape' && document.querySelector('.veu-de-modal') === null) aoFechar()
     }
     document.addEventListener('keydown', esc)
     return () => {
@@ -91,7 +114,7 @@ export function PainelDeEdicao({
         descricao,
         prazo,
         hora: hora === '' ? null : hora,
-        responsavelId,
+        ...(deGrupo ? {} : { responsavelId }),
         prioridade,
         obs,
         serie,
@@ -102,7 +125,9 @@ export function PainelDeEdicao({
       if (trocouCampanha) corpo['campanhaId'] = campanhaId === '' ? null : campanhaId
       // A data de realização só vai quando a tarefa ESTÁ concluída: o servidor
       // recusa o contrário, e com razão — editar não conclui.
-      if (t.status === 'concluida' && realizadaEm !== '') corpo['realizadaEm'] = realizadaEm
+      if (t.status === 'concluida' && realizadaEmEditada !== null && realizadaEmEditada !== '') {
+        corpo['realizadaEm'] = realizadaEmEditada
+      }
 
       await chamar<TarefasAfetadas>(`v1/tarefas/${t.id}`, {
         method: 'PATCH',
@@ -139,6 +164,19 @@ export function PainelDeEdicao({
     } finally {
       setSalvando(false)
     }
+  }
+
+  // O modal da casa fica ABAIXO desta folha (z-index), então a transferência o
+  // substitui em vez de abrir por cima; "Cancelar" volta à edição.
+  if (transferindo && transferir !== undefined) {
+    return (
+      <TransferirTarefa
+        tarefa={t}
+        transferir={transferir}
+        aoFechar={fecharTransferencia}
+        aoTransferir={() => aoSalvar('Tarefa transferida.')}
+      />
+    )
   }
 
   return (
@@ -190,6 +228,23 @@ export function PainelDeEdicao({
       </div>
 
       <div className="par">
+        {deGrupo ? (
+          <div className="campo">
+            Com o grupo
+            <b style={{ fontWeight: 600 }}>{t.destino.nome}</b>
+            <small>
+              Quem assume vira a responsável.
+              {transferir === undefined || t.status !== 'aberta' ? null : (
+                <>
+                  {' '}
+                  <button type="button" className="link" onClick={() => setTransferindo(true)}>
+                    Transferir
+                  </button>
+                </>
+              )}
+            </small>
+          </div>
+        ) : (
         <label className="campo">
           Responsável
           <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>
@@ -206,6 +261,7 @@ export function PainelDeEdicao({
               ))}
           </select>
         </label>
+        )}
         <label className="campo">
           Prioridade
           <select

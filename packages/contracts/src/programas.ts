@@ -1,7 +1,14 @@
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Hora, quantidadeEmTexto, Uuid } from './comum'
 import { HojeComFinanceiro } from './financeiro'
-import { confirmacoesDoRecebimento, FORMAS, PagamentoEmbutido, TarefaNaLista } from './tarefas'
+import {
+  conferirPartes,
+  confirmacoesDoRecebimento,
+  FORMAS,
+  PagamentoEmbutido,
+  PartesDoPagamento,
+  TarefaNaLista,
+} from './tarefas'
 
 /**
  * O CATÁLOGO E O PROGRAMA — o vocabulário que o legado inverte.
@@ -167,16 +174,28 @@ export type EditarProcedimento = z.infer<typeof EditarProcedimento>
  * programa — ou logo depois do item de `depoisDe`, e é o CRONOGRAMA do
  * domínio quem resolve isso, não o cliente.
  */
+/** Limites do programa montado (Nova adesão, Recebimento); a tela os importa daqui. */
+export const LIMITES_DO_PROGRAMA = {
+  itens: { max: 12 },
+  sessoes: { min: 1, max: 104 },
+  intervaloDias: { min: 1, max: 365 },
+  dose: { max: 60 },
+} as const
+
 const ItemDoPrograma = z
   .object({
     chave: z.string().trim().min(1).max(20),
     procedimentoId: Uuid,
-    sessoes: z.number().int().min(1).max(104),
-    intervaloDias: z.number().int().min(1).max(365),
+    sessoes: z.number().int().min(LIMITES_DO_PROGRAMA.sessoes.min).max(LIMITES_DO_PROGRAMA.sessoes.max),
+    intervaloDias: z
+      .number()
+      .int()
+      .min(LIMITES_DO_PROGRAMA.intervaloDias.min)
+      .max(LIMITES_DO_PROGRAMA.intervaloDias.max),
     inicio: DiaCivil.optional(),
     depoisDe: z.string().trim().min(1).max(20).optional(),
     responsavelId: Uuid.nullish(),
-    dose: z.string().trim().max(60).optional(),
+    dose: z.string().trim().max(LIMITES_DO_PROGRAMA.dose.max).optional(),
     valor: valorDoItem.optional(),
     insumo: Insumo.optional(),
   })
@@ -248,7 +267,7 @@ export const MontarPrograma = z
     // coluna entra por expand. Recusá-lo agora obrigaria a tela a mudar duas
     // vezes.
     campanhaId: Uuid.nullish(),
-    itens: z.array(ItemDoPrograma).min(1).max(12).superRefine(fechaOEncadeamento),
+    itens: z.array(ItemDoPrograma).min(1).max(LIMITES_DO_PROGRAMA.itens.max).superRefine(fechaOEncadeamento),
     pagamento: z
       .object({
         valorTotal,
@@ -262,16 +281,22 @@ export const MontarPrograma = z
          * "Pix" num recebimento de R$ 0,00 é um Pix que ninguém fez.
          */
         forma: z.enum(FORMAS).optional(),
+        /** Várias formas na entrada (fatia 4.1): `forma` OU `partes`, somando `valorEntrada`. */
+        partes: PartesDoPagamento.optional(),
       })
       .strict()
       .refine((p) => p.valorEntrada <= p.valorTotal, {
         path: ['valorEntrada'],
         message: 'O valor pago não pode ser maior que o total.',
       })
-      .refine((p) => (p.valorEntrada > 0n) === (p.forma !== undefined), {
+      .refine((p) => (p.valorEntrada > 0n) === (p.forma !== undefined || p.partes !== undefined), {
         path: ['forma'],
         message:
           'Escolha a forma de pagamento da entrada — e não informe forma nenhuma quando a paciente não pagou nada agora.',
+      })
+      // Com entrada, `forma` OU `partes` (e a soma fecha com a entrada).
+      .superRefine((p, ctx) => {
+        if (p.valorEntrada > 0n) conferirPartes({ ...p, valor: p.valorEntrada }, ctx)
       })
       .optional(),
     ...confirmacoesDoRecebimento,

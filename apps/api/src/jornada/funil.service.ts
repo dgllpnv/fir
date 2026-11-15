@@ -27,6 +27,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
+import { PARTES_EM_JSON, partesDoJson } from '../financeiro/partes'
 import { bordasDoPeriodo } from '../tarefas/consulta.service'
 import { sqlEventoDesfeito, sqlParcial } from './parcial'
 
@@ -199,12 +200,13 @@ export class FunilService {
         paciente: string
         tipo: string
         valor: string
-        forma: string
+        partes: unknown
         em: string
         programa: string | null
         total: string
       }>(
-        `SELECT r.id, r.paciente_id, p.nome AS paciente, r.tipo, r.valor::text AS valor, r.forma,
+        `SELECT r.id, r.paciente_id, p.nome AS paciente, r.tipo, r.valor::text AS valor,
+                ${PARTES_EM_JSON} AS partes,
                 ((r.recebido_em AT TIME ZONE $2)::date)::text AS em,
                 (SELECT string_agg(DISTINCT pr.nome, ' + ' ORDER BY pr.nome)
                    FROM itens_do_programa ip JOIN procedimentos pr ON pr.id = ip.procedimento_id
@@ -227,7 +229,9 @@ export class FunilService {
           paciente: x.paciente,
           tipo: x.tipo,
           valor: x.valor,
-          forma: x.forma,
+          // A forma da MAIOR parte (a lista de partes vem da subconsulta, sem JOIN).
+          forma: partesDoJson(x.partes)[0]?.forma ?? '',
+          partes: partesDoJson(x.partes),
           em: x.em,
           programa: x.programa,
         })),

@@ -4,7 +4,12 @@ import { useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Modal } from '@/components/modal'
 import { chamar } from './api'
-import { comConfirmacao, type ContextoDaPergunta, perguntasDosAvisos } from './confirmacao'
+import {
+  comConfirmacao,
+  type ContextoDaPergunta,
+  perguntasDosAvisos,
+  textosDoDialogo,
+} from './confirmacao'
 
 /**
  * O diálogo dos avisos de recebimento — **aberto por quem chama, sem estado na
@@ -39,21 +44,27 @@ export function perguntarNaTela(
       }, 0)
     }
     raiz.render(
-      <DialogoDeConfirmacao perguntas={perguntasDosAvisos(avisos, ctx)} aoResponder={responder} />,
+      <DialogoDeConfirmacao
+        perguntas={perguntasDosAvisos(avisos, ctx)}
+        textos={textosDoDialogo(avisos)}
+        aoResponder={responder}
+      />,
     )
   })
 }
 
 function DialogoDeConfirmacao({
   perguntas,
+  textos,
   aoResponder,
 }: {
   perguntas: readonly string[]
+  textos: { titulo: string; confirmar: string }
   aoResponder: (sim: boolean) => void
 }) {
   const cancelar = useCallback(() => aoResponder(false), [aoResponder])
   return (
-    <Modal titulo="Confirme antes de lançar" aoFechar={cancelar}>
+    <Modal titulo={textos.titulo} aoFechar={cancelar}>
       {perguntas.map((p) => (
         <p className="nota" key={p}>
           {p}
@@ -64,7 +75,7 @@ function DialogoDeConfirmacao({
           Cancelar
         </button>
         <button type="button" className="btn" onClick={() => aoResponder(true)}>
-          Lançar mesmo assim
+          {textos.confirmar}
         </button>
       </div>
     </Modal>

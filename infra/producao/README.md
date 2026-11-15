@@ -41,6 +41,19 @@ reflexo.
 6.  ./redefinir-superadmin.sh <usuario> "Nome"   # cria o PRIMEIRO operador
 ```
 
+### Conferência antes da migration 0084 (tarefas para grupo)
+
+A 0084 acrescenta uma FK composta `(responsavel_id, clinica_id)` que **valida todas as linhas**
+existentes. Se alguma tarefa tiver responsável de outra clínica, a migration falha no meio do deploy.
+Confira antes, no banco de produção; o resultado tem de ser **0**:
+
+```sql
+SELECT count(*) FROM tarefas t
+  JOIN pessoas p ON p.id = t.responsavel_id AND p.clinica_id <> t.clinica_id;
+```
+
+Diferente de 0: não aplique; é dado corrompido a investigar. A 0084 já aplicada não se edita.
+
 ### ⚠️ A armadilha da ordem — medida, não deduzida
 
 A versão anterior deste README mandava provisionar o painel **depois** de subir

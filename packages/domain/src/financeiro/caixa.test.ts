@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { Dinheiro } from '../dinheiro'
 import {
   alteracoesDepoisDoFechamento,
-  avisosDoRecebimento,
+  avisoDeCaixaFechado,
+  avisoDeDuplicidade,
   conferirCaixa,
   esperadoDoCaixa,
   FORA_DA_CONFERENCIA,
@@ -279,46 +280,53 @@ describe('alteracoesDepoisDoFechamento', () => {
   })
 })
 
-describe('avisosDoRecebimento', () => {
-  const base = {
-    forma: 'Pix',
-    valor: c(10000),
-    caixaFechado: false,
-    haRecebimentoIgual: false,
-    confirmarCaixaFechado: false,
-    confirmarDuplicidade: false,
-  }
+describe('avisoDeCaixaFechado e avisoDeDuplicidade', () => {
+  const caixa = { forma: 'Pix', valor: c(10000), caixaFechado: false, confirmarCaixaFechado: false }
+  const dup = { valor: c(10000), haRecebimentoIgual: false, confirmarDuplicidade: false }
 
   it('nada a avisar → lista vazia', () => {
-    expect(avisosDoRecebimento(base)).toEqual([])
+    expect(avisoDeCaixaFechado(caixa)).toEqual([])
+    expect(avisoDeDuplicidade(dup)).toEqual([])
   })
 
   it('caixa fechado avisa; confirmado, não', () => {
-    expect(avisosDoRecebimento({ ...base, caixaFechado: true })).toEqual(['CAIXA_FECHADO'])
-    expect(avisosDoRecebimento({ ...base, caixaFechado: true, confirmarCaixaFechado: true })).toEqual([])
+    expect(avisoDeCaixaFechado({ ...caixa, caixaFechado: true })).toEqual(['CAIXA_FECHADO'])
+    expect(avisoDeCaixaFechado({ ...caixa, caixaFechado: true, confirmarCaixaFechado: true })).toEqual([])
   })
 
   it('caixa fechado NÃO se aplica a nota promissória nem a valor zero (fora da gaveta)', () => {
-    expect(avisosDoRecebimento({ ...base, caixaFechado: true, forma: FORA_DA_CONFERENCIA })).toEqual([])
-    expect(avisosDoRecebimento({ ...base, caixaFechado: true, valor: c(0), forma: '' })).toEqual([])
+    expect(avisoDeCaixaFechado({ ...caixa, caixaFechado: true, forma: FORA_DA_CONFERENCIA })).toEqual([])
+    expect(avisoDeCaixaFechado({ ...caixa, caixaFechado: true, valor: c(0), forma: '' })).toEqual([])
   })
 
-  it('duplicidade avisa em qualquer forma, promissória inclusive; confirmada, não', () => {
-    expect(avisosDoRecebimento({ ...base, haRecebimentoIgual: true })).toEqual(['POSSIVEL_DUPLICIDADE'])
-    expect(
-      avisosDoRecebimento({ ...base, haRecebimentoIgual: true, forma: FORA_DA_CONFERENCIA }),
-    ).toEqual(['POSSIVEL_DUPLICIDADE'])
-    expect(avisosDoRecebimento({ ...base, haRecebimentoIgual: true, confirmarDuplicidade: true })).toEqual([])
+  it('duplicidade avisa (a forma nem entra na pergunta); confirmada, não', () => {
+    expect(avisoDeDuplicidade({ ...dup, haRecebimentoIgual: true })).toEqual(['POSSIVEL_DUPLICIDADE'])
+    expect(avisoDeDuplicidade({ ...dup, haRecebimentoIgual: true, confirmarDuplicidade: true })).toEqual([])
   })
 
   it('valor zero nunca é duplicidade', () => {
-    expect(avisosDoRecebimento({ ...base, haRecebimentoIgual: true, valor: c(0), forma: '' })).toEqual([])
+    expect(avisoDeDuplicidade({ ...dup, haRecebimentoIgual: true, valor: c(0) })).toEqual([])
   })
 
-  it('os dois juntos, e cada confirmação só apaga o seu', () => {
-    const ambos = { ...base, caixaFechado: true, haRecebimentoIgual: true }
-    expect(avisosDoRecebimento(ambos)).toEqual(['CAIXA_FECHADO', 'POSSIVEL_DUPLICIDADE'])
-    expect(avisosDoRecebimento({ ...ambos, confirmarCaixaFechado: true })).toEqual(['POSSIVEL_DUPLICIDADE'])
-    expect(avisosDoRecebimento({ ...ambos, confirmarDuplicidade: true })).toEqual(['CAIXA_FECHADO'])
+  /**
+   * F8 (segurança): o aviso do caixa é função SÓ do que a pessoa digitou e do
+   * estado do caixa — nunca de existir ou não um pagamento igual. Se fosse, a
+   * lista do caixa diria "há um pagamento de X hoje" a quem não vê valores.
+   */
+  it('o aviso do caixa não depende de valor oculto: qualquer valor positivo dá a mesma resposta', () => {
+    fc.assert(
+      fc.property(
+        fc.bigInt({ min: 1n, max: 10n ** 12n }),
+        fc.bigInt({ min: 1n, max: 10n ** 12n }),
+        fc.boolean(),
+        fc.boolean(),
+        (a, b, fechado, confirmado) => {
+          const x = { forma: 'Pix', caixaFechado: fechado, confirmarCaixaFechado: confirmado }
+          expect(avisoDeCaixaFechado({ ...x, valor: Dinheiro.deCentavos(a) })).toEqual(
+            avisoDeCaixaFechado({ ...x, valor: Dinheiro.deCentavos(b) }),
+          )
+        },
+      ),
+    )
   })
 })

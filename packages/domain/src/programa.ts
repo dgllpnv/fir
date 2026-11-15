@@ -91,6 +91,22 @@ export function ordenarItens(itens: readonly ItemParaCronograma[]): Result<reado
   return ok(ordem)
 }
 
+/**
+ * O último dia em que um item pode COMEÇAR: um ano depois de `hoje` (do dia da
+ * clínica, calculado por quem chama). 29/02 vira 28/02 do ano seguinte.
+ * Janela fechada neste fim: a data-limite ainda vale.
+ */
+export function ultimoInicioPermitido(hoje: string): string {
+  const [a, m, d] = hoje.split('-') as [string, string, string]
+  const ano = Number(a) + 1
+  const dia = `${ano}-${m}-${d}`
+  const volta = new Date(`${dia}T00:00:00Z`).toISOString().slice(0, 10)
+  return volta === dia ? dia : `${ano}-02-28`
+}
+
+/** Começar antes de hoje não é erro — é pergunta: as sessões já nascem atrasadas. */
+export const inicioJaPassou = (inicio: string, hoje: string): boolean => inicio < hoje
+
 /** `n` datas a partir de `inicio`, de `intervaloDias` em `intervaloDias`. */
 export function datasDasSessoes(
   inicio: string,

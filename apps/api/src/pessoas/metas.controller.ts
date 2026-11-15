@@ -65,7 +65,9 @@ import { MetasService } from './metas.service'
  * `orc_valor` viaja em `metaEmDinheiro`/`realizadoEmDinheiro`, que estão em
  * `CAMPOS_MONETARIOS`, e o `RedacaoInterceptor` os apaga num ponto único
  * (regra 17). Sem `valores`, a meta entrega só o `percentual` — em TODA rota
- * daqui, inclusive na que ninguém revisou.
+ * daqui, inclusive na que ninguém revisou. O que ele FAZ é repassar
+ * `pode('valores')` ao serviço, que recusa (403) criar ou editar meta em R$
+ * sem ela: quem escolhe o alvo lê o valor no percentual (achado F3).
  */
 @Controller('v1/metas-de-pessoa')
 @Exige('pessoas.gerir')
@@ -251,7 +253,7 @@ export class ConversasController {
 function contexto(req: RequisicaoComContexto) {
   // `!` seguro: `SessaoGuard` é global e nenhuma rota daqui é `@Publico()`.
   const c = req.contexto!
-  return { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso }
+  return { clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso, valores: c.pode('valores') }
 }
 
 /**

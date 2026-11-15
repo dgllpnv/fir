@@ -1,6 +1,6 @@
 # ADR 0025 — Setor de atuação e tarefa para o setor
 
-**Status:** aceita · 2026-11-09. O dono respondeu P1 a P8 (§16). Os três gates aprovaram: appsec
+**Status:** SUBSTITUÍDA em 2026-11-14 pela ADR `2026-11-14-grupos-de-colaboradores-substitui-setor-de-atuacao` (nunca foi construída). Aceita · 2026-11-09. O dono respondeu P1 a P8 (§16). Os três gates aprovaram: appsec
 (S-51 a S-60 incorporadas), números (N-23 a N-33) e LGPD, cuja segunda passada
 (`correcoes-po-gate-lgpd.md`, "B4 — segunda passada") registra ciência e aceite da declaração de
 S-60 (§14.4) e parecer favorável a §10.4. As condições finais (S60-1, S60-3, LA24-1 a LA24-3)

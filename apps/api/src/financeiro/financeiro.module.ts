@@ -7,6 +7,8 @@ import { ContasController } from './contas.controller'
 import { ContasService } from './contas.service'
 import { HojeFinanceiroService } from './hoje-financeiro.service'
 import { CobrancasService } from './cobrancas.service'
+import { CategoriasDeEntradaController, OutrasEntradasController } from './outras-entradas.controller'
+import { OutrasEntradasService } from './outras-entradas.service'
 import { RecebimentosController } from './recebimentos.controller'
 import { RecebimentosService } from './recebimentos.service'
 import { SaldoController } from './saldo.controller'
@@ -37,6 +39,8 @@ import { VisaoDoMesService } from './visao-do-mes.service'
     CaixaController,
     ContasController,
     VisaoDoMesController,
+    OutrasEntradasController,
+    CategoriasDeEntradaController,
   ],
   providers: [
     RecebimentosService,
@@ -45,6 +49,7 @@ import { VisaoDoMesService } from './visao-do-mes.service'
     ContasService,
     HojeFinanceiroService,
     VisaoDoMesService,
+    OutrasEntradasService,
     provedorDeRelogio,
   ],
   exports: [RecebimentosService, HojeFinanceiroService],

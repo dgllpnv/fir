@@ -1,12 +1,13 @@
 'use client'
 
 import type { PagamentoEmbutido, SessaoNaAgenda } from '@fir/contracts'
-import { FORMAS } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
 import { useState } from 'react'
 import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
+import { corpoDaForma, estadoInicialDasFormas } from '@/lib/partes-do-pagamento'
+import { FormasDePagamento, partesFecham } from '../formas-de-pagamento'
 import { diaEmTexto, linkDeWhatsApp } from '@/lib/formato'
 import { ICONE_CHECK, ICONE_WHATSAPP } from '@/lib/icones'
 import { AvisoDeSaldo } from './aviso-de-saldo'
@@ -194,7 +195,7 @@ function PainelDaSessao({
   const [obs, setObs] = useState('')
   const [houvePagamento, setHouvePagamento] = useState(false)
   const [valor, setValor] = useState('')
-  const [forma, setForma] = useState<PagamentoEmbutido['forma']>(FORMAS[0])
+  const [formas, setFormas] = useState(() => estadoInicialDasFormas())
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
@@ -215,7 +216,13 @@ function PainelDaSessao({
         setErro('Informe o valor recebido (ou marque “Não”).')
         return
       }
-      pagamento = { valor: c, forma }
+      // `forma` OU `partes` (várias formas), conferido contra o valor.
+      const daForma = corpoDaForma(c, formas)
+      if (daForma.tipo === 'erro') {
+        setErro(daForma.mensagem)
+        return
+      }
+      pagamento = { valor: c, ...daForma.corpo }
     }
     setSalvando(true)
     try {
@@ -312,16 +319,7 @@ function PainelDaSessao({
               onChange={(e) => setValor(e.target.value)}
             />
           </label>
-          <label className="campo">
-            Forma de pagamento
-            <select value={forma} onChange={(e) => setForma(e.target.value as typeof forma)}>
-              {FORMAS.map((f) => (
-                <option key={f} value={f}>
-                  {f}
-                </option>
-              ))}
-            </select>
-          </label>
+          <FormasDePagamento estado={formas} aoMudar={setFormas} total={centavosDoTexto(valor)} />
         </div>
       ) : null}
 
@@ -339,7 +337,15 @@ function PainelDaSessao({
       {erro === null ? null : <p className="campo erro">{erro}</p>}
 
       <div className="botoes">
-        <button type="button" className="btn" onClick={() => void salvar()} disabled={salvando}>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => void salvar()}
+          disabled={
+            salvando ||
+            (houvePagamento && podeReceber && !partesFecham(formas, centavosDoTexto(valor)))
+          }
+        >
           {salvando ? 'Concluindo…' : 'Concluir sessão'}
         </button>
         <button type="button" className="btn ghost" onClick={aoFechar} disabled={salvando}>
@@ -375,7 +381,17 @@ export function corpoDaSessao(d: DadosDaSessao): Record<string, unknown> {
       : {
           pagamento: {
             valor: d.pagamento.valor.toString(),
-            forma: d.pagamento.forma,
+            // `forma` OU `partes` — nunca as duas (fatia 4.1).
+            ...(d.pagamento.partes !== undefined
+              ? {
+                  partes: d.pagamento.partes.map((p) => ({
+                    forma: p.forma,
+                    valor: p.valor.toString(),
+                  })),
+                }
+              : d.pagamento.forma === undefined
+                ? {}
+                : { forma: d.pagamento.forma }),
             ...(d.pagamento.valorAberto === undefined
               ? {}
               : { valorAberto: d.pagamento.valorAberto.toString() }),

@@ -1,0 +1,103 @@
+/*
+ * FINANCEIRO — as peças das fatias 4.1 e 4.2: "Incluir mais de uma forma de
+ * pagamento" e "Outras entradas". Nomes com prefixo (`partes-`, `entradas-`):
+ * a folha é uma só para o sistema inteiro e um nome genérico alcança tudo.
+ */
+
+/* ---------- várias formas de pagamento ---------- */
+
+.formas-de-pagamento { display: grid; gap: 8px; align-content: start; min-width: 0; }
+fieldset.formas-de-pagamento {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r);
+}
+/* Com a lista aberta ela ocupa a linha inteira do `.par` — três colunas não cabem em 390 px. */
+.formas-de-pagamento[data-multiplas='sim'] { grid-column: 1 / -1; }
+fieldset.formas-de-pagamento > legend { font-size: 13px; font-weight: 600; padding: 0 6px; }
+
+.partes-linhas { display: grid; gap: 8px; }
+.partes-linha {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+.partes-linha > .campo { min-width: 0; }
+/* 390 px: forma e valor dividem a linha; "Tirar" desce para a de baixo, à direita. */
+@media (max-width: 460px) {
+  .partes-linha { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .partes-linha > .partes-tirar { grid-column: 1 / -1; justify-self: end; min-height: 36px; }
+  .partes-linha > span { display: none; }
+}
+.partes-valor { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* Botão discreto: texto sublinhado, mas com alvo de toque de 44 px. */
+.partes-abrir,
+.partes-tirar {
+  min-height: 44px;
+  padding: 0 4px;
+  background: transparent;
+  border: 0;
+  color: var(--gold-ink);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.partes-tirar { padding: 0 8px; color: var(--muted); text-align: center; }
+.partes-abrir:focus-visible,
+.partes-tirar:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; border-radius: 4px; }
+.partes-abrir:disabled { opacity: 0.55; cursor: default; }
+
+.partes-acoes { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; }
+
+/* Texto e cor juntos: a cor sozinha não diz nada a quem não a distingue. */
+.partes-resumo {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.partes-resumo[data-situacao='falta'] { color: var(--warn-ink); }
+.partes-resumo[data-situacao='passou'],
+.partes-resumo[data-situacao='invalida'] { color: var(--bad); }
+.partes-resumo[data-situacao='fecha'] { color: var(--ok); }
+
+/* ---------- outras entradas ---------- */
+
+.entradas-barra { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 12px; }
+.entradas-barra > .campo { flex: 1 1 150px; min-width: 0; }
+.entradas-dia { font-variant-numeric: tabular-nums; }
+.entradas-categoria-linha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.entradas-categoria-linha > .campo { flex: 1 1 200px; min-width: 0; }
+.entradas-categoria-linha[data-ativa='nao'] .entradas-categoria-nome { color: var(--muted); text-decoration: line-through; }
+.entradas-categoria-nome { overflow-wrap: anywhere; }
+.entradas-aviso { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+
+/* Resultado do mês: a conta com as parcelas, uma por linha, valores alinhados. */
+.resultado-parcelas { display: grid; gap: 2px; }
+.resultado-parcela {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-variant-numeric: tabular-nums;
+}
+.resultado-parcela > span:first-child { color: var(--muted); }
+.resultado-parcela[data-total='sim'] { border-top: 1px solid var(--line); font-weight: 600; }
+.resultado-parcela[data-total='sim'] > span:first-child { color: var(--ink); }

@@ -1,15 +1,17 @@
 "use client";
 
-import {
-  FORMAS,
-  type ListaDeProcedimentos,
-  type TarefaNaLista,
-} from "@fir/contracts";
+import { type ListaDeProcedimentos, type TarefaNaLista } from "@fir/contracts";
 import { Dinheiro, valorFechadoPorSessoes } from "@fir/domain";
 import { formatarDinheiro } from "@fir/ui";
 import { useState } from "react";
 import { useDados } from "@/lib/dados";
 import { centavosDoTexto, textoDeCentavos } from "@/lib/dinheiro-digitado";
+import {
+  corpoDaForma,
+  corpoDaFormaEmTexto,
+  estadoInicialDasFormas,
+} from "@/lib/partes-do-pagamento";
+import { FormasDePagamento, partesFecham } from "../formas-de-pagamento";
 import { calcularFechamento, somaDosItensMarcados } from "@/lib/fechamento";
 
 /**
@@ -68,7 +70,7 @@ export function FormularioDeFechamento({
   const [restanteEm, setRestanteEm] = useState("");
   const [entrada, setEntrada] = useState("");
   const [aberto, setAberto] = useState("");
-  const [forma, setForma] = useState<(typeof FORMAS)[number]>(FORMAS[0]);
+  const [formas, setFormas] = useState(() => estadoInicialDasFormas());
   const [nota, setNota] = useState("");
   const [inicio, setInicio] = useState(hoje);
   const [erro, setErro] = useState<string | null>(null);
@@ -180,6 +182,9 @@ export function FormularioDeFechamento({
         return 'Todos os procedimentos estão marcados, com todas as sessões: escolha "O orçamento todo".';
       }
     }
+    // `forma` OU `partes` (várias formas), conferido contra o valor recebido.
+    const daForma = corpoDaForma(valorEntrada, formas);
+    if (daForma.tipo === "erro") return daForma.mensagem;
     let emAberto: bigint;
     if (calculo !== null) {
       if (calculo.erro !== null) return calculo.erro;
@@ -197,7 +202,7 @@ export function FormularioDeFechamento({
       ...(tipo === "" ? {} : { fechamento: tipo }),
       recebimento: {
         valor: valorEntrada.toString(),
-        forma,
+        ...corpoDaFormaEmTexto(daForma.corpo),
         valorAberto: emAberto.toString(),
       },
       ...(tipo === "parte" && temItens ? { itensFechados: [...marcados] } : {}),
@@ -395,22 +400,11 @@ export function FormularioDeFechamento({
                 onChange={(e) => setEntrada(e.target.value)}
               />
             </label>
-            <label className="campo">
-              Forma de pagamento
-              <select
-                value={forma}
-                onChange={(e) => {
-                  const escolhida = FORMAS.find((f) => f === e.target.value);
-                  if (escolhida !== undefined) setForma(escolhida);
-                }}
-              >
-                {FORMAS.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <FormasDePagamento
+              estado={formas}
+              aoMudar={setFormas}
+              total={centavosDoTexto(entrada)}
+            />
           </div>
           {calculo !== null ? (
             <p className="nota num" style={{ margin: 0 }}>
@@ -476,7 +470,10 @@ export function FormularioDeFechamento({
           type="button"
           className="btn"
           onClick={() => void salvar()}
-          disabled={salvando}
+          disabled={
+            salvando ||
+            (mostraPagamento && !partesFecham(formas, centavosDoTexto(entrada)))
+          }
         >
           {salvando ? "Salvando…" : "Salvar"}
         </button>

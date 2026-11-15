@@ -83,6 +83,15 @@ export async function apagarMovimentosDeEstoqueDeTeste(
     await cliente.query('ALTER TABLE movimentos_de_estoque DISABLE TRIGGER movimentos_sem_update')
     await cliente.query('DELETE FROM movimentos_de_estoque WHERE clinica_id = $1', [clinicaId])
     await cliente.query('ALTER TABLE movimentos_de_estoque ENABLE TRIGGER movimentos_sem_update')
+    // A diferença reconhecida (0085) é append-only pela mesma razão e aponta
+    // para a contagem e o item: sai junto, antes deles.
+    await cliente.query(
+      'ALTER TABLE diferencas_reconhecidas DISABLE TRIGGER diferencas_reconhecidas_sem_update',
+    )
+    await cliente.query('DELETE FROM diferencas_reconhecidas WHERE clinica_id = $1', [clinicaId])
+    await cliente.query(
+      'ALTER TABLE diferencas_reconhecidas ENABLE TRIGGER diferencas_reconhecidas_sem_update',
+    )
     await cliente.query('COMMIT')
   } catch (e) {
     await cliente.query('ROLLBACK')
@@ -228,6 +237,11 @@ const EM_ORDEM_DE_APAGAR = [
   // `contas_a_pagar`, `caixas_do_dia`, `cobrancas`, `metas_do_mes` e
   // `configuracao_financeira` apontam para `pessoas`, e `cobrancas` também
   // para `pacientes` — todos antes dos três pais lá embaixo.
+  // As outras entradas (0087): `outras_entradas` aponta para a categoria e para
+  // `pessoas`, então vem antes das duas. (`recebimento_partes` não precisa de linha
+  // aqui: sai em CASCATA com `recebimentos`, a primeira da lista.)
+  'outras_entradas',
+  'categorias_de_entrada',
   'caixa_por_forma',
   'caixas_do_dia',
   'cobrancas',
@@ -244,6 +258,11 @@ const EM_ORDEM_DE_APAGAR = [
   // A agenda externa (0037). O vínculo aponta para `tarefas`, então vem antes.
   'compromissos_externos',
   'tarefas',
+  // Os grupos de colaboradores (0083/0084): `tarefas.grupo_id` aponta para o
+  // grupo (por isso depois de `tarefas`), os membros apontam para grupo e
+  // pessoa, e o grupo aponta para `pessoas` (`criado_por`).
+  'membros_de_grupo',
+  'grupos_da_equipe',
   // Depois de `tarefas`, que aponta para as três pela chave estrangeira
   // COMPOSTA `(coluna, clinica_id)`: o filho vai antes do pai.
   // `campanhas` entra aqui pela 0020: `tarefas.campanha_id` e

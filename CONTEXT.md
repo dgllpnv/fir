@@ -21,6 +21,7 @@ O legado carrega três gerações de nomes para as mesmas coisas. Essa dívida s
 | `qtd` sem unidade | `Quantidade` com `medida` | Quantidade sem unidade é a origem da dose errada |
 | `e-mail`, `email`, `convite` | `Usuário` (o identificador de login) | **D-10:** o e-mail saiu do produto inteiro. Não há coluna, não há convite, não há SMTP. `grep -rn "email"` em `apps` e `packages` devolve zero, e é assim que fica |
 | `admin` para o superadmin | `Operador` | `admin` é a administradora **da clínica**, que é uma `Pessoa`. O superadmin é um `Operador`, que **não é uma `Pessoa`** — confundir os dois é o primeiro passo para um booleano em `pessoas` |
+| `grupo` sozinho | `Grupo de colaboradores` (pessoas da clínica, para onde vai uma `Tarefa`) ou `Grupo` da carteira (conjunto de clínicas, seção abaixo) | Dois conceitos em dois produtos; `grupos` já é tabela da carteira, e a da clínica é `grupos_da_equipe` |
 | `setor` sozinho | `Setor de atuação` (onde a `Pessoa` da clínica atua, e para onde vai uma `Tarefa`) ou `Setor da carteira` (o `setor` do `Usuário de Gestão`) | São dois conceitos em dois produtos, e um deles **amplia quem vê dado de paciente**. O identificador já gravado da carteira (`usuarios_gestao.setor`, `SetorDaCarteiraEnum`) fica como está, pela mesma razão de `'Sessão de plano'`; todo código, tela e documento **novo** diz o nome inteiro. ADR 0025 |
 | `Equipe` para o setor de atuação | `Setor de atuação` | `Equipe` já é três coisas: o escopo *Equipe toda* (`escopo=equipe`), a chave `tarefas.equipe` e a tela *Equipe* (RH, `pessoas.gerir`). Um quarto significado faria "a equipe vê" querer dizer qualquer coisa |
 | `/painel` como rota do superadmin | `/superadmin` | `painel` é chave de permissão existente (`painel` → `valores`) e é o nome da tela do épico 8. A allowlist de IP casa o segmento `superadmin`; usar `painel` bloquearia a tela de indicadores para a clínica inteira |
@@ -152,7 +153,9 @@ sujeito.
 sou eu" (filtro *Para mim*, responsável padrão, *Minhas metas*) mostram **vazio** — fingir que o
 operador é alguém poria o nome de uma funcionária numa ação que não foi dela.
 
-### `Setor de atuação`
+### `Setor de atuação` — SUBSTITUÍDO por `Grupo de colaboradores` (nunca construído)
+> A ADR 0025 foi substituída em 2026-11-14; o texto abaixo fica como registro do que se decidiu e **não descreve o sistema**.
+
 **Onde uma `Pessoa` da clínica trabalha no dia a dia** — Recepção, Enfermagem, Comercial — e,
 por isso, **para onde uma `Tarefa` pode ir** quando não importa *qual* pessoa vai fazê-la, só que
 alguém daquele setor faça. Cadastro por clínica (`setores_de_atuacao`), um por pessoa
@@ -202,16 +205,35 @@ protótipo não tem. **ADR 0025.**
   tarefa aberta. Tarefas antigas continuam apontando para ele e continuam legíveis.
 - **A carteira não lê setor de atuação** (ADR 0013 §2). Nem nome, nem quem está em qual.
 
+### `Grupo de colaboradores` (na tela: *Grupo*)
+Uma **lista nomeada de pessoas da clínica** — Recepção, Enfermagem, Comercial — para onde uma `Tarefa` pode ir quando não importa *qual* pessoa vai fazê-la, só que alguém do grupo faça. Cadastro por clínica (`grupos_da_equipe`), pessoa em **zero a vários** grupos (`membros_de_grupo`). Decidido pelo dono em 2026-11-14 (Q1–Q9); **substitui o `Setor de atuação`** (ADR 2026-11-14 *grupos de colaboradores*). Não é o `Grupo` da carteira (conjunto de clínicas) — por isso o nome inteiro no código e na documentação.
+
+**Não é grupo de acesso.** Pertencer a um grupo **nunca** dá permissão: quem lê a tarefa do grupo passa pelas mesmas chaves (`jornada`, `valores`, `pacientes`) de qualquer outra tarefa.
+
+**Invariantes:**
+- **Uma tarefa vai para uma pessoa OU para um grupo — exatamente um** (`CHECK tarefa_tem_destino`).
+- **Só membro do grupo, ou `tarefas.equipe`, conclui, assume e transfere** uma tarefa de grupo. Tarefa de pessoa: regras de sempre.
+- **Pertencer é lido do banco na requisição** (`Autor.grupoIds`): pessoa desativada e grupo desativado deixam de valer na hora; nunca vem do cliente.
+- **Só `config` cria, renomeia, desativa grupo e põe pessoa num grupo — e ninguém se põe sozinho.** Desativar nunca exclui; com tarefas abertas pede confirmação e a tarefa fica visível a `tarefas.equipe` e a quem a criou, que a transfere.
+- **A composição do grupo é dado de RH**: o nome do grupo qualquer um vê; quem está nele, só `config`.
+
+### `Assumir`
+O membro de um grupo **fixa a tarefa do grupo em si**: `responsavel_id` = ele, `grupo_id` = NULL, evento `assumir` no `historico`. É um `UPDATE` condicional (`WHERE grupo_id = $g AND responsavel_id IS NULL`): duas pessoas no mesmo instante, uma vence e a outra recebe 409; o evento só existe com `rowCount = 1`.
+
+### `Transferência`
+Trocar o destino de uma tarefa **aberta** para outra pessoa ativa ou outro grupo ativo da mesma clínica, por quem a tem hoje (responsável, membro do grupo atual) ou `tarefas.equipe`. Evento `transferir` no `historico` com `{de, para, porId, em, nota?}`; transferir para o mesmo destino não faz nada. **Sessão de programa nunca vai para grupo.** A `nota` (≤ 200) não leva nome de paciente nem dado de saúde, e nunca vai para log.
+
+### `Fluxo da tarefa`
+A cadeia de tarefas ligadas por `tarefa_origem_id` ("concluir e criar nova") e os eventos de cada uma. `GET v1/tarefas/:id/fluxo`: cada nó passa pelo filtro de visibilidade da tarefa; o que a pessoa não vê é um marcador opaco; a cadeia nunca atravessa de um paciente para outro.
+
 ### `Tarefa`
 Qualquer item da rotina: interna, contato, atendimento, pagamento ou sessão. É a entidade mais usada do produto.
 
 **Invariante central:** um agendamento é **uma única `Tarefa`** que anda pelas etapas da `Jornada`; cada movimento entra em `historico`. Nunca uma tarefa nova por etapa.
 
-**Vai para uma pessoa (`responsavel_id`) ou para um `Setor de atuação` (`setor_de_atuacao_id`) —
-exatamente um** (ADR 0025). A tarefa de setor é vista por **quem está no setor no momento da
-leitura** (só as abertas e as concluídas do dia), pelo solicitante e por quem tem `tarefas.equipe`.
+**Vai para uma pessoa (`responsavel_id`) ou para um `Grupo de colaboradores` (`grupo_id`) — exatamente um** (ADR 2026-11-14; a 0025, do setor, foi substituída e nunca construída). A tarefa de grupo é vista por **quem é membro do grupo (ativo) no momento da leitura**, por quem a criou e por quem tem `tarefas.equipe`.
 
-**`concluida_por`** — a pessoa da sessão que concluiu. Gravada em toda conclusão a partir da
+**`concluida_por`** (**não construída**: pertence à ADR 0025, substituída; hoje quem concluiu uma tarefa de grupo é o `porId` do evento no `historico`) — a pessoa da sessão que concluiu. Gravada em toda conclusão a partir da
 migration `0066`; `NULL` nas concluídas antes dela (não se inventa autoria para o passado) e em
 toda tarefa que não está concluída. Obrigatória na tarefa de setor concluída (`CHECK`). Todo
 caminho que muda `status` a trata: grava ao concluir, zera ao reabrir e ao cancelar.
@@ -298,6 +320,28 @@ Dinheiro que entra. *"Atendimento é tarefa; dinheiro é recebimento."*
 **Invariante:** o pagamento pode ficar **embutido no atendimento** ou ser um **recebimento avulso** — nunca os dois para o mesmo dinheiro. Dobrar a receita do mês por aqui é o erro clássico da categoria.
 
 `Orçamento` **não** é recebimento: `valorOrcamento` nunca entra em receita, LTV ou meta.
+
+### `Parte do pagamento` (`recebimento_partes`)
+Uma **forma de pagamento e o valor dela** dentro de UM `Recebimento` (Pix 300 + Dinheiro 200 = recebimento de 500). Todo recebimento com `valor > 0` tem de 1 a 5 partes, **uma por forma**, e a **soma das partes é exatamente o `valor`** (constraint deferida no banco + validação no domínio). A venda a prazo (`valor = 0`) não tem parte.
+
+- A divisão é **manual** (a pessoa digita cada valor; a tela mostra "falta R$ X"). Não há rateio automático; se um dia houver, vale a regra 2.
+- **Nota promissória não se mistura:** se uma parte é promissória, é a única.
+- `valor_aberto` mora **só no recebimento**, nunca na parte (dobraria a dívida).
+- A parte é **imutável** e não tem estado próprio: estornado e excluído são do recebimento pai, e estornar zera todas as partes de uma vez.
+- Quem pergunta *por forma* (caixa, visão do mês por forma, painel por forma, lista, funil, `rec_forma`) lê partes. Quem pergunta *quanto* (receita, LTV, campanhas, saldo, indicadores) segue em `recebimentos.valor` — a receita conta cada pagamento uma vez.
+- `recebimentos.forma` é legado: guarda a forma da **maior parte** (empate: a primeira), nunca "Mista", e nenhum leitor novo a lê. A parte aceita `forma = ''` só para o recebimento legado migrado (dentro da receita, fora do caixa).
+
+- **Parte única implícita (só para o dono do esquema):** no COMMIT, um recebimento `valor > 0` de forma válida e sem nenhuma parte ganha a parte única com a forma e o valor dele — para fixtures e `psql`. **Só para os donos do esquema, por lista de permitidos** (`fir_migrate`, `fir`); nunca para a aplicação (`fir_app`): lá um recebimento sem partes é recusado, e parte que não fecha a conta é sempre recusada, nunca "consertada".
+
+### `Outra entrada` (`outras_entradas`)
+Dinheiro que entrou na clínica e **não é de paciente** (aluguel de sala, reembolso, venda avulsa). Tem `Categoria de entrada`, instante, valor, uma das **4 formas da gaveta** (promissória é recusada) e uma descrição curta (≤120, "não escreva nome de paciente nem dado de saúde"). Estorna por marca, nunca apaga; o reenvio da mesma `requisicao_id` devolve o original.
+
+- **Entra:** no esperado do caixa por forma (e em `depoisDoFechamento`), na Visão do mês e no painel, numa linha própria **"Outras entradas"**; resultado do mês = recebido + outras entradas − despesas pagas.
+- **Não entra:** recebido, LTV, ticket, campanhas, saldo, funil, indicadores, conferência de migração, meta e percentual da meta (só sobre o recebido). Pagamento de paciente continua sendo `Recebimento`: nunca os dois para o mesmo dinheiro.
+- Lançar e estornar = `receber`; ver valor = `valores`; linha na visão do mês = `finmes`.
+
+### `Categoria de entrada` (`categorias_de_entrada`)
+Nome (2–60, único por clínica sem caixa nem acento) que classifica uma `Outra entrada`. Cadastro por clínica com `contas.gerir`. Desativa, nunca exclui; a categoria desativada continua legível nas entradas antigas.
 
 ### `Venda a prazo`
 A linha de `recebimentos` com **`valor = 0`, `valor_aberto > 0` e forma vazia**: o programa fechou, a paciente não pagou nada hoje e deve tudo. Decisão **D-9** do dono (2026-10-26), e o protótipo faz o mesmo — *"fechou, paga depois"*.
@@ -472,6 +516,16 @@ diferença = contagem final − esperado
 - **A inicial é a última contagem ANTES de `de`** (ou a primeira dentro da janela). O protótipo usa `<=` e, com duas contagens no primeiro dia do período — o caso do primeiro dia de uso —, escolhe a segunda como partida e devolve "sem contagens".
 - **O esperado de uma contagem FECHADA pode atravessar**, e isso não contradiz a regra 14: ela proíbe o esperado antes do fechamento, e uma contagem fechada não pode mais ser influenciada. Mesma classificação de "Últimos fechamentos" no caixa.
 
+### `Diferença reconhecida`
+O registro de que a gestão **viu** a diferença de um item numa contagem concluída e a aceitou como o inventário daquele dia: `(contagem, item, lote nulo)`, a diferença **congelada** em milésimos de `medida`, motivo fixo "Inventário", quem e quando.
+
+**Invariantes:**
+- **Efeito zero no saldo.** Concluir a contagem já fixa o saldo no contado (saldo = última contagem + movimentos depois, regra 11); um movimento `ajuste` por cima DOBRARIA a diferença. Por isso reconhecer **não é movimento** e nenhuma função de saldo lê esta tabela.
+- **Só em contagem concluída**, com `estoque.gerir`, e a diferença é **recalculada no servidor** (`analiseDaContagem`) — o cliente manda apenas quais itens reconhecer, nunca o valor.
+- **Append-only e idempotente** por `(contagem, item, lote)` com `NULLS NOT DISTINCT`: duplo clique ou duas abas geram uma linha só. Desfazer não existe; a análise seguinte continua relatando a diferença (regra 13).
+- **Congelada x hoje**: a diferença gravada não acompanha a análise, que é recalculada a cada leitura; um lançamento retroativo entre as duas contagens as faz divergir, e a tela mostra as duas ("reconhecida: −2; hoje: −3").
+- Ao concluir, a resposta mostra por item **"Estoque atualizado para o contado"** (esperado → contado). Contagem aberta continua sem esperado no JSON (regra 14).
+
 ### `Curva ABC`
 A classificação de Pareto do estoque por **valor** (`saldo × custo`): **A** até 80% do valor acumulado, **B** até 95%, **C** o resto. É ela que decide "alto valor" quando a clínica não forçou (`altoValor = ''` no cadastro).
 
@@ -566,6 +620,7 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 | **Vínculo de nota** | `(CNPJ, código do produto) → (item, fator)`, aprendido na primeira nota |
 | **Caixa às cegas** | Conferência do caixa sem mostrar o valor registrado |
 | **Diferença** | Contagem final − saldo esperado. Negativo = falta sem registro |
+| **Diferença reconhecida** | Registro append-only de que a gestão viu a diferença de um item numa contagem concluída. Não mexe no saldo |
 | **Perda não explicada** | Diferença negativa recorrente num item |
 | **LTV** | Total já pago pelo paciente à clínica |
 | **Saldo em aberto** | Quanto o paciente ainda deve, por programa e no geral |

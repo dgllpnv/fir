@@ -8,6 +8,7 @@ import {
   Dinheiro,
   type LinhaDeConferencia,
   type NomeDeAba,
+  SEM_FORMA,
 } from '@fir/domain'
 import type pg from 'pg'
 import { RECEITA_DA_CAMPANHA } from '../campanhas/receita-da-campanha'
@@ -248,6 +249,53 @@ export async function conferirMigracao(
       'Receita por campanha',
       origem.receitaPorCampanha,
       new Map(campanhas.rows.map((x) => [x.chave, dinheiro(x.v)])),
+    ),
+  )
+
+  // ── AS PARTES DO PAGAMENTO (fatia 4.1) — conferências ACRESCENTADAS ──────
+  //
+  // As seis acima seguem somando `recebimentos.valor` e não mudaram. Estas duas
+  // são do que a fatia 4.1 criou, e o par existe pelo mesmo motivo das outras:
+  // a receita total pode estar certa com uma forma trocada de lugar.
+  //
+  // (a) Σ partes = Σ valor POR RECEBIMENTO: o número de recebimentos vivos cuja
+  //     soma das partes difere do valor (ou que, com valor, ficaram sem parte).
+  //     O esperado é zero, nos dois lados da migração.
+  const divergentes = await c.query<{ n: string }>(
+    `SELECT count(*)::text AS n
+       FROM recebimentos r
+       LEFT JOIN (SELECT recebimento_id, sum(valor) AS soma
+                    FROM recebimento_partes GROUP BY recebimento_id) pt
+              ON pt.recebimento_id = r.id
+      WHERE r.clinica_id = $1 AND r.estornado_em IS NULL
+        AND coalesce(pt.soma, 0) <> r.valor`,
+    [clinicaId],
+  )
+  linhas.push(
+    compararNumeros(
+      'Σ partes = Σ valor por recebimento (recebimentos divergentes)',
+      0,
+      Number(divergentes.rows[0]!.n),
+    ),
+  )
+
+  // (b) RECEITA POR FORMA: a origem soma `formaPagamento` das tarefas que a v20
+  //     conta como receita; o destino soma as PARTES vivas. A forma vazia
+  //     (legado) aparece sob a mesma chave nos dois lados.
+  const porForma = await c.query<{ chave: string; v: string }>(
+    `SELECT CASE WHEN pt.forma = '' THEN $2 ELSE pt.forma END AS chave,
+            sum(pt.valor)::text AS v
+       FROM recebimento_partes pt
+       JOIN recebimentos r ON r.id = pt.recebimento_id AND r.clinica_id = pt.clinica_id
+      WHERE r.clinica_id = $1 AND r.estornado_em IS NULL AND ${DINHEIRO_QUE_ENTROU}
+      GROUP BY 1`,
+    [clinicaId, SEM_FORMA],
+  )
+  linhas.push(
+    compararMapas(
+      'Receita por forma de pagamento',
+      origem.receitaPorForma,
+      new Map(porForma.rows.map((x) => [x.chave, dinheiro(x.v)])),
     ),
   )
 

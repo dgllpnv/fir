@@ -86,8 +86,12 @@ export async function consultarPrazos(
   hoje: string,
   fuso: string,
 ): Promise<{ total: CumprimentoDePrazos; porPessoa: LinhaPorResponsavel[] }> {
-  const r = await c.query<LinhaDePrazo>(
+  const r = await c.query<LinhaDePrazo & { e_total: number }>(
     `SELECT t.responsavel_id::text AS pessoa,
+            -- O discriminador do TOTAL é o GROUPING, não \`pessoa IS NULL\`: a tarefa de
+            -- grupo ainda não assumida também tem responsável nulo, e confundi-la com
+            -- o total somaria (ou trocaria) a linha errada.
+            GROUPING(t.responsavel_id) AS e_total,
             max(p.nome)   AS nome,
             max(p.funcao) AS funcao,
             count(*)::text AS total,
@@ -117,10 +121,11 @@ export async function consultarPrazos(
     [clinicaId, periodo.de, periodo.ate, hoje, fuso, TIPOS_DE_SESSAO],
   )
 
-  // A linha do GROUPING SET vazio é o TOTAL, e ela vem com `pessoa = null`.
-  const totalBruto = r.rows.find((l) => l.pessoa === null)
+  // A linha do GROUPING SET vazio é o TOTAL (`GROUPING = 1`). A de `pessoa = null`
+  // com `GROUPING = 0` é a tarefa de grupo não assumida: entra no total, não é pessoa.
+  const totalBruto = r.rows.find((l) => Number(l.e_total) === 1)
   const porPessoa = r.rows
-    .filter((l): l is LinhaDePrazo & { pessoa: string } => l.pessoa !== null)
+    .filter((l): l is LinhaDePrazo & { e_total: number; pessoa: string } => l.pessoa !== null)
     .map((l) => ({
       pessoaId: l.pessoa,
       nome: l.nome ?? '',

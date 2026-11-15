@@ -127,6 +127,26 @@ describe('toda rota marcada com @DadoSensivel é marcada de forma coerente', () 
     }
   })
 
+  it('a aba Consumo da ficha (dose, produto e lote por paciente) ESTÁ marcada como acesso a `pacientes`', () => {
+    // O que a varredura não sabe dizer — "esta rota deveria estar marcada" — é
+    // dito aqui para a rota que L1/L2 (gate do spec) nomeiam: sem a marca, a
+    // leitura do que foi aplicado em UM paciente não deixaria rastro.
+    const consumo = marcadas.find((r) => r.caminho === '/v1/pacientes/:id/consumo')
+    expect(consumo, '/v1/pacientes/:id/consumo perdeu o @DadoSensivel').toBeDefined()
+    expect(consumo!.marca).toEqual({ entidade: 'pacientes', de: { param: 'id' } })
+  })
+
+  it('o FLUXO da tarefa (cadeia que pode atravessar tarefa de paciente) ESTÁ marcado como acesso a `pacientes`', () => {
+    // Mistura DOCUMENTADA (L-E2): o `entidade_id` da trilha é o id da TAREFA pedida, sob a
+    // entidade `pacientes`. A trilha responde "quem olhou a cadeia desta tarefa", e a tarefa
+    // leva ao paciente; separar a entidade em duas fragmentaria a pergunta "quem olhou o
+    // paciente X" entre dois nomes. A varredura acima já confere que o parâmetro `id` existe
+    // no caminho; aqui se cobra que a marca não saia.
+    const fluxo = marcadas.find((r) => r.caminho === '/v1/tarefas/:id/fluxo')
+    expect(fluxo, '/v1/tarefas/:id/fluxo perdeu o @DadoSensivel').toBeDefined()
+    expect(fluxo!.marca).toEqual({ entidade: 'pacientes', de: { param: 'id' } })
+  })
+
   it('a entidade declarada é uma relação de verdade do banco', () => {
     for (const r of marcadas) {
       expect(

@@ -4,6 +4,8 @@ import { FinanceiroModule } from '../financeiro/financeiro.module'
 import { ConclusaoService } from './conclusao.service'
 import { ConsultaDeTarefasService } from './consulta.service'
 import { EdicaoDeTarefasService } from './edicao.service'
+import { FluxoService } from './fluxo.service'
+import { TransferenciaService } from './transferencia.service'
 import { TarefasController } from './tarefas.controller'
 import { TarefasService } from './tarefas.service'
 
@@ -25,6 +27,8 @@ import { TarefasService } from './tarefas.service'
     ConclusaoService,
     EdicaoDeTarefasService,
     ConsultaDeTarefasService,
+    TransferenciaService,
+    FluxoService,
     provedorDeRelogio,
   ],
   exports: [TarefasService, ConclusaoService, EdicaoDeTarefasService, ConsultaDeTarefasService],

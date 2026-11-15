@@ -153,7 +153,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await declararAtorSistema(m)
-  for (const t of ['reunioes_comerciais', 'parceiros_do_cliente', 'tarefas_internas']) {
+  // `uso_diario_cliente`: o job de uso diário (teste do `api`, em paralelo)
+  // agrega TODOS os clientes ativos do banco, inclusive os deste arquivo.
+  for (const t of ['reunioes_comerciais', 'parceiros_do_cliente', 'tarefas_internas', 'uso_diario_cliente']) {
     await m.query(`DELETE FROM ${t} WHERE cliente_carteira_id = ANY($1)`, [clientes])
   }
   await m.query('DELETE FROM auditoria_da_carteira WHERE grupo_id = ANY($1)', [[...grupos, firmare, arquivo]])

@@ -16,11 +16,20 @@ import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { consultaEmTexto, useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
 import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
+import {
+  corpoDaForma,
+  corpoDaFormaEmTexto,
+  estadoInicialDasFormas,
+  partesAcimaDaDivida,
+  resumoDasPartes,
+  tetoEfetivo,
+} from '@/lib/partes-do-pagamento'
 import { diaEmTexto } from '@/lib/formato'
 import { CampoDeMotivoDeSuporte, useEhSuporte } from './campo-de-motivo-de-suporte'
 import { corpoComMotivo, validarMotivoDeSuporte } from '@/lib/motivo-de-suporte'
 import { CampoDeCampanha, useSugestaoDeCampanha } from './campo-de-campanha'
 import { Carregando, Erro, Toast, Vazio } from './estados'
+import { FormasDePagamento, partesFecham } from './formas-de-pagamento'
 import { SeletorDePaciente } from './seletor-de-paciente'
 
 /**
@@ -34,14 +43,6 @@ import { SeletorDePaciente } from './seletor-de-paciente'
  * É a defesa de produto contra a receita lançada duas vezes, e ela só funciona
  * se estiver no caminho — numa aba, ninguém abre.
  */
-
-const FORMAS = [
-  'Pix',
-  'Dinheiro',
-  'Cartão de crédito',
-  'Cartão de débito',
-  'Nota promissória',
-] as const
 
 /** `REFS_RECEB` do protótipo (linha 4917), com o texto dela. */
 const REFERENCIAS = [
@@ -95,7 +96,8 @@ export function TelaRecebimentos({
   const [paciente, setPaciente] = useState<TPacienteEncontrado | null>(null)
   const [ref, setRef] = useState<Referencia | ''>('')
   const [valor, setValor] = useState('')
-  const [forma, setForma] = useState<string>('Pix')
+  // Uma forma (como sempre) ou várias partes: `forma` OU `partes` no corpo, nunca as duas.
+  const [formas, setFormas] = useState(() => estadoInicialDasFormas())
   const [em, setEm] = useState(hoje)
   const [aberto, setAberto] = useState('')
   const [obs, setObs] = useState('')
@@ -146,10 +148,23 @@ export function TelaRecebimentos({
    * qualquer jeito (quem não tem `valores` não vê o teto, e o corte vale igual).
    */
   const dividaSelecionada = dividas.find((g) => (g.programaId ?? 'geral') === dividaAtual)
-  const teto: bigint | null =
+  const tetoDaLista: bigint | null =
     (ref === 'saldo' || ref === 'programa') && dividaSelecionada?.saldo != null
       ? centavos(dividaSelecionada.saldo)
       : null
+  /**
+   * O devido que o SERVIDOR mandou no 409 `PARTES_ACIMA_DA_DIVIDA` (V-1): o saldo
+   * da tela estava velho. Vale só para a mesma paciente e a mesma dívida, e só
+   * enquanto for menor que o da lista (que é relido junto).
+   */
+  const chaveDaDivida = `${paciente?.id ?? ''}|${ref}|${dividaAtual}`
+  const [tetoDoServidor, setTetoDoServidor] = useState<{ chave: string; valor: bigint } | null>(
+    null,
+  )
+  const teto = tetoEfetivo(
+    tetoDaLista,
+    tetoDoServidor !== null && tetoDoServidor.chave === chaveDaDivida ? tetoDoServidor.valor : null,
+  )
 
   function ajustarAoTeto(texto: string, limite: bigint | null = teto): string {
     if (limite === null) return texto
@@ -158,6 +173,8 @@ export function TelaRecebimentos({
   }
 
   function limpar(): void {
+    setFormas(estadoInicialDasFormas())
+    setTetoDoServidor(null)
     setRef('')
     setValor('')
     setAberto('')
@@ -188,6 +205,13 @@ export function TelaRecebimentos({
       return
     }
 
+    // O teto vale para o TOTAL: as partes se conferem contra o valor já ajustado.
+    const partes = corpoDaForma(emCentavos, formas)
+    if (partes.tipo === 'erro') {
+      setErroDoForm(partes.mensagem)
+      return
+    }
+
     setSalvando(true)
     try {
       // O MESMO `requisicaoId` no reenvio confirmado: é o mesmo dinheiro que
@@ -198,7 +222,7 @@ export function TelaRecebimentos({
           requisicaoId,
           pacienteId: paciente.id,
           valor: emCentavos.toString(),
-          forma,
+          ...corpoDaFormaEmTexto(partes.corpo),
           em,
           obs: obs.trim(),
           // O servidor só checa "acima da dívida" em `saldo`; o atalho do programa vai por ele.
@@ -229,6 +253,20 @@ export function TelaRecebimentos({
       recentes.recarregar()
       saldo.recarregar()
     } catch (erro) {
+      // Várias formas acima do devido: o servidor recusa (não escolhe de qual
+      // forma cortar). A tela ajusta o TOTAL ao devido e pede nova divisão —
+      // nunca reenvia nem redistribui sozinha.
+      const acima = partesAcimaDaDivida(erro)
+      if (acima !== null) {
+        setErroDoForm(acima.mensagem)
+        if (acima.devido !== null) {
+          const devido = acima.devido
+          setTetoDoServidor({ chave: chaveDaDivida, valor: devido })
+          setValor((v) => ajustarAoTeto(v, devido))
+        }
+        saldo.recarregar()
+        return
+      }
       setErroDoForm(
         erro instanceof ErroDaApi ? erro.message : 'Não consegui falar com o servidor.',
       )
@@ -325,14 +363,11 @@ export function TelaRecebimentos({
                       </small>
                     )}
                   </label>
-                  <label className="campo">
-                    Forma de pagamento
-                    <select value={forma} onChange={(e) => setForma(e.target.value)}>
-                      {FORMAS.map((f) => (
-                        <option key={f}>{f}</option>
-                      ))}
-                    </select>
-                  </label>
+                  <FormasDePagamento
+                    estado={formas}
+                    aoMudar={setFormas}
+                    total={centavosDoTexto(ajustarAoTeto(valor))}
+                  />
                 </div>
 
                 <div className="par">
@@ -386,7 +421,11 @@ export function TelaRecebimentos({
                 )}
 
                 <div className="botoes">
-                  <button type="submit" className="btn" disabled={salvando}>
+                  <button
+                    type="submit"
+                    className="btn"
+                    disabled={salvando || !partesFecham(formas, centavosDoTexto(ajustarAoTeto(valor)))}
+                  >
                     {salvando ? 'Registrando…' : 'Registrar recebimento'}
                   </button>
                   <button type="button" className="btn ghost" onClick={limpar}>
@@ -600,7 +639,7 @@ function LinhaDeRecebimento({
       <div className="info">
         <b>{r.paciente}</b>
         <small>
-          {r.tipo} · {r.forma} · {diaEmTexto(r.em)} · {r.registradoPor}
+          {r.tipo} · {resumoDasPartes(r.partes, formatarDinheiro) ?? r.forma} · {diaEmTexto(r.em)} · {r.registradoPor}
           {r.estornado ? ' · estornado' : ''}
         </small>
         {r.estornado || aoEstornar === undefined ? null : !avulso ? (

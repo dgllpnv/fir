@@ -2,6 +2,7 @@
 
 import {
   FORMAS,
+  LIMITES_DO_PROGRAMA_ORCADO,
   type ListaDaEquipe,
   type ListaDeProcedimentos,
   type MotivoDePerda,
@@ -23,6 +24,7 @@ import {
   montadorVazio,
   type EstadoDoMontador,
 } from '../programas/montador'
+import { problemasDoMontador } from '../programas/montador-regras'
 
 /**
  * A JORNADA DENTRO DO PRÓPRIO CARTÃO — sem modal e sem outra tela.
@@ -504,9 +506,9 @@ function FormularioDaAcao({
    * deixa de aceitar `depoisDe` e ninguém percebe — e `depoisDe` é a escalada
    * de dose, que é a razão de `itens[]` existir.
    *
-   * A proposta **não tem data**, só `depoisDe`: o início é informado no
-   * FECHAMENTO. Por isso o montador aqui nasce com a data de hoje e ela não
-   * atravessa para o corpo.
+   * O montador nasce com a data de hoje DA CLÍNICA (vinda do servidor). Ela é
+   * o início do programa e só semeia o campo "Em outra data" de cada item; o
+   * `inicio` que atravessa para o corpo é o de CADA item, quando escolhido.
    */
   const [ehPrograma, setEhPrograma] = useState(false)
   /**
@@ -547,7 +549,7 @@ function FormularioDaAcao({
             procedimentoId: i.procedimentoId,
             sessoes: i.sessoes,
             intervaloDias: i.intervaloDias,
-            inicio: '',
+            inicio: i.inicio ?? '',
             depoisDe: i.depoisDe ?? '',
             responsavelId: i.responsavelId ?? '',
             dose: i.dose ?? '',
@@ -587,6 +589,8 @@ function FormularioDaAcao({
       sessoes: x.sessoes,
       intervaloDias: x.intervaloDias,
       ...(x.depoisDe === '' ? {} : { depoisDe: x.depoisDe }),
+      // "Em outra data": a data da primeira sessão deste item.
+      ...(x.inicio === '' ? {} : { inicio: x.inicio }),
       ...(x.responsavelId === '' ? {} : { responsavelId: x.responsavelId }),
       ...(x.dose === '' ? {} : { dose: x.dose }),
       ...(x.valor.trim() === '' ? {} : { valor: (centavosDoTexto(x.valor) ?? 0n).toString() }),
@@ -613,13 +617,14 @@ function FormularioDaAcao({
         /**
          * O PROGRAMA PROPOSTO, quando a caixa está marcada.
          *
-         * `ItemOrcado` não tem `inicio`: a proposta diz **o quê**, e o
-         * fechamento diz **quando**. O item sem procedimento é recusado aqui,
-         * antes do envio, porque o 400 do contrato chegaria com o caminho de
-         * um campo que a pessoa vê vazio na tela.
+         * Cada item leva o quê (procedimento, sessões) e, se a recepção
+         * escolheu "Em outra data", o `inicio`. O que o contrato recusaria
+         * (sessões, dose, itens, data a mais de um ano) é dito AQUI, antes do
+         * envio — com os limites do próprio contrato, não números copiados.
          */
-        if (ehPrograma && montagem.itens.some((x) => x.procedimentoId === '')) {
-          return 'Escolha o procedimento de cada item do programa.'
+        if (ehPrograma) {
+          const problema = problemasDoMontador(montagem, LIMITES_DO_PROGRAMA_ORCADO, hoje)
+          if (problema !== null) return problema
         }
         return {
           acao,
@@ -646,9 +651,8 @@ function FormularioDaAcao({
         if (quando !== '' && quando !== (t.proximoPassoEm ?? '')) corpo['retomarEm'] = quando
         if (nota.trim() !== notaVigente) corpo['nota'] = nota.trim()
         if (editaItens && temProposta) {
-          if (montagem.itens.some((x) => x.procedimentoId === '')) {
-            return 'Escolha o procedimento de cada item do orçamento.'
-          }
+          const problema = problemasDoMontador(montagem, LIMITES_DO_PROGRAMA_ORCADO, hoje)
+          if (problema !== null) return problema
           corpo['programa'] = itensDoMontador()
         } else if (editaItens) {
           if (itensDaLista().length === 0) return 'Escolha ao menos um procedimento.'
@@ -735,10 +739,15 @@ function FormularioDaAcao({
           {ehPrograma ? (
             <>
               <p className="nota">
-                As sessões só nascem quando o orçamento <b>fechar</b> — e aí a data de início é
-                informada no fechamento. Aqui ficam o procedimento, as sessões e o encadeamento.
+                As sessões só nascem quando o orçamento <b>fechar</b>. Aqui ficam o procedimento,
+                as sessões, o encadeamento e, se for o caso, a data da primeira sessão de cada item.
               </p>
-              <Montador estado={montagem} aoMudar={setMontagem} podeValores={podeValores} />
+              <Montador
+                estado={montagem}
+                aoMudar={setMontagem}
+                podeValores={podeValores}
+                limites={LIMITES_DO_PROGRAMA_ORCADO}
+              />
             </>
           ) : (
             <fieldset className="campo" style={{ border: 0, padding: 0, margin: 0 }}>
@@ -771,7 +780,12 @@ function FormularioDaAcao({
           </label>
           {editaItens ? (
             temProposta ? (
-              <Montador estado={montagem} aoMudar={setMontagem} podeValores={podeValores} />
+              <Montador
+                estado={montagem}
+                aoMudar={setMontagem}
+                podeValores={podeValores}
+                limites={LIMITES_DO_PROGRAMA_ORCADO}
+              />
             ) : (
               <EditorDeItensDoOrcamento itens={lista} aoMudar={setLista} podeValores={podeValores} />
             )

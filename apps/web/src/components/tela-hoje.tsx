@@ -381,6 +381,7 @@ export function TelaHoje({
           hoje={dados?.hoje ?? ''}
           aoFechar={fecharEdicao}
           aoSalvar={aoSalvarEdicao}
+          transferir={acoes.transferir}
         />
       )}
 

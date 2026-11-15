@@ -26,6 +26,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { sqlParcial } from '../jornada/parcial'
+import { comGrupos, gruposDaPessoaSql } from './grupos-do-autor'
 import {
   aplicarPermissaoDeJornada,
   type AutorDaRequisicao,
@@ -78,8 +79,19 @@ class Parametros {
  */
 const SEM_PESSOA = '1 = 0'
 
+/**
+ * "Para mim" = as MINHAS tarefas e as dos meus GRUPOS (ADR 2026-11-14).
+ *
+ * `coalesce(…, false)` nos dois lados, e não por capricho: `responsavel_id` é NULL
+ * na tarefa de grupo, e `NULL OR false` é NULL — que `NOT (…)` (o aviso de
+ * "ocultas") transforma em NULL e descarta a linha em silêncio.
+ */
+const daPessoaOuDosGrupos = (quem: string): string =>
+  `(coalesce(t.responsavel_id = ${quem}, false)
+     OR coalesce(t.grupo_id IN (${gruposDaPessoaSql(quem)}), false))`
+
 function filtroDeEscopo(escopo: Escopo, eu: string, p: Parametros): string | null {
-  if (escopo === 'meu') return eu === '' ? SEM_PESSOA : `t.responsavel_id = ${p.prox(eu)}`
+  if (escopo === 'meu') return eu === '' ? SEM_PESSOA : daPessoaOuDosGrupos(p.prox(eu))
   if (escopo === 'solicitei') return eu === '' ? SEM_PESSOA : `t.solicitante_id = ${p.prox(eu)}`
   return null
 }
@@ -98,7 +110,7 @@ function filtroDePasso(escopo: Escopo, eu: string, p: Parametros): string | null
     if (eu === '') return SEM_PESSOA
     const quem = p.prox(eu)
     // `contato_id`: quem foi escolhido para fazer o contato da retomada do orçamento.
-    return `(t.responsavel_id = ${quem} OR t.solicitante_id = ${quem} OR t.contato_id = ${quem})`
+    return `(${daPessoaOuDosGrupos(quem)} OR t.solicitante_id = ${quem} OR t.contato_id = ${quem})`
   }
   if (escopo === 'solicitei') return eu === '' ? SEM_PESSOA : `t.solicitante_id = ${p.prox(eu)}`
   return null
@@ -344,6 +356,7 @@ export class ConsultaDeTarefasService {
       ])
       const linha = r.rows[0]
       if (linha === undefined) throw new NotFoundException('Tarefa não encontrada.')
+      const quem = await comGrupos(c, clinicaId, autor)
       // `podeEditar` só pode falhar por falta de acesso — não há estado de
       // tarefa que impeça LER. Daí o 403 direto, em vez de uma quarta cópia do
       // `exigirAutorizacao` que também traduz conflito.
@@ -351,9 +364,10 @@ export class ConsultaDeTarefasService {
         {
           solicitanteId: linha.solicitante_id,
           responsavelId: linha.responsavel_id,
+          grupoId: linha.grupo_id,
           status: linha.status,
         },
-        autor,
+        quem,
       )
       if (!ehOk(r2)) throw new ForbiddenException(r2.erro.mensagem)
       return { tarefa: aplicarPermissaoDeJornada(paraSaida(linha), autor.podeJornada), hoje }

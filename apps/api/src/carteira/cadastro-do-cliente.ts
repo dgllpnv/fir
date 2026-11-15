@@ -376,6 +376,12 @@ export const TABELAS_COM_GRUPO_QUE_NAO_MUDAM: Readonly<Record<string, string>> =
   rotinas_internas: 'Configuração de rotina do GRUPO, sem cliente.',
   participacao_clinica_grupo:
     'Fato de tenancy da CLÍNICA (0068): segue a clínica, nunca o cliente; append-only.',
+  // Homônimos: nestas duas, `grupo_id` aponta para `grupos_da_equipe` (Grupo de
+  // colaboradores da clínica, 0083/0084), não para o grupo de clientes da carteira.
+  tarefas:
+    '`grupo_id` é o Grupo de colaboradores da clínica (grupos_da_equipe, 0084), não o grupo da carteira; não tem relação com o cliente.',
+  membros_de_grupo:
+    '`grupo_id` é o Grupo de colaboradores da clínica (grupos_da_equipe, 0083), não o grupo da carteira; não tem relação com o cliente.',
 }
 
 /**

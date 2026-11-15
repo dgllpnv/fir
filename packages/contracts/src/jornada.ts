@@ -38,16 +38,38 @@ const valorDeItem = dinheiroEmTexto.refine((v): v is bigint => v !== null && v >
  * índice do array, porque o épico 5 lê esta coluna meses depois e a ordem do
  * array não é contrato de nada.
  */
+/**
+ * Os limites do programa PROPOSTO no orçamento — a fonte única, que a tela
+ * importa em vez de repetir os números. (O programa montado em "Nova adesão"
+ * tem limites próprios, em `LIMITES_DO_PROGRAMA`.)
+ */
+export const LIMITES_DO_PROGRAMA_ORCADO = {
+  itens: { max: 10 },
+  sessoes: { min: 1, max: 60 },
+  intervaloDias: { min: 1, max: 365 },
+  dose: { max: 40 },
+} as const
+const LIM = LIMITES_DO_PROGRAMA_ORCADO
+
 const ItemOrcado = z
   .object({
     procedimentoId: Uuid,
-    sessoes: z.number().int().min(1).max(60),
-    intervaloDias: z.number().int().min(1).max(365),
-    dose: z.string().trim().max(40).optional(),
+    sessoes: z.number().int().min(LIM.sessoes.min).max(LIM.sessoes.max),
+    intervaloDias: z.number().int().min(LIM.intervaloDias.min).max(LIM.intervaloDias.max),
+    dose: z.string().trim().max(LIM.dose.max).optional(),
     responsavelId: Uuid.nullish(),
     valor: valorDeItem.optional(),
     chave: z.string().trim().min(1).max(20),
     depoisDe: z.string().trim().min(1).max(20).optional(),
+    /**
+     * "Em outra data": o dia da PRIMEIRA sessão deste item. Precede `depoisDe`
+     * e o início do programa (a precedência é de `montarCronograma`).
+     *
+     * Aqui só o formato e o calendário (2026-02-31 não passa). A FAIXA — no
+     * máximo um ano à frente — depende do hoje da clínica e é conferida no
+     * servidor; "já passou" não é erro, é pergunta no fechamento.
+     */
+    inicio: DiaCivil.optional(),
   })
   .strict()
 
@@ -64,7 +86,7 @@ const Programa = z
   .min(1)
   // `.max(10)`, não o `.slice(0,10)` do protótipo: cortar em silêncio é a
   // médica prescrever onze e a clínica montar dez.
-  .max(10)
+  .max(LIM.itens.max)
   .superRefine((itens, ctx) => {
     const chaves = new Set<string>()
     for (const [i, item] of itens.entries()) {
@@ -76,6 +98,18 @@ const Programa = z
         })
       }
       chaves.add(item.chave)
+    }
+    for (const [i, item] of itens.entries()) {
+      // Data própria e "depois de outro item" são DUAS respostas para "quando
+      // começa". O domínio resolve por precedência, mas aceitar as duas na
+      // proposta é deixar a recepção achar que o encadeamento vale.
+      if (item.inicio !== undefined && item.depoisDe !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [i, 'inicio'],
+          message: 'Escolha uma só: data própria ou "depois de outro item".',
+        })
+      }
     }
     for (const [i, item] of itens.entries()) {
       if (item.depoisDe === undefined) continue
@@ -226,6 +260,11 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
       /** Só no parcial: o dia de retomar o restante. Vira lembrete em Hoje › Retomar. */
       retomarRestanteEm: DiaCivil.optional(),
       nota: Nota,
+      /**
+       * Algum item do programa tem a data da primeira sessão no passado: o
+       * servidor pergunta (409 `INICIO_NO_PASSADO`) e nunca muda a data sozinho.
+       */
+      confirmarInicioNoPassado: z.literal(true).optional(),
       ...confirmacoesDoRecebimento,
     })
     .strict(),
@@ -478,6 +517,8 @@ export const RecebimentoDireto = z.object({
   tipo: z.string(),
   valor: centavosNaSaida,
   forma: z.string(),
+  /** As partes (forma e valor), da maior para a menor. */
+  partes: z.array(z.object({ forma: z.string(), valor: centavosNaSaida })),
   em: DiaCivil,
   /** Nome do programa que o pagamento abateu, quando abateu um. */
   programa: z.string().nullable(),

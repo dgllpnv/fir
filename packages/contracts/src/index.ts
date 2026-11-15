@@ -6,10 +6,12 @@ export * from './pacientes'
 export * from './tarefas'
 export * from './jornada'
 export * from './financeiro'
+export * from './outras-entradas'
 // Desfazer pagamento de conta (D-21, item 4).
 export * from './contas-desfazer'
 export * from './programas'
 export * from './pessoas'
+export * from './pessoas-grupos'
 export * from './equipe'
 // `superadmin.ts`, e NÃO `painel.ts`: `painel` é a chave de permissão da
 // tela de indicadores da CLÍNICA (épico 8), e o superadmin é outro espaço de
@@ -31,6 +33,7 @@ export * from './campanhas-carteira'
 export * from './anexos-carteira'
 export * from './conteudo-carteira'
 export * from './estoque'
+export * from './estoque-consumo'
 // `./metas` é exportado, e a rota que o entrega AINDA NÃO EXISTE.
 //
 // Isso deixa `teste/redacao-de-valores.test.ts` vermelho de propósito, e é o

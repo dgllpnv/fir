@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { ErroDaApi } from './api'
-import { comConfirmacao, ConfirmacaoRecusada, perguntasDosAvisos } from './confirmacao'
+import { comConfirmacao, ConfirmacaoRecusada, perguntasDosAvisos, textosDoDialogo } from './confirmacao'
 
 const precisa = (...avisos: string[]) =>
   new ErroDaApi(409, 'Confirme antes de lançar este recebimento.', 'CONFIRMACAO_NECESSARIA', avisos)
@@ -26,6 +26,31 @@ describe('perguntasDosAvisos', () => {
   it('duplicidade SEM `valores`: nenhum algarismo', () => {
     const [frase] = perguntasDosAvisos(['POSSIVEL_DUPLICIDADE'], { ...ctx, podeVerValores: false })
     expect(frase).not.toMatch(/\d/)
+  })
+
+  it('início no passado: pergunta sem data nem valor, e confirma com a chave própria', async () => {
+    const [frase] = perguntasDosAvisos(['INICIO_NO_PASSADO'], ctx)
+    expect(frase).toMatch(/já passou/)
+    expect(frase).not.toMatch(/\d/)
+    const envios: unknown[] = []
+    await comConfirmacao(
+      async (conf) => {
+        envios.push(conf)
+        if (envios.length === 1) throw precisa('INICIO_NO_PASSADO')
+        return 'ok'
+      },
+      async () => true,
+    )
+    expect(envios).toEqual([{}, { confirmarInicioNoPassado: true }])
+  })
+
+  it('o diálogo da data de início não fala em "lançar"; o de dinheiro continua igual', () => {
+    expect(textosDoDialogo(['INICIO_NO_PASSADO'])).toEqual({
+      titulo: 'Confirme a data de início',
+      confirmar: 'Fechar mesmo assim',
+    })
+    expect(textosDoDialogo(['CAIXA_FECHADO']).confirmar).toBe('Lançar mesmo assim')
+    expect(textosDoDialogo(['CAIXA_FECHADO', 'INICIO_NO_PASSADO']).confirmar).toBe('Lançar mesmo assim')
   })
 
   it('outro dia que não hoje vira "em 07/11"', () => {

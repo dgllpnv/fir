@@ -2,6 +2,7 @@
 
 import type {
   ClinicaAtual,
+  GruposDaEquipe,
   ListaDaEquipe,
   ListaDeUnidades,
   PacienteNaLista,
@@ -9,7 +10,6 @@ import type {
   PagamentoEmbutido,
   TarefasAfetadas,
 } from '@fir/contracts'
-import { FORMAS } from '@fir/contracts'
 import {
   aceitaPagamento,
   ehPagamento,
@@ -24,6 +24,12 @@ import { useEffect, useRef, useState } from 'react'
 import { postarComConfirmacao } from '@/lib/dialogo-de-confirmacao'
 import { useDados } from '@/lib/dados'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
+import {
+  corpoDaForma,
+  estadoInicialDasFormas,
+  pagamentoEmbutidoEmTexto,
+} from '@/lib/partes-do-pagamento'
+import { FormasDePagamento, partesFecham } from './formas-de-pagamento'
 import { diaEmTexto } from '@/lib/formato'
 import { CampoDeCampanha, useSugestaoDeCampanha } from './campo-de-campanha'
 import { Carregando, Erro, Toast } from './estados'
@@ -80,17 +86,38 @@ type Props = {
     campanhaId?: string
     /** Depois de criar, volta ao detalhe da campanha em vez de ir para Hoje. */
     voltarParaCampanha?: boolean
+    /** "Concluir e criar nova": a tarefa de onde esta nasce (liga a cadeia do fluxo). */
+    tarefaOrigemId?: string
   }
   /** Só decide se a pergunta de duplicidade (D-21) mostra o valor digitado. */
   readonly podeValores?: boolean
   /** Decide se a campanha é SUGERIDA ao escolher a paciente (L-A3-11). */
   readonly podePacientes?: boolean
+  /**
+   * `temPerm(…, 'receber')`. Sem ela, o lançamento retroativo não pergunta
+   * "Recebeu algum valor?": o servidor recusaria com 403 (F6).
+   *
+   * O padrão `true` existe só para não sumir com o bloco de quem tem a
+   * permissão enquanto a página não passa o valor — o servidor valida de
+   * qualquer jeito. A página deve passar `temPerm(quem, perfis, 'receber')`.
+   */
+  readonly podeReceber?: boolean
 }
 
-export function TelaNovaTarefa({ eu, inicial, podeValores = false, podePacientes = false }: Props) {
+export function TelaNovaTarefa({
+  eu,
+  inicial,
+  podeValores = false,
+  podePacientes = false,
+  // Padrão seguro: página que esquecer de passar não oferece o pagamento (F6).
+  podeReceber = false,
+}: Props) {
   const clinica = useDados<ClinicaAtual>('v1/clinica')
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
   const unidades = useDados<ListaDeUnidades>('v1/unidades')
+  // Só os nomes dos grupos ATIVOS (todos podem criar tarefa para um grupo); a
+  // composição não passa por aqui. Sem nenhum grupo, o campo "Para" não existe.
+  const grupos = useDados<GruposDaEquipe>('v1/grupos')
   // A paciente pré-escolhida chega pela URL como id; a tela precisa do nome.
   const prefixada = useDados<PacienteNaLista>(
     inicial.pacienteId === undefined ? null : `v1/pacientes/${inicial.pacienteId}`,
@@ -108,6 +135,8 @@ export function TelaNovaTarefa({ eu, inicial, podeValores = false, podePacientes
       hoje={clinica.dados.hoje}
       equipe={equipe.dados?.equipe ?? []}
       unidades={(unidades.dados?.unidades ?? []).filter((u) => u.ativa)}
+      grupos={(grupos.dados?.grupos ?? []).filter((g) => g.ativo)}
+      tarefaOrigemId={inicial.tarefaOrigemId}
       pacienteInicial={prefixada.dados}
       tipoInicial={inicial.tipo ?? ''}
       descricaoInicial={inicial.descricao ?? ''}
@@ -115,6 +144,7 @@ export function TelaNovaTarefa({ eu, inicial, podeValores = false, podePacientes
       voltarParaCampanha={inicial.voltarParaCampanha === true}
       podeValores={podeValores}
       podePacientes={podePacientes}
+      podeReceber={podeReceber}
     />
   )
 }
@@ -124,6 +154,8 @@ function Formulario({
   hoje,
   equipe,
   unidades,
+  grupos,
+  tarefaOrigemId,
   pacienteInicial,
   tipoInicial,
   descricaoInicial,
@@ -131,11 +163,14 @@ function Formulario({
   voltarParaCampanha,
   podeValores,
   podePacientes,
+  podeReceber,
 }: {
   eu: string
   hoje: string
   equipe: ListaDaEquipe['equipe']
   unidades: ListaDeUnidades['unidades']
+  grupos: GruposDaEquipe['grupos']
+  tarefaOrigemId: string | undefined
   pacienteInicial: TPacienteEncontrado | null
   tipoInicial: string
   descricaoInicial: string
@@ -143,6 +178,7 @@ function Formulario({
   voltarParaCampanha: boolean
   podeValores: boolean
   podePacientes: boolean
+  podeReceber: boolean
 }) {
   const [modo, setModo] = useState<'interna' | 'paciente'>(
     pacienteInicial !== null ? 'paciente' : 'interna',
@@ -150,6 +186,10 @@ function Formulario({
   const [paciente, setPaciente] = useState<TPacienteEncontrado | null>(pacienteInicial)
   const [tipo, setTipo] = useState(tipoInicial)
   const [responsavelId, setResponsavelId] = useState(eu)
+  // "Para": uma pessoa OU um grupo, exclusivos (o contrato recusa os dois).
+  const [destino, setDestino] = useState<'pessoa' | 'grupo'>('pessoa')
+  const [grupoId, setGrupoId] = useState('')
+  const paraGrupo = destino === 'grupo'
   const [data, setData] = useState(hoje)
   const [hora, setHora] = useState('')
   const [descricao, setDescricao] = useState(descricaoInicial)
@@ -178,7 +218,7 @@ function Formulario({
   const [houvePagamento, setHouvePagamento] = useState(false)
   const [valor, setValor] = useState('')
   const [aberto, setAberto] = useState('')
-  const [forma, setForma] = useState<PagamentoEmbutido['forma']>(FORMAS[0])
+  const [formas, setFormas] = useState(() => estadoInicialDasFormas())
 
   const [erro, setErro] = useState<string | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
@@ -188,7 +228,7 @@ function Formulario({
   // ninguém ter pedido mais. Qualquer outro tipo abre tudo.
   const enxuto = modo === 'paciente' && TIPOS_DE_AGENDA.includes(tipo) && !maisOpcoes
 
-  const guardaPagamento = modo === 'paciente' && retro && aceitaPagamento(tipo)
+  const guardaPagamento = podeReceber && modo === 'paciente' && retro && aceitaPagamento(tipo)
 
   const ativos = equipe.filter((p) => p.ativo || p.id === responsavelId)
 
@@ -207,7 +247,7 @@ function Formulario({
     // "Consulta realizada" e "Procedimento realizado" já aconteceram: marcar a
     // caixa sozinha e puxar a data para hoje é o que a tela da PO faz, e é o
     // que evita a recepção registrar um atendimento de ontem com prazo futuro.
-    if (TIPOS_JA_REALIZADOS.includes(novo) && !retro) {
+    if (TIPOS_JA_REALIZADOS.includes(novo) && !retro && !paraGrupo) {
       setRetro(true)
       setFreq('')
       if (data > hoje) setData(hoje)
@@ -232,7 +272,9 @@ function Formulario({
     // aqui é o mesmo "falha fechado" que `exigePessoa` já aplica no servidor
     // — sem isso o parse de `responsavelId: Uuid` rejeita com "Invalid uuid",
     // um erro que não diz à recepcionista o que fazer.
-    if (!ativos.some((p) => p.id === responsavelId)) {
+    if (paraGrupo) {
+      if (!grupos.some((g) => g.id === grupoId)) return setErro('Escolha o grupo.')
+    } else if (!ativos.some((p) => p.id === responsavelId)) {
       return setErro('Escolha quem vai executar.')
     }
     if (modo === 'paciente' && paciente === null) return setErro('Escolha a paciente.')
@@ -254,7 +296,10 @@ function Formulario({
       if (emAberto === null || emAberto < 0n) {
         return setErro('Valor em aberto inválido. Use o formato 300,00.')
       }
-      pagamento = { valor: centavos, forma, valorAberto: emAberto }
+      // `forma` OU `partes` (várias formas), conferido contra o valor.
+      const daForma = corpoDaForma(centavos, formas)
+      if (daForma.tipo === 'erro') return setErro(daForma.mensagem)
+      pagamento = { valor: centavos, ...daForma.corpo, valorAberto: emAberto }
     }
 
     const quando = retro
@@ -267,11 +312,7 @@ function Formulario({
           ...(pagamento === undefined
             ? {}
             : {
-                pagamento: {
-                  valor: pagamento.valor.toString(),
-                  forma: pagamento.forma,
-                  valorAberto: (pagamento.valorAberto ?? 0n).toString(),
-                },
+                pagamento: pagamentoEmbutidoEmTexto(pagamento),
               }),
         }
       : freq === ''
@@ -285,13 +326,20 @@ function Formulario({
             ...(freq === 'ndias' ? { aCadaNDias: Number(aCadaNDias) } : {}),
           }
 
+    // Pessoa OU grupo — nunca os dois, nunca nenhum. `tarefaOrigemId` só quando
+    // veio de "Concluir e criar nova"; o servidor confere se a origem vale.
+    const destinoDoCorpo = {
+      ...(paraGrupo ? { grupoId } : { responsavelId }),
+      ...(tarefaOrigemId === undefined ? {} : { tarefaOrigemId }),
+    }
+
     const corpo =
       modo === 'paciente'
         ? {
             vinculo: 'paciente' as const,
             pacienteId: paciente!.id,
             tipo,
-            responsavelId,
+            ...destinoDoCorpo,
             ...(descricao.trim() === '' ? {} : { descricao: descricao.trim() }),
             prioridade: urgente ? 'urgente' : 'normal',
             obs: obs.trim(),
@@ -301,7 +349,7 @@ function Formulario({
           }
         : {
             vinculo: 'interna' as const,
-            responsavelId,
+            ...destinoDoCorpo,
             descricao: descricao.trim(),
             prioridade: urgente ? 'urgente' : 'normal',
             obs: obs.trim(),
@@ -418,26 +466,64 @@ function Formulario({
           </>
         ) : null}
 
+        {tarefaOrigemId === undefined ? null : (
+          <p className="nota">Ligada à tarefa que você acabou de concluir.</p>
+        )}
+
         {/* Fora de "+ Mais opções", como no protótipo: o agendamento enxuto é
             "paciente, tipo, data, horário, responsável e campanha" (L2584). */}
         <CampoDeCampanha valor={campanhaId} aoMudar={setCampanhaId} sugestao={sugestao} />
 
-        <label className="campo">
-          Responsável por executar
-          <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>
-            {ativos.some((p) => p.id === responsavelId) ? null : (
+        {grupos.length > 0 ? (
+          <div className="chips" role="group" aria-label="Para" style={{ marginBottom: 0 }}>
+            <button type="button" aria-pressed={!paraGrupo} onClick={() => setDestino('pessoa')}>
+              Para uma pessoa
+            </button>
+            <button
+              type="button"
+              aria-pressed={paraGrupo}
+              onClick={() => {
+                setDestino('grupo')
+                // Um grupo não "já fez": lançamento retroativo precisa de uma pessoa.
+                if (retro) setRetro(false)
+              }}
+            >
+              Para um grupo
+            </button>
+          </div>
+        ) : null}
+
+        {paraGrupo ? (
+          <label className="campo">
+            Grupo
+            <select value={grupoId} onChange={(e) => setGrupoId(e.target.value)}>
               <option value="">Selecione</option>
-            )}
-            {ativos.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.id === eu ? 'Eu mesma — ' : ''}
-                {p.nome}
-                {p.funcao === '' ? '' : ` (${p.funcao})`}
-                {p.ativo ? '' : ' (inativa)'}
-              </option>
-            ))}
-          </select>
-        </label>
+              {grupos.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.nome}
+                </option>
+              ))}
+            </select>
+            <small>Quem for do grupo vê a tarefa e pode assumi-la.</small>
+          </label>
+        ) : (
+          <label className="campo">
+            Responsável por executar
+            <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>
+              {ativos.some((p) => p.id === responsavelId) ? null : (
+                <option value="">Selecione</option>
+              )}
+              {ativos.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id === eu ? 'Eu mesma — ' : ''}
+                  {p.nome}
+                  {p.funcao === '' ? '' : ` (${p.funcao})`}
+                  {p.ativo ? '' : ' (inativa)'}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <div className="par">
           <label className="campo">
@@ -509,10 +595,16 @@ function Formulario({
               <input
                 type="checkbox"
                 checked={retro}
+                disabled={paraGrupo}
                 onChange={(e) => marcarRetro(e.target.checked)}
               />
               <span>
-                Já foi realizada <small>(lançamento retroativo · a tarefa nasce concluída)</small>
+                Já foi realizada{' '}
+                <small>
+                  {paraGrupo
+                    ? '(só para uma pessoa: um grupo não registra o que já foi feito)'
+                    : '(lançamento retroativo · a tarefa nasce concluída)'}
+                </small>
               </span>
             </label>
 
@@ -549,22 +641,11 @@ function Formulario({
                           onChange={(e) => setValor(e.target.value)}
                         />
                       </label>
-                      <label className="campo">
-                        Forma de pagamento
-                        <select
-                          value={forma}
-                          onChange={(e) => {
-                            const escolhida = FORMAS.find((x) => x === e.target.value)
-                            if (escolhida !== undefined) setForma(escolhida)
-                          }}
-                        >
-                          {FORMAS.map((x) => (
-                            <option key={x} value={x}>
-                              {x}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <FormasDePagamento
+                        estado={formas}
+                        aoMudar={setFormas}
+                        total={centavosDoTexto(valor)}
+                      />
                     </div>
                     <label className="campo">
                       Valor em aberto (R$) <small>(opcional · o que ainda falta pagar)</small>
@@ -679,7 +760,14 @@ function Formulario({
         )}
 
         <div className="botoes">
-          <button type="submit" className="btn" disabled={salvando}>
+          <button
+            type="submit"
+            className="btn"
+            disabled={
+              salvando ||
+              (guardaPagamento && houvePagamento && !partesFecham(formas, centavosDoTexto(valor)))
+            }
+          >
             {salvando ? 'Criando…' : 'Criar tarefa'}
           </button>
           <a className="btn ghost" href="/hoje">

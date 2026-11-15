@@ -143,6 +143,19 @@ table.conferencia-de-contagem td small {
   color: var(--muted);
 }
 table.conferencia-de-contagem td.direita { font-variant-numeric: tabular-nums; }
+/*
+ * Nove colunas com cabeçalho em caixa alta e `nowrap` não cabiam nem em
+ * 1536 px: "Estoque atualizado" e "Reconhecimento" — justamente as que a
+ * gestora procura depois de concluir — ficavam atrás de uma rolagem lateral.
+ * O cabeçalho quebra em duas linhas, e a célula do "de → para" quebra na seta.
+ */
+table.conferencia-de-contagem th {
+  white-space: normal;
+  vertical-align: bottom;
+  padding: 8px 6px;
+}
+table.conferencia-de-contagem td { padding: 10px 6px; }
+table.conferencia-de-contagem td.direita:not(.num) { white-space: nowrap; }
 
 /*
  * Sete colunas não cabem em 390 px, e rolar para o lado com o telefone

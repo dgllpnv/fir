@@ -11,6 +11,7 @@ import {
   type Relogio,
   somarDias,
   transicao,
+  ultimoInicioPermitido,
 } from '@fir/domain'
 import {
   BadRequestException,
@@ -150,6 +151,7 @@ export class JornadaService {
       }
 
       if (dados.acao === 'registrarOrcamento' && dados.programa !== undefined) {
+        conferirInicios(dados.programa, hoje)
         await conferirResponsaveis(c, dados.programa)
         // A MESMA regra da correção (N-17): itens com valor que passam do
         // orçamento fariam o rateio do fechamento prender a sobra em zero.
@@ -335,7 +337,10 @@ export class JornadaService {
       })
       if (ehErro(r)) throw excecaoDaCorrecao(r.erro)
       // A MESMA conferência do registro: o responsável do item é da clínica.
-      if (dados.programa !== undefined) await conferirResponsaveis(c, dados.programa)
+      if (dados.programa !== undefined) {
+        conferirInicios(dados.programa, hoje)
+        await conferirResponsaveis(c, dados.programa)
+      }
 
       if (r.valor.tipo === 'corrigir') {
         await c.query(
@@ -460,6 +465,21 @@ async function conferirResponsaveis(
   )
   if (r.rowCount !== pedidos.length) {
     throw new BadRequestException('Escolha um responsável ativo para cada item do programa.')
+  }
+}
+
+/**
+ * "Em outra data" (spec 1.1, E10): a data da primeira sessão de cada item não
+ * pode estar a mais de um ano do dia DA CLÍNICA. O contrato confere o formato e
+ * o calendário; a faixa precisa do hoje, e o hoje é do servidor (regra 24).
+ * Data que já passou NÃO é recusada aqui: é pergunta no fechamento.
+ */
+function conferirInicios(programa: readonly ItemOrcado[], hoje: string): void {
+  const limite = ultimoInicioPermitido(hoje)
+  if (programa.some((i) => i.inicio !== undefined && i.inicio > limite)) {
+    throw new BadRequestException(
+      'A data de início de um procedimento passa de um ano a partir de hoje. Confira a data.',
+    )
   }
 }
 
