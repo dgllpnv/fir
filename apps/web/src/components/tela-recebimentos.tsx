@@ -286,7 +286,13 @@ export function TelaRecebimentos({
 
       <p className="nota" style={{ marginBottom: 14 }}>
         Todo dinheiro que a paciente pagou entra por aqui. Atendimento é tarefa; dinheiro é
-        recebimento.
+        recebimento.{' '}
+        {/* A cliente procura "outras entradas" no registro de entrada financeira;
+            o atalho evita que o aluguel da sala vire recebimento de paciente. */}
+        Entrada que não é de paciente (aluguel de sala, farmácia de manipulação)?{' '}
+        <Link href="/outras-entradas" className="link">
+          Registrar em Outras entradas
+        </Link>
       </p>
 
       <form className="formulario" onSubmit={registrar} style={{ maxWidth: 'none' }}>
