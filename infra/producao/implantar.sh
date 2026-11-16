@@ -140,6 +140,29 @@ acrescentar_segredo FIR_CHAVE_SUPRESSAO_DE_CONTATO
 # Guarde-a junto das senhas.
 acrescentar_segredo FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA
 
+# AS INTEGRAÇÕES (MedX, spec integracao-medx A.2). A divisão é o ponto (gate
+# S-2): a API SELA a chave de cada clínica com a PÚBLICA e nunca a abre; só o
+# worker-agenda tem a PRIVADA. O pepper da impressão (unicidade global da
+# chave) fica na API.
+#
+# Uma vez, nunca sobrescritos. Perder a privada não perde dado de paciente,
+# mas obriga a colar de novo a chave do MedX de TODAS as clínicas — guarde-a
+# junto das senhas, fora do dump do banco.
+acrescentar_segredo SENHA_INTEGRACOES
+acrescentar_segredo FIR_INTEGRACOES_PEPPER
+if ! grep -q '^FIR_INTEGRACOES_CHAVE_PRIVADA=' "$AMBIENTE"; then
+  command -v openssl >/dev/null 2>&1 || { echo "ERRO: openssl é necessário para gerar o par das integrações." >&2; exit 1; }
+  echo "==> gerando o par de chaves das integrações (X25519)"
+  privada_der=$(openssl genpkey -algorithm X25519 -outform DER | base64 | tr -d '\n')
+  publica_der=$(printf '%s' "$privada_der" | base64 -d | openssl pkey -inform DER -pubout -outform DER | base64 | tr -d '\n')
+  if [ -z "$privada_der" ] || [ -z "$publica_der" ]; then
+    echo "ERRO: falha ao gerar o par das integrações." >&2
+    exit 1
+  fi
+  printf 'FIR_INTEGRACOES_CHAVE_PRIVADA=%s\nFIR_INTEGRACOES_CHAVE_PUBLICA=%s\n' "$privada_der" "$publica_der" >> "$AMBIENTE"
+  unset privada_der publica_der
+fi
+
 # A chave que nasce com **valor fechado**, e não vazia — é a terceira
 # categoria, e a diferença é de segurança, não de estilo.
 #
@@ -175,6 +198,9 @@ acrescentar_linha DATABASE_URL_CARTEIRA \
   "postgresql://fir_carteira:${SENHA_CARTEIRA}@postgres:5432/fir"
 acrescentar_linha DATABASE_URL_PORTAL \
   "postgresql://fir_portal:${SENHA_PORTAL}@postgres:5432/fir"
+# O papel das integrações (0092), mesma armadilha: a URL antes do Compose.
+acrescentar_linha DATABASE_URL_INTEGRACOES \
+  "postgresql://fir_integracoes:${SENHA_INTEGRACOES}@postgres:5432/fir"
 
 set -a
 # shellcheck disable=SC1090
@@ -371,6 +397,9 @@ bash provisionar-carteira.sh
 
 echo "==> provisionando fir_portal"
 bash provisionar-portal.sh
+
+echo "==> provisionando fir_integracoes"
+bash provisionar-integracoes.sh
 
 # ---------------------------------------------------------------------------
 # 5 · migrations

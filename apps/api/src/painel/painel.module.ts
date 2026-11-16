@@ -20,6 +20,12 @@ import { PainelController } from './painel.controller'
 import { PainelGuard } from './painel.guard'
 import { PainelService } from './painel.service'
 import { SessaoDeSuporteService } from './sessao-de-suporte.service'
+import { IntegracoesNoPainelController } from '../integracoes/integracoes-no-painel.controller'
+import {
+  IntegracoesNoPainelService,
+  PEDIDO_DE_TESTE_DE_INTEGRACAO,
+  PedidoDeTestePelaFila,
+} from '../integracoes/integracoes-no-painel.service'
 
 /**
  * O painel do superadmin. Módulo próprio, controlador próprio, cookie
@@ -40,6 +46,7 @@ import { SessaoDeSuporteService } from './sessao-de-suporte.service'
     PainelClinicasController,
     PainelCarteiraController,
     PainelAtividadesController,
+    IntegracoesNoPainelController,
   ],
   providers: [
     PainelService,
@@ -48,6 +55,8 @@ import { SessaoDeSuporteService } from './sessao-de-suporte.service'
     PainelPessoasService,
     PainelAtividadesService,
     SessaoDeSuporteService,
+    IntegracoesNoPainelService,
+    { provide: PEDIDO_DE_TESTE_DE_INTEGRACAO, useClass: PedidoDeTestePelaFila },
     PainelGuard,
     { provide: ABRIDOR_DA_CONTA_DE_GESTAO, useExisting: CarteiraService },
     provedorDeRelogio,

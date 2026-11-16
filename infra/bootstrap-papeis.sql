@@ -54,6 +54,14 @@ CREATE ROLE fir_carteira LOGIN PASSWORD 'fir_local_dev';
 -- VOLUME. Depois de editar este arquivo, `fir reset` é obrigatório.
 CREATE ROLE fir_portal LOGIN PASSWORD 'fir_local_dev';
 
+-- O SEXTO PAPEL: as integrações (migration 0092, spec integracao-medx A.2).
+--
+-- É o único que lê o segredo selado da chave do MedX, e só o worker o usa.
+-- SEM `BYPASSRLS`: ele lê conteúdo da internet, e abre a integração de cada
+-- clínica dentro de `naClinica`. Num volume que já existe, crie-o à mão com
+-- esta mesma linha (não precisa de `fir reset`).
+CREATE ROLE fir_integracoes LOGIN PASSWORD 'fir_local_dev';
+
 GRANT ALL ON SCHEMA public TO fir_migrate;
 ALTER SCHEMA public OWNER TO fir_migrate;
 

@@ -64,3 +64,4 @@ export * from './visao-geral-carteira'
 export * from './biblioteca-e-beneficio-carteira'
 // Transparência: os grupos que recebem a clínica.
 export * from './grupos-da-clinica'
+export * from './integracoes'

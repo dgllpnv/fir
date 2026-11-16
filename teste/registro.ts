@@ -735,6 +735,9 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   // de quem está com a prancheta na mão, e "Salvar e continuar depois" é o
   // MANUAL. O livro-razão continua sendo `movimentos_de_estoque`, append-only.
   'contado_na_contagem',
+  // A integração com o MedX (0092, spec integracao-medx): o segredo selado,
+  // o termo e as ligações. `fir_app` lê só as colunas de estado.
+  'integracoes_da_clinica',
   // O épico 7, segunda fatia (0019): metas da pessoa e conversas 1:1.
   // As duas são MUTÁVEIS: a meta do mês se ajusta enquanto o mês corre, e a
   // anotação de uma 1:1 se corrige — travá-las como livro-razão obrigaria a

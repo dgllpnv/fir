@@ -146,6 +146,10 @@ services:
       # Segundo fator da carteira (G8 0.6, A-12): cifra do segredo TOTP e
       # pepper dos códigos de recuperação. `:?` para a API não subir sem ela.
       FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA: ${FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA:?rode ./implantar.sh}
+      # Integrações (MedX, gate S-2): a API só SELA — tem a pública e o
+      # pepper da impressão, NUNCA a privada, que é só do worker-agenda.
+      FIR_INTEGRACOES_CHAVE_PUBLICA: ${FIR_INTEGRACOES_CHAVE_PUBLICA:?rode ./implantar.sh}
+      FIR_INTEGRACOES_PEPPER: ${FIR_INTEGRACOES_PEPPER:?rode ./implantar.sh}
       # Exigência do segundo fator: desligada por decisão do dono (D-23, ADR 0023).
       SEGUNDO_FATOR_CARTEIRA_LIGADO: ${SEGUNDO_FATOR_CARTEIRA_LIGADO:-false}
 
@@ -187,6 +191,10 @@ services:
       # um processo que lê conteúdo da internet é o último lugar para um papel
       # com BYPASSRLS.
       DATABASE_URL: postgresql://fir_app:${SENHA_APP:?}@postgres:5432/fir
+      # O único processo que ABRE a chave do MedX de cada clínica (0092): papel
+      # próprio, sem BYPASSRLS, e a privada que só ele tem.
+      DATABASE_URL_INTEGRACOES: ${DATABASE_URL_INTEGRACOES:?rode ./provisionar-integracoes.sh}
+      FIR_INTEGRACOES_CHAVE_PRIVADA: ${FIR_INTEGRACOES_CHAVE_PRIVADA:?rode ./implantar.sh}
       REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
       TZ: UTC
       # O heap abaixo do teto do container: com o limite só no cgroup, o V8

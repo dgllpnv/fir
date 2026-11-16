@@ -282,6 +282,13 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'valor, nenhum dia.',
   },
   {
+    caminho: '/v1/superadmin/clinicas/:clinicaId/integracoes',
+    razao:
+      'O estado da integração com o MedX (final da chave, verificação, escopos, ' +
+      'ligações, termo). Nenhum valor, nenhum caixa, nenhum dia — o faturamento ' +
+      'lido do MedX nunca passa pelo painel (spec integracao-medx C.11).',
+  },
+  {
     caminho: '/v1/superadmin/clinicas/:clinicaId/pessoas/:pessoaId',
     razao: 'A ficha de uma pessoa, com os mesmos campos da lista acima.',
   },
