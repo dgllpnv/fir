@@ -3,6 +3,7 @@ import { Worker } from 'bullmq'
 import { BancoService } from '../banco/banco.service'
 import { AberturaDeIntegracoes } from '../integracoes/cofre-de-integracoes'
 import { JOB_TESTAR_INTEGRACAO } from '../integracoes/jobs'
+import { AgendaDoMedx } from '../integracoes/medx/agenda-do-medx'
 import { LeitorDoMedx } from '../integracoes/medx/leitor-do-medx'
 import { baseDoMedxDoAmbiente, criarTransporte } from '../integracoes/medx/transporte'
 import { TesteDeConexao } from '../integracoes/teste-de-conexao'
@@ -32,13 +33,17 @@ async function main(): Promise<void> {
   await agendarRepeticao(fila)
 
   const banco = new BancoService()
-  const sincronizacao = new SincronizacaoDaAgenda(banco, new RelogioDoSistema(), criarBaixador())
   // A integração com o MedX (spec integracao-medx). A privada e a base são
-  // lidas NA SUBIDA: produção sem elas cai aqui, não no primeiro teste.
-  const testeDeConexao = new TesteDeConexao(
+  // lidas NA SUBIDA: produção sem elas cai aqui, não no primeiro teste. Um
+  // leitor só: a sessão (JWT em memória) serve ao teste e à agenda.
+  const abertura = AberturaDeIntegracoes.doAmbiente()
+  const leitorDoMedx = new LeitorDoMedx(criarTransporte({ base: baseDoMedxDoAmbiente() }))
+  const testeDeConexao = new TesteDeConexao(banco, abertura, leitorDoMedx)
+  const sincronizacao = new SincronizacaoDaAgenda(
     banco,
-    AberturaDeIntegracoes.doAmbiente(),
-    new LeitorDoMedx(criarTransporte({ base: baseDoMedxDoAmbiente() })),
+    new RelogioDoSistema(),
+    criarBaixador(),
+    new AgendaDoMedx(banco, abertura, leitorDoMedx),
   )
 
   const worker = new Worker(

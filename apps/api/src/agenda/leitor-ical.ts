@@ -18,6 +18,16 @@ export type CompromissoLido = {
   readonly cancelado: boolean
   /** Ocorrência de evento recorrente: só existe dentro da janela expandida. */
   readonly recorrente: boolean
+  /**
+   * Só de provedor ESTRUTURADO (MedX): o paciente veio em campos, não no
+   * título. `null` = agendamento sem paciente (nunca vira cartão). `telefone`
+   * só existe quando o paciente ainda não tem vínculo (B.0).
+   */
+  readonly paciente?: { readonly nome: string; readonly telefone: string | null; readonly idOpaco: string } | null
+  /** Só de provedor estruturado: o bit Consulta/Procedimento (B.0), já decidido. */
+  readonly tipo?: 'Consulta agendada' | 'Procedimento agendado'
+  /** Só do MedX: o id do agendamento SELADO, para confirmar sumiço por id (B.4). */
+  readonly referencia?: Buffer
 }
 
 export type JanelaDeLeitura = {

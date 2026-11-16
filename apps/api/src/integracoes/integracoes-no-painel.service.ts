@@ -1,6 +1,7 @@
 import type {
   IntegracaoNoPainel,
   LigacoesDaIntegracaoEntrada,
+  StatusDeCanceladoEntrada,
   TermoDeIntegracaoEntrada,
 } from '@fir/contracts'
 import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common'
@@ -40,6 +41,10 @@ export class SemEscopoDeFinancas extends Error {}
 /** B5: o escopo de finanças só com o faturamento ligado. */
 export class EscopoDeFinancasSemFaturamento extends Error {}
 export class MaisDeUmaUnidade extends Error {}
+/** B.9: a clínica lê a agenda pelo link iCal; o MedX não liga por cima (cartões em dobro). */
+export class AgendaPorIcalLigada extends Error {}
+/** Os cartões da agenda precisam de um responsável: a clínica sem administrador ativo não liga. */
+export class SemResponsavelDaAgenda extends Error {}
 export class TesteCedoDemais extends Error {
   constructor(readonly esperaEmSegundos: number) {
     super()
@@ -84,12 +89,14 @@ type Linha = {
   ultimo_erro: string
   agenda_ligada: boolean
   faturamento_ligado: boolean
+  status_de_cancelado: number[]
 }
 
 // Nunca `segredo_cifrado` (o painel nem tem SELECT nele) nem a impressão.
 const COLUNAS = `id, final_da_chave, termo_assinado_em::text AS termo_assinado_em, termo_assinado_por,
   termo_versao, verificacao, verificacao_pedida_em, verificada_em, usuario_externo_nome,
-  conta_externa_id, escopos, unidades_externas, ultimo_erro, agenda_ligada, faturamento_ligado`
+  conta_externa_id, escopos, unidades_externas, ultimo_erro, agenda_ligada, faturamento_ligado,
+  status_de_cancelado`
 
 const UNICIDADE_VIOLADA = '23505'
 
@@ -104,6 +111,7 @@ const SO_FIR: IntegracaoNoPainel = {
   unidades: 0,
   ligadoAgenda: false,
   ligadoFaturamento: false,
+  statusDeCancelado: [],
   termo: null,
   ultimoErro: '',
 }
@@ -125,6 +133,7 @@ function paraOPainel(l: Linha | undefined): IntegracaoNoPainel {
     unidades: l.unidades_externas,
     ligadoAgenda: l.agenda_ligada,
     ligadoFaturamento: l.faturamento_ligado,
+    statusDeCancelado: l.status_de_cancelado,
     termo:
       l.termo_assinado_em === null
         ? null
@@ -193,6 +202,7 @@ export class IntegracoesNoPainelService {
         }
         throw e
       }
+      await desligarAgendaDoMedx(c)
       await this.trilha(c, ator, antes === undefined ? 'criou' : 'alterou', depois.id, antes, depois,
         antes?.final_da_chave ? 'chave trocada' : 'chave cadastrada')
       return paraOPainel(depois)
@@ -217,6 +227,7 @@ export class IntegracoesNoPainelService {
         [clinicaId],
       )
       const depois = r.rows[0]!
+      await desligarAgendaDoMedx(c)
       await this.trilha(c, ator, 'removeu', depois.id, antes, depois, 'chave removida')
       return paraOPainel(depois)
     })
@@ -263,6 +274,8 @@ export class IntegracoesNoPainelService {
         if (!ligacoes.faturamento && temFinancas) throw new EscopoDeFinancasSemFaturamento()
       }
       if (antes === undefined) return SO_FIR
+      if (ligacoes.agenda) await ligarAgendaDoMedx(c, clinicaId)
+      else await desligarAgendaDoMedx(c)
       const r = await c.query<Linha>(
         `UPDATE integracoes_da_clinica SET agenda_ligada = $2, faturamento_ligado = $3, atualizada_em = now()
           WHERE clinica_id = $1 RETURNING ${COLUNAS}`,
@@ -270,6 +283,27 @@ export class IntegracoesNoPainelService {
       )
       const depois = r.rows[0]!
       await this.trilha(c, ator, 'alterou', depois.id, antes, depois)
+      return paraOPainel(depois)
+    })
+  }
+
+  /** Os status do MedX que significam "cancelado" (B.8). Sem chave, nada a configurar. */
+  async definirStatusDeCancelado(
+    clinicaId: ClinicaId,
+    ator: OperadorId,
+    entrada: StatusDeCanceladoEntrada,
+  ): Promise<IntegracaoNoPainel> {
+    return this.banco.comoPainel(clinicaId, ator, async (c) => {
+      const antes = await this.linha(c, true)
+      if (antes === undefined || antes.final_da_chave === null) throw new SemChave()
+      const codigos = [...new Set(entrada.codigos)].sort((a, b) => a - b)
+      const r = await c.query<Linha>(
+        `UPDATE integracoes_da_clinica SET status_de_cancelado = $2, atualizada_em = now()
+          WHERE clinica_id = $1 RETURNING ${COLUNAS}`,
+        [clinicaId, codigos],
+      )
+      const depois = r.rows[0]!
+      await this.trilha(c, ator, 'alterou', depois.id, antes, depois, `status de cancelado: ${codigos.join(', ') || 'nenhum'}`)
       return paraOPainel(depois)
     })
   }
@@ -326,4 +360,41 @@ export class IntegracoesNoPainelService {
       ...(motivo === undefined ? {} : { motivo }),
     })
   }
+}
+
+/**
+ * Ligar a agenda do MedX é dizer, na linha ÚNICA de `agendas_externas` da
+ * clínica, que o provedor é o MedX (spec B.9, S-14). Com o iCal ativo, recusa:
+ * as duas fontes criariam o mesmo cartão duas vezes. O responsável pelos
+ * cartões fica o da linha existente; sem linha, o administrador ativo mais antigo
+ * (a clínica não troca isso pela tela dela enquanto o MedX estiver ligado, D.1).
+ */
+async function ligarAgendaDoMedx(c: pg.PoolClient, clinicaId: ClinicaId): Promise<void> {
+  const r = await c.query<{ provedor: string; ativa: boolean }>('SELECT provedor, ativa FROM agendas_externas FOR UPDATE')
+  const atual = r.rows[0]
+  if (atual?.provedor === 'ical' && atual.ativa) throw new AgendaPorIcalLigada()
+  if (atual !== undefined) {
+    await c.query(
+      `UPDATE agendas_externas SET
+         provedor = 'medx', url_secreta = NULL, ativa = true, atualizada_em = now(),
+         ultimo_erro = CASE WHEN provedor = 'medx' THEN ultimo_erro ELSE '' END,
+         ultimo_resumo = CASE WHEN provedor = 'medx' THEN ultimo_resumo ELSE NULL END`,
+    )
+    return
+  }
+  const adm = await c.query<{ id: string }>(
+    'SELECT id FROM pessoas WHERE ativo AND admin ORDER BY criada_em, id LIMIT 1',
+  )
+  if (adm.rows[0] === undefined) throw new SemResponsavelDaAgenda()
+  await c.query(
+    `INSERT INTO agendas_externas (clinica_id, provedor, url_secreta, responsavel_id, ativa)
+     VALUES ($1, 'medx', NULL, $2, true)`,
+    [clinicaId, adm.rows[0].id],
+  )
+}
+
+async function desligarAgendaDoMedx(c: pg.PoolClient): Promise<void> {
+  await c.query(
+    `UPDATE agendas_externas SET ativa = false, atualizada_em = now() WHERE provedor = 'medx' AND ativa`,
+  )
 }

@@ -705,10 +705,28 @@ O F3 fechou criar/editar meta em R$ sem `valores`. Metas já gravadas por quem n
 
 ---
 
-### D-L1 · A sincronização do iCal recadastra paciente desativado ou anonimizado
+### ~~D-L1 · A sincronização do iCal recadastra paciente desativado ou anonimizado~~ — **paga** no T4 do MedX (2026-11-16)
+
+Paga em `vincularPaciente` (`apps/api/src/agenda/sincronizacao.ts`): se o id do MedX, o telefone ou o nome levam só a paciente desativado, nada é criado e o caso é contado em `pacienteDesativado`. A regra vale para o iCal também. Exceção: desativação por `duplicado` ou `erro-de-cadastro`. ADR `2026-11-16-agenda-do-medx-provedor-e-confirmacao`. O texto original fica abaixo, como registro.
+
 
 `vincularPaciente` (`apps/api/src/agenda/sincronizacao.ts:397-415`) procura só `WHERE ativo`, e o `ON CONFLICT (clinica_id, nome_chave) WHERE ativo` (linha 426) não colide com quem foi desativado. A próxima consulta na agenda de quem foi desativado ou anonimizado — inclusive quem pediu eliminação — cadastra a pessoa de novo, com nome e telefone, em até 15 minutos. Achado pelo gate LGPD da integração MedX (`docs/specs/integracao-medx-gate-lgpd.md`, B3); a correção do MedX (supressão por HMAC, B.7 da spec) é a mesma que paga esta.
 **Gatilho:** a primeira solicitação de eliminação de titular numa clínica com agenda sincronizada — ou o T4 do MedX, o que vier antes.
+
+### D-L2 · Trocar o iCal pelo MedX cria de novo os cartões futuros
+
+Os compromissos do iCal ficam com `provedor = 'ical'`. Ao ligar o MedX numa clínica que usava o link (desligado antes, como o painel exige), a primeira leitura do MedX não reconhece nenhuma consulta futura e cria cartão para todas. A consulta já tinha cartão pelo iCal, então os cartões ficam em dobro. Não há como casar os dois sem heurística (o iCal não tem o id do MedX).
+**Gatilho:** a primeira clínica que troca o link iCal pelo MedX. Até lá, nenhuma das 4 usa o link. Caminho provável: na troca, o painel pergunta se arquiva os cartões futuros vindos do iCal.
+
+### D-L3 · Girar a chave privada das integrações muda todos os ids opacos
+
+O HMAC dos ids do MedX e a referência selada derivam de `FIR_INTEGRACOES_CHAVE_PRIVADA` (ADR `2026-11-16-agenda-do-medx-provedor-e-confirmacao`, decisão 3). Uma privada nova faz a agenda ver todo agendamento como novo (cartões em dobro), perde os vínculos de paciente e a supressão, e não abre as referências seladas. Perder a privada já obriga a recolar a chave de todas as clínicas (spec A.2).
+**Gatilho:** qualquer plano de girar ou recuperar a privada. Antes dele, um script de rotação que recalcula os HMACs com as duas chaves em mãos.
+
+### D-L4 · Retenção dos vínculos do MedX sem job
+
+`pacientes_externos` (vínculo e supressão) tem prazo de "integração ligada + 90 dias" (`docs/compliance/retencao.md`), mas o job que apaga não existe. Enquanto a integração estiver ligada, o prazo não corre. O registro de ciclo (1 ano) já é apagado pelo próprio ciclo.
+**Gatilho:** a primeira clínica que desliga o MedX ou encerra o contrato. O job tem de manter a **supressão** de quem pediu para sair enquanto a clínica tiver o MedX (B.7), e apagar o resto.
 
 ## Pendências de produto, não de código
 

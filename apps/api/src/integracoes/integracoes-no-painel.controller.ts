@@ -2,6 +2,7 @@ import {
   ChaveDeIntegracaoEntrada,
   type IntegracaoNoPainel,
   LigacoesDaIntegracaoEntrada,
+  StatusDeCanceladoEntrada,
   TermoDeIntegracaoEntrada,
   Uuid,
 } from '@fir/contracts'
@@ -27,12 +28,14 @@ import type { ContextoDoPainel, RequisicaoComPainel } from '../painel/contexto-d
 import { ClinicaDesativada, ClinicaNaoExiste, PainelClinicasService } from '../painel/painel-clinicas.service'
 import { SoOperador } from '../painel/so-operador.decorator'
 import {
+  AgendaPorIcalLigada,
   ChaveEmOutraClinica,
   EscopoDeFinancasSemFaturamento,
   IntegracoesNoPainelService,
   MaisDeUmaUnidade,
   SemChave,
   SemEscopoDeFinancas,
+  SemResponsavelDaAgenda,
   SemTermo,
   SemVerificacao,
   TesteCedoDemais,
@@ -97,6 +100,18 @@ export class IntegracoesNoPainelController {
     )
   }
 
+  @Put('status-de-cancelado')
+  async definirStatusDeCancelado(
+    @Param('clinicaId') clinicaId: string,
+    @Body() corpo: unknown,
+    @Req() req: RequisicaoComPainel,
+  ): Promise<IntegracaoNoPainel> {
+    const dados = validar(StatusDeCanceladoEntrada, corpo, 'Confira os códigos de status (0 a 12).')
+    return traduzir(async () =>
+      this.integracoes.definirStatusDeCancelado(await this.clinica(clinicaId), painelDe(req).ator, dados),
+    )
+  }
+
   @Post('testar')
   @HttpCode(HttpStatus.ACCEPTED)
   async testar(
@@ -155,6 +170,14 @@ async function traduzir<T>(fn: () => Promise<T>): Promise<T> {
       throw new ConflictException(
         'O usuário do MedX tem permissão de finanças. Ligue o faturamento junto, ou tire essa permissão no MedX.',
       )
+    }
+    if (e instanceof AgendaPorIcalLigada) {
+      throw new ConflictException(
+        'A clínica lê a agenda pelo link iCal. Desligue o link em Configurações → Agenda do sistema antes de ligar o MedX.',
+      )
+    }
+    if (e instanceof SemResponsavelDaAgenda) {
+      throw new ConflictException('A clínica não tem administrador ativo para receber os cartões da agenda.')
     }
     if (e instanceof TesteCedoDemais) {
       throw new HttpException(

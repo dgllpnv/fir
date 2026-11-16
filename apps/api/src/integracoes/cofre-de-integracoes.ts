@@ -122,14 +122,57 @@ export class SeloDeIntegracoes {
   }
 }
 
-/** O lado do worker: só abre. */
+/**
+ * O lado do worker: abre a chave e, para a agenda do MedX (B.0), produz os ids
+ * OPACOS (HMAC) e sela a referência do agendamento. As duas chaves derivam da
+ * privada por HKDF com rótulos próprios — nenhuma variável nova, e nada disso
+ * existe no processo da API.
+ *
+ * **Trocar a privada troca os HMACs**: a agenda passaria a ver todo
+ * agendamento como novo. Por isso a privada não gira sem um plano (runbook).
+ */
 export class AberturaDeIntegracoes {
   private readonly privada: KeyObject
   private readonly publicaDer: Buffer
+  private readonly chaveDosIds: Buffer
+  private readonly chaveDasReferencias: Buffer
 
   constructor(opcoes: { chavePrivada: string }) {
     this.privada = privadaDe(opcoes.chavePrivada)
     this.publicaDer = createPublicKey(this.privada).export({ type: 'spki', format: 'der' })
+    const der = this.privada.export({ type: 'pkcs8', format: 'der' })
+    this.chaveDosIds = Buffer.from(hkdfSync('sha256', der, ROTULO, 'ids-opacos:v1', 32))
+    this.chaveDasReferencias = Buffer.from(hkdfSync('sha256', der, ROTULO, 'referencias:v1', 32))
+  }
+
+  /**
+   * `h:` + HMAC-SHA-256 hex de `clínica:provedor:tipo:id`. A clínica entra na
+   * mensagem: o mesmo paciente do MedX em duas clínicas dá dois ids.
+   */
+  idOpaco(clinicaId: string, provedor: string, tipo: 'agendamento' | 'paciente', id: string): string {
+    return `h:${createHmac('sha256', this.chaveDosIds).update(`${clinicaId}:${provedor}:${tipo}:${id}`).digest('hex')}`
+  }
+
+  /** O id do agendamento, selado para confirmar o sumiço por id (B.4). AAD com a clínica. */
+  selarReferencia(clinicaId: string, provedor: string, id: string): Buffer {
+    const iv = randomBytes(TAM_IV)
+    const c = createCipheriv('aes-256-gcm', this.chaveDasReferencias, iv)
+    c.setAAD(Buffer.from(`referencia:${clinicaId}:${provedor}`, 'utf8'))
+    const corpo = Buffer.concat([c.update(id, 'utf8'), c.final()])
+    return Buffer.concat([iv, c.getAuthTag(), corpo])
+  }
+
+  /** `null` quando não abre (outra clínica, outra privada, bytes adulterados). */
+  abrirReferencia(clinicaId: string, provedor: string, selada: Buffer): string | null {
+    if (selada.length <= TAM_IV + TAM_TAG) return null
+    try {
+      const d = createDecipheriv('aes-256-gcm', this.chaveDasReferencias, selada.subarray(0, TAM_IV))
+      d.setAAD(Buffer.from(`referencia:${clinicaId}:${provedor}`, 'utf8'))
+      d.setAuthTag(selada.subarray(TAM_IV, TAM_IV + TAM_TAG))
+      return Buffer.concat([d.update(selada.subarray(TAM_IV + TAM_TAG)), d.final()]).toString('utf8')
+    } catch {
+      return null
+    }
   }
 
   static doAmbiente(ambiente: NodeJS.ProcessEnv = process.env): AberturaDeIntegracoes {

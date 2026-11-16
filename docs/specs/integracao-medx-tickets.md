@@ -34,11 +34,24 @@ Spec: [`integracao-medx.md`](integracao-medx.md). Ordem: T1 → T2 → T3 → T4
 ## T2 — `LeitorDoMedx` + execução do Testar conexão (E.2–E.5, A.3–A.5, A.11) — **feito** (16/11)
 Cliente só de leitura, host fixo por ambiente, sem redirect, `lookupSoPublico`, JSON-only, Zod estrito por página, cursor com teto, cache de JWT em memória por `(clinicaId, impressão)`, catálogo de erros, `Retry-After` sem dormir. O worker processa o job de teste: token → `usuario-atual` → `financas/unidades`, compara scopes com a lista branca e grava a verificação. Servidor MedX falso local com os casos de abuso.
 
-## T3 — `AgendaProvider` de verdade (B.9)
-Interface da ADR 0019; adaptadores iCal e MedX; `CHECK` de `provedor` ampliado; um provedor ativo por clínica no banco; `PUT /v1/agenda-externa` recusa iCal com MedX ligado. Suíte do iCal inalterada.
+## T3 — `AgendaProvider` de verdade (B.9) — **feito** (16/11)
+- [x] `AgendaProvider` (`agenda/agenda-provider.ts`) com `AgendaPorIcal` e `AgendaDoMedx`; a conciliação é uma só, parametrizada pelo provedor.
+- [x] Migration 0093: `provedor` em `('ical','medx')` nas duas tabelas; link só no iCal (`CHECK`); a linha única por clínica é a trava dos dois.
+- [x] O painel liga a agenda do MedX na linha da clínica (responsável: o administrador ativo mais antigo); com o iCal ativo, 409. Desligar, trocar ou remover a chave tira o MedX da leitura.
+- [x] `PUT /v1/agenda-externa` recusa o iCal com o MedX ligado (409); `GET` devolve `provedor`.
+- [x] Suíte do iCal inalterada: `sincronizacao.e2e.test.ts` 21/21 sem mudar uma linha.
 
-## T4 — Agenda do MedX → cartões (B.0–B.13)
-Lista branca, janelas e hora, tudo ou nada, confirmação por id, HMAC dos ids, supressão, paciente desativado (paga D-L1), cooldown, registro de ciclo, retenção.
+## T4 — Agenda do MedX → cartões (B.0–B.13) — **feito** (16/11), menos B.13 (aceite numa clínica real)
+- [x] B.0 lista branca no Zod; `/contatos/{id}` só sem vínculo, só para consulta que vai virar cartão, até 50 por ciclo.
+- [x] B.1 janelas `[hoje,+31)` e `[+31,+60)` no relógio `-03:00` (`borda-do-medx.ts`, com propriedade de ida e volta); offset diferente avisa.
+- [x] B.2 tudo ou nada; a trava de vazio por janela roda **depois** da confirmação (ADR, decisão 2).
+- [x] B.3 mesmo fluxo do iCal; B.4 confirmação por id (`nao_encontrado` novo no catálogo); B.5 HMAC na UNIQUE.
+- [x] B.6 id do MedX → telefone → nome; B.7 desativado e supressão não voltam (paga D-L1, também no iCal).
+- [x] B.8 `PUT .../status-de-cancelado` no painel (0–12); vazio = só o sumiço confirmado desmarca.
+- [x] B.10 cooldown de 2 min no servidor (429); B.11 nome NFC sem controle nem bidi, telefone e id validados; B.12 `ciclos_da_agenda_externa`, 1 ano.
+- [x] E.6 retenção em `retencao.md`; dívidas novas D-L2 (troca iCal → MedX), D-L3 (girar a privada), D-L4 (job dos vínculos).
+- [ ] B.13 uma semana numa clínica real (depende da primeira clínica e do termo).
+- Fica para o T6: ler os nomes dos status de `GET /agenda/catalogos` para o superadmin escolher, e o bloco da clínica com os ciclos (D.1).
 
 ## T5 — Leitura de faturamento (C.0–C.7)
 `Dinheiro.deDecimalExterno` + 16 propriedades; tabela + histórico; jobs horário e noturno. Só liga depois da calibração C.0.

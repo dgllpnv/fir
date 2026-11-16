@@ -126,6 +126,7 @@ describe('a chave (A.2, A.7, A.8)', () => {
       unidades: 0,
       ligadoAgenda: false,
       ligadoFaturamento: false,
+      statusDeCancelado: [],
       termo: null,
       ultimoErro: '',
     })
@@ -247,6 +248,67 @@ describe('termo, verificação e ligações (A.0, A.3, A.6)', () => {
       escopos: [],
       termo,
     })
+  })
+})
+
+describe('a agenda do MedX pelo painel (B.8, B.9; T3)', () => {
+  async function prontaParaLigar(): Promise<string> {
+    const id = await novaClinica()
+    await http().put(rota(id, '/chave')).set('Cookie', painel).send({ chave: `medx_${randomBytes(20).toString('hex')}` }).expect(200)
+    await http().put(rota(id, '/termo')).set('Cookie', painel).send(termo).expect(200)
+    await simularVerificacaoOk(id, ['agenda:read', 'contatos:details:read', 'financas:read'])
+    return id
+  }
+  const agendaDa = async (id: string) =>
+    (
+      await migrate.query(
+        `SELECT a.provedor, a.ativa, a.url_secreta, p.admin AS responsavel_admin
+           FROM agendas_externas a JOIN pessoas p ON p.id = a.responsavel_id WHERE a.clinica_id = $1`,
+        [id],
+      )
+    ).rows
+
+  it('ligar a agenda põe o MedX na linha única da clínica, com o administrador de responsável; desligar a apaga da leitura', async () => {
+    const id = await prontaParaLigar()
+    await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: false }).expect(200)
+    expect(await agendaDa(id)).toEqual([{ provedor: 'medx', ativa: true, url_secreta: null, responsavel_admin: true }])
+
+    await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: false, faturamento: false }).expect(200)
+    expect(await agendaDa(id)).toEqual([{ provedor: 'medx', ativa: false, url_secreta: null, responsavel_admin: true }])
+    // Religar reaproveita a linha: continua uma por clínica.
+    await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: false }).expect(200)
+    expect(await agendaDa(id)).toHaveLength(1)
+  })
+
+  it('com o link iCal ativo, o MedX não liga por cima (um provedor por clínica)', async () => {
+    const id = await prontaParaLigar()
+    await declararAtorSistema(migrate)
+    await migrate.query(
+      `INSERT INTO agendas_externas (clinica_id, provedor, url_secreta, responsavel_id)
+       SELECT $1, 'ical', 'https://exemplo.test/agenda.ics', id FROM pessoas WHERE clinica_id = $1 LIMIT 1`,
+      [id],
+    )
+    const r = await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: false }).expect(409)
+    expect(r.body.message).toMatch(/iCal/)
+    expect((await agendaDa(id))[0]).toMatchObject({ provedor: 'ical', ativa: true })
+  })
+
+  it('trocar ou remover a chave tira a agenda do MedX da leitura', async () => {
+    const id = await prontaParaLigar()
+    await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: false }).expect(200)
+    await http().delete(rota(id, '/chave')).set('Cookie', painel).expect(200)
+    expect((await agendaDa(id))[0]).toMatchObject({ provedor: 'medx', ativa: false })
+  })
+
+  it('status de cancelado: configurado por clínica, só 0 a 12, e só com chave', async () => {
+    const sem = await novaClinica()
+    await http().put(rota(sem, '/status-de-cancelado')).set('Cookie', painel).send({ codigos: [6] }).expect(409)
+    const id = await prontaParaLigar()
+    const r = await http().put(rota(id, '/status-de-cancelado')).set('Cookie', painel).send({ codigos: [7, 6, 6] }).expect(200)
+    expect(r.body.statusDeCancelado).toEqual([6, 7])
+    await http().put(rota(id, '/status-de-cancelado')).set('Cookie', painel).send({ codigos: [13] }).expect(400)
+    const g = await http().get(rota(id)).set('Cookie', painel).expect(200)
+    expect(g.body.statusDeCancelado).toEqual([6, 7])
   })
 })
 

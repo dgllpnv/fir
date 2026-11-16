@@ -40,6 +40,16 @@ export const LigacoesDaIntegracaoEntrada = z
   .strict()
 export type LigacoesDaIntegracaoEntrada = z.infer<typeof LigacoesDaIntegracaoEntrada>
 
+/**
+ * Os códigos de status do MedX que significam "cancelado" (spec B.8), de
+ * `GET /agenda/catalogos` (0–12). Configurados por clínica: nenhum código no
+ * código-fonte. Vazio = só o sumiço confirmado por id desmarca.
+ */
+export const StatusDeCanceladoEntrada = z
+  .object({ codigos: z.array(z.number().int().min(0).max(12)).max(13) })
+  .strict()
+export type StatusDeCanceladoEntrada = z.infer<typeof StatusDeCanceladoEntrada>
+
 export const EstadoDaVerificacao = z.enum(['sem_chave', 'nao_verificada', 'pedida', 'ok', 'recusada'])
 export type EstadoDaVerificacao = z.infer<typeof EstadoDaVerificacao>
 
@@ -56,6 +66,7 @@ export const IntegracaoNoPainel = z
     unidades: z.number().int(),
     ligadoAgenda: z.boolean(),
     ligadoFaturamento: z.boolean(),
+    statusDeCancelado: z.array(z.number().int()),
     termo: z
       .object({ assinadoEm: DiaCivil, assinadoPor: z.string(), versao: z.string() })
       .nullable(),

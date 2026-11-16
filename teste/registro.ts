@@ -738,6 +738,11 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   // A integração com o MedX (0092, spec integracao-medx): o segredo selado,
   // o termo e as ligações. `fir_app` lê só as colunas de estado.
   'integracoes_da_clinica',
+  // A agenda do MedX (0093): o vínculo do paciente pelo HMAC do id do MedX (ou
+  // a supressão), mutável e sem DELETE; e o registro de cada ciclo, só
+  // contagens, que o próprio ciclo apaga depois de 1 ano (retenção).
+  'pacientes_externos',
+  'ciclos_da_agenda_externa',
   // O épico 7, segunda fatia (0019): metas da pessoa e conversas 1:1.
   // As duas são MUTÁVEIS: a meta do mês se ajusta enquanto o mês corre, e a
   // anotação de uma 1:1 se corrige — travá-las como livro-razão obrigaria a

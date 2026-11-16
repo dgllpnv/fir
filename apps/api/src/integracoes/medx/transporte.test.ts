@@ -82,6 +82,19 @@ describe('transporte do MedX', () => {
     expect((await erroDe(transporte()({ metodo: 'GET', caminho: '/html' }))).codigo).toBe('nao_json')
   })
 
+  it('cada status vira um código do catálogo; 404 é "não encontrado" (a confirmação por id depende dele)', async () => {
+    for (const [status, codigo] of [
+      [401, 'recusada'],
+      [403, 'sem_permissao'],
+      [404, 'nao_encontrado'],
+      [429, 'limite'],
+      [503, 'indisponivel'],
+    ] as const) {
+      const e = await erroDe(transporte()({ metodo: 'GET', caminho: '/status', query: { status: String(status) } }))
+      expect(e.codigo, String(status)).toBe(codigo)
+    }
+  })
+
   it('redirect não é seguido: o Bearer nunca sai para outro host', async () => {
     expect((await erroDe(transporte()({ metodo: 'GET', caminho: '/redireciona', bearer: 'jwt' }))).codigo).toBe(
       'redirecionou',

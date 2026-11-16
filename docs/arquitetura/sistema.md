@@ -32,7 +32,13 @@ A lista curta e definitiva. O ponto de partida está em `CLAUDE.md` §5:
 1. HTTP da API — contrato de `packages/contracts`, já com permissão aplicada e valores redigidos
 2. `packages/domain` puro — `Dinheiro`, `Quantidade`, jornada, programa, saldo, análise, `temPerm`
 3. Repositórios sobre Postgres real (Testcontainers) — RLS, idempotência, transação
-4. `AgendaProvider`
+4. `AgendaProvider` — **implementado** no T3 da integração MedX (`apps/api/src/agenda/agenda-provider.ts`).
+   Só LÊ: devolve os compromissos lidos e as chaves que a leitura não decidiu. Conciliar é da
+   `SincronizacaoDaAgenda`, igual para todos os provedores (`decidirPelaAgenda`, `transicao`).
+   O provedor da clínica é a coluna `agendas_externas.provedor`, na linha única dela, e é
+   ela que a rodada trava. Dois adaptadores: `AgendaPorIcal` (baixa e interpreta o feed) e
+   `AgendaDoMedx` (`integracoes/medx/agenda-do-medx.ts`: janelas de até 31 dias, confirmação
+   do sumiço por id, ids opacos, contato só sem vínculo). ADR `2026-11-16-agenda-do-medx-provedor-e-confirmacao`.
 5. `LeitorDeNota` — **implementado** no épico 6, segunda fatia. Do XML da NF-e para linhas com
    quantidade inteira em milésimos e dinheiro inteiro em centavos. **Ele não toca o banco**, e é
    por isso que ele é um seam: o que entra é texto, o que sai são linhas, e o CASAMENTO com o

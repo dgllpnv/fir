@@ -70,3 +70,32 @@ describe('cofre das integrações (gate S-2, S-3, S-6)', () => {
     expect(() => AberturaDeIntegracoes.doAmbiente(prod)).toThrow(/FIR_INTEGRACOES/)
   })
 })
+
+describe('ids opacos e referência selada (agenda do MedX, B.0, B.4)', () => {
+  const a = new AberturaDeIntegracoes({ chavePrivada: gerarParDeChavesDeIntegracoes().privada })
+
+  it('o id opaco é estável, tem forma fixa e separa clínica, tipo e id', () => {
+    const x = a.idOpaco(A, 'medx', 'agendamento', '-17')
+    expect(x).toMatch(/^h:[0-9a-f]{64}$/)
+    expect(a.idOpaco(A, 'medx', 'agendamento', '-17')).toBe(x)
+    expect(new Set([x, a.idOpaco(B, 'medx', 'agendamento', '-17'), a.idOpaco(A, 'medx', 'paciente', '-17'), a.idOpaco(A, 'medx', 'agendamento', '17')]).size).toBe(4)
+  })
+
+  it('outra privada dá outro id opaco', () => {
+    const b = new AberturaDeIntegracoes({ chavePrivada: gerarParDeChavesDeIntegracoes().privada })
+    expect(b.idOpaco(A, 'medx', 'paciente', '9')).not.toBe(a.idOpaco(A, 'medx', 'paciente', '9'))
+  })
+
+  it('a referência selada volta só na mesma clínica e com a mesma privada', () => {
+    const s = a.selarReferencia(A, 'medx', '123456')
+    expect(s.toString('utf8')).not.toContain('123456')
+    expect(a.abrirReferencia(A, 'medx', s)).toBe('123456')
+    expect(a.abrirReferencia(B, 'medx', s)).toBeNull()
+    const b = new AberturaDeIntegracoes({ chavePrivada: gerarParDeChavesDeIntegracoes().privada })
+    expect(b.abrirReferencia(A, 'medx', s)).toBeNull()
+    const adulterada = Buffer.from(s)
+    adulterada[adulterada.length - 1]! ^= 1
+    expect(a.abrirReferencia(A, 'medx', adulterada)).toBeNull()
+    expect(a.abrirReferencia(A, 'medx', Buffer.alloc(3))).toBeNull()
+  })
+})

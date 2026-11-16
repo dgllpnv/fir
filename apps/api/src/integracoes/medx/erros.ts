@@ -11,6 +11,8 @@ export const MENSAGENS_DO_MEDX = {
   chave_invalida: 'A chave guardada não abre. Cole a chave do MedX de novo.',
   recusada: 'O MedX recusou a chave. Gere outra no MedX e cole aqui.',
   sem_permissao: 'O usuário do MedX não tem a permissão que esta leitura exige.',
+  // 404: na confirmação por id (B.4) é RESPOSTA, não falha — o agendamento não existe mais.
+  nao_encontrado: 'O MedX não encontrou o registro pedido.',
   limite: 'O MedX pediu para esperar (limite de chamadas). A próxima leitura tenta de novo.',
   indisponivel: 'O MedX está fora do ar ou respondeu com erro. A próxima leitura tenta de novo.',
   nao_json: 'O MedX respondeu algo que não é dado (página de manutenção?). Nada foi alterado.',

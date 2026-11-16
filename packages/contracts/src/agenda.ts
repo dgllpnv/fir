@@ -16,6 +16,8 @@ export const ResumoDaSincronizacao = z.object({
   desmarcados: z.number().int(),
   ignorados: z.number().int(),
   pacientesNovos: z.number().int(),
+  /** Consultas que não viraram cartão porque o paciente foi desativado (B.7). Resumos antigos não têm. */
+  pacienteDesativado: z.number().int().optional(),
 })
 export type ResumoDaSincronizacao = z.infer<typeof ResumoDaSincronizacao>
 
@@ -23,7 +25,10 @@ export const AgendaExterna = z.discriminatedUnion('configurada', [
   z.object({ configurada: z.literal(false) }),
   z.object({
     configurada: z.literal(true),
+    /** De onde vem a agenda (spec integracao-medx B.9). Com `medx`, a tela é só leitura (D.1). */
+    provedor: z.enum(['ical', 'medx']),
     ativa: z.boolean(),
+    /** Vazio no MedX: ele não tem link. */
     urlMascarada: z.string(),
     responsavelId: Uuid,
     responsavelNome: z.string(),

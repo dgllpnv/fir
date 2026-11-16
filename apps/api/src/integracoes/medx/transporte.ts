@@ -95,7 +95,15 @@ export function criarTransporte(opcoes: {
           if (status !== 200) {
             res.resume()
             return falha(
-              status === 401 ? 'recusada' : status === 403 ? 'sem_permissao' : status === 429 ? 'limite' : 'indisponivel',
+              status === 401
+                ? 'recusada'
+                : status === 403
+                  ? 'sem_permissao'
+                  : status === 404
+                    ? 'nao_encontrado'
+                    : status === 429
+                      ? 'limite'
+                      : 'indisponivel',
             )
           }
           const tipo = String(res.headers['content-type'] ?? '')

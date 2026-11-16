@@ -27,7 +27,7 @@ const Token = z.object({
   scope: z.string().max(4000).nullable().optional(),
 })
 
-const Pagina = z.object({
+export const Pagina = z.object({
   hasMore: z.boolean(),
   nextCursor: z.string().max(4096).nullable().optional(),
 })
@@ -113,6 +113,11 @@ export class LeitorDoMedx {
       total += p.unidades.length
     })
     return total
+  }
+
+  /** Um recurso só (`GET`), validado. 404 lança `ErroDoMedx('nao_encontrado')`. */
+  async obter<T>(s: Sessao, caminho: string, esquema: z.ZodType<T>): Promise<T> {
+    return this.ler(esquema, await this.get(s, caminho))
   }
 
   /**

@@ -26,8 +26,17 @@ import { SISTEMA, SISTEMA_NO_BANCO } from '../banco/ator'
 import type { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { brAno } from '../tarefas/leitura'
+import {
+  type AgendaDaClinica,
+  AgendaPorIcal,
+  type AgendaProvider,
+  type ContagensDoCiclo,
+  FalhaDaLeitura,
+  type LeituraDaAgenda,
+  type Provedor,
+} from './agenda-provider'
 import { type Baixador, FalhaAoBaixar } from './baixar-feed'
-import { type CompromissoLido, FeedInvalido, lerIcal } from './leitor-ical'
+import { type CompromissoLido, FeedInvalido } from './leitor-ical'
 
 /**
  * A sincronização da agenda do sistema da clínica (ADR 0019).
@@ -63,10 +72,23 @@ export type ResultadoDaClinica =
 
 type Agenda = {
   id: string
-  url_secreta: string
+  provedor: Provedor
+  url_secreta: string | null
   responsavel_id: string
   palavras_ignorar: string[]
 }
+
+/**
+ * A agenda que a rodada lê. O MedX só conta com a integração LIGADA e o
+ * último teste verde (spec integracao-medx B.9): desligar no painel para a
+ * leitura no ciclo seguinte, sem depender de mexer nesta linha.
+ */
+const AGENDA_ATIVA = `
+  SELECT a.id, a.provedor, a.url_secreta, a.responsavel_id, a.palavras_ignorar
+    FROM agendas_externas a
+    LEFT JOIN integracoes_da_clinica i ON i.clinica_id = a.clinica_id AND i.provedor = a.provedor
+   WHERE a.ativa
+     AND (a.provedor = 'ical' OR (i.agenda_ligada AND i.verificacao = 'ok'))`
 
 type Conhecido = {
   uid_externo: string
@@ -84,11 +106,19 @@ type Conhecido = {
 class FeedVazio extends Error {}
 
 export class SincronizacaoDaAgenda {
+  private readonly provedores: ReadonlyMap<Provedor, AgendaProvider>
+
+  /** `medx` ausente: a clínica com MedX fica sem leitura (só o worker fala com o MedX). */
   constructor(
     private readonly banco: BancoService,
     private readonly relogio: Relogio,
-    private readonly baixar: Baixador,
-  ) {}
+    baixar: Baixador,
+    medx?: AgendaProvider,
+  ) {
+    const p = new Map<Provedor, AgendaProvider>([['ical', new AgendaPorIcal(baixar)]])
+    if (medx !== undefined) p.set('medx', medx)
+    this.provedores = p
+  }
 
   /** Todas as clínicas ativas. Uma clínica que falha não impede as outras. */
   async sincronizarTodas(): Promise<{ clinicas: number; falhas: number }> {
@@ -111,13 +141,11 @@ export class SincronizacaoDaAgenda {
 
   async sincronizarClinica(clinicaId: ClinicaId, fuso: string): Promise<ResultadoDaClinica> {
     const agenda = await this.banco.naClinica(clinicaId, SISTEMA, async (c) => {
-      const r = await c.query<Agenda>(
-        `SELECT id, url_secreta, responsavel_id, palavras_ignorar
-           FROM agendas_externas WHERE ativa`,
-      )
+      const r = await c.query<Agenda>(AGENDA_ATIVA)
       return r.rows[0] ?? null
     })
-    if (agenda === null) return { tipo: 'sem-agenda' }
+    const provedor = agenda === null ? undefined : this.provedores.get(agenda.provedor)
+    if (agenda === null || provedor === undefined) return { tipo: 'sem-agenda' }
 
     const agora = this.relogio.agora()
     const hoje = diaCivil(agora, fuso)
@@ -127,19 +155,31 @@ export class SincronizacaoDaAgenda {
       fuso,
     }
 
-    let lidos: CompromissoLido[]
+    let leitura: LeituraDaAgenda
     try {
-      lidos = lerIcal(await this.baixar(agenda.url_secreta), janela)
+      leitura = await provedor.ler(clinicaId, deAgenda(agenda), { ...janela, hoje, agora })
     } catch (e) {
-      const erro =
-        e instanceof FalhaAoBaixar || e instanceof FeedInvalido ? e.message : 'Falha ao ler a agenda.'
-      await this.registrarFalha(clinicaId, agora, erro)
+      const conhecida = e instanceof FalhaAoBaixar || e instanceof FeedInvalido || e instanceof FalhaDaLeitura
+      const erro = conhecida ? e.message : 'Falha ao ler a agenda.'
+      if (!conhecida) console.error('[agenda] leitura falhou:', e instanceof Error ? e.name : 'erro desconhecido')
+      const ciclo = e instanceof FalhaDaLeitura ? e.ciclo : undefined
+      await this.registrarFalha(clinicaId, agora, erro, agenda.provedor, janela, ciclo)
       return { tipo: 'falhou', erro }
     }
 
     try {
       const resumo = await this.banco.naClinica(clinicaId, SISTEMA, (c) =>
-        conciliar(c, { clinicaId, fuso, agora, hoje, janela, lidos }),
+        conciliar(c, {
+          clinicaId,
+          fuso,
+          agora,
+          hoje,
+          janela,
+          provedor: agenda.provedor,
+          lidos: leitura.lidos,
+          naoDecididos: leitura.naoDecididos,
+          ciclo: leitura.ciclo,
+        }),
       )
       return { tipo: 'ok', resumo }
     } catch (e) {
@@ -150,21 +190,57 @@ export class SincronizacaoDaAgenda {
       if (!(e instanceof FeedVazio)) {
         console.error('[agenda] conciliação falhou:', e instanceof Error ? e.message : 'erro desconhecido')
       }
-      await this.registrarFalha(clinicaId, agora, erro)
+      await this.registrarFalha(clinicaId, agora, erro, agenda.provedor, janela, leitura.ciclo)
       return { tipo: 'falhou', erro }
     }
   }
 
-  private async registrarFalha(clinicaId: ClinicaId, agora: Date, erro: string): Promise<void> {
-    await this.banco.naClinica(clinicaId, SISTEMA, (c) =>
-      c.query(
+  private async registrarFalha(
+    clinicaId: ClinicaId,
+    agora: Date,
+    erro: string,
+    provedor: Provedor,
+    janela: { de: Date; ate: Date },
+    ciclo: ContagensDoCiclo | undefined,
+  ): Promise<void> {
+    await this.banco.naClinica(clinicaId, SISTEMA, async (c) => {
+      await c.query(
         `UPDATE agendas_externas
             SET ultima_leitura_em = $1, ultimo_erro = left($2, 300)
           WHERE ativa`,
         [agora, erro],
-      ),
-    )
+      )
+      if (provedor === 'medx') await registrarCiclo(c, clinicaId, janela, ciclo, 'falhou', agora)
+    })
   }
+}
+
+const deAgenda = (a: Agenda): AgendaDaClinica => ({
+  id: a.id,
+  provedor: a.provedor,
+  urlSecreta: a.url_secreta,
+  responsavelId: a.responsavel_id,
+  palavrasIgnorar: a.palavras_ignorar,
+})
+
+/** O registro do ciclo (B.12): só contagens. Apaga o que passou de 1 ano (retenção). */
+async function registrarCiclo(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  janela: { de: Date; ate: Date },
+  ciclo: ContagensDoCiclo | undefined,
+  resultado: 'ok' | 'falhou',
+  agora: Date,
+): Promise<void> {
+  const k = ciclo ?? { agendamentosLidos: 0, paginas: 0, chamadasDeContato: 0, confirmacoesPorId: 0 }
+  await c.query(
+    `INSERT INTO ciclos_da_agenda_externa
+       (clinica_id, provedor, janela_de, janela_ate, agendamentos_lidos, paginas, chamadas_de_contato,
+        confirmacoes_por_id, resultado, em)
+     VALUES ($1, 'medx', $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [clinicaId, janela.de, janela.ate, k.agendamentosLidos, k.paginas, k.chamadasDeContato, k.confirmacoesPorId, resultado, agora],
+  )
+  await c.query(`DELETE FROM ciclos_da_agenda_externa WHERE em < $1::timestamptz - interval '1 year'`, [agora])
 }
 
 type Contexto = {
@@ -173,19 +249,21 @@ type Contexto = {
   agora: Date
   hoje: string
   janela: { de: Date; ate: Date }
+  provedor: Provedor
   lidos: readonly CompromissoLido[]
+  naoDecididos: ReadonlySet<string>
+  ciclo: ContagensDoCiclo | undefined
 }
 
 async function conciliar(c: pg.PoolClient, x: Contexto): Promise<ResumoDaSincronizacao> {
   // A trava: uma rodada por clínica de cada vez. E a releitura DENTRO dela —
   // a agenda pode ter sido desligada entre a fase 1 e agora.
-  const ag = await c.query<Agenda>(
-    `SELECT id, url_secreta, responsavel_id, palavras_ignorar
-       FROM agendas_externas WHERE ativa FOR UPDATE`,
-  )
+  // A mesma linha para iCal e MedX (B.9): trocar de provedor no meio da
+  // rodada faz esta rodada não aplicar nada.
+  const ag = await c.query<Agenda>(`${AGENDA_ATIVA} FOR UPDATE OF a`)
   const agenda = ag.rows[0]
-  if (agenda === undefined) {
-    return { vistos: 0, criados: 0, reagendados: 0, desmarcados: 0, ignorados: 0, pacientesNovos: 0 }
+  if (agenda === undefined || agenda.provedor !== x.provedor) {
+    return { vistos: 0, criados: 0, reagendados: 0, desmarcados: 0, ignorados: 0, pacientesNovos: 0, pacienteDesativado: 0 }
   }
 
   const resp = await c.query<{ ativo: boolean }>('SELECT ativo FROM pessoas WHERE id = $1', [
@@ -207,13 +285,21 @@ async function conciliar(c: pg.PoolClient, x: Contexto): Promise<ResumoDaSincron
             t.prazo::text AS prazo, left(t.hora::text, 5) AS hora
        FROM compromissos_externos ce
        JOIN tarefas t ON t.id = ce.tarefa_id
-      WHERE ce.provedor = 'ical'
+      WHERE ce.provedor = $3
         AND (ce.uid_externo = ANY($1) OR (ce.removido_em IS NULL AND ce.inicio >= $2))`,
-    [chaves, x.janela.de],
+    [chaves, x.janela.de, x.provedor],
   )
   const conhecidos = new Map(conhecidosR.rows.map((k) => [k.uid_externo, k]))
 
-  const resumo = { vistos: x.lidos.length, criados: 0, reagendados: 0, desmarcados: 0, ignorados: 0, pacientesNovos: 0 }
+  const resumo = {
+    vistos: x.lidos.length,
+    criados: 0,
+    reagendados: 0,
+    desmarcados: 0,
+    ignorados: 0,
+    pacientesNovos: 0,
+    pacienteDesativado: 0,
+  }
   const limiteParaCriar = somarDias(x.hoje, DIAS_PARA_CRIAR)
 
   for (const lido of x.lidos) {
@@ -222,11 +308,21 @@ async function conciliar(c: pg.PoolClient, x: Contexto): Promise<ResumoDaSincron
 
     if (k === undefined) {
       if (decidirPelaAgenda(null, comp, x.hoje).tipo !== 'criar' || comp.dia > limiteParaCriar) continue
-      if (motivoParaIgnorar({ ...lido }, agenda.palavras_ignorar, procedimentos) !== null) {
+      // Provedor estruturado (MedX): o paciente veio em campos; sem paciente
+      // (bloqueio de horário) não há cartão. iCal: o título decide.
+      const ignorar =
+        lido.paciente !== undefined
+          ? lido.paciente === null || lido.paciente.nome === ''
+          : motivoParaIgnorar({ ...lido }, agenda.palavras_ignorar, procedimentos) !== null
+      if (ignorar) {
         resumo.ignorados++
         continue
       }
       const novo = await criarCartao(c, x, agenda, lido, comp, procedimentos)
+      if (novo.tipo === 'paciente-desativado') {
+        resumo.pacienteDesativado++
+        continue
+      }
       resumo.criados++
       if (novo.pacienteNovo) resumo.pacientesNovos++
       continue
@@ -234,8 +330,8 @@ async function conciliar(c: pg.PoolClient, x: Contexto): Promise<ResumoDaSincron
 
     await c.query(
       `UPDATE compromissos_externos SET visto_em = $2, inicio = $3, removido_em = NULL
-        WHERE provedor = 'ical' AND uid_externo = $1`,
-      [lido.chave, x.agora, lido.inicio],
+        WHERE provedor = $4 AND uid_externo = $1`,
+      [lido.chave, x.agora, lido.inicio, x.provedor],
     )
     const acao = decidirPelaAgenda(cartaoDe(k), comp, x.hoje)
     if (await aplicar(c, x, k, acao)) {
@@ -249,7 +345,12 @@ async function conciliar(c: pg.PoolClient, x: Contexto): Promise<ResumoDaSincron
   // em `chaves` (o leitor devolve avulso de qualquer data), então não cai aqui.
   const noFeed = new Set(chaves)
   const sumidos = [...conhecidos.values()].filter(
-    (k) => k.removido_em === null && k.inicio >= x.agora && k.inicio < x.janela.ate && !noFeed.has(k.uid_externo),
+    (k) =>
+      k.removido_em === null &&
+      k.inicio >= x.agora &&
+      k.inicio < x.janela.ate &&
+      !noFeed.has(k.uid_externo) &&
+      !x.naoDecididos.has(k.uid_externo),
   )
   if (sumidos.length > 0 && !podeConsiderarRemocoes(x.lidos.length, sumidos.length)) {
     throw new FeedVazio(
@@ -260,10 +361,11 @@ async function conciliar(c: pg.PoolClient, x: Contexto): Promise<ResumoDaSincron
     const acao = decidirPelaAgenda(cartaoDe(k), null, x.hoje)
     if (await aplicar(c, x, k, acao)) resumo.desmarcados++
     await c.query(
-      `UPDATE compromissos_externos SET removido_em = $2 WHERE provedor = 'ical' AND uid_externo = $1`,
-      [k.uid_externo, x.agora],
+      `UPDATE compromissos_externos SET removido_em = $2 WHERE provedor = $3 AND uid_externo = $1`,
+      [k.uid_externo, x.agora, x.provedor],
     )
   }
+  if (x.provedor === 'medx') await registrarCiclo(c, x.clinicaId, x.janela, x.ciclo, 'ok', x.agora)
 
   await c.query(
     `UPDATE agendas_externas
@@ -347,11 +449,16 @@ async function criarCartao(
   lido: CompromissoLido,
   comp: { dia: string; hora: string },
   procedimentos: readonly string[],
-): Promise<{ pacienteNovo: boolean }> {
-  const dados = dadosDoCompromisso(lido, procedimentos)
-  // `motivoParaIgnorar` já recusou o compromisso sem nome; o `!` é essa garantia.
-  const paciente = await vincularPaciente(c, x.clinicaId, dados.nome!, dados.telefone)
-  const tipo = tipoDoCompromisso(lido, procedimentos)
+): Promise<{ tipo: 'criado'; pacienteNovo: boolean } | { tipo: 'paciente-desativado' }> {
+  const estruturado = lido.paciente ?? null
+  const dados =
+    estruturado !== null
+      ? { nome: estruturado.nome, telefone: estruturado.telefone }
+      : dadosDoCompromisso(lido, procedimentos)
+  // A conciliação já recusou o compromisso sem nome; o `!` é essa garantia.
+  const paciente = await vincularPaciente(c, x, dados.nome!, dados.telefone, estruturado?.idOpaco ?? null)
+  if (paciente === 'desativado') return { tipo: 'paciente-desativado' }
+  const tipo = lido.tipo ?? tipoDoCompromisso(lido, procedimentos)
 
   const evento: EventoDeJornada = {
     acao: 'agendar',
@@ -369,28 +476,74 @@ async function criarCartao(
     [x.clinicaId, agenda.responsavel_id, tipo, comp.dia, comp.hora, paciente.id, JSON.stringify([evento]), paciente.unidadeId],
   )
   await c.query(
-    `INSERT INTO compromissos_externos (clinica_id, provedor, uid_externo, tarefa_id, inicio, visto_em)
-     VALUES ($1, 'ical', $2, $3, $4, $5)`,
-    [x.clinicaId, lido.chave, t.rows[0]!.id, lido.inicio, x.agora],
+    `INSERT INTO compromissos_externos (clinica_id, provedor, uid_externo, tarefa_id, inicio, visto_em, referencia_cifrada)
+     VALUES ($1, $6, $2, $3, $4, $5, $7)`,
+    [x.clinicaId, lido.chave, t.rows[0]!.id, lido.inicio, x.agora, x.provedor, lido.referencia ?? null],
   )
-  return { pacienteNovo: paciente.novo }
+  return { tipo: 'criado', pacienteNovo: paciente.novo }
 }
 
 type PacienteVinculado = { id: string; unidadeId: string | null; novo: boolean }
 
 /**
- * Telefone → nome exato → cadastrar (ADR 0019, decisão 5).
+ * Desativação que NÃO bloqueia a agenda: o cadastro era engano, não a vontade
+ * do titular. Qualquer outro motivo — e o desativado antigo, sem motivo — bloqueia.
+ */
+const DESATIVACAO_POR_ENGANO = ['duplicado', 'erro-de-cadastro']
+
+/**
+ * Id do provedor → telefone → nome exato → cadastrar (ADR 0019, decisão 5;
+ * spec integracao-medx B.6, B.7).
+ *
+ * **Quem foi desativado não volta pela agenda** (B.7, dívida D-L1): se o
+ * vínculo pelo id do MedX, o telefone ou o nome levam a um paciente
+ * desativado (ou à supressão), devolve `'desativado'` — não cria cartão, não
+ * cadastra de novo, não reativa. Vale para o iCal também: era ele que recriava.
  *
  * Telefone que casa com mais de uma paciente desempata pelo nome; sem
  * desempate, liga à mais antiga e marca `conferir_cadastro` — alguém precisa
- * olhar, e marcar é melhor que escolher em silêncio.
+ * olhar, e marcar é melhor que escolher em silêncio. Nome e telefone de fora
+ * nunca substituem os da ficha.
  */
 async function vincularPaciente(
   c: pg.PoolClient,
-  clinicaId: ClinicaId,
+  x: Contexto,
   nome: string,
   telefone: string | null,
-): Promise<PacienteVinculado> {
+  idOpaco: string | null,
+): Promise<PacienteVinculado | 'desativado'> {
+  if (idOpaco !== null) {
+    const v = await c.query<{ paciente_id: string | null; suprimido: boolean; ativo: boolean | null; unidade_id: string | null }>(
+      `SELECT pe.paciente_id, pe.suprimido_em IS NOT NULL AS suprimido, p.ativo, p.unidade_id
+         FROM pacientes_externos pe LEFT JOIN pacientes p ON p.id = pe.paciente_id
+        WHERE pe.provedor = $1 AND pe.id_externo_hmac = $2`,
+      [x.provedor, idOpaco],
+    )
+    const l = v.rows[0]
+    if (l !== undefined) {
+      if (l.suprimido || l.paciente_id === null || l.ativo !== true) return 'desativado'
+      return { id: l.paciente_id, unidadeId: l.unidade_id, novo: false }
+    }
+  }
+
+  const achado = (await porTelefoneOuNome(c, nome, telefone)) ?? (await cadastrar(c, x.clinicaId, nome, telefone))
+  if (achado === 'desativado') return 'desativado'
+  if (idOpaco !== null) {
+    await c.query(
+      `INSERT INTO pacientes_externos (clinica_id, provedor, id_externo_hmac, paciente_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (clinica_id, provedor, id_externo_hmac) DO NOTHING`,
+      [x.clinicaId, x.provedor, idOpaco, achado.id],
+    )
+  }
+  return achado
+}
+
+async function porTelefoneOuNome(
+  c: pg.PoolClient,
+  nome: string,
+  telefone: string | null,
+): Promise<PacienteVinculado | 'desativado' | null> {
   const final = telefone === null ? null : finalDoTelefone(telefone)
   if (final !== null && telefone !== null) {
     const r = await c.query<{ id: string; nome: string; telefone: string; unidade_id: string | null }>(
@@ -418,6 +571,25 @@ async function vincularPaciente(
     return { id: porNome.rows[0].id, unidadeId: porNome.rows[0].unidade_id, novo: false }
   }
 
+  // Ninguém ATIVO casou: um desativado que casa bloqueia (B.7, D-L1).
+  const inativos = await c.query<{ telefone: string; mesmo_nome: boolean }>(
+    `SELECT telefone, nome_chave = normalizar_nome($1) AS mesmo_nome FROM pacientes
+      WHERE NOT ativo
+        AND (motivo_desativacao IS NULL OR motivo_desativacao <> ALL ($3::text[]))
+        AND (nome_chave = normalizar_nome($1)
+             OR ($2::text IS NOT NULL AND telefone_chave IS NOT NULL AND right(telefone_chave, 8) = $2))`,
+    [nome, final, DESATIVACAO_POR_ENGANO],
+  )
+  const bloqueia = inativos.rows.some((p) => p.mesmo_nome || (telefone !== null && mesmoTelefone(p.telefone, telefone)))
+  return bloqueia ? 'desativado' : null
+}
+
+async function cadastrar(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  nome: string,
+  telefone: string | null,
+): Promise<PacienteVinculado> {
   // `ON CONFLICT`: a recepção pode cadastrar a mesma paciente neste instante.
   // O índice único parcial decide, e quem chegou depois lê a que ficou.
   const ins = await c.query<{ id: string }>(

@@ -1,6 +1,14 @@
 import type { AgendaExterna, ResumoDaSincronizacao, SalvarAgendaExterna } from '@fir/contracts'
 import { PALAVRAS_PARA_IGNORAR_PADRAO, urlDaAgenda, urlMascarada } from '@fir/domain'
-import { BadRequestException, Inject, Injectable, type OnModuleDestroy } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  type OnModuleDestroy,
+} from '@nestjs/common'
 import type { Queue } from 'bullmq'
 import type pg from 'pg'
 import type { Ator } from '../banco/ator'
@@ -30,8 +38,9 @@ export class PedidoPelaFila implements PedidoDeSincronizacao, OnModuleDestroy {
 }
 
 type Linha = {
+  provedor: 'ical' | 'medx'
   ativa: boolean
-  url_secreta: string
+  url_secreta: string | null
   responsavel_id: string
   responsavel_nome: string
   palavras_ignorar: string[]
@@ -66,8 +75,20 @@ export class AgendaExternaService {
       }
       const palavras = dados.palavrasIgnorar ?? null
 
-      const existe = await c.query('SELECT 1 FROM agendas_externas FOR UPDATE')
-      if (existe.rowCount === 0) {
+      // Um provedor por clínica (spec integracao-medx B.9, S-14): com o MedX
+      // ligado, o iCal é recusado — duas fontes criariam o mesmo cartão duas
+      // vezes. Quem liga e desliga o MedX é o painel da Firmare (D.1).
+      const existe = await c.query<{ provedor: 'ical' | 'medx'; medx_ligado: boolean }>(
+        `SELECT a.provedor, coalesce(i.agenda_ligada, false) AS medx_ligado
+           FROM agendas_externas a
+           LEFT JOIN integracoes_da_clinica i ON i.clinica_id = a.clinica_id
+          FOR UPDATE OF a`,
+      )
+      const atual = existe.rows[0]
+      if (atual !== undefined && atual.provedor === 'medx' && atual.medx_ligado) {
+        throw new ConflictException('A agenda desta clínica vem do MedX. Para mudar, fale com o suporte da Firmare.')
+      }
+      if (atual === undefined) {
         if (url === undefined) throw new BadRequestException('Cole o link iCal da agenda.')
         await c.query(
           `INSERT INTO agendas_externas (clinica_id, url_secreta, responsavel_id, ativa, palavras_ignorar)
@@ -75,11 +96,13 @@ export class AgendaExternaService {
           [ctx.clinicaId, url, dados.responsavelId, dados.ativa, palavras ?? [...PALAVRAS_PARA_IGNORAR_PADRAO]],
         )
       } else {
+        // O MedX desligado deixa a linha; voltar ao iCal exige o link.
+        if (atual.provedor === 'medx' && url === undefined) throw new BadRequestException('Cole o link iCal da agenda.')
         // Trocar o link zera o estado da leitura: o erro do link antigo não
         // pode aparecer como se fosse do novo.
         await c.query(
           `UPDATE agendas_externas
-              SET responsavel_id = $1, ativa = $2, atualizada_em = now(),
+              SET provedor = 'ical', responsavel_id = $1, ativa = $2, atualizada_em = now(),
                   palavras_ignorar = coalesce($3, palavras_ignorar),
                   url_secreta = coalesce($4, url_secreta),
                   ultimo_erro = CASE WHEN $4::text IS NULL THEN ultimo_erro ELSE '' END,
@@ -93,29 +116,48 @@ export class AgendaExternaService {
   }
 
   async sincronizarAgora(ctx: Contexto): Promise<{ pedida: true }> {
-    const ativa = await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const r = await c.query<{ ativa: boolean }>('SELECT ativa FROM agendas_externas')
-      return r.rows[0]?.ativa === true
+    const situacao = await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      const r = await c.query<{ provedor: 'ical' | 'medx'; ativa: boolean }>(`SELECT a.provedor, ${ATIVA} AS ativa ${DA_AGENDA}`)
+      const a = r.rows[0]
+      if (a === undefined || !a.ativa) return 'desligada' as const
+      if (a.provedor === 'ical') return 'pode' as const
+      // MedX: 1 a cada 2 min por clínica, no servidor (S-12). A linha é a trava.
+      const vez = await c.query(
+        `UPDATE agendas_externas SET sincronizacao_pedida_em = now()
+          WHERE sincronizacao_pedida_em IS NULL OR sincronizacao_pedida_em <= now() - interval '2 minutes'`,
+      )
+      return vez.rowCount === 1 ? ('pode' as const) : ('cedo' as const)
     })
-    if (!ativa) throw new BadRequestException('Ligue a agenda antes de sincronizar.')
+    if (situacao === 'desligada') throw new BadRequestException('Ligue a agenda antes de sincronizar.')
+    if (situacao === 'cedo') {
+      throw new HttpException('A agenda do MedX acabou de ser lida. Espere 2 minutos para pedir de novo.', HttpStatus.TOO_MANY_REQUESTS)
+    }
     await this.pedido.pedir(ctx.clinicaId)
     return { pedida: true }
   }
 }
 
+/**
+ * "Ativa" do ponto de vista da clínica: o MedX só está ativo com a integração
+ * ligada no painel E o último teste verde — é o mesmo critério da leitura.
+ */
+const ATIVA = `(a.ativa AND (a.provedor = 'ical' OR coalesce(i.agenda_ligada AND i.verificacao = 'ok', false)))`
+const DA_AGENDA = `FROM agendas_externas a LEFT JOIN integracoes_da_clinica i ON i.clinica_id = a.clinica_id`
+
 async function lerAgenda(c: pg.PoolClient): Promise<AgendaExterna> {
   const r = await c.query<Linha>(
-    `SELECT a.ativa, a.url_secreta, a.responsavel_id, p.nome AS responsavel_nome, a.palavras_ignorar,
-            a.ultima_leitura_em, a.ultimo_sucesso_em, a.ultimo_erro, a.ultimo_resumo
-       FROM agendas_externas a JOIN pessoas p ON p.id = a.responsavel_id`,
+    `SELECT a.provedor, ${ATIVA} AS ativa, a.url_secreta, a.responsavel_id, p.nome AS responsavel_nome,
+            a.palavras_ignorar, a.ultima_leitura_em, a.ultimo_sucesso_em, a.ultimo_erro, a.ultimo_resumo
+       ${DA_AGENDA} JOIN pessoas p ON p.id = a.responsavel_id`,
   )
   const l = r.rows[0]
   if (l === undefined) return { configurada: false }
   return {
     configurada: true,
+    provedor: l.provedor,
     ativa: l.ativa,
     // O link NUNCA sai inteiro: é a única linha que o toca na leitura.
-    urlMascarada: urlMascarada(l.url_secreta),
+    urlMascarada: l.url_secreta === null ? '' : urlMascarada(l.url_secreta),
     responsavelId: l.responsavel_id,
     responsavelNome: l.responsavel_nome,
     palavrasIgnorar: l.palavras_ignorar,

@@ -302,8 +302,13 @@ const EM_ORDEM_DE_APAGAR = [
   'metas_de_pessoa',
   'fichas_de_pessoa',
   'configuracao_de_pessoal',
-  // A agenda externa (0037) aponta para `pessoas` pelo responsável.
+  // A agenda externa (0037) aponta para `pessoas` pelo responsável. O vínculo
+  // do paciente do MedX (0093) aponta para `pacientes`; o registro de ciclo e
+  // a integração (0092) não apontam para nada além da clínica.
   'agendas_externas',
+  'ciclos_da_agenda_externa',
+  'integracoes_da_clinica',
+  'pacientes_externos',
   'pacientes',
   'unidades',
   'sessoes',
