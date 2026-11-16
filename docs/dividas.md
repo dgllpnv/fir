@@ -703,6 +703,13 @@ O F3 fechou criar/editar meta em R$ sem `valores`. Metas já gravadas por quem n
 `migracao-supabase-correspondencia.test.ts` compara `count(*)` de tabelas globais (`usuarios_de_gestao` e afins) antes e depois. Com `pnpm test` em paralelo, a suíte do `api` cria linhas nas mesmas tabelas no meio da medição e o teste falha (41 ≠ 39) sem defeito nenhum. Isolado ou com `pnpm turbo run test --concurrency=1`, passa (medido em 2026-11-15).
 **Gatilho:** a próxima vez que o portão `pnpm test` falhar só aqui — contar por um marcador da própria corrida (ids criados pelo teste), não a tabela.
 
+---
+
+### D-L1 · A sincronização do iCal recadastra paciente desativado ou anonimizado
+
+`vincularPaciente` (`apps/api/src/agenda/sincronizacao.ts:397-415`) procura só `WHERE ativo`, e o `ON CONFLICT (clinica_id, nome_chave) WHERE ativo` (linha 426) não colide com quem foi desativado. A próxima consulta na agenda de quem foi desativado ou anonimizado — inclusive quem pediu eliminação — cadastra a pessoa de novo, com nome e telefone, em até 15 minutos. Achado pelo gate LGPD da integração MedX (`docs/specs/integracao-medx-gate-lgpd.md`, B3); a correção do MedX (supressão por HMAC, B.7 da spec) é a mesma que paga esta.
+**Gatilho:** a primeira solicitação de eliminação de titular numa clínica com agenda sincronizada — ou o T4 do MedX, o que vier antes.
+
 ## Pendências de produto, não de código
 
 Essas dependem do dono e estão em [`decisoes.md`](decisoes.md), não aqui: P-1 (UX de sessão no balcão), P-2 (hospedagem para dado de saúde), P-3 (DPA com cada clínica), P-4 (modelo comercial), P-5 (janela de migração), P-6 (perfil Consultoria), P-7 (integração com agenda), P-8 (domínio e certificado), ~~P-9 (SMTP — encerrada)~~, P-10 (concessão de acesso do operador a dado clínico).
