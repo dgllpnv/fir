@@ -31,7 +31,7 @@ Spec: [`integracao-medx.md`](integracao-medx.md). Ordem: T1 → T2 → T3 → T4
 - [x] Sessão de clínica não alcança nenhuma dessas rotas.
 - [x] Linhas de retenção em `docs/compliance/retencao.md` (`segredo_cifrado`, termo).
 
-## T2 — `LeitorDoMedx` + execução do Testar conexão (E.2–E.5, A.3–A.5, A.11)
+## T2 — `LeitorDoMedx` + execução do Testar conexão (E.2–E.5, A.3–A.5, A.11) — **feito** (16/11)
 Cliente só de leitura, host fixo por ambiente, sem redirect, `lookupSoPublico`, JSON-only, Zod estrito por página, cursor com teto, cache de JWT em memória por `(clinicaId, impressão)`, catálogo de erros, `Retry-After` sem dormir. O worker processa o job de teste: token → `usuario-atual` → `financas/unidades`, compara scopes com a lista branca e grava a verificação. Servidor MedX falso local com os casos de abuso.
 
 ## T3 — `AgendaProvider` de verdade (B.9)

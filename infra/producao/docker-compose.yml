@@ -195,6 +195,9 @@ services:
       # próprio, sem BYPASSRLS, e a privada que só ele tem.
       DATABASE_URL_INTEGRACOES: ${DATABASE_URL_INTEGRACOES:?rode ./provisionar-integracoes.sh}
       FIR_INTEGRACOES_CHAVE_PRIVADA: ${FIR_INTEGRACOES_CHAVE_PRIVADA:?rode ./implantar.sh}
+      # A base da API do MedX: constante por ambiente, nunca por clínica (S-10).
+      # https e porta 443, validados na subida do worker.
+      MEDX_API_BASE: ${MEDX_API_BASE:-https://integracao-app.medx.med.br}
       REDIS_URL: redis://:${SENHA_REDIS:?}@redis:6379
       TZ: UTC
       # O heap abaixo do teto do container: com o limite só no cgroup, o V8

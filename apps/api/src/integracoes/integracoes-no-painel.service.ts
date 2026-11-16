@@ -14,6 +14,7 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { registrarNoPainel } from '../painel/painel.service'
 import { SeloDeIntegracoes } from './cofre-de-integracoes'
+import { JOB_TESTAR_INTEGRACAO } from './jobs'
 
 /**
  * A INTEGRAÇÃO DA CLÍNICA, escrita pelo superadmin (spec `integracao-medx.md` A, ticket T1).
@@ -36,6 +37,8 @@ export class SemChave extends Error {}
 export class SemTermo extends Error {}
 export class SemVerificacao extends Error {}
 export class SemEscopoDeFinancas extends Error {}
+/** B5: o escopo de finanças só com o faturamento ligado. */
+export class EscopoDeFinancasSemFaturamento extends Error {}
 export class MaisDeUmaUnidade extends Error {}
 export class TesteCedoDemais extends Error {
   constructor(readonly esperaEmSegundos: number) {
@@ -48,7 +51,6 @@ export interface PedidoDeTesteDeIntegracao {
   pedir(clinicaId: string, pedidoId: string): Promise<void>
 }
 export const PEDIDO_DE_TESTE_DE_INTEGRACAO = Symbol('PEDIDO_DE_TESTE_DE_INTEGRACAO')
-export const JOB_TESTAR_INTEGRACAO = 'testar-integracao'
 
 @Injectable()
 export class PedidoDeTestePelaFila implements PedidoDeTesteDeIntegracao, OnModuleDestroy {
@@ -256,9 +258,9 @@ export class IntegracoesNoPainelService {
         if (antes.termo_assinado_em === null) throw new SemTermo()
         if (antes.verificacao !== 'ok' || antes.conta_externa_id === null) throw new SemVerificacao()
         if (antes.unidades_externas > 1) throw new MaisDeUmaUnidade()
-        if (ligacoes.faturamento && !ESCOPOS_DE_FINANCAS.some((e) => antes.escopos.includes(e))) {
-          throw new SemEscopoDeFinancas()
-        }
+        const temFinancas = ESCOPOS_DE_FINANCAS.some((e) => antes.escopos.includes(e))
+        if (ligacoes.faturamento && !temFinancas) throw new SemEscopoDeFinancas()
+        if (!ligacoes.faturamento && temFinancas) throw new EscopoDeFinancasSemFaturamento()
       }
       if (antes === undefined) return SO_FIR
       const r = await c.query<Linha>(

@@ -5,6 +5,7 @@ import {
   type OperadorId,
   type Sistema,
   PREFIXO_USUARIO_GESTAO,
+  SISTEMA,
   SISTEMA_NO_BANCO,
   atorParaOBanco,
 } from './ator'
@@ -526,12 +527,43 @@ export class BancoService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * O pool das INTEGRAÇÕES — `fir_integracoes` (0092), o único papel que lê o
+   * segredo selado da chave do MedX. **Preguiçoso, e é a decisão:** só o
+   * `worker-agenda` o usa; a API nunca chama `comoIntegracoes`, então nunca
+   * abre conexão com esse papel (e em produção nem tem a URL dele).
+   */
+  private poolDasIntegracoes: pg.Pool | null = null
+
+  /**
+   * Como `naClinica`, com a identidade `fir_integracoes` e o ator SISTEMA (o
+   * worker não é pessoa). Fixa a clínica: a RLS vale para o worker como para
+   * qualquer um (gate S-14).
+   */
+  async comoIntegracoes<T>(clinicaId: ClinicaId, fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
+    this.poolDasIntegracoes ??= new pg.Pool({
+      connectionString:
+        process.env['DATABASE_URL_INTEGRACOES'] ??
+        'postgresql://fir_integracoes:fir_local_dev@127.0.0.1:4832/fir',
+      max: 2,
+      connectionTimeoutMillis: 5_000,
+      idleTimeoutMillis: 30_000,
+      statement_timeout: 15_000,
+      idle_in_transaction_session_timeout: 20_000,
+    })
+    return this.emTransacao(this.poolDasIntegracoes, SISTEMA, async (c) => {
+      await fixarClinicaNa(c, clinicaId)
+      return fn(c)
+    })
+  }
+
   async onModuleDestroy(): Promise<void> {
     await Promise.all([
       this.pool.end(),
       this.poolDoPainel.end(),
       this.poolDaCarteira.end(),
       this.poolDoPortal.end(),
+      this.poolDasIntegracoes?.end(),
     ])
   }
 }

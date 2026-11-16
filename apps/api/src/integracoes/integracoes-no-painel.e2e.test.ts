@@ -221,6 +221,16 @@ describe('termo, verificação e ligações (A.0, A.3, A.6)', () => {
     expect(f.body.message).toMatch(/finanças/)
   })
 
+  it('com o escopo de finanças, só a agenda não liga: ou liga o faturamento junto (B5)', async () => {
+    const id = await novaClinica()
+    await http().put(rota(id, '/chave')).set('Cookie', painel).send({ chave: `medx_${randomBytes(20).toString('hex')}` }).expect(200)
+    await http().put(rota(id, '/termo')).set('Cookie', painel).send(termo).expect(200)
+    await simularVerificacaoOk(id, ['agenda:read', 'contatos:details:read', 'financas:read', 'lancamentos:read'])
+    const r = await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: false }).expect(409)
+    expect(r.body.message).toMatch(/faturamento/)
+    await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: true }).expect(200)
+  })
+
   it('trocar a chave volta a "não verificada", esquece a conta e desliga', async () => {
     const id = await novaClinica()
     await http().put(rota(id, '/chave')).set('Cookie', painel).send({ chave: `medx_${randomBytes(20).toString('hex')}` }).expect(200)

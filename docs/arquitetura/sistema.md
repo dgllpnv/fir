@@ -43,6 +43,14 @@ A lista curta e definitiva. O ponto de partida está em `CLAUDE.md` §5:
    O protótipo o lê no NAVEGADOR (`DOMParser`); aqui é no servidor por duas razões, e as duas
    são regras: o casamento depende dos vínculos salvos, e o custo unitário é dinheiro (regra 17).
 6. `Migrador`
+6a. `LeitorDoMedx` — **implementado** na integração MedX, T2 (spec `docs/specs/integracao-medx.md`).
+   A única porta da FIR para o MedX, e **só lê** (D5): troca a chave por um JWT (`POST /token`)
+   e faz `GET`, nada mais (teste de arquitetura em `leitor-do-medx.test.ts`). Por baixo, o
+   `Transporte` (`integracoes/medx/transporte.ts`) é o fio: base fixa por ambiente, https:443,
+   sem redirect, `lookupSoPublico`, só JSON, teto de bytes, e toda falha vira um código do
+   catálogo (`erros.ts`), nunca texto do MedX. Sessão em memória por `(clínica, impressão da
+   chave)`; leitura paginada tudo-ou-nada. Testado com transporte falso (leitor) e servidor
+   HTTP local (transporte). Roda só no `worker-agenda`.
 7. `MontadorDePrograma` — **implementado** (declarado no épico 3, escrito no 5). A porta por
    onde um programa nasce, e ela é **uma só para as duas entradas**: `POST /v1/programas`
    (nova adesão) e `fechar` um orçamento com programa. **Recebe a transação já aberta**, para

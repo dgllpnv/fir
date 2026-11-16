@@ -1,6 +1,11 @@
 import { RelogioDoSistema } from '@fir/domain'
 import { Worker } from 'bullmq'
 import { BancoService } from '../banco/banco.service'
+import { AberturaDeIntegracoes } from '../integracoes/cofre-de-integracoes'
+import { JOB_TESTAR_INTEGRACAO } from '../integracoes/jobs'
+import { LeitorDoMedx } from '../integracoes/medx/leitor-do-medx'
+import { baseDoMedxDoAmbiente, criarTransporte } from '../integracoes/medx/transporte'
+import { TesteDeConexao } from '../integracoes/teste-de-conexao'
 import type { ClinicaId } from '../banco/clinica-id'
 import { criarBaixador } from './baixar-feed'
 import {
@@ -28,10 +33,30 @@ async function main(): Promise<void> {
 
   const banco = new BancoService()
   const sincronizacao = new SincronizacaoDaAgenda(banco, new RelogioDoSistema(), criarBaixador())
+  // A integração com o MedX (spec integracao-medx). A privada e a base são
+  // lidas NA SUBIDA: produção sem elas cai aqui, não no primeiro teste.
+  const testeDeConexao = new TesteDeConexao(
+    banco,
+    AberturaDeIntegracoes.doAmbiente(),
+    new LeitorDoMedx(criarTransporte({ base: baseDoMedxDoAmbiente() })),
+  )
 
   const worker = new Worker(
     NOME_DA_FILA_AGENDA,
     async (job) => {
+      if (job.name === JOB_TESTAR_INTEGRACAO) {
+        // Só ids no payload (S-1). O id é conferido contra `clinicas` antes de virar contexto.
+        const clinicaId = String((job.data as { clinicaId?: unknown }).clinicaId ?? '')
+        const r = await banco.semIsolamentoDeClinica<{ id: string }>(
+          'SELECT id FROM clinicas WHERE id::text = $1 AND ativa',
+          [clinicaId],
+        )
+        if (r.rows[0] === undefined) return { tipo: 'sem-clinica' }
+        // `as`: o id acabou de ser conferido contra `clinicas`, a raiz do tenancy.
+        const res = await testeDeConexao.executar(clinicaId as ClinicaId)
+        console.log(`[integracoes] teste da clínica ${clinicaId}: ${res}`)
+        return { tipo: res }
+      }
       if (job.name === JOB_UMA) {
         const clinicaId = String((job.data as { clinicaId?: unknown }).clinicaId ?? '')
         const r = await banco.semIsolamentoDeClinica<{ fuso: string }>(

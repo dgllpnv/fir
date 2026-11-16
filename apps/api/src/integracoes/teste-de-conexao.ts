@@ -1,0 +1,165 @@
+import type { BancoService } from '../banco/banco.service'
+import type { ClinicaId } from '../banco/clinica-id'
+import type { AberturaDeIntegracoes } from './cofre-de-integracoes'
+import { ErroDoMedx, MENSAGENS_DO_MEDX } from './medx/erros'
+import { type LeitorDoMedx, avaliarEscopos } from './medx/leitor-do-medx'
+
+/**
+ * O "TESTAR CONEXÃO", executado no worker (spec A.3–A.5; gate S-1, S-6, LGPD A4, B5).
+ *
+ * Abre a chave (só o worker tem a privada), troca por um token e chama
+ * **só** `usuario-atual` e `financas/unidades` — nunca agendamento nem
+ * contato, nem como amostra. Grava o resultado no banco; a tela lê de lá.
+ *
+ * A rede fica FORA da transação: ler o segredo, soltar o banco, falar com o
+ * MedX, e gravar numa segunda transação **só se a chave ainda for a mesma**
+ * (a impressão confere) — uma troca de chave no meio do teste não recebe o
+ * resultado do teste da chave antiga.
+ */
+export type ResultadoDoTeste = 'ok' | 'recusada' | 'sem-chave' | 'chave-mudou'
+
+const PROVEDOR = 'medx'
+const UNICIDADE_VIOLADA = '23505'
+const ESCOPO_SEGURO = /^[a-z][a-z:._]{0,39}$/
+
+type Verificacao =
+  | { tipo: 'ok'; contaId: string; nome: string; escopos: string[]; unidades: number }
+  | { tipo: 'recusada'; erro: string; escopos: string[]; unidades: number; nome: string | null }
+
+/** Nome de escopo vem do MedX: só o formato conhecido entra na mensagem, e no máximo seis. */
+const listar = (xs: readonly string[]): string =>
+  xs.filter((x) => ESCOPO_SEGURO.test(x) || x === 'lancamentos:read ou faturas:read').slice(0, 6).join(', ')
+
+export class TesteDeConexao {
+  constructor(
+    private readonly banco: BancoService,
+    private readonly abertura: AberturaDeIntegracoes,
+    private readonly leitor: LeitorDoMedx,
+  ) {}
+
+  async executar(clinicaId: ClinicaId): Promise<ResultadoDoTeste> {
+    const guardado = await this.banco.comoIntegracoes(clinicaId, async (c) => {
+      const r = await c.query<{ segredo_cifrado: Buffer | null; segredo_versao: number | null; impressao_da_chave: string | null }>(
+        'SELECT segredo_cifrado, segredo_versao, impressao_da_chave FROM integracoes_da_clinica',
+      )
+      return r.rows[0]
+    })
+    if (!guardado?.segredo_cifrado || guardado.segredo_versao === null || guardado.impressao_da_chave === null) {
+      return 'sem-chave'
+    }
+    const impressao = guardado.impressao_da_chave
+
+    // O AAD leva a clínica do CONTEXTO desta leitura, nunca a da linha (S-3).
+    const chave = this.abertura.abrir(clinicaId, PROVEDOR, guardado.segredo_cifrado, guardado.segredo_versao)
+    if (chave === null) {
+      console.warn(`[integracoes] ALERTA clínica ${clinicaId}: a chave guardada não abriu`)
+      return this.gravar(clinicaId, impressao, {
+        tipo: 'recusada',
+        erro: MENSAGENS_DO_MEDX.chave_invalida,
+        escopos: [],
+        unidades: 0,
+        nome: null,
+      })
+    }
+
+    return this.gravar(clinicaId, impressao, await this.verificar(clinicaId, impressao, chave))
+  }
+
+  private async verificar(clinicaId: string, impressao: string, chave: string): Promise<Verificacao> {
+    try {
+      const s = await this.leitor.sessao(clinicaId, impressao, chave)
+      const u = await this.leitor.usuarioAtual(s)
+      const escopos = [...s.escopos]
+      // A verificação aceita o escopo de faturamento; ligar SÓ a agenda com
+      // ele presente é recusado em `ligar` (B5: só com o faturamento ligado).
+      const { sobram } = avaliarEscopos(escopos, { faturamento: true })
+      const { faltam } = avaliarEscopos(escopos, { faturamento: false })
+      if (sobram.length > 0) {
+        return {
+          tipo: 'recusada',
+          erro: `O usuário do MedX tem permissões a mais: ${listar(sobram)}. Use um usuário só de leitura.`,
+          escopos,
+          unidades: 0,
+          nome: u.nome,
+        }
+      }
+      if (faltam.length > 0) {
+        return { tipo: 'recusada', erro: `Falta permissão no MedX: ${listar(faltam)}.`, escopos, unidades: 0, nome: u.nome }
+      }
+      const unidades = await this.leitor.quantasUnidades(s)
+      if (unidades !== 1) {
+        return {
+          tipo: 'recusada',
+          erro:
+            unidades > 1
+              ? 'O usuário do MedX alcança mais de uma unidade. Peça à clínica para restringi-lo a esta.'
+              : 'O usuário do MedX não alcança nenhuma unidade.',
+          escopos,
+          unidades,
+          nome: u.nome,
+        }
+      }
+      return { tipo: 'ok', contaId: u.id, nome: u.nome, escopos, unidades }
+    } catch (e) {
+      this.leitor.esquecer(clinicaId)
+      // Só o código do catálogo atravessa; qualquer outra coisa vira "contrato".
+      const codigo = e instanceof ErroDoMedx ? e.codigo : 'contrato'
+      if (codigo === 'recusada') console.warn(`[integracoes] ALERTA clínica ${clinicaId}: o MedX recusou a chave`)
+      return { tipo: 'recusada', erro: MENSAGENS_DO_MEDX[codigo], escopos: [], unidades: 0, nome: null }
+    }
+  }
+
+  private async gravar(clinicaId: ClinicaId, impressao: string, v: Verificacao): Promise<ResultadoDoTeste> {
+    try {
+      return await this.gravarUmaVez(clinicaId, impressao, v)
+    } catch (e) {
+      const erro = e as { code?: string; constraint?: string }
+      if (v.tipo === 'ok' && erro.code === UNICIDADE_VIOLADA && erro.constraint === 'integracao_conta_unica') {
+        return this.gravarUmaVez(clinicaId, impressao, {
+          tipo: 'recusada',
+          erro: 'Essa conta do MedX já está ligada a outra clínica. Cada clínica usa o seu usuário.',
+          escopos: v.escopos,
+          unidades: v.unidades,
+          nome: v.nome,
+        })
+      }
+      throw e
+    }
+  }
+
+  private async gravarUmaVez(clinicaId: ClinicaId, impressao: string, v: Verificacao): Promise<ResultadoDoTeste> {
+    const r = await this.banco.comoIntegracoes(clinicaId, async (c) => {
+      const antes = await c.query<{ escopos: string[]; verificacao: string }>(
+        'SELECT escopos, verificacao FROM integracoes_da_clinica WHERE impressao_da_chave = $1',
+        [impressao],
+      )
+      const anterior = antes.rows[0]
+      if (anterior === undefined) return null
+      if (anterior.verificacao === 'ok' && anterior.escopos.join(' ') !== v.escopos.join(' ')) {
+        // A7: alguém mudou as permissões do usuário no MedX desde o último teste.
+        console.warn(`[integracoes] ALERTA clínica ${clinicaId}: os escopos mudaram desde o último teste`)
+      }
+      // Recusada desliga as ligações: a constraint exige teste verde para ligar.
+      return c.query(
+        `UPDATE integracoes_da_clinica SET
+           verificacao = $2, verificada_em = now(), usuario_externo_nome = $3, conta_externa_id = $4,
+           escopos = $5, unidades_externas = $6, ultimo_erro = $7,
+           agenda_ligada = CASE WHEN $2 = 'ok' THEN agenda_ligada ELSE false END,
+           faturamento_ligado = CASE WHEN $2 = 'ok' THEN faturamento_ligado ELSE false END,
+           atualizada_em = now()
+         WHERE impressao_da_chave = $1`,
+        [
+          impressao,
+          v.tipo,
+          v.nome,
+          v.tipo === 'ok' ? v.contaId : null,
+          v.escopos.filter((x) => ESCOPO_SEGURO.test(x)).slice(0, 30),
+          v.unidades,
+          v.tipo === 'ok' ? '' : v.erro.slice(0, 300),
+        ],
+      )
+    })
+    if (r === null) return 'chave-mudou'
+    return v.tipo === 'ok' ? 'ok' : 'recusada'
+  }
+}
