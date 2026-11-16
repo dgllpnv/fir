@@ -724,7 +724,10 @@ function SenhaDoUsuarioDeGestao({
 }) {
   const [copiado, setCopiado] = useState<'nao' | 'sim' | 'falhou'>('nao')
   const { nome, usuario } = senha
-  const paraCopiar = `Usuário: ${usuario}\nSenha provisória: ${senha.senhaProvisoria}`
+  // A entrada do Usuário de Gestão é a carteira, não o painel interno: sem o
+  // endereço junto, a pessoa tenta a senha certa na porta errada (2026-11-16).
+  const entrada = `${typeof window === 'undefined' ? '' : window.location.origin}/carteira/entrar`
+  const paraCopiar = `Entre em: ${entrada}\nUsuário: ${usuario}\nSenha provisória: ${senha.senhaProvisoria}`
 
   async function copiar() {
     try {
@@ -741,6 +744,11 @@ function SenhaDoUsuarioDeGestao({
         <b>Ela aparece só desta vez.</b> Nem você nem ninguém consegue ler esta senha depois de
         fechar. Se perder, gere outra em <b>Editar</b> › <b>Redefinir senha</b>.
       </p>
+
+      <div className="campo">
+        Endereço de entrada
+        <input className="superadmin-segredo" type="text" readOnly value={entrada} />
+      </div>
 
       <div className="campo">
         Usuário
@@ -771,7 +779,7 @@ function SenhaDoUsuarioDeGestao({
 
       <div className="botoes">
         <button type="button" className="btn" onClick={() => void copiar()}>
-          {copiado === 'sim' ? 'Copiado' : 'Copiar usuário e senha'}
+          {copiado === 'sim' ? 'Copiado' : 'Copiar endereço, usuário e senha'}
         </button>
         <button type="button" className="btn ghost" onClick={aoFechar}>
           Já anotei, fechar

@@ -70,6 +70,10 @@ export default function EntrarNoPainel() {
             Este é o painel que cria clínica e administradora. <b>Não é a entrada da clínica</b> —
             para entrar numa, use <a className="link" href="/entrar">o endereço dela</a>.
           </p>
+          <p className="nota">
+            É da equipe da Firmare (usuário de gestão)? Sua entrada é a{' '}
+            <a className="link" href="/carteira/entrar">carteira</a>.
+          </p>
         </div>
 
         <div className="cartao">
