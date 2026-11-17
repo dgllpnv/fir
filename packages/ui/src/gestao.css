@@ -163,7 +163,10 @@
  * colunas de números em 390 px seriam a recepção empurrando o dedo para
  * descobrir que havia mais à direita.
  */
-table.painel { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+/* `display: table` explícito: a tabela divide o nome `.painel` com a moldura de
+   rotina.css, que é `display: grid` — e em grade o cabeçalho e o corpo viram
+   dois blocos com colunas próprias, que não se alinham. */
+table.painel { display: table; width: 100%; border-collapse: collapse; font-size: 13.5px; }
 table.painel th {
   text-align: left;
   font-size: 11px;

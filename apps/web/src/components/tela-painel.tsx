@@ -244,7 +244,8 @@ function Recorte({ recorte, assunto }: { recorte: RecorteDeCaixa; assunto: strin
   if (recorte.ateODia === null) {
     return (
       <p className="nota">
-        Nenhum caixa do período foi fechado ainda, então {assunto} não soma nada: antes do
+        Nenhum caixa do período foi fechado ainda, então {assunto.charAt(0).toLowerCase() + assunto.slice(1)} não soma
+        nada: antes do
         fechamento, o valor recebido num dia não sai do servidor.
       </p>
     )
@@ -703,7 +704,7 @@ function FaturamentoNoMedx({ medx, hoje, fuso }: { medx: ConferenciaMedx; hoje: 
             <thead>
               <tr>
                 <th>Dia com diferença</th>
-                <th className="num">MedX − FIR</th>
+                <th className="direita">MedX − FIR</th>
               </tr>
             </thead>
             <tbody>
@@ -711,8 +712,10 @@ function FaturamentoNoMedx({ medx, hoje, fuso }: { medx: ConferenciaMedx; hoje: 
                 const v = centavos(x.diferencaMedxFir)
                 return (
                   <tr key={x.dia}>
-                    <td>{diaCurto(x.dia)}</td>
-                    <td className="num">{v === null ? '—' : formatarDinheiro(v)}</td>
+                    <td data-rotulo="Dia com diferença">{diaCurto(x.dia)}</td>
+                    <td className="direita" data-rotulo="MedX − FIR">
+                      {v === null ? '—' : formatarDinheiro(v)}
+                    </td>
                   </tr>
                 )
               })}
