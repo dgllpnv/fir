@@ -210,6 +210,41 @@ set +a
 : "${DOMINIO:?DOMINIO não está no .env}"
 
 # ---------------------------------------------------------------------------
+# 1.5 · o envio de e-mail é OPT-IN (ADR 2026-11-17-saida-de-email-da-api)
+# ---------------------------------------------------------------------------
+# A rede `saida-email` mora em `docker-compose.email.yml`, e ele só entra com
+# `SMTP_HOST` preenchido. Sem isso, a API fica só na `dados`, sem rota de
+# saída — a postura de antes do acesso por e-mail, e a 7.6b mede exatamente
+# ela.
+#
+# `COMPOSE_FILE` exportado AQUI, antes do primeiro comando do Compose, vale
+# para todo `docker compose` deste script e dos `provisionar-*.sh` que ele
+# chama. Ele é decidido pelo `.env` a cada execução — sobrescreve um
+# `COMPOSE_FILE` que o `.env` tenha — para o deploy nunca discordar de
+# `SMTP_HOST`. Ligar → desligar também funciona: sem o override, o `up -d`
+# recria a `api` só na `dados` (a rede `fir_saida-email` fica órfã e vazia).
+compose_file_do_env=${COMPOSE_FILE:-}
+# `:` já é o separador no Linux; explícito para não depender do sistema (no
+# Windows o padrão é `;`, e a lista viraria um nome de arquivo só).
+export COMPOSE_PATH_SEPARATOR=:
+if [ -n "${SMTP_HOST:-}" ]; then
+  export COMPOSE_FILE=docker-compose.yml:docker-compose.email.yml
+  ENVIO_EMAIL=ligado
+  echo "==> envio de e-mail LIGADO: a API entra na 'saida-email' (só 465, se a regra estiver aplicada)"
+else
+  export COMPOSE_FILE=docker-compose.yml
+  ENVIO_EMAIL=desligado
+  echo "==> envio de e-mail desligado: a API fica sem rota de saída"
+fi
+# Um `COMPOSE_FILE` no `.env` que discorda é o que um `docker compose` digitado
+# à mão vai usar — e ele recriaria a `api` com as redes erradas. Aviso, não
+# erro: o deploy em si usa o valor decidido acima.
+if [ -n "$compose_file_do_env" ] && [ "$compose_file_do_env" != "$COMPOSE_FILE" ]; then
+  echo "  ATENÇÃO: o .env tem COMPOSE_FILE=$compose_file_do_env, mas o envio está $ENVIO_EMAIL." >&2
+  echo "  Comandos do Compose à mão vão discordar do deploy. Ver README, 'Ligar o envio de e-mail'." >&2
+fi
+
+# ---------------------------------------------------------------------------
 # 2 · a guarda da allowlist do painel
 # ---------------------------------------------------------------------------
 # **Falhar aqui é barato; falhar no Traefik é falhar aberto.**
@@ -537,57 +572,65 @@ else
   echo "  ok  o Postgres não tem rota de saída"
 fi
 
-# 7.6b · a API só sai pela porta do SMTP (ADR 2026-11-17-saida-de-email-da-api).
+# 7.6b · a rota de saída da API, nos dois modos do envio de e-mail (1.5).
 #
-# Até o acesso por e-mail, a medida era "a API não resolve nome externo". Com a
-# `saida-email` ela resolve — a rede não é `internal`, e o DNS precisa passar
-# para achar `smtp.resend.com`. A invariante passou a ter duas metades, e as
-# duas são medidas:
+# ESTRUTURA, sempre — as redes da `api` são exatamente as esperadas. O risco de
+# sempre: alguém "resolver" um problema acrescentando `saida` ou `easypanel` à
+# `api`, e o processo que serve o balcão passa a alcançar a internet ou
+# serviço alheio. Diferente do esperado é ERRO.
 #
-# (a) ESTRUTURA — as redes da `api` são exatamente `dados` e `saida-email`. O
-#     risco de sempre continua: alguém "resolver" um problema acrescentando
-#     `saida` ou `easypanel` à `api`. Isso é ERRO, ligado ou não o envio.
+# EGRESS, conforme o modo:
 #
-# (b) EGRESS — fora da 465, a API não alcança a internet. Mede-se com uma
-#     conexão TCP a github.com:443: com a regra do README aplicada, ela morre
-#     no DROP. Se conecta, a regra não está lá, e:
-#       - com `SMTP_HOST` preenchido, é ERRO: o envio só liga com a regra;
-#       - com `SMTP_HOST` vazio, é ATENÇÃO: a rede existe, o envio não, e o
-#         deploy de outra coisa não pode ficar refém de uma mudança de firewall
-#         que depende do dono. O aviso fica até a regra ser aplicada.
+# - DESLIGADO (só `docker-compose.yml`): a API não tem rota NENHUMA, e a
+#   medida é a de antes do acesso por e-mail — ela não resolve nome externo.
+#   Resolver é ERRO.
+# - LIGADO (com `docker-compose.email.yml`): a API resolve nomes (a
+#   `saida-email` não é `internal`, e o DNS precisa passar para achar o SMTP),
+#   então a medida passa a ser uma conexão TCP a github.com:443. Com a regra
+#   de egress do README aplicada, ela morre no DROP; se conecta, a regra não
+#   está lá, e o deploy é RECUSADO — o envio só liga com a regra.
 #
 # `node` e não `getent`/`nc`, para não depender de utilitário da imagem: se a
 # ferramenta faltar, a asserção não pode passar por engano.
+if [ "$ENVIO_EMAIL" = ligado ]; then
+  redes_esperadas="fir_dados fir_saida-email "
+else
+  redes_esperadas="fir_dados "
+fi
 api_id=$(docker compose ps -q api || true)
 redes_api=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$api_id" 2>/dev/null \
             | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ' || true)
-if [ "$redes_api" = "fir_dados fir_saida-email " ]; then
-  echo "  ok  a API está só em 'dados' e 'saida-email'"
+if [ "$redes_api" = "$redes_esperadas" ]; then
+  echo "  ok  as redes da API são exatamente: ${redes_esperadas% }"
 else
-  echo "  ERRO: as redes da API são '${redes_api}'; esperado 'fir_dados fir_saida-email'." >&2
+  echo "  ERRO: as redes da API são '${redes_api% }'; esperado '${redes_esperadas% }' (envio $ENVIO_EMAIL)." >&2
   echo "  Uma rede a mais na API é rota para a internet ou para serviço alheio." >&2
   falhou=1
 fi
 
-if docker compose exec -T api node -e "
-  const s = require('node:net').connect({ host: 'github.com', port: 443 });
-  const fim = (c) => { s.destroy(); process.exit(c) };
-  s.setTimeout(6000, () => fim(1));
-  s.on('connect', () => fim(0));
-  s.on('error', () => fim(1));" 2>/dev/null; then
-  if [ -n "${SMTP_HOST:-}" ]; then
+if [ "$ENVIO_EMAIL" = ligado ]; then
+  if docker compose exec -T api node -e "
+    const s = require('node:net').connect({ host: 'github.com', port: 443 });
+    const fim = (c) => { s.destroy(); process.exit(c) };
+    s.setTimeout(6000, () => fim(1));
+    s.on('connect', () => fim(0));
+    s.on('error', () => fim(1));" 2>/dev/null; then
     echo "  ERRO: a API alcança github.com:443 com o envio de e-mail LIGADO." >&2
-    echo "  A regra de egress da 'saida-email' não está aplicada. Aplique-a" >&2
-    echo "  (README, 'Ligar o envio de e-mail') ou esvazie SMTP_HOST." >&2
+    echo "  A regra de egress da 'saida-email' não está aplicada (ou se perdeu num" >&2
+    echo "  reboot). Aplique-a (README, 'Ligar o envio de e-mail') ou esvazie SMTP_HOST." >&2
     falhou=1
   else
-    echo "  ATENÇÃO: a API alcança a internet fora da porta 465." >&2
-    echo "  A regra de egress da 'saida-email' ainda não foi aplicada (README," >&2
-    echo "  'Ligar o envio de e-mail'). O envio está desligado; aplique a regra" >&2
-    echo "  antes de preencher SMTP_HOST — o deploy recusa sem ela." >&2
+    echo "  ok  a API não alcança a internet fora da porta do SMTP"
   fi
 else
-  echo "  ok  a API não alcança a internet fora da porta do SMTP"
+  if docker compose exec -T api node -e \
+    "require('node:dns').promises.lookup('github.com').then(()=>process.exit(0),()=>process.exit(1))" \
+    2>/dev/null; then
+    echo "  ERRO: a API resolve nome externo — ela ganhou rota de saída." >&2
+    falhou=1
+  else
+    echo "  ok  a API não tem rota de saída"
+  fi
 fi
 
 # 7.6c · os workers (agenda e os três da carteira) estão de pé, e não em laço de reinício.
@@ -649,7 +692,7 @@ fi
 # Só abre a conexão TCP: não autentica e não manda nada. Host e porta vêm do
 # ambiente do próprio container, então nada do `.env` passa pela linha de
 # comando.
-if [ -z "${SMTP_HOST:-}" ]; then
+if [ "$ENVIO_EMAIL" = desligado ]; then
   echo "  --  envio de e-mail desligado (SMTP_HOST vazio): criação de pessoa usa senha provisória"
 else
   if [ "${SMTP_PORTA:-465}" != "465" ]; then

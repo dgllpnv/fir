@@ -1,0 +1,46 @@
+# O envio de e-mail da API — OPT-IN (ADR 2026-11-17-saida-de-email-da-api).
+#
+# Não se usa sozinho: é sobreposto ao `docker-compose.yml`. `implantar.sh` o
+# inclui (via `COMPOSE_FILE`) SÓ quando `SMTP_HOST` está preenchido no `.env`.
+# Com o envio desligado, este arquivo não entra e a API continua sem rota de
+# saída nenhuma — que é o ponto de ele ser um arquivo à parte: a rede não
+# existe antes de alguém precisar dela.
+#
+# ## Por que a API ganha uma saída
+#
+# O link de acesso (convite, esqueci a senha, confirmação) leva um token de
+# 256 bits que é, sozinho, a senha nova de alguém. A spec (seção 10, item 8;
+# appsec 11 e 13) manda o envio sair DO PRÓPRIO PROCESSO, depois da resposta
+# (`setImmediate`), e o token cru nunca sair dele. A alternativa — um worker
+# com fila no Redis, como os outros serviços que falam com a internet — foi
+# recusada pela spec: o token passaria a existir em claro no Redis e no
+# worker.
+#
+# ## A ordem: regra de egress → variáveis → deploy
+#
+# Este arquivo só pode entrar com a regra de `iptables` do README JÁ aplicada
+# na VPS. A regra deixa sair desta sub-rede só DNS (53) e TCP 465, e descarta
+# todo o resto. **Por porta, e não por endereço**: `smtp.resend.com` é um
+# balanceador da AWS (ELB em us-east-1) cujos IPs mudam sem aviso; uma regra
+# por IP derrubaria o envio no dia em que a AWS girasse o endereço. O que a
+# porta garante: o processo do balcão, se comprometido, não fala HTTPS com
+# lugar nenhum — só SMTPS.
+#
+# Sem a regra, esta rede é uma bridge comum, com saída para tudo. Por isso
+# `implantar.sh` (7.6b), com este arquivo incluído, RECUSA o deploy se a API
+# alcançar github.com:443.
+
+services:
+  api:
+    # Somado ao `[dados]` do arquivo base: o Compose une as redes do serviço.
+    networks: [saida-email]
+
+networks:
+  # A saída da `api`, e só dela. Sub-rede FIXA, vizinha e disjunta da
+  # `saida-planilhas` (172.31.248.0/24), para a regra poder ser escrita contra
+  # ela.
+  saida-email:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.247.0/24

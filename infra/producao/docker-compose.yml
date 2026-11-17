@@ -162,8 +162,9 @@ services:
       # mora só no `.env` da VPS, nunca aqui nem no repositório.
       SMTP_HOST: ${SMTP_HOST:-}
       # 465 = TLS implícito (o código põe `secure` só nesta porta). É também a
-      # ÚNICA porta que a regra de egress da `saida-email` deixa passar; trocar
-      # a porta aqui sem trocar a regra é envio que falha com ECONNECTION.
+      # ÚNICA porta que a regra de egress da `saida-email` (override
+      # `docker-compose.email.yml`) deixa passar; trocar a porta aqui sem
+      # trocar a regra é envio que falha com ECONNECTION.
       SMTP_PORTA: ${SMTP_PORTA:-465}
       SMTP_USUARIO: ${SMTP_USUARIO:-}
       SMTP_SENHA: ${SMTP_SENHA:-}
@@ -181,19 +182,12 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-    # `dados` para Postgres e Redis; `saida-email` para o SMTP do provedor, e
-    # nada mais (ver a rede, lá embaixo).
-    #
-    # POR QUE A API GANHA UMA SAÍDA, ela que era o serviço que não tinha
-    # nenhuma: o link de acesso leva um token de 256 bits que é, sozinho, a
-    # senha nova de alguém. A spec (item 8 da seção 10, appsec 11 e 13) manda
-    # o envio sair DO PRÓPRIO PROCESSO, depois da resposta (`setImmediate`),
-    # e o token cru nunca sair dele. A alternativa — um worker com fila no
-    # Redis, como os outros que falam com a internet — foi recusada pela
-    # spec: o token passaria a existir em claro no Redis e no worker.
-    # Trocamos "a API sem rota" por "a API com rota SÓ para a porta 465",
-    # e `implantar.sh` mede as duas metades (7.6b).
-    networks: [dados, saida-email]
+    # SÓ `dados`: a API não tem rota de saída. A exceção é OPT-IN e mora em
+    # `docker-compose.email.yml`, que acrescenta a rede `saida-email` (só a
+    # porta 465 do SMTP). `implantar.sh` só inclui aquele arquivo com
+    # `SMTP_HOST` preenchido no `.env` — com o envio desligado, a API continua
+    # sem rota nenhuma, e o deploy mede isso (7.6b).
+    networks: [dados]
 
   # -------------------------------------------------------------------------
   # worker-agenda — a sincronização da agenda iCal das clínicas (ADR 0019)
@@ -204,8 +198,8 @@ services:
   #
   # **Ele é o único serviço com saída para a internet**, e é por isso que é um
   # container à parte e não um módulo da API: buscar o iCal exige HTTPS e DNS
-  # para fora, e a API não tem rota para a internet (só a `saida-email`, que
-  # a regra de egress restringe à porta 465 do SMTP). Conteúdo externo é
+  # para fora, e a API não tem rota para a internet (com o envio de e-mail
+  # ligado, só a `saida-email` do override, restrita à porta 465). Conteúdo externo é
   # baixado e interpretado aqui, longe do processo que serve o balcão.
   #
   # A saída é para a internet, não para dentro: o SSRF é fechado no `lookup`
@@ -692,25 +686,8 @@ networks:
       config:
         - subnet: 172.31.248.0/24
 
-  # A saída da `api`, e só dela: o SMTP do provedor de e-mail transacional
-  # (Resend, `smtp.resend.com`). Sub-rede FIXA, vizinha e disjunta da
-  # `saida-planilhas`, para a regra de egress poder ser escrita contra ela.
-  #
-  # O QUE A REGRA CONTÉM (README, "Ligar o envio de e-mail"): desta sub-rede
-  # só sai DNS (53) e TCP 465; todo o resto é DROP. **Por porta, e não por
-  # endereço**: `smtp.resend.com` é um balanceador da AWS (ELB em us-east-1)
-  # cujos IPs mudam sem aviso, e uma regra por IP derrubaria o envio no dia
-  # em que a AWS girasse o endereço. O que a porta garante: o processo do
-  # balcão, se comprometido, não fala HTTPS com lugar nenhum — só SMTPS.
-  #
-  # Sem a regra aplicada, esta rede é uma bridge comum, com saída para tudo;
-  # `implantar.sh` (7.6b) mede isso e RECUSA o deploy com `SMTP_HOST`
-  # preenchido enquanto a API alcançar a internet fora da 465.
-  saida-email:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.31.247.0/24
+  # A `saida-email` (172.31.247.0/24) NÃO está aqui: ela é opt-in, em
+  # `docker-compose.email.yml`. Reservada — não use esta faixa para outra rede.
 
 volumes:
   postgres-dados:

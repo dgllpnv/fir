@@ -102,8 +102,9 @@ label do Traefik.
 Ele sai para a internet pela rede `saida` (bridge comum), que é só dele. Ele
 fica também na `dados`, para falar com Postgres e Redis — como
 `fir_app`, sob RLS, nunca como `fir_migrate`. O banco continua sem rota de
-saída e a API só tem a `saida-email`, restrita à porta do SMTP (ver "Ligar o
-envio de e-mail"); o deploy mede as duas coisas (asserções 7.6 e 7.6b), além de
+saída, e a API também — salvo com o envio de e-mail ligado, quando ganha a
+`saida-email`, restrita à porta do SMTP (ver "Ligar o envio de e-mail"); o
+deploy mede as duas coisas (asserções 7.6 e 7.6b), além de
 medir que o worker não está em laço de reinício (7.6c) e que ele resolve nome
 externo (7.6d, aviso).
 
@@ -168,14 +169,21 @@ O passo 7.6e do `implantar.sh` avisa se o worker não resolve
 Convite, "esqueci minha senha" e confirmação de e-mail saem **de dentro do
 processo da API** (spec `docs/specs/acesso-por-email.md`, seção 10, item 8): o
 link leva um token que é, sozinho, a senha nova de alguém, e ele nunca sai do
-processo — nem para o Redis, nem para um worker. Por isso a `api`, que não
-tinha rota nenhuma, ganhou a rede `saida-email` (sub-rede fixa
-`172.31.247.0/24`), e só ela está nessa rede. Decisão em
-`docs/adr/2026-11-17-saida-de-email-da-api.md`.
+processo — nem para o Redis, nem para um worker. Por isso a `api` precisa de
+uma saída, a rede `saida-email` (sub-rede fixa `172.31.247.0/24`), e só ela
+está nessa rede. Decisão em `docs/adr/2026-11-17-saida-de-email-da-api.md`.
 
-**Desligado por padrão.** As seis variáveis entram no compose com padrão vazio
-(`SMTP_PORTA` com 465); sem `SMTP_HOST`, a criação de pessoa cai na senha
-provisória e as rotas que dependem de envio respondem 503, como hoje.
+**Opt-in, e desligado por padrão.** A rede e a ligação da `api` a ela moram
+num arquivo à parte, `docker-compose.email.yml`, que `implantar.sh` só inclui
+(via `COMPOSE_FILE`) quando `SMTP_HOST` está preenchido no `.env`. Sem isso, a
+API continua **sem rota de saída nenhuma**, como antes do acesso por e-mail, e
+o deploy mede exatamente isso. As seis variáveis ficam no compose base com
+padrão vazio (`SMTP_PORTA` com 465); sem `SMTP_HOST`, a criação de pessoa cai
+na senha provisória e as rotas que dependem de envio respondem 503.
+
+**A ordem é: regra de egress → variáveis → deploy.** Ao contrário dela, o
+deploy recusa (7.6b): com o override incluído e a regra ausente, a API
+alcançaria a internet inteira.
 
 ### Antes de qualquer coisa: LGPD L10
 
@@ -190,8 +198,10 @@ e-mail da equipe das clínicas a um suboperador sem contrato.
 
 ### 1 · a regra de egress da `saida-email`
 
-Docker sozinho não filtra destino: sem a regra, a `saida-email` é uma bridge
-comum e a API alcança a internet inteira. A regra deixa sair da sub-rede só
+**Primeiro**, antes de tocar no `.env`. Docker sozinho não filtra destino: sem
+a regra, a `saida-email` é uma bridge comum e a API alcança a internet
+inteira. Aplicar a regra antes de a rede existir é inofensivo — ela casa uma
+sub-rede vazia até o deploy criar a rede. A regra deixa sair da sub-rede só
 DNS e TCP 465 (SMTPS, TLS implícito). **Por porta, não por endereço**:
 `smtp.resend.com` é um balanceador da AWS (ELB, us-east-1) cujos IPs mudam sem
 aviso, e uma regra por IP derrubaria o envio no dia da troca.
@@ -221,12 +231,13 @@ isso que o deploy mede (abaixo).
 Se o `docker compose up` recusar a rede com `Pool overlaps with other one on
 this address space`, outra rede da VPS já usa a faixa: escolha outra `/24`
 livre (`docker network inspect $(docker network ls -q) -f '{{.Name}}
-{{range .IPAM.Config}}{{.Subnet}}{{end}}'`) e troque no compose **e** na regra.
+{{range .IPAM.Config}}{{.Subnet}}{{end}}'`) e troque em
+`docker-compose.email.yml` **e** na regra.
 
 ### 2 · as variáveis no `.env`
 
-Editadas à mão no `.env` da VPS (modo 600), **nunca** no repositório nem em
-conversa. `SMTP_SENHA` é a chave de API do Resend: crie uma chave só de envio
+**Só depois da regra.** Editadas à mão no `.env` da VPS (modo 600), **nunca**
+no repositório nem em conversa. `SMTP_SENHA` é a chave de API do Resend: crie uma chave só de envio
 (`sending access`), restrita ao domínio, e guarde-a com as outras senhas.
 
 ```
@@ -242,18 +253,29 @@ URL_PUBLICA=https://<o mesmo DOMINIO do .env>
 produção (o link levaria o token em claro). Sem ela, o envio conta como
 desligado.
 
+**Comandos do Compose à mão.** `implantar.sh` decide o `COMPOSE_FILE` sozinho,
+mas um `docker compose up -d api` digitado no terminal lê só o
+`docker-compose.yml` — e recriaria a `api` **fora** da `saida-email`, com o
+envio falhando em silêncio. Com o envio ligado, acrescente também esta linha ao
+`.env` (o Compose a lê de lá), e retire-a ao desligar:
+
+```
+COMPOSE_FILE=docker-compose.yml:docker-compose.email.yml
+```
+
 ### 3 · subir e conferir
 
 ```bash
 cd /opt/fir/repo/infra/producao && bash implantar.sh
 ```
 
-O deploy mede:
+O deploy imprime `envio de e-mail LIGADO` no passo 1.5 e mede:
 
-- **7.6b** (erro): as redes da `api` são exatamente `dados` e `saida-email`; e,
-  com `SMTP_HOST` preenchido, a API **não** alcança `github.com:443` — se
-  alcança, a regra não está aplicada e o deploy é recusado. Com o envio
-  desligado, a mesma falta da regra é só aviso.
+- **7.6b** (erro): as redes da `api` são exatamente `dados` e `saida-email`, e
+  a API **não** alcança `github.com:443` — se alcança, a regra não está
+  aplicada (ou se perdeu num reboot) e o deploy é recusado. Com o envio
+  desligado, a 7.6b exige só `dados` e recusa se a API resolver um nome
+  externo, como antes.
 - **7.6** (erro): o Postgres continua sem rota de saída.
 - **7.6f** (aviso): com o envio ligado, a API abre TCP com
   `SMTP_HOST:SMTP_PORTA`. Uma falha aqui é o único lugar em que o problema
@@ -268,8 +290,10 @@ mostra só a finalidade, o resultado e o endereço mascarado.
 
 ### Desligar
 
-Esvazie `SMTP_HOST` no `.env` e rode `implantar.sh`. A regra de egress pode
-ficar: com o envio desligado ela só impede o que já não devia acontecer.
+Esvazie `SMTP_HOST` (e retire a linha `COMPOSE_FILE`) no `.env` e rode
+`implantar.sh`. Sem o override, a `api` é recriada só na `dados`; a rede
+`fir_saida-email` fica órfã e vazia (`docker network rm fir_saida-email`, se
+quiser). A regra de egress pode ficar: ela casa uma sub-rede sem ninguém.
 
 ## Variáveis do `.env`
 
@@ -285,7 +309,8 @@ ficar: com o envio desligado ela só impede o que já não devia acontecer.
 | `VERSAO` | o deploy | a tag das imagens |
 | `GOOGLE_SA_JSON` | você (opcional) | a chave JSON da conta de serviço do Google, numa linha, entre aspas simples — só o `worker-planilhas` a recebe |
 | `GOOGLE_SA_EMAIL` | você (opcional) | o `client_email` dessa conta, para a tela dizer com quem compartilhar a planilha |
-| `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA`, `EMAIL_REMETENTE`, `URL_PUBLICA` | você (opcional) | o envio de e-mail da API. Vazias = envio desligado. **Só com a LGPD L10 feita e a regra de egress aplicada** — ver "Ligar o envio de e-mail" |
+| `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA`, `EMAIL_REMETENTE`, `URL_PUBLICA` | você (opcional) | o envio de e-mail da API. Vazias = envio desligado e API sem rota de saída. `SMTP_HOST` preenchido inclui `docker-compose.email.yml`. **Só com a LGPD L10 feita e a regra de egress aplicada** — ver "Ligar o envio de e-mail" |
+| `COMPOSE_FILE` | você (só com envio ligado) | `docker-compose.yml:docker-compose.email.yml`, para comandos do Compose à mão concordarem com o deploy |
 | `FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA` | `implantar.sh` | cifra o segredo TOTP de cada Usuário de Gestão e é o pepper dos códigos de recuperação. **Nunca troque**: trocar exige resetar o segundo fator de todos |
 
 `.env` **não é versionado** — está no `.gitignore`, e
