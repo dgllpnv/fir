@@ -382,4 +382,16 @@ export const CAMPOS_MONETARIOS = [
   'faturamentoExato',
   'quantidadeDePagamentos',
   'quantidadeDePagamentosAnterior',
+  // T7 (C.8–C.11): os nomes que a API usa, fixados no parecer A7. `medido` é o
+  // que a meta mede (FIR ou MedX); `recebido`, já acima, é sempre o da FIR.
+  // `totalAntigo`/`totalNovo` ficam registrados para o histórico do MedX,
+  // quando ele for exposto. `arredondamentoDoMedx` é o resíduo do A9.
+  'faturamentoNoMedx',
+  'recebidoNaFir',
+  'diferencaMedxFir',
+  'medido',
+  'totalAntigo',
+  'totalNovo',
+  'totalExato',
+  'arredondamentoDoMedx',
 ] as const

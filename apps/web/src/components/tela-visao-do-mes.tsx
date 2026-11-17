@@ -152,7 +152,7 @@ function Corpo({
         </div>
       </div>
 
-      {v.percentualDaMeta === null ? null : (
+      {v.percentualDaMeta !== null ? (
         <div className="meta-do-mes" style={{ marginBottom: 18 }}>
           <div className="meta-linha">
             <b>Meta de {nomeDoMes(v.mes)}: {formatarDinheiro(centavos(v.meta))}</b>
@@ -162,13 +162,25 @@ function Corpo({
             <i style={{ width: larguraDaBarra(v.percentualDaMeta) }} />
           </div>
           <span className="nota">
+            {v.medidaDaMeta === 'medx' ? 'Medida pelo faturamento lido do MedX. ' : ''}
             {v.metaRestante === null || v.metaRestante === '0'
               ? 'Meta atingida.'
               : `Faltam ${formatarDinheiro(centavos(v.metaRestante))}.`}
             {v.mes === mesCorrente ? ` ${v.caixa.diasUteis} dias úteis passados.` : ''}
           </span>
         </div>
-      )}
+      ) : v.medidaDaMeta === 'medx' && v.meta !== null ? (
+        /* Medida pelo MedX sem leitura completa: sem percentual, nunca "0%" (N-B6). */
+        <div className="meta-do-mes" style={{ marginBottom: 18 }}>
+          <div className="meta-linha">
+            <b>Meta de {nomeDoMes(v.mes)}: {formatarDinheiro(centavos(v.meta))}</b>
+          </div>
+          <span className="nota">
+            Medida pelo faturamento do MedX, e a leitura do mês está incompleta. O percentual aparece
+            quando todos os dias tiverem sido lidos.
+          </span>
+        </div>
+      ) : null}
 
       <div className="grupo">
         <h3>Despesas por categoria</h3>
@@ -415,7 +427,12 @@ function Meta({ mes, aoSalvar }: { mes: string; aoSalvar: (aviso: string) => voi
         onChange={(e) => setTexto(e.target.value)}
         onBlur={salvar}
       />
-      {erro === null ? <small>Deixe em branco para remover a meta.</small> : (
+      {erro === null ? (
+        <small>
+          Deixe em branco para remover a meta.
+          {atual.dados?.medidaPor === 'medx' ? ' Medida pelo faturamento lido do MedX.' : ''}
+        </small>
+      ) : (
         <span className="erro">{erro}</span>
       )}
     </label>

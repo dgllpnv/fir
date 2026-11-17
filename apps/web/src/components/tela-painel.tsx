@@ -2,6 +2,7 @@
 
 import type {
   ChaveDePeriodo,
+  ConferenciaMedx,
   CumprimentoDePrazos,
   Painel,
   RecorteDeCaixa,
@@ -12,6 +13,7 @@ import { useState } from 'react'
 import { useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
 import { diaCurto } from '@/lib/formato'
+import { instanteEmTexto } from '@/lib/instante'
 import { Carregando, Erro, Vazio } from './estados'
 
 /**
@@ -35,7 +37,7 @@ import { Carregando, Erro, Vazio } from './estados'
  * empilhada com legenda, e as três tabelas viram BLOCO abaixo de 620 px —
  * nada rola na horizontal (`docs/design.md`).
  */
-export function TelaPainel() {
+export function TelaPainel({ fuso }: { fuso: string }) {
   const [periodo, setPeriodo] = useState<ChaveDePeriodo>('30d')
   const [de, setDe] = useState('')
   const [ate, setAte] = useState('')
@@ -219,6 +221,7 @@ export function TelaPainel() {
           )}
 
           <PacientesNoPeriodo painel={d} />
+          {d.medx === null ? null : <FaturamentoNoMedx medx={d.medx} hoje={d.hoje} fuso={fuso} />}
           <TopPagantesNoPainel painel={d} aoTrocarModo={setTop} />
           <PorUnidade painel={d} />
           <CampanhasNoPeriodo painel={d} />
@@ -642,6 +645,81 @@ function Distribuicao({ prazos }: { prazos: CumprimentoDePrazos }) {
           <i className="aberta" />A vencer
         </span>
       </div>
+    </>
+  )
+}
+
+/**
+ * **Faturamento no MedX e Conferência MedX × FIR** (spec integracao-medx C.8,
+ * C.9). Só aparece com o faturamento do MedX ligado.
+ *
+ * Os dois números ficam LADO A LADO e nunca somados: o MedX é o que o sistema
+ * da clínica registrou, a FIR é o que entrou no caixa dela. Nada aqui soma,
+ * subtrai ou arredonda — a diferença e o resíduo vêm prontos do servidor.
+ */
+function FaturamentoNoMedx({ medx, hoje, fuso }: { medx: ConferenciaMedx; hoje: string; fuso: string }) {
+  const doMedx = centavos(medx.faturamentoNoMedx)
+  const daFir = centavos(medx.recebidoNaFir)
+  const diferenca = centavos(medx.diferencaMedxFir)
+  const arredondamento = centavos(medx.arredondamentoDoMedx)
+  const lido = medx.lidoEm === null ? null : instanteEmTexto(medx.lidoEm, fuso, hoje)
+
+  return (
+    <>
+      <h3>Faturamento no MedX</h3>
+      <p className="nota">
+        {lido === null ? 'O MedX ainda não foi lido.' : `Lido do MedX ${lido}.`} Só leitura: o número
+        do MedX fica ao lado do da FIR e não entra no caixa, na receita nem no LTV.
+        {medx.leituraIncompleta ? ' Leitura incompleta: algum dia do período ainda não foi lido do MedX.' : ''}
+      </p>
+      <Recorte recorte={medx.recorte} assunto="A conferência" />
+      <div className="kpis">
+        <div className="kpi">
+          <span>Faturamento no MedX</span>
+          <b className="num">{doMedx === null ? '—' : formatarDinheiro(doMedx)}</b>
+          <span>lido do MedX</span>
+        </div>
+        <div className="kpi">
+          <span>Recebido na FIR</span>
+          <b className="num">{daFir === null ? '—' : formatarDinheiro(daFir)}</b>
+          <span>sem Outras entradas</span>
+        </div>
+        <div className="kpi">
+          <span>Diferença MedX − FIR</span>
+          <b className="num">{diferenca === null ? '—' : formatarDinheiro(diferenca)}</b>
+          <span>positiva: o MedX registrou mais</span>
+        </div>
+      </div>
+      {arredondamento === null || arredondamento === 0n ? null : (
+        <p className="nota">
+          {formatarDinheiro(arredondamento < 0n ? -arredondamento : arredondamento)} de arredondamento do MedX: os
+          valores dele têm mais de duas casas, e cada pagamento é arredondado ao centavo.
+        </p>
+      )}
+      {medx.diasComDiferenca.length === 0 ? null : (
+        <div className="tabela">
+          <table className="painel">
+            <caption className="sr-apenas">Dias em que o MedX e a FIR discordam</caption>
+            <thead>
+              <tr>
+                <th>Dia com diferença</th>
+                <th className="num">MedX − FIR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {medx.diasComDiferenca.map((x) => {
+                const v = centavos(x.diferencaMedxFir)
+                return (
+                  <tr key={x.dia}>
+                    <td>{diaCurto(x.dia)}</td>
+                    <td className="num">{v === null ? '—' : formatarDinheiro(v)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   )
 }

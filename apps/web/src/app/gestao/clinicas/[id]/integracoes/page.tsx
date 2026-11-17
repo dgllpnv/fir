@@ -463,6 +463,7 @@ function Conexao({ clinica, d, enviar }: Passo) {
 function Ligacoes({ clinica, d, enviar }: Passo) {
   const [agenda, setAgenda] = useState(d.ligadoAgenda)
   const [faturamento, setFaturamento] = useState(d.ligadoFaturamento)
+  const [metaMedidaPor, setMetaMedidaPor] = useState(d.metaMedidaPor)
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
 
@@ -470,7 +471,8 @@ function Ligacoes({ clinica, d, enviar }: Passo) {
   useEffect(() => {
     setAgenda(d.ligadoAgenda)
     setFaturamento(d.ligadoFaturamento)
-  }, [d.ligadoAgenda, d.ligadoFaturamento])
+    setMetaMedidaPor(d.metaMedidaPor)
+  }, [d.ligadoAgenda, d.ligadoFaturamento, d.metaMedidaPor])
 
   const falta =
     d.termo === null
@@ -478,18 +480,26 @@ function Ligacoes({ clinica, d, enviar }: Passo) {
       : d.estado !== 'ok'
         ? 'Ligar exige o teste de conexão verde no passo 3.'
         : null
-  const mudou = agenda !== d.ligadoAgenda || faturamento !== d.ligadoFaturamento
+  // Sem faturamento, a meta só pode ser medida pela FIR (o servidor recusa o resto).
+  const medida = faturamento ? metaMedidaPor : 'fir'
+  const mudou = agenda !== d.ligadoAgenda || faturamento !== d.ligadoFaturamento || medida !== d.metaMedidaPor
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
     setErro('')
     setEnviando(true)
     try {
-      await enviar('/ligacoes', 'PUT', { agenda, faturamento }, `Ligações de ${clinica.codigo} salvas.`)
+      await enviar(
+        '/ligacoes',
+        'PUT',
+        { agenda, faturamento, metaMedidaPor: medida },
+        `Ligações de ${clinica.codigo} salvas.`,
+      )
     } catch (x) {
       setErro(mensagem(x))
       setAgenda(d.ligadoAgenda)
       setFaturamento(d.ligadoFaturamento)
+      setMetaMedidaPor(d.metaMedidaPor)
     } finally {
       setEnviando(false)
     }
@@ -512,6 +522,23 @@ function Ligacoes({ clinica, d, enviar }: Passo) {
           <span>
             Faturamento → Indicadores
             <small>Só leitura, separado do caixa da FIR. Exige a permissão de finanças no MedX.</small>
+          </span>
+        </label>
+      </fieldset>
+      <fieldset className="superadmin-campo-radios" disabled={falta !== null || !faturamento}>
+        <legend>A meta do mês é medida por</legend>
+        <label>
+          <input type="radio" name="meta-medida-por" checked={medida === 'fir'} onChange={() => setMetaMedidaPor('fir')} />
+          <span>
+            O que entrou na FIR
+            <small>O caixa da FIR. É o padrão.</small>
+          </span>
+        </label>
+        <label>
+          <input type="radio" name="meta-medida-por" checked={medida === 'medx'} onChange={() => setMetaMedidaPor('medx')} />
+          <span>
+            O faturamento lido do MedX
+            <small>Vale para as metas definidas daqui em diante. Mês que já tem meta continua com a régua dele.</small>
           </span>
         </label>
       </fieldset>

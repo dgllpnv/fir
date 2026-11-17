@@ -192,20 +192,23 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
       'aReceber',
       'meta',
       'metaRestante',
+      // T7 (spec integracao-medx C.10): o que mediu a meta — o recebido da FIR
+      // ou o faturamento lido do MedX. `recebido` continua SEMPRE o da FIR.
+      'medido',
       'fixas',
       'variaveis',
       'valor',
       'diferenca',
     ],
   },
-  { metodo: 'GET', caminho: '/v1/metas/:mes/percentual', camposDeDinheiro: ['meta', 'recebido'] },
+  { metodo: 'GET', caminho: '/v1/metas/:mes/percentual', camposDeDinheiro: ['meta', 'recebido', 'medido'] },
   /**
    * `PUT`/`DELETE` da meta devolvem a MESMA forma do percentual — gravar e
    * reler pela mesma porta, para que a tela não precise de uma segunda
    * chamada só para saber em quanto a barra ficou.
    */
-  { metodo: 'PUT', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido'] },
-  { metodo: 'DELETE', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido'] },
+  { metodo: 'PUT', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido', 'medido'] },
+  { metodo: 'DELETE', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido', 'medido'] },
 
   /**
    * OS PROGRAMAS (épico 5).
@@ -500,6 +503,14 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
       'ltvTotal',
       'metaEmDinheiro',
       'resultadoEmDinheiro',
+      // T7 (spec integracao-medx C.8, C.11): Faturamento no MedX e a
+      // Conferência MedX × FIR. Nomes fixos; nada de `total` genérico.
+      // `totalExato` vem em dezmilésimos, e é dinheiro do mesmo jeito.
+      'faturamentoNoMedx',
+      'recebidoNaFir',
+      'diferencaMedxFir',
+      'totalExato',
+      'arredondamentoDoMedx',
     ],
   },
 

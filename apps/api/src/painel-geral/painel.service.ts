@@ -1,4 +1,5 @@
 import type {
+  ConferenciaMedx,
   CumprimentoDePrazos,
   FiltroDoPainel,
   IndicadoraNoPainel,
@@ -21,7 +22,9 @@ import {
   TIPO_PAGAMENTO_DE_ORCAMENTO,
   fimDoMes,
   janela,
+  diasEntre,
   percentualInteiro,
+  residuoDeArredondamento,
   somarDias,
   somarMeses,
 } from '@fir/domain'
@@ -35,6 +38,8 @@ import { RELOGIO, type Relogio } from '../comum/relogio'
 import { diaDaClinica } from '../estoque/dia-da-clinica'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 import { outrasEntradasDaJanela } from '../financeiro/outras-entradas.repositorio'
+import { porDia, recebidosDaJanela } from '../financeiro/recebido-por-dia'
+import { faturamentoLidoDoMedx, somaDoMedx } from '../integracoes/faturamento-lido'
 import { FORA_DE_PACIENTE_DESATIVADO } from '../tarefas/leitura'
 import {
   TIPOS_DE_SESSAO,
@@ -116,6 +121,7 @@ export class PainelService {
           this.novosPacientes(c, ctx, periodo),
           this.quemMaisIndica(c, ctx, periodo),
         ])
+      const medx = await this.conferenciaMedx(c, ctx, periodo, hoje)
 
       return {
         hoje,
@@ -130,8 +136,66 @@ export class PainelService {
         novosPacientes: novos,
         campanhas,
         quemMaisIndica: indica,
+        medx,
       }
     })
+  }
+
+  /**
+   * **FATURAMENTO NO MEDX e CONFERÊNCIA MEDX × FIR** (spec integracao-medx
+   * C.8, C.9; parecer de números N-B7, A8, A9).
+   *
+   * O lado FIR é `recebidosDaJanela`, a MESMA consulta do `recebido` da Visão
+   * do mês (sem Outras entradas). O lado MedX é o único leitor do faturamento
+   * lido. Os dois ficam lado a lado; nada aqui os soma.
+   *
+   * **Só entram dias com o caixa fechado** — totais, diferença e lista. O
+   * total FIR de um dia aberto é o esperado do caixa dele, e o do MedX, na
+   * clínica que lança nos dois sistemas, também (regra 6). Por isso este bloco
+   * não usa `corteDeCaixa`, que olha os dias com recebimento na FIR: um dia
+   * com pagamento só no MedX precisa do mesmo corte.
+   */
+  private async conferenciaMedx(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    periodo: { de: string; ate: string },
+    hoje: string,
+  ): Promise<ConferenciaMedx | null> {
+    const lido = await faturamentoLidoDoMedx(c, ctx.clinicaId, periodo.de, periodo.ate, hoje)
+    if (lido === null) return null
+
+    const fim = periodo.ate < hoje ? periodo.ate : hoje
+    const dias = fim < periodo.de ? [] : Array.from({ length: diasEntre(periodo.de, fim) + 1 }, (_, i) => somarDias(periodo.de, i))
+    const fir = porDia(await recebidosDaJanela(c, ctx.clinicaId, janela(periodo.de, periodo.ate, ctx.fuso), ctx.fuso))
+    const r = await c.query<{ dia: string }>(
+      `SELECT dia::text AS dia FROM caixas_do_dia
+        WHERE clinica_id = $1 AND dia BETWEEN $2::date AND $3::date`,
+      [ctx.clinicaId, periodo.de, periodo.ate],
+    )
+    const fechados = new Set(r.rows.map((x) => x.dia))
+
+    const conferidos = dias.filter((d) => fechados.has(d))
+    const semCaixa = dias.filter(
+      (d) => !fechados.has(d) && (!(fir.get(d)?.ehZero() ?? true) || !(lido.porDia.get(d)?.faturamento.ehZero() ?? true)),
+    )
+    const medx = somaDoMedx(lido, conferidos)
+    const recebidoNaFir = conferidos.reduce((s, d) => s.mais(fir.get(d) ?? Dinheiro.zero()), Dinheiro.zero())
+    const diasComDiferenca = conferidos.flatMap((d) => {
+      const diferenca = (lido.porDia.get(d)?.faturamento ?? Dinheiro.zero()).menos(fir.get(d) ?? Dinheiro.zero())
+      return diferenca.ehZero() ? [] : [{ dia: d, diferencaMedxFir: diferenca.centavos.toString() }]
+    })
+
+    return {
+      faturamentoNoMedx: medx.faturamento.centavos.toString(),
+      recebidoNaFir: recebidoNaFir.centavos.toString(),
+      diferencaMedxFir: medx.faturamento.menos(recebidoNaFir).centavos.toString(),
+      totalExato: medx.exatoEmDezmilesimos.toString(),
+      arredondamentoDoMedx: residuoDeArredondamento(medx.faturamento.centavos, medx.exatoEmDezmilesimos).toString(),
+      diasComDiferenca,
+      recorte: { ateODia: conferidos.at(-1) ?? null, diasSemCaixa: semCaixa.length },
+      leituraIncompleta: !lido.coberturaCompleta,
+      lidoEm: lido.lidoEm === null ? null : lido.lidoEm.toISOString(),
+    }
   }
 
   /**

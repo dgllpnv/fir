@@ -406,6 +406,48 @@ export const IndicadoraNoPainel = z
   .strict()
 export type IndicadoraNoPainel = z.infer<typeof IndicadoraNoPainel>
 
+/**
+ * Um dia em que o MedX e a FIR discordam. ARRAY de objetos, nunca mapa
+ * `{ dia: valor }`: a redação decide por nome de chave, e um dia não é nome.
+ */
+export const DiaComDiferencaMedxFir = z
+  .object({ dia: DiaCivil, diferencaMedxFir: centavosNaSaida })
+  .strict()
+
+/**
+ * **FATURAMENTO NO MEDX e CONFERÊNCIA MEDX × FIR** (spec integracao-medx C.8,
+ * C.9; T7). `null` quando a clínica não tem o faturamento do MedX ligado.
+ *
+ * Os dois números ficam **lado a lado, nunca somados**. O da FIR é o mesmo
+ * "quanto entrou" da Visão do mês (sem Outras entradas); o do MedX é o lido.
+ *
+ * **Tudo passa pelo corte de caixa fechado** (regra 6, N-B7): os totais, a
+ * diferença e os dias com diferença só contam dias cujo caixa já foi
+ * fechado. O total FIR de hoje É o esperado do caixa de hoje.
+ */
+export const ConferenciaMedx = z
+  .object({
+    faturamentoNoMedx: centavosNaSaida,
+    recebidoNaFir: centavosNaSaida,
+    /** MedX − FIR. Positivo: o MedX registrou mais do que entrou na FIR. */
+    diferencaMedxFir: centavosNaSaida,
+    /**
+     * O total do MedX sem o arredondamento por pagamento, em DEZMILÉSIMOS de
+     * real (não centavos). Mesmo formato de `centavosNaSaida`, e redigido.
+     */
+    totalExato: centavosNaSaida,
+    /** `faturamentoNoMedx` − o exato, em centavos. Zero quase sempre. */
+    arredondamentoDoMedx: centavosNaSaida,
+    diasComDiferenca: z.array(DiaComDiferencaMedxFir),
+    recorte: RecorteDeCaixa,
+    /** Algum dia do período (até hoje) ainda não foi lido do MedX. */
+    leituraIncompleta: z.boolean(),
+    /** "Lido do MedX às HH:MM": a última leitura que cobriu o período. */
+    lidoEm: z.string().datetime().nullable(),
+  })
+  .strict()
+export type ConferenciaMedx = z.infer<typeof ConferenciaMedx>
+
 export const Painel = z
   .object({
     /** O dia da clínica, do SERVIDOR. É ele que separa atrasada de a vencer. */
@@ -457,6 +499,8 @@ export const Painel = z
      * nela o que o sistema espera em Pix hoje.
      */
     campanhas: z.array(CampanhaNaLista),
+    /** O faturamento lido do MedX ao lado do da FIR. `null` sem o MedX ligado. */
+    medx: ConferenciaMedx.nullable(),
     /**
      * **Quem mais indica** — até 10 indicadoras ATIVAS, da que mais indicou
      * para a que menos, com desempate fixo (nome, depois id) para que o

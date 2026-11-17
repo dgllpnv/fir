@@ -175,7 +175,9 @@ describe('D-9 — o filtro do dinheiro que entrou', () => {
       // justamente ele, e não o mais largo.
       'apps/api/src/financeiro/caixa.service.ts',
       'apps/api/src/financeiro/recebimentos.service.ts',
-      'apps/api/src/financeiro/visao-do-mes.service.ts',
+      // A consulta da Visão do mês mora aqui desde o T7 do MedX: a Conferência
+      // MedX × FIR usa a MESMA, e duas cópias do filtro já divergiram uma vez.
+      'apps/api/src/financeiro/recebido-por-dia.ts',
       'apps/api/src/pacientes/pacientes.service.ts',
       // Encontrado POR esta varredura, e não previsto na decisão: o funil
       // soma "o que entrou nos atendimentos do período".
@@ -224,7 +226,9 @@ describe('D-9 — o filtro do dinheiro que entrou', () => {
     // E a RECEITA e o LTV usam o largo, nunca o estreito.
     for (const rel of [
       'apps/api/src/pacientes/pacientes.service.ts',
-      'apps/api/src/financeiro/visao-do-mes.service.ts',
+      // A consulta da Visão do mês mora aqui desde o T7 do MedX: a Conferência
+      // MedX × FIR usa a MESMA, e duas cópias do filtro já divergiram uma vez.
+      'apps/api/src/financeiro/recebido-por-dia.ts',
     ]) {
       const arquivo = producao.find((x) => x.rel === rel)!
       expect(arquivo.texto, `${rel} tem de usar o filtro LARGO`).toContain(FILTRO)

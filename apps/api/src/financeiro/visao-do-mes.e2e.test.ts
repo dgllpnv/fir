@@ -272,6 +272,10 @@ describe('a meta', () => {
       mes: MES,
       meta: '1200000',
       recebido: '792000',
+      // Sem MedX, a régua é a FIR e o medido é o próprio recebido (T7).
+      medidaPor: 'fir',
+      medido: '792000',
+      lidoEm: null,
       percentual: 66,
     })
   })

@@ -24,6 +24,8 @@ const VAZIA: EntradaDaVisao = {
   aPagar: [],
   aReceber: ZERO,
   meta: null,
+  medidoParaAMeta: ZERO,
+  medidaDaMeta: 'fir',
   caixas: [],
   diasUteis: 0,
 }
@@ -35,6 +37,11 @@ const VAZIA: EntradaDaVisao = {
 const entrada = (p: Partial<EntradaDaVisao>): EntradaDaVisao => ({
   ...VAZIA,
   ...p,
+  // Régua FIR por padrão: a meta é medida pelo que entrou, como antes do MedX.
+  medidoParaAMeta:
+    p.medidoParaAMeta !== undefined
+      ? p.medidoParaAMeta
+      : (p.recebido ?? []).reduce((s, x) => s.mais(x.valor), Dinheiro.zero()),
   conferidos: p.conferidos ?? (p.recebido ?? []).map((x) => ({ forma: x.forma ?? '', valor: x.valor })),
 })
 const pix = (n: number) => ({ forma: 'Pix', valor: c(n) })
@@ -163,6 +170,23 @@ describe('visaoDoMes', () => {
     const v = visaoDoMes(entrada({ meta: c(1200000), recebido: [pix(792000)] }))
     expect(v.percentualDaMeta).toBe(66)
     expect(v.metaRestante!.centavos).toBe(408000n)
+  })
+
+  it('meta medida pelo MedX: o percentual é do MedX, e `recebido` continua o da FIR (N-B6)', () => {
+    const v = visaoDoMes(
+      entrada({ meta: c(1000000), recebido: [pix(792000)], medidoParaAMeta: c(500000), medidaDaMeta: 'medx' }),
+    )
+    expect(v.recebido.centavos).toBe(792000n)
+    expect(v.medido!.centavos).toBe(500000n)
+    expect(v.medidaDaMeta).toBe('medx')
+    expect(v.percentualDaMeta).toBe(50)
+    expect(v.metaRestante!.centavos).toBe(500000n)
+  })
+
+  it('MedX sem leitura completa: sem percentual e sem "faltam" — nunca 0%', () => {
+    const v = visaoDoMes(entrada({ meta: c(1000000), recebido: [pix(792000)], medidoParaAMeta: null, medidaDaMeta: 'medx' }))
+    expect(v.percentualDaMeta).toBe(null)
+    expect(v.metaRestante).toBe(null)
   })
 
   it('meta batida não devolve "faltam" negativo', () => {

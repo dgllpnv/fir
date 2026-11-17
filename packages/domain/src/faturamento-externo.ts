@@ -43,3 +43,18 @@ export function totaisPorDia(pagamentos: readonly PagamentoExterno[], dias: read
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([dia, t]) => ({ dia, ...t }))
 }
+
+/**
+ * O RESÍDUO DE ARREDONDAMENTO de um total do MedX, em centavos: quanto o total
+ * arredondado por pagamento (`centavos`) passa do total exato (A9). A
+ * Conferência o mostra ("R$ 0,01 de arredondamento do MedX") para quem compara
+ * com a tela do MedX não procurar a diferença.
+ *
+ * Arredonda ao centavo meio para longe do zero, como `deDecimalExterno`.
+ */
+export function residuoDeArredondamento(centavos: bigint, exatoEmDezmilesimos: bigint): bigint {
+  const d = centavos * 100n - exatoEmDezmilesimos
+  const abs = d < 0n ? -d : d
+  const r = (abs + 50n) / 100n
+  return d < 0n ? -r : r
+}

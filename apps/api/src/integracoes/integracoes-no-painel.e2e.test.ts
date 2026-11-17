@@ -126,6 +126,7 @@ describe('a chave (A.2, A.7, A.8)', () => {
       unidades: 0,
       ligadoAgenda: false,
       ligadoFaturamento: false,
+      metaMedidaPor: 'fir',
       statusDeCancelado: [],
       catalogoDeStatus: [],
       agenda: null,
@@ -231,7 +232,23 @@ describe('termo, verificação e ligações (A.0, A.3, A.6)', () => {
     await simularVerificacaoOk(id, ['agenda:read', 'contatos:details:read', 'financas:read', 'lancamentos:read'])
     const r = await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: false }).expect(409)
     expect(r.body.message).toMatch(/faturamento/)
-    await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: true }).expect(200)
+    const ligado = await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: true }).expect(200)
+    expect(ligado.body.metaMedidaPor).toBe('fir')
+
+    // A régua das metas novas (C.10): MedX só com o faturamento ligado; desligar volta à FIR.
+    const medx = await http()
+      .put(rota(id, '/ligacoes'))
+      .set('Cookie', painel)
+      .send({ agenda: true, faturamento: true, metaMedidaPor: 'medx' })
+      .expect(200)
+    expect(medx.body.metaMedidaPor).toBe('medx')
+    await http()
+      .put(rota(id, '/ligacoes'))
+      .set('Cookie', painel)
+      .send({ agenda: false, faturamento: false, metaMedidaPor: 'medx' })
+      .expect(400)
+    const desligado = await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: false, faturamento: false }).expect(200)
+    expect(desligado.body.metaMedidaPor).toBe('fir')
   })
 
   it('trocar a chave volta a "não verificada", esquece a conta e desliga', async () => {

@@ -1,3 +1,4 @@
+import { atingimentoDaMetaDoMes, type MedidaDaMeta } from './meta-medida'
 import { Dinheiro } from '../dinheiro'
 import { somarDias } from '../relogio'
 import { CATEGORIAS_DESP, FORMA_NAO_INFORMADA, infoDaCategoria, type TipoDeDespesa } from './contas'
@@ -59,6 +60,14 @@ export type EntradaDaVisao = {
   /** Saldo a receber dos pacientes — soma dos `total` de `saldoEmAberto`. */
   readonly aReceber: Dinheiro
   readonly meta: Dinheiro | null
+  /**
+   * O valor contra o qual a meta é medida, já escolhido por `medidoParaAMeta`
+   * (o recebido da FIR ou o faturamento do MedX, conforme a régua gravada com
+   * a meta). `null`: não há como medir (MedX com leitura incompleta). A Visão
+   * do mês NÃO escolhe a fonte: é o mesmo número que a rota `/meta` usa.
+   */
+  readonly medidoParaAMeta: Dinheiro | null
+  readonly medidaDaMeta: MedidaDaMeta
   readonly caixas: readonly CaixaDoMes[]
   readonly diasUteis: number
 }
@@ -148,7 +157,10 @@ export type VisaoDoMes = {
   readonly aReceber: Dinheiro
 
   readonly meta: Dinheiro | null
-  /** `meta − recebido`, limitado a zero: é o "faltam R$ X" da barra. */
+  /** Com que régua a meta é medida, e o valor medido. `recebido` é sempre o da FIR. */
+  readonly medidaDaMeta: MedidaDaMeta
+  readonly medido: Dinheiro | null
+  /** `meta − medido`, limitado a zero: é o "faltam R$ X" da barra. */
   readonly metaRestante: Dinheiro | null
   readonly percentualDaMeta: number | null
 
@@ -307,7 +319,7 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
   const variaveis = soma(porCategoria.filter((x) => x.tipo === 'variavel'))
 
   const resultado = recebido.mais(outras).menos(despesasPagas)
-  const restante = entrada.meta?.menos(recebido) ?? null
+  const atingimento = atingimentoDaMetaDoMes(entrada.meta, entrada.medidoParaAMeta)
 
   const comDiferenca = entrada.caixas.filter((c) => !c.diferenca.ehZero()).length
 
@@ -343,8 +355,10 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
     aReceber: entrada.aReceber,
 
     meta: entrada.meta,
-    metaRestante: restante === null ? null : restante.ehNegativo() ? Dinheiro.zero() : restante,
-    percentualDaMeta: entrada.meta === null ? null : percentualInteiro(recebido.centavos, entrada.meta.centavos),
+    medidaDaMeta: entrada.medidaDaMeta,
+    medido: entrada.medidoParaAMeta,
+    metaRestante: atingimento.metaRestante,
+    percentualDaMeta: atingimento.percentual,
 
     caixa: {
       fechados: entrada.caixas.length,

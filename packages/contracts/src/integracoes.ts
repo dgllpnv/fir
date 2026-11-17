@@ -37,8 +37,20 @@ export const TermoDeIntegracaoEntrada = z
 export type TermoDeIntegracaoEntrada = z.infer<typeof TermoDeIntegracaoEntrada>
 
 export const LigacoesDaIntegracaoEntrada = z
-  .object({ agenda: z.boolean(), faturamento: z.boolean() })
+  .object({
+    agenda: z.boolean(),
+    faturamento: z.boolean(),
+    /**
+     * O PADRÃO da régua das metas dos meses novos (spec C.10). A régua de cada
+     * mês é gravada com a meta: trocar aqui não muda mês que já tem meta.
+     */
+    metaMedidaPor: z.enum(['fir', 'medx']).default('fir'),
+  })
   .strict()
+  .refine((x) => x.metaMedidaPor === 'fir' || x.faturamento, {
+    message: 'A meta só pode ser medida pelo MedX com o faturamento do MedX ligado.',
+    path: ['metaMedidaPor'],
+  })
 export type LigacoesDaIntegracaoEntrada = z.infer<typeof LigacoesDaIntegracaoEntrada>
 
 /**
@@ -87,6 +99,8 @@ export const IntegracaoNoPainel = z
     unidades: z.number().int(),
     ligadoAgenda: z.boolean(),
     ligadoFaturamento: z.boolean(),
+    /** Padrão da régua das metas dos meses novos. */
+    metaMedidaPor: z.enum(['fir', 'medx']),
     statusDeCancelado: z.array(z.number().int()),
     catalogoDeStatus: z.array(StatusDoMedx),
     agenda: AgendaDoMedxNoPainel.nullable(),

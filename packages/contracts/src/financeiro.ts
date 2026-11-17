@@ -1,4 +1,4 @@
-import { CATEGORIAS_DESP, FORMAS_DE_CONFERENCIA, FORMAS_DE_SAIDA } from '@fir/domain'
+import { CATEGORIAS_DESP, FORMAS_DE_CONFERENCIA, FORMAS_DE_SAIDA, MEDIDAS_DA_META } from '@fir/domain'
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Mes, Uuid } from './comum'
 import {
@@ -608,11 +608,21 @@ export type MensagemDeCobranca = z.infer<typeof MensagemDeCobranca>
 export const SalvarMeta = z.object({ valor: valorDeMeta }).strict()
 export type SalvarMeta = z.infer<typeof SalvarMeta>
 
+/** Com que régua a meta do mês é medida (spec integracao-medx C.10). */
+export const MedidaDaMeta = z.enum(MEDIDAS_DA_META)
+export type MedidaDaMeta = z.infer<typeof MedidaDaMeta>
+
 export const PercentualDaMeta = z
   .object({
     mes: Mes,
     meta: centavosNaSaida,
+    /** SEMPRE o recebido da FIR, qualquer que seja a régua (N-B6.4). */
     recebido: centavosNaSaida,
+    medidaPor: MedidaDaMeta,
+    /** O que a meta mede: o recebido da FIR ou o faturamento do MedX. */
+    medido: centavosNaSaida,
+    /** Medida pelo MedX: quando ele foi lido pela última vez para o mês. Atravessa sem `valores`. */
+    lidoEm: z.string().datetime().nullable(),
     /** Não é monetário, e por isso atravessa para quem não tem `valores`. */
     percentual: z.number().int().nullable(),
   })
@@ -694,6 +704,10 @@ export const VisaoDoMes = z
     aReceber: centavosNaSaida,
 
     meta: centavosNaSaida,
+    /** Com que régua a meta é medida (gravada com a meta, N-B6). Atravessa sem `valores`. */
+    medidaDaMeta: MedidaDaMeta,
+    /** O valor medido: o recebido da FIR ou o faturamento do MedX. `recebido` é sempre o da FIR. */
+    medido: centavosNaSaida,
     metaRestante: centavosNaSaida,
     percentualDaMeta: z.number().int().nullable(),
 

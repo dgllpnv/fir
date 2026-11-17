@@ -93,6 +93,7 @@ type Linha = {
   ultimo_erro: string
   agenda_ligada: boolean
   faturamento_ligado: boolean
+  meta_medida_por: 'fir' | 'medx'
   status_de_cancelado: number[]
   catalogo_de_status: StatusDoMedx[]
 }
@@ -101,7 +102,7 @@ type Linha = {
 const COLUNAS = `id, final_da_chave, termo_assinado_em::text AS termo_assinado_em, termo_assinado_por,
   termo_versao, verificacao, verificacao_pedida_em, verificada_em, usuario_externo_nome,
   conta_externa_id, escopos, unidades_externas, ultimo_erro, agenda_ligada, faturamento_ligado,
-  status_de_cancelado, catalogo_de_status`
+  meta_medida_por, status_de_cancelado, catalogo_de_status`
 
 const UNICIDADE_VIOLADA = '23505'
 
@@ -116,6 +117,7 @@ const SO_FIR: IntegracaoNoPainel = {
   unidades: 0,
   ligadoAgenda: false,
   ligadoFaturamento: false,
+  metaMedidaPor: 'fir',
   statusDeCancelado: [],
   catalogoDeStatus: [],
   agenda: null,
@@ -140,6 +142,7 @@ function paraOPainel(l: Linha | undefined, agenda: AgendaDoMedxNoPainel | null):
     unidades: l.unidades_externas,
     ligadoAgenda: l.agenda_ligada,
     ligadoFaturamento: l.faturamento_ligado,
+    metaMedidaPor: l.meta_medida_por,
     statusDeCancelado: l.status_de_cancelado,
     catalogoDeStatus: l.catalogo_de_status,
     agenda,
@@ -184,6 +187,7 @@ const resumoParaTrilha = (l: Linha) => ({
   verificacao: l.verificacao,
   agenda_ligada: l.agenda_ligada,
   faturamento_ligado: l.faturamento_ligado,
+  meta_medida_por: l.meta_medida_por,
   termo_versao: l.termo_versao,
 })
 
@@ -315,9 +319,13 @@ export class IntegracoesNoPainelService {
       if (ligacoes.agenda) await ligarAgendaDoMedx(c, clinicaId)
       else await desligarAgendaDoMedx(c)
       const r = await c.query<Linha>(
-        `UPDATE integracoes_da_clinica SET agenda_ligada = $2, faturamento_ligado = $3, atualizada_em = now()
+        // Sem faturamento, a régua volta a ser a FIR: medir pelo MedX desligado
+        // deixaria toda meta nova sem percentual.
+        `UPDATE integracoes_da_clinica
+            SET agenda_ligada = $2, faturamento_ligado = $3,
+                meta_medida_por = CASE WHEN $3 THEN $4 ELSE 'fir' END, atualizada_em = now()
           WHERE clinica_id = $1 RETURNING ${COLUNAS}`,
-        [clinicaId, ligacoes.agenda, ligacoes.faturamento],
+        [clinicaId, ligacoes.agenda, ligacoes.faturamento, ligacoes.metaMedidaPor],
       )
       const depois = r.rows[0]!
       await this.trilha(c, ator, 'alterou', depois.id, antes, depois)

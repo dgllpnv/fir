@@ -1,7 +1,7 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { Dinheiro } from './dinheiro'
-import { totaisPorDia } from './faturamento-externo'
+import { residuoDeArredondamento, totaisPorDia } from './faturamento-externo'
 import { ehErro, exigir } from './resultado'
 
 /**
@@ -154,5 +154,30 @@ describe('totaisPorDia — a substituição por janela', () => {
   it('pagamento de dia fora da janela não entra (dia de borda não coberto)', () => {
     const t = totaisPorDia([{ dia: '2026-10-31', centavos: 500n, exatoEmDezmilesimos: 50000n }], ['2026-11-01'])
     expect(t).toEqual([{ dia: '2026-11-01', centavos: 0n, exatoEmDezmilesimos: 0n, quantidade: 0 }])
+  })
+})
+
+describe('residuoDeArredondamento', () => {
+  it('3 × 33,3333: R$ 99,99 arredondado por pagamento, R$ 99,9999 exato — um centavo a menos', () => {
+    expect(residuoDeArredondamento(9999n, 999999n)).toBe(-1n)
+  })
+  it('100 × 0,005: arredondados dão R$ 1,00 a mais que o exato', () => {
+    expect(residuoDeArredondamento(100n, 5000n)).toBe(50n)
+  })
+  it('sem arredondamento, zero', () => {
+    fc.assert(fc.property(fc.bigInt({ min: -10_000_000n, max: 10_000_000n }), (c) => {
+      expect(residuoDeArredondamento(c, c * 100n)).toBe(0n)
+    }))
+  })
+  it('o resíduo de pagamentos lidos fica dentro de meio centavo por pagamento, arredondado', () => {
+    fc.assert(
+      fc.property(fc.array(pagamento, { maxLength: 40 }), (ps) => {
+        const c = ps.reduce((s, p) => s + p.centavos, 0n)
+        const e = ps.reduce((s, p) => s + p.exatoEmDezmilesimos, 0n)
+        const r = residuoDeArredondamento(c, e)
+        const limite = (50n * BigInt(ps.length) + 50n) / 100n
+        expect(r <= limite && r >= -limite).toBe(true)
+      }),
+    )
   })
 })
