@@ -88,30 +88,27 @@ export class TesteDeConexao {
       const s = await this.leitor.sessao(clinicaId, impressao, chave)
       const u = await this.leitor.usuarioAtual(s)
       const escopos = [...s.escopos]
-      // A verificação aceita o escopo de faturamento; ligar SÓ a agenda com
-      // ele presente é recusado em `ligar` (B5: só com o faturamento ligado).
-      const { sobram } = avaliarEscopos(escopos, { faturamento: true })
+      // Só o que FALTA recusa. Permissão a mais (escrita, prontuário) não
+      // impede: o leitor só faz GET, e o teste "só leitura" garante isso (ADR
+      // `2026-11-17-chave-do-medx-como-a-clinica-tem`).
       const { faltam } = avaliarEscopos(escopos, { faturamento: false })
-      if (sobram.length > 0) {
-        return {
-          tipo: 'recusada',
-          erro: `O usuário do MedX tem permissões a mais: ${listar(sobram)}. Use um usuário só de leitura.`,
-          escopos,
-          unidades: 0,
-          nome: u.nome,
-        }
-      }
       if (faltam.length > 0) {
         return { tipo: 'recusada', erro: `Falta permissão no MedX: ${listar(faltam)}.`, escopos, unidades: 0, nome: u.nome }
       }
-      const unidades = await this.leitor.quantasUnidades(s)
-      if (unidades !== 1) {
+      const { sobram } = avaliarEscopos(escopos, { faturamento: true })
+      if (sobram.length > 0) {
+        console.log(`[integracoes] clínica ${clinicaId}: o usuário do MedX tem ${sobram.length} permissão(ões) que a integração não usa`)
+      }
+      const { quantas: unidades, empresas } = await this.leitor.unidades(s)
+      if (unidades === 0) {
+        return { tipo: 'recusada', erro: 'O usuário do MedX não alcança nenhuma unidade.', escopos, unidades, nome: u.nome }
+      }
+      // Várias unidades da MESMA empresa (filiais) são a mesma clínica. De
+      // empresas diferentes, o faturamento somaria o dinheiro de outra clínica.
+      if (empresas > 1) {
         return {
           tipo: 'recusada',
-          erro:
-            unidades > 1
-              ? 'O usuário do MedX alcança mais de uma unidade. Peça à clínica para restringi-lo a esta.'
-              : 'O usuário do MedX não alcança nenhuma unidade.',
+          erro: 'O usuário do MedX alcança unidades de mais de uma empresa. Use o usuário desta clínica.',
           escopos,
           unidades,
           nome: u.nome,

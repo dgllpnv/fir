@@ -64,21 +64,31 @@ describe('leituras', () => {
     expect(u).toEqual({ id: '-7', nome: 'Integração FIR' })
   })
 
-  it('unidades: segue o cursor até o fim e conta', async () => {
+  it('unidades: segue o cursor até o fim, conta as unidades e as empresas pelo documento', async () => {
     const { t, pedidos } = comToken((p) =>
       p.query?.['Cursor'] === undefined
-        ? { unidades: [{ id: 1, nome: 'A' }], page: { hasMore: true, nextCursor: 'c2' } }
-        : { unidades: [{ id: 2, nome: 'B' }], page: { hasMore: false, nextCursor: null } },
+        ? { unidades: [{ id: 1, nome: 'A', documento: '01.266.782/354' }], page: { hasMore: true, nextCursor: 'c2' } }
+        : { unidades: [{ id: 2, nome: 'B', documento: '01266782354' }, { id: 3, nome: 'Geral', documento: null }], page: { hasMore: false, nextCursor: null } },
     )
     const leitor = new LeitorDoMedx(t, () => 0)
-    expect(await leitor.quantasUnidades(await leitor.sessao('c1', 'i', 'k'))).toBe(2)
+    // A mesma empresa escrita com e sem pontuação, e uma unidade sem documento: uma empresa só.
+    expect(await leitor.unidades(await leitor.sessao('c1', 'i', 'k'))).toEqual({ quantas: 3, empresas: 1 })
     expect(pedidos.at(-1)?.bearer).toBe('jwt-1')
+  })
+
+  it('unidades de documentos diferentes são empresas diferentes', async () => {
+    const { t } = comToken(() => ({
+      unidades: [{ id: 1, documento: '11.111.111/0001-11' }, { id: 2, documento: '22.222.222/0001-22' }, { id: 3 }],
+      page: { hasMore: false },
+    }))
+    const leitor = new LeitorDoMedx(t, () => 0)
+    expect(await leitor.unidades(await leitor.sessao('c1', 'i', 'k'))).toEqual({ quantas: 3, empresas: 2 })
   })
 
   it('cursor que se repete aborta (laço infinito)', async () => {
     const { t } = comToken(() => ({ unidades: [{ id: 1 }], page: { hasMore: true, nextCursor: 'mesmo' } }))
     const leitor = new LeitorDoMedx(t, () => 0)
-    await expect(leitor.quantasUnidades(await leitor.sessao('c1', 'i', 'k'))).rejects.toMatchObject({ codigo: 'contrato' })
+    await expect(leitor.unidades(await leitor.sessao('c1', 'i', 'k'))).rejects.toMatchObject({ codigo: 'contrato' })
   })
 
   it('lista nula, JSON quebrado ou página falhando no meio: erro, nunca resultado parcial', async () => {
@@ -92,7 +102,7 @@ describe('leituras', () => {
     ]) {
       const { t } = comToken(ruim)
       const leitor = new LeitorDoMedx(t, () => 0)
-      await expect(leitor.quantasUnidades(await leitor.sessao('c1', 'i', 'k'))).rejects.toBeInstanceOf(ErroDoMedx)
+      await expect(leitor.unidades(await leitor.sessao('c1', 'i', 'k'))).rejects.toBeInstanceOf(ErroDoMedx)
     }
   })
 })

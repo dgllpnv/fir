@@ -42,9 +42,6 @@ export class SemChave extends Error {}
 export class SemTermo extends Error {}
 export class SemVerificacao extends Error {}
 export class SemEscopoDeFinancas extends Error {}
-/** B5: o escopo de finanças só com o faturamento ligado. */
-export class EscopoDeFinancasSemFaturamento extends Error {}
-export class MaisDeUmaUnidade extends Error {}
 /** B.9: a clínica lê a agenda pelo link iCal; o MedX não liga por cima (cartões em dobro). */
 export class AgendaPorIcalLigada extends Error {}
 /** Os cartões da agenda precisam de um responsável: a clínica sem administrador ativo não liga. */
@@ -310,10 +307,8 @@ export class IntegracoesNoPainelService {
         if (antes === undefined || antes.final_da_chave === null) throw new SemChave()
         if (antes.termo_assinado_em === null) throw new SemTermo()
         if (antes.verificacao !== 'ok' || antes.conta_externa_id === null) throw new SemVerificacao()
-        if (antes.unidades_externas > 1) throw new MaisDeUmaUnidade()
         const temFinancas = ESCOPOS_DE_FINANCAS.some((e) => antes.escopos.includes(e))
         if (ligacoes.faturamento && !temFinancas) throw new SemEscopoDeFinancas()
-        if (!ligacoes.faturamento && temFinancas) throw new EscopoDeFinancasSemFaturamento()
       }
       if (antes === undefined) return SO_FIR
       if (ligacoes.agenda) await ligarAgendaDoMedx(c, clinicaId)

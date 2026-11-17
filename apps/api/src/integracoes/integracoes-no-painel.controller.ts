@@ -30,9 +30,7 @@ import { SoOperador } from '../painel/so-operador.decorator'
 import {
   AgendaPorIcalLigada,
   ChaveEmOutraClinica,
-  EscopoDeFinancasSemFaturamento,
   IntegracoesNoPainelService,
-  MaisDeUmaUnidade,
   SemChave,
   SemEscopoDeFinancas,
   SemResponsavelDaAgenda,
@@ -160,16 +158,8 @@ async function traduzir<T>(fn: () => Promise<T>): Promise<T> {
     if (e instanceof SemVerificacao) {
       throw new ConflictException('Use Testar conexão e espere o resultado verde antes de ligar.')
     }
-    if (e instanceof MaisDeUmaUnidade) {
-      throw new ConflictException('O usuário do MedX alcança mais de uma unidade. Peça à clínica para restringi-lo.')
-    }
     if (e instanceof SemEscopoDeFinancas) {
       throw new ConflictException('O usuário do MedX não tem a permissão de finanças. O faturamento não liga.')
-    }
-    if (e instanceof EscopoDeFinancasSemFaturamento) {
-      throw new ConflictException(
-        'O usuário do MedX tem permissão de finanças. Ligue o faturamento junto, ou tire essa permissão no MedX.',
-      )
     }
     if (e instanceof AgendaPorIcalLigada) {
       throw new ConflictException(

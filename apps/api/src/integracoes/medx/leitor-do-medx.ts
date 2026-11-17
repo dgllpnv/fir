@@ -37,8 +37,10 @@ const UsuarioAtual = z.object({
   nome: z.string().max(400).nullable().optional(),
 })
 
+// Da unidade, só o id e o documento (CNPJ ou CPF de quem a mantém), que só
+// servem para contar as empresas aqui dentro: nunca são gravados.
 const Unidades = z.object({
-  unidades: z.array(z.object({ id: z.number().int() })),
+  unidades: z.array(z.object({ id: z.number().int(), documento: z.string().max(40).nullable().optional() })),
   page: Pagina,
 })
 
@@ -54,8 +56,10 @@ const ESCOPOS_DE_FATURAMENTO = ['lancamentos:read', 'faturas:read'] as const
 
 /**
  * Compara os escopos da chave com a lista branca. `financas:read` entra na
- * base porque é ele que lista as UNIDADES (B5: mais de uma não liga) — e é só
- * catálogo, sem paciente. Escrita, prontuário e a lista de contatos sempre sobram.
+ * base porque é ele que lista as UNIDADES — e é só catálogo, sem paciente.
+ * O que FALTA impede ligar; o que SOBRA (escrita, prontuário) não impede mais:
+ * a integração só lê, e isso é garantido no código e testado (ADR
+ * `2026-11-17-chave-do-medx-como-a-clinica-tem`). `sobram` vai para o log.
  */
 export function avaliarEscopos(
   escopos: readonly string[],
@@ -107,12 +111,22 @@ export class LeitorDoMedx {
     return { id: String(u.id), nome: (u.nome ?? '').slice(0, 200) }
   }
 
-  async quantasUnidades(s: Sessao): Promise<number> {
-    let total = 0
+  /**
+   * Quantas unidades o usuário alcança, e de quantas EMPRESAS elas são: o
+   * documento só com os dígitos, e a unidade sem documento (a "Geral" do MedX)
+   * não conta empresa nova. Duas filiais da mesma clínica são uma empresa.
+   */
+  async unidades(s: Sessao): Promise<{ quantas: number; empresas: number }> {
+    let quantas = 0
+    const documentos = new Set<string>()
     await this.paginar(s, '/financas/unidades', { Limit: '100' }, Unidades, (p) => {
-      total += p.unidades.length
+      quantas += p.unidades.length
+      for (const u of p.unidades) {
+        const digitos = (u.documento ?? '').replace(/\D/g, '')
+        if (digitos !== '') documentos.add(digitos)
+      }
     })
-    return total
+    return { quantas, empresas: documentos.size }
   }
 
   /** Um recurso só (`GET`), validado. 404 lança `ErroDoMedx('nao_encontrado')`. */

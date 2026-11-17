@@ -304,8 +304,8 @@ function Chave({ clinica, d, enviar }: Passo) {
       <h3>2. Chave do MedX</h3>
       {d.finalDaChave === null ? (
         <p className="nota">
-          Gerada no MedX por um usuário <b>só para a integração</b>, com permissão só de leitura.
-          Recebida numa chamada, nunca por WhatsApp ou e-mail.
+          A chave de integração do MedX da clínica. Serve a que ela já tem: a integração só lê do
+          MedX, mesmo que o usuário possa mais.
         </p>
       ) : (
         <p className="nota">
@@ -441,7 +441,8 @@ function Conexao({ clinica, d, enviar }: Passo) {
         </dl>
       )}
       <p className="nota">
-        O teste lê só o usuário, as permissões e as unidades. Nunca agenda nem paciente.
+        O teste lê só o usuário, as permissões e as unidades. Nunca agenda nem paciente. Várias
+        unidades da mesma empresa (filiais) contam como esta clínica.
       </p>
       <p role="alert" aria-live="polite" className="erro-do-painel">
         {erro}

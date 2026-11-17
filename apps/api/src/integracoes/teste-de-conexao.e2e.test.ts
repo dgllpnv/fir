@@ -137,14 +137,15 @@ describe('Testar conexão, no worker', () => {
     expect(pedidos.map((p) => p.caminho)).not.toContain('/agenda/catalogos')
   })
 
-  it('escopo a mais (escrita, prontuário) recusa e diz qual sobra', async () => {
+  it('escopo a mais (escrita, prontuário) não impede: a integração só lê (ADR chave do MedX como a clínica tem)', async () => {
     await gravarChave(clinica)
-    medx.escopos += ' agenda:write prontuario:summary:read'
-    expect(await executor().executar(clinica)).toBe('recusada')
+    medx.escopos += ' agenda:write prontuario:summary:read lancamentos:read'
+    expect(await executor().executar(clinica)).toBe('ok')
     const l = await linha(clinica)
-    expect(l).toMatchObject({ verificacao: 'recusada', conta_externa_id: null, agenda_ligada: false })
-    expect(l.ultimo_erro).toMatch(/agenda:write/)
-    expect(l.ultimo_erro).toMatch(/prontuario:summary:read/)
+    expect(l).toMatchObject({ verificacao: 'ok', conta_externa_id: '42', ultimo_erro: '' })
+    expect(l.escopos).toContain('agenda:write')
+    // Mesmo com escrita na chave, o teste só fez leituras.
+    expect(pedidos.filter((p) => p.metodo !== 'GET').map((p) => p.caminho)).toEqual(['/token'])
   })
 
   it('escopo que falta recusa e diz qual falta', async () => {
@@ -154,11 +155,32 @@ describe('Testar conexão, no worker', () => {
     expect((await linha(clinica)).ultimo_erro).toMatch(/contatos:details:read/)
   })
 
-  it('mais de uma unidade recusa', async () => {
+  it('várias unidades da MESMA empresa ligam (mesmo documento, ou sem documento)', async () => {
     await gravarChave(clinica)
-    medx.unidades = [{ id: 1 }, { id: 2 }]
+    medx.unidades = [
+      { id: -9, nome: 'Juazeiro', documento: '012.667.823-54' },
+      { id: -8, nome: 'Fortaleza', documento: '01266782354' },
+      { id: 1, nome: 'Geral', documento: null },
+    ]
+    expect(await executor().executar(clinica)).toBe('ok')
+    expect(await linha(clinica)).toMatchObject({ verificacao: 'ok', unidades_externas: 3, ultimo_erro: '' })
+  })
+
+  it('unidades de empresas diferentes recusam: seria o dinheiro de outra clínica', async () => {
+    await gravarChave(clinica)
+    medx.unidades = [
+      { id: 1, documento: '11.111.111/0001-11' },
+      { id: 2, documento: '22.222.222/0001-22' },
+    ]
     expect(await executor().executar(clinica)).toBe('recusada')
-    expect((await linha(clinica)).ultimo_erro).toMatch(/mais de uma unidade/)
+    expect((await linha(clinica)).ultimo_erro).toMatch(/mais de uma empresa/)
+  })
+
+  it('nenhuma unidade recusa', async () => {
+    await gravarChave(clinica)
+    medx.unidades = []
+    expect(await executor().executar(clinica)).toBe('recusada')
+    expect((await linha(clinica)).ultimo_erro).toMatch(/nenhuma unidade/)
   })
 
   it('o MedX recusou: mensagem do catálogo, nada do MedX', async () => {

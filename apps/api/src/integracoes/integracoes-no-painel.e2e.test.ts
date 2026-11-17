@@ -58,14 +58,14 @@ async function novaClinica(): Promise<string> {
 }
 
 /** O que o worker (T2) gravaria depois de um teste verde. */
-async function simularVerificacaoOk(clinicaId: string, escopos: string[], conta = `conta-${clinicaId}`) {
+async function simularVerificacaoOk(clinicaId: string, escopos: string[], conta = `conta-${clinicaId}`, unidades = 1) {
   await declararAtorSistema(migrate)
   await migrate.query(
     `UPDATE integracoes_da_clinica
         SET verificacao = 'ok', verificada_em = now(), conta_externa_id = $2,
-            usuario_externo_nome = 'Integração FIR', escopos = $3, unidades_externas = 1
+            usuario_externo_nome = 'Integração FIR', escopos = $3, unidades_externas = $4
       WHERE clinica_id = $1`,
-    [clinicaId, conta, escopos],
+    [clinicaId, conta, escopos, unidades],
   )
 }
 
@@ -225,13 +225,18 @@ describe('termo, verificação e ligações (A.0, A.3, A.6)', () => {
     expect(f.body.message).toMatch(/finanças/)
   })
 
-  it('com o escopo de finanças, só a agenda não liga: ou liga o faturamento junto (B5)', async () => {
+  it('a chave como a clínica tem (permissões a mais, várias unidades da mesma empresa): liga só a agenda, e depois o faturamento', async () => {
     const id = await novaClinica()
     await http().put(rota(id, '/chave')).set('Cookie', painel).send({ chave: `medx_${randomBytes(20).toString('hex')}` }).expect(200)
     await http().put(rota(id, '/termo')).set('Cookie', painel).send(termo).expect(200)
-    await simularVerificacaoOk(id, ['agenda:read', 'contatos:details:read', 'financas:read', 'lancamentos:read'])
-    const r = await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: false }).expect(409)
-    expect(r.body.message).toMatch(/faturamento/)
+    await simularVerificacaoOk(
+      id,
+      ['agenda:read', 'agenda:write', 'contatos:details:read', 'financas:read', 'lancamentos:read', 'prontuario:summary:read'],
+      `conta-${id}`,
+      3,
+    )
+    const r = await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: false }).expect(200)
+    expect(r.body).toMatchObject({ ligadoAgenda: true, ligadoFaturamento: false, unidades: 3 })
     const ligado = await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: true }).expect(200)
     expect(ligado.body.metaMedidaPor).toBe('fir')
 
