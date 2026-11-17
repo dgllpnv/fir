@@ -270,6 +270,31 @@ os dois arquivos de teste pararem de deixar cliente `ativo` sobrevivendo
 entre `it`s sem um `grupo_id`/prefixo exclusivo que o outro job possa
 filtrar.
 
+**Metade paga (2026-11-17):** o G4 ganhou o recorte `{ clienteIds }` (o mesmo de
+`executarSincronizacaoDeCampanhas`), e os dois arquivos que o rodam passam a lista
+dos próprios clientes — a limpeza dos outros ~45 arquivos parou de quebrar na FK
+de `uso_diario_cliente`. **Falta o G3** (`executarGeracaoDeCobrancas`), que
+continua varrendo tudo; a trava consultiva acima ainda o segura.
+
+### D-Z · `zod` 3 tem um aviso alto (esgotar memória validando coleção grande), e o conserto só existe no 4
+
+`pnpm audit` (2026-11-17): `zod <4.6.6`, severidade alta — validar uma coleção
+enorme com restrições pode esgotar a memória. Usamos `zod ^3` em
+`packages/contracts` e `apps/api`; não há 3.x corrigido. Migrar para o 4 toca
+todo contrato (mudanças de API em `.strict()`, `ZodEffects`, mensagens), e não é
+remendo de sessão.
+
+**Por que não é urgente hoje:** o corpo das requisições já tem limite de tamanho
+no Fastify (o padrão de 1 MB), o que limita o tamanho da coleção que chega ao
+parse; e as rotas públicas (entrar, esqueci-senha, links) recebem objetos
+pequenos e fixos. O ataque precisa de uma coleção grande dentro do limite.
+
+**Gatilho:** antes do primeiro deploy na VPS, medir: um `POST` autenticado com um
+array no limite do corpo contra o schema mais pesado (importação de lista), e ver
+memória e tempo. Se passar de algumas centenas de ms ou de dezenas de MB, migrar
+para o zod 4 vira ticket antes do deploy. O `nodemailer` (6.9.16 → 10.2.1) e o
+`next` (16.4.2 → 16.4.5) já foram atualizados pelo mesmo `audit`.
+
 ---
 
 ## Antes do Plano 2
