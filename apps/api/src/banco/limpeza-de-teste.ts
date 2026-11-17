@@ -307,6 +307,8 @@ const EM_ORDEM_DE_APAGAR = [
   // a integração (0092) não apontam para nada além da clínica.
   'agendas_externas',
   'ciclos_da_agenda_externa',
+  'leituras_de_faturamento_externo',
+  'historico_de_faturamento_externo',
   'integracoes_da_clinica',
   'pacientes_externos',
   'pacientes',

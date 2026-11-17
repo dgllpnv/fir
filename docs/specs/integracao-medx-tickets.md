@@ -53,8 +53,14 @@ Cliente só de leitura, host fixo por ambiente, sem redirect, `lookupSoPublico`,
 - [ ] B.13 uma semana numa clínica real (depende da primeira clínica e do termo).
 - Fica para o T6: ler os nomes dos status de `GET /agenda/catalogos` para o superadmin escolher, e o bloco da clínica com os ciclos (D.1).
 
-## T5 — Leitura de faturamento (C.0–C.7)
-`Dinheiro.deDecimalExterno` + 16 propriedades; tabela + histórico; jobs horário e noturno. Só liga depois da calibração C.0.
+## T5 — Leitura de faturamento (C.0–C.7) — **feito** (16/11), **sem a C.0**
+- [x] `Dinheiro.deDecimalExterno` (gramática fechada, meio para longe do zero, exato em dezmilésimos) e `totaisPorDia` em `packages/domain`, com as propriedades 1–9 do parecer; 10, 11 e 15 no e2e; 12 (dia do pagamento em 4 fusos) na borda.
+- [x] Leitor com reviver: o número do MedX chega como o TEXTO do JSON.
+- [x] Migration 0095: `leituras_de_faturamento_externo` (um total por dia lido, inclusive zero) e `historico_de_faturamento_externo` (append-only), RLS, trilha; estado da leitura em `integracoes_da_clinica`.
+- [x] `FaturamentoDoMedx`: `lancamentos` a receber pagos, pela data do pagamento; **`valorOriginal`, só de fatura** (ADR `2026-11-16-faturamento-do-medx`); tudo ou nada; trava de vazio; advisory lock; só o dia que mudou é escrito; leitura superada não grava.
+- [x] Job `faturamento` de hora em hora no worker; releitura de 13 meses depois das 02:00 da clínica, na primeira leitura e quando o fuso muda.
+- [x] E2e (18) contra Postgres real e teste de arquitetura (`teste/arquitetura-do-faturamento-externo.test.ts`).
+- [ ] **Calibração C.0** na primeira clínica, antes de ligar o faturamento em qualquer uma. Itens novos: `valorOriginal` contra o relatório de recebidos; fatura cancelada com pagamento; sinal de orçamento com ou sem `faturaId`.
 
 ## T6 — Telas (A e D) — **feito** (16/11)
 - [x] Migration 0094: `catalogo_de_status` (`[{id, nome}]`), gravado pelo worker no teste verde a partir de `GET /agenda/catalogos` (só `status`, nome limpo por `nomeSeguro`); falha do catálogo não derruba o teste e mantém o anterior. Spec A.4 atualizada.

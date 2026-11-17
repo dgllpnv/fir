@@ -3,6 +3,17 @@ import { erro, erroDe, ok, type Result } from './resultado'
 const FORMATADOR = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
 /**
+ * Um valor de fora, já em centavos, com o exato ao lado. O exato (em
+ * dezmilésimos de real) existe para a Conferência mostrar o resíduo de
+ * arredondamento em vez de deixar a diferença para alguém procurar (A9).
+ */
+export type DecimalExterno = {
+  readonly centavos: bigint
+  readonly exatoEmDezmilesimos: bigint
+  readonly arredondado: boolean
+}
+
+/**
  * Valor monetário em centavos inteiros.
  *
  * O legado faz `Math.round(x * 100) / 100` em dezenas de lugares. Esta classe
@@ -34,6 +45,36 @@ export class Dinheiro {
 
     const [inteiros = '0', decimais = ''] = s.split('.')
     return ok(new Dinheiro(BigInt(inteiros) * 100n + BigInt(decimais.padEnd(2, '0'))))
+  }
+
+  /**
+   * **O número de um sistema de fora (MedX), lido do TEXTO do JSON.**
+   *
+   * Não é `deTexto`, e trocar uma pela outra é o defeito medido no parecer de
+   * números (N-B4): `deTexto` foi feita para o que a recepção digita, onde o
+   * ponto separa milhar — `"1.250"` vira R$ 1.250,00. Num JSON o ponto é
+   * sempre a casa decimal, e `"1.250"` é R$ 1,25.
+   *
+   * Gramática fechada `-?\d+(\.\d{1,4})?`. Expoente, mais de 4 casas, sinal
+   * `+`, espaço, vírgula: erro, e quem chama aborta o ciclo da clínica.
+   *
+   * Arredonda ao centavo **meio para longe do zero** (N-B5), em `bigint`:
+   * `sinal × ((|d| + 50) / 100)`. É simétrico — o pagamento de 1,0050 e o
+   * estorno dele somam zero, o que "meio para cima" não garante.
+   */
+  static deDecimalExterno(texto: string): Result<DecimalExterno> {
+    const m = /^(-?)(\d+)(?:\.(\d{1,4}))?$/.exec(texto)
+    if (m === null) {
+      return erro(erroDe('DecimalExternoInvalido', 'O valor recebido não é um número decimal de até 4 casas.'))
+    }
+    const negativo = m[1] === '-'
+    const abs = BigInt(m[2]!) * 10000n + BigInt((m[3] ?? '').padEnd(4, '0'))
+    const centavosAbs = (abs + 50n) / 100n
+    return ok({
+      centavos: negativo ? -centavosAbs : centavosAbs,
+      exatoEmDezmilesimos: negativo ? -abs : abs,
+      arredondado: abs % 100n !== 0n,
+    })
   }
 
   mais(outro: Dinheiro): Dinheiro {

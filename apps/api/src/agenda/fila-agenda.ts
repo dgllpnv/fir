@@ -16,6 +16,13 @@ export const NOME_DA_FILA_AGENDA = 'agenda-sincronizacao'
 export const JOB_TODAS = 'todas'
 export const JOB_UMA = 'uma'
 export const CRON_AGENDA = '*/15 * * * *'
+/**
+ * O faturamento do MedX (spec integracao-medx C.1; T5): de hora em hora, no
+ * minuto 5 — fora do minuto da agenda, e a primeira volta depois das 02:00 da
+ * clínica é a releitura dos 13 meses.
+ */
+export const JOB_FATURAMENTO = 'faturamento'
+export const CRON_FATURAMENTO = '5 * * * *'
 
 export function novaConexaoRedis(): IORedis {
   const url = process.env['REDIS_URL'] ?? 'redis://127.0.0.1:4879'
@@ -33,6 +40,16 @@ export async function agendarRepeticao(fila: Queue): Promise<void> {
     {
       jobId: JOB_TODAS,
       repeat: { pattern: CRON_AGENDA, tz: 'UTC' },
+      removeOnComplete: { count: 50 },
+      removeOnFail: { count: 100 },
+    },
+  )
+  await fila.add(
+    JOB_FATURAMENTO,
+    {},
+    {
+      jobId: JOB_FATURAMENTO,
+      repeat: { pattern: CRON_FATURAMENTO, tz: 'UTC' },
       removeOnComplete: { count: 50 },
       removeOnFail: { count: 100 },
     },

@@ -1,3 +1,5 @@
+import { diaCivil } from '@fir/domain'
+
 /**
  * A BORDA do MedX: o que vem de lá vira dado da FIR por funções puras, aqui,
  * e em nenhum outro lugar (spec integracao-medx B.1, B.11; gate S-15).
@@ -38,6 +40,28 @@ export function instanteDoMedx(texto: string): { instante: Date; offsetDiferente
   const off = offset === undefined ? OFFSET_DO_MEDX : offset
   const minutos = off === 'Z' ? 0 : (off[0] === '-' ? -1 : 1) * (Number(off.slice(1, 3)) * 60 + Number(off.slice(4, 6)))
   return { instante: new Date(ms - minutos * 60_000), offsetDiferente: off !== OFFSET_DO_MEDX }
+}
+
+const SO_DATA = /^(\d{4})-(\d{2})-(\d{2})$/
+
+/**
+ * O DIA de um pagamento do MedX, no calendário da clínica (spec C.7, parecer A4).
+ *
+ * Só data (`aaaa-mm-dd`): é o dia do MedX e fica como está — converter uma
+ * data em instante e de volta em outro fuso troca o dia. Data e hora: o
+ * instante (sem offset, `-03:00`) reduzido ao dia civil no fuso da clínica.
+ * Fora da gramática: `null` (quem chama aborta: contrato).
+ */
+export function diaDoPagamento(texto: string, fuso: string): string | null {
+  const d = SO_DATA.exec(texto)
+  if (d !== null) {
+    const t = new Date(Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3])))
+    return t.getUTCFullYear() === Number(d[1]) && t.getUTCMonth() === Number(d[2]) - 1 && t.getUTCDate() === Number(d[3])
+      ? texto
+      : null
+  }
+  const i = instanteDoMedx(texto)
+  return i === null ? null : diaCivil(i.instante, fuso)
 }
 
 const dois = (n: number): string => String(n).padStart(2, '0')

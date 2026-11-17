@@ -46,6 +46,26 @@ describe('redacao', () => {
     expect(r['nome']).toBe('Ana')
   })
 
+  it('o faturamento lido do MedX na trilha: total, exato e contagem de pagamentos somem; a quantidade de estoque, não', () => {
+    // A linha de `leituras_de_faturamento_externo` e a do histórico, como a trilha as entrega (spec C.11).
+    const r = redigir(
+      {
+        leitura: { dia: '2026-10-20', faturamento_lido: '10000', faturamento_exato: '1000000', quantidade_de_pagamentos: 1 },
+        historico: { faturamento_anterior: '10000', quantidade_de_pagamentos_anterior: 1 },
+        estoque: { quantidade: 5 },
+      },
+      semValores,
+    ) as Record<string, Record<string, unknown>>
+    expect(r['leitura']).toEqual({
+      dia: '2026-10-20',
+      faturamento_lido: null,
+      faturamento_exato: null,
+      quantidade_de_pagamentos: null,
+    })
+    expect(r['historico']).toEqual({ faturamento_anterior: null, quantidade_de_pagamentos_anterior: null })
+    expect(r['estoque']).toEqual({ quantidade: 5 })
+  })
+
   it('salario depende de pessoas.gerir, não de valores', () => {
     const soValores = (c: string) => c === 'valores'
     const r = redigir({ salario: '500000', valor: '100' }, soValores) as Record<string, unknown>

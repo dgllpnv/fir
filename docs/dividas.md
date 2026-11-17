@@ -728,6 +728,11 @@ O HMAC dos ids do MedX e a referência selada derivam de `FIR_INTEGRACOES_CHAVE_
 `pacientes_externos` (vínculo e supressão) tem prazo de "integração ligada + 90 dias" (`docs/compliance/retencao.md`), mas o job que apaga não existe. Enquanto a integração estiver ligada, o prazo não corre. O registro de ciclo (1 ano) já é apagado pelo próprio ciclo.
 **Gatilho:** a primeira clínica que desliga o MedX ou encerra o contrato. O job tem de manter a **supressão** de quem pediu para sair enquanto a clínica tiver o MedX (B.7), e apagar o resto.
 
+### D-L5 · Retenção do faturamento lido do MedX sem job
+
+`leituras_de_faturamento_externo` e `historico_de_faturamento_externo` (0095) têm prazo de "integração ligada + 2 anos" (`docs/compliance/retencao.md`), e nada apaga. São totais por dia, sem paciente: o custo de esperar é volume, não exposição.
+**Gatilho:** o mesmo da D-L4. Os dois jobs podem ser um só.
+
 ## Pendências de produto, não de código
 
 Essas dependem do dono e estão em [`decisoes.md`](decisoes.md), não aqui: P-1 (UX de sessão no balcão), P-2 (hospedagem para dado de saúde), P-3 (DPA com cada clínica), P-4 (modelo comercial), P-5 (janela de migração), P-6 (perfil Consultoria), P-7 (integração com agenda), P-8 (domínio e certificado), ~~P-9 (SMTP — encerrada)~~, P-10 (concessão de acesso do operador a dado clínico).

@@ -131,11 +131,17 @@ export class LeitorDoMedx {
     query: Readonly<Record<string, string>>,
     esquema: z.ZodType<T>,
     aoLer: (pagina: T) => void,
+    opcoes: { decimais?: readonly string[] } = {},
   ): Promise<void> {
+    const decimais = new Set(opcoes.decimais ?? [])
     const vistos = new Set<string>()
     let cursor: string | undefined
     for (let n = 0; n < MAXIMO_DE_PAGINAS; n++) {
-      const pagina = this.ler(esquema, await this.get(s, caminho, cursor === undefined ? query : { ...query, Cursor: cursor }))
+      const pagina = this.ler(
+        esquema,
+        await this.get(s, caminho, cursor === undefined ? query : { ...query, Cursor: cursor }),
+        decimais,
+      )
       aoLer(pagina)
       if (!pagina.page.hasMore) return
       const proximo = pagina.page.nextCursor
@@ -153,10 +159,22 @@ export class LeitorDoMedx {
     return this.transporte(p)
   }
 
-  private ler<T>(esquema: z.ZodType<T>, texto: string): T {
+  /**
+   * `decimais`: os campos de DINHEIRO. Chegam como o texto do JSON
+   * (`context.source` do reviver, Node ≥ 21), nunca como `number`: o float de
+   * `JSON.parse` lê `1.005` como 1,00 e o parecer de números (N-B4) proíbe que
+   * ele seja usado. Quem lê o texto é `Dinheiro.deDecimalExterno`.
+   */
+  private ler<T>(esquema: z.ZodType<T>, texto: string, decimais: ReadonlySet<string> = new Set()): T {
     let bruto: unknown
     try {
-      bruto = JSON.parse(texto)
+      bruto =
+        decimais.size === 0
+          ? JSON.parse(texto)
+          : JSON.parse(texto, ((chave: string, valor: unknown, contexto?: { source?: string }) =>
+              typeof valor === 'number' && decimais.has(chave) && contexto?.source !== undefined
+                ? contexto.source
+                : valor) as Parameters<typeof JSON.parse>[1])
     } catch {
       throw new ErroDoMedx('contrato')
     }

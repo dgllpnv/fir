@@ -369,4 +369,17 @@ export const CAMPOS_MONETARIOS = [
    * 11); o ticket médio viaja como `ticketMedio`, já registrado acima.
    */
   'mrr',
+
+  /**
+   * O faturamento lido do MedX (spec integracao-medx C.11, parecer A7). As
+   * colunas de 0095 chegam à trilha (`GET /v1/auditoria`) pelo nome em
+   * snake_case, que a redação normaliza. `quantidadeDePagamentos` também: a
+   * contagem de pagamentos por dia não atravessa sem `valores` — e por isso a
+   * coluna não se chama `quantidade`, que apagaria a de estoque.
+   */
+  'faturamentoLido',
+  'faturamentoAnterior',
+  'faturamentoExato',
+  'quantidadeDePagamentos',
+  'quantidadeDePagamentosAnterior',
 ] as const

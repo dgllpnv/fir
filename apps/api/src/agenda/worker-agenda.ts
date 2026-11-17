@@ -4,12 +4,14 @@ import { BancoService } from '../banco/banco.service'
 import { AberturaDeIntegracoes } from '../integracoes/cofre-de-integracoes'
 import { JOB_TESTAR_INTEGRACAO } from '../integracoes/jobs'
 import { AgendaDoMedx } from '../integracoes/medx/agenda-do-medx'
+import { FaturamentoDoMedx } from '../integracoes/medx/faturamento-do-medx'
 import { LeitorDoMedx } from '../integracoes/medx/leitor-do-medx'
 import { baseDoMedxDoAmbiente, criarTransporte } from '../integracoes/medx/transporte'
 import { TesteDeConexao } from '../integracoes/teste-de-conexao'
 import type { ClinicaId } from '../banco/clinica-id'
 import { criarBaixador } from './baixar-feed'
 import {
+  JOB_FATURAMENTO,
   JOB_UMA,
   NOME_DA_FILA_AGENDA,
   agendarRepeticao,
@@ -45,6 +47,7 @@ async function main(): Promise<void> {
     criarBaixador(),
     new AgendaDoMedx(banco, abertura, leitorDoMedx),
   )
+  const faturamento = new FaturamentoDoMedx(banco, abertura, leitorDoMedx, new RelogioDoSistema())
 
   const worker = new Worker(
     NOME_DA_FILA_AGENDA,
@@ -61,6 +64,23 @@ async function main(): Promise<void> {
         const res = await testeDeConexao.executar(clinicaId as ClinicaId)
         console.log(`[integracoes] teste da clínica ${clinicaId}: ${res}`)
         return { tipo: res }
+      }
+      if (job.name === JOB_FATURAMENTO) {
+        // Uma clínica de cada vez; a que falha não impede as outras (cada uma
+        // grava o próprio erro). Sem faturamento ligado, `lerClinica` sai sem rede.
+        const r = await banco.semIsolamentoDeClinica<{ id: string; fuso: string }>(
+          'SELECT id, fuso FROM clinicas WHERE ativa ORDER BY id',
+        )
+        let lidas = 0
+        let falhas = 0
+        for (const { id, fuso } of r.rows) {
+          // `as`: o id vem de `clinicas`, a raiz do tenancy.
+          const res = await faturamento.lerClinica(id as ClinicaId, fuso)
+          if (res.tipo === 'ok') lidas++
+          if (res.tipo === 'falhou') falhas++
+        }
+        console.log(`[faturamento] rodada: ${lidas} clínica(s) lida(s), ${falhas} falha(s)`)
+        return { lidas, falhas }
       }
       if (job.name === JOB_UMA) {
         const clinicaId = String((job.data as { clinicaId?: unknown }).clinicaId ?? '')
@@ -95,7 +115,7 @@ async function main(): Promise<void> {
   }
   process.on('SIGTERM', desligar)
   process.on('SIGINT', desligar)
-  console.log('[agenda] worker no ar: a cada 15 min e sob demanda')
+  console.log('[agenda] worker no ar: agenda a cada 15 min, faturamento de hora em hora, e sob demanda')
 }
 
 main().catch((erro: unknown) => {

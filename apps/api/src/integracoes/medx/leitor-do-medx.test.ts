@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { ErroDoMedx } from './erros'
-import { LeitorDoMedx, avaliarEscopos } from './leitor-do-medx'
+import { LeitorDoMedx, Pagina, avaliarEscopos } from './leitor-do-medx'
 import type { Pedido, Transporte } from './transporte'
 
 /**
@@ -93,6 +94,20 @@ describe('leituras', () => {
       const leitor = new LeitorDoMedx(t, () => 0)
       await expect(leitor.quantasUnidades(await leitor.sessao('c1', 'i', 'k'))).rejects.toBeInstanceOf(ErroDoMedx)
     }
+  })
+})
+
+describe('valores em texto (spec C.6, parecer N-B4)', () => {
+  it('o número listado chega como o TEXTO do JSON, sem passar por float', async () => {
+    const corpo = '{"items":[{"id":1,"valorOriginal":1.005,"saldo":33.3350,"outro":2.5}],"page":{"hasMore":false}}'
+    const { t } = falso((p) => (p.caminho === '/token' ? TOKEN_OK : corpo))
+    const leitor = new LeitorDoMedx(t, () => 0)
+    const vistos: unknown[] = []
+    const Esquema = z.object({ items: z.array(z.object({ id: z.number(), valorOriginal: z.string(), saldo: z.string(), outro: z.number() })), page: Pagina })
+    await leitor.paginar(await leitor.sessao('c1', 'i', 'k'), '/x', {}, Esquema, (p) => vistos.push(...p.items), {
+      decimais: ['valorOriginal', 'saldo'],
+    })
+    expect(vistos).toEqual([{ id: 1, valorOriginal: '1.005', saldo: '33.3350', outro: 2.5 }])
   })
 })
 

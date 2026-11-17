@@ -743,6 +743,11 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   // contagens, que o próprio ciclo apaga depois de 1 ano (retenção).
   'pacientes_externos',
   'ciclos_da_agenda_externa',
+  // O faturamento lido do MedX (0095): um total por dia lido, regravado toda
+  // hora pelo worker, e o histórico append-only de quando um dia mudou. NÃO é
+  // recebimento (spec integracao-medx C.3); `fir_app` só lê.
+  'leituras_de_faturamento_externo',
+  'historico_de_faturamento_externo',
   // O épico 7, segunda fatia (0019): metas da pessoa e conversas 1:1.
   // As duas são MUTÁVEIS: a meta do mês se ajusta enquanto o mês corre, e a
   // anotação de uma 1:1 se corrige — travá-las como livro-razão obrigaria a
