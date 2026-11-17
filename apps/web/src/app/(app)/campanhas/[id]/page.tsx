@@ -40,6 +40,7 @@ export default async function CampanhaPage({
       podeReceber={temPerm(quem, perfis, 'receber')}
       podeValores={temPerm(quem, perfis, 'valores')}
       podePacientes={temPerm(quem, perfis, 'pacientes')}
+      podeIndicadores={temPerm(quem, perfis, 'indicadores')}
     />
   )
 }

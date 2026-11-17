@@ -231,17 +231,20 @@ export function FormularioDeKpi({
                   const ativo = i.kpiId === null ? null : (kpisPorId.get(i.kpiId) ?? null)
                   // Já acompanhado e sem parâmetro: um segundo igual é recusado pelo banco.
                   const bloqueado = i.kpiId !== null && i.parametros.length === 0
+                  // A prévia (D.1) é o valor atual que o servidor mediu; sem `valores`,
+                  // a redação apagou os reais e sobra o traço.
+                  const valor = i.previa !== null ? numeroDoCartao(i.previa).texto : ativo !== null ? numeroDoCartao(ativo.atual).texto : null
                   return (
                     <button key={i.chave} type="button" disabled={bloqueado} onClick={() => escolherDoCatalogo(i)}>
                       <b>{i.nome}</b>
                       {i.kpiId === null ? (
-                        <small />
+                        <small className="ii-catalogo-previa">{valor === null ? '' : `agora ${valor}`}</small>
                       ) : (
                         <em>
-                          já acompanhado{ativo === null ? '' : ` · ${numeroDoCartao(ativo.atual).texto}`}
+                          já acompanhado{valor === null ? '' : ` · ${valor}`}
                         </em>
                       )}
-                      <span>{i.chave === 'despesas_fixas_sobre_recebido' ? DICA_DESPESAS_FIXAS_SOBRE_RECEBIDO : i.fonte}</span>
+                      <span>{i.chave === 'despesas_fixas_sobre_recebido' ? DICA_DESPESAS_FIXAS_SOBRE_RECEBIDO : i.explicacao}</span>
                     </button>
                   )
                 })}
@@ -260,7 +263,7 @@ export function FormularioDeKpi({
   return (
     <PainelLateral titulo={titulo} aoFechar={aoFechar} aoSalvar={() => void salvar()} salvando={salvando}>
       {passo === 'catalogo' ? (
-        <button type="button" className="link" style={{ justifySelf: 'start', minHeight: 36 }} onClick={() => setItem(null)}>
+        <button type="button" className="link" style={{ justifySelf: 'start', minHeight: 44 }} onClick={() => setItem(null)}>
           Voltar ao catálogo
         </button>
       ) : null}
@@ -410,7 +413,7 @@ export function FormularioDeKpi({
             <input value={origem} maxLength={60} placeholder="ex.: Instagram" onChange={(e) => setOrigem(e.target.value)} />
           </label>
         ) : (
-          <button type="button" className="link" style={{ justifySelf: 'start', minHeight: 36 }} onClick={() => setMaisOpcoes(true)}>
+          <button type="button" className="link" style={{ justifySelf: 'start', minHeight: 44 }} onClick={() => setMaisOpcoes(true)}>
             + Mais opções
           </button>
         )

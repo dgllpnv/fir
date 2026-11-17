@@ -20,6 +20,7 @@ import {
   trimestreDe,
   type UnidadeDeKpi,
 } from '@fir/domain'
+import { textoDeCentavos } from '@/lib/dinheiro-digitado'
 
 /**
  * **O que a tela de Indicadores escreve, a partir do que o servidor mandou.**
@@ -195,15 +196,17 @@ export function menorUnidadeDoTexto(unidade: UnidadeDeKpi, texto: string): bigin
   return centavosDoTextoBrasileiro(limpo)
 }
 
-/** A menor unidade → o texto do campo, para reabrir um valor que já existe. */
+/**
+ * A menor unidade → o texto do campo, para reabrir um valor que já existe.
+ * Fora de horas, toda escala é de duas casas (`ESCALA_DA_UNIDADE`), e o texto
+ * é o mesmo do campo de dinheiro: `textoDeCentavos`.
+ */
 export function textoDaMenorUnidade(unidade: UnidadeDeKpi, v: bigint): string {
   const escala = ESCALA_DA_UNIDADE[unidade]
+  if (escala.menorUnidade !== 'minutos') return textoDeCentavos(v)
   const neg = v < 0n ? '-' : ''
   const a = abs(v)
-  if (escala.menorUnidade === 'minutos') {
-    return `${neg}${a / escala.porUnidade}:${(a % escala.porUnidade).toString().padStart(2, '0')}`
-  }
-  return `${neg}${a / escala.porUnidade},${(a % escala.porUnidade).toString().padStart(2, '0')}`
+  return `${neg}${a / escala.porUnidade}:${(a % escala.porUnidade).toString().padStart(2, '0')}`
 }
 
 /** O texto do campo a partir de um `ValorNaTela` — vazio quando a redação apagou o valor. */

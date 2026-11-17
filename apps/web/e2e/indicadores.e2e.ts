@@ -19,9 +19,13 @@ const NOME = `NPS E2E ${Date.now()}`
 const OBJETIVO = `Agenda previsível E2E ${Date.now()}`
 
 async function entrar(page: Page): Promise<void> {
-  await page.goto('/entrar')
-  const clinica = page.getByLabel('Clínica', { exact: true })
-  if (await clinica.isVisible().catch(() => false)) await clinica.fill(CLINICA)
+  // A clínica vai no link, e o teste espera ela RECOLHER: isso só acontece no
+  // efeito de montagem, depois da hidratação. Perguntar antes ("o campo
+  // Clínica está visível?") lia o HTML do servidor; no `next dev` a hidratação
+  // demora, o campo sumia no meio do `fill` e o que já fora digitado era
+  // apagado — "juliana não sai de /entrar" sem nenhuma tentativa falha.
+  await page.goto(`/entrar?clinica=${encodeURIComponent(CLINICA)}`)
+  await expect(page.locator('.clinica-do-link')).toContainText(CLINICA, { timeout: 30_000 })
   await page.getByLabel('Usuário').fill(USUARIO)
   await page.getByLabel('Senha', { exact: true }).fill(SENHA)
   await page.getByRole('button', { name: 'Entrar' }).click()
@@ -59,7 +63,7 @@ function apagarDinheiro(o: unknown): void {
 
 test('KPI manual, meta, lançamento e OKR, em 390 px', async ({ page }) => {
   await entrar(page)
-  const ids: { kpi?: string; okr?: string } = {}
+  const ids: { kpi?: string | undefined; okr?: string | undefined } = {}
   try {
     await page.goto('/hoje')
     // Em 390 px o menu é a gaveta: abre pelo botão "Menu".
@@ -79,7 +83,7 @@ test('KPI manual, meta, lançamento e OKR, em 390 px', async ({ page }) => {
     await expect(page.getByText('Não use nome de pessoa nem de paciente.')).toBeVisible()
     await page.getByLabel('Nome do indicador').fill(NOME)
     await page.getByRole('dialog').getByLabel('Unidade').selectOption('nota')
-    await page.getByRole('button', { name: 'Salvar' }).click()
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('Indicador criado.')
     const cartao = page.getByRole('article', { name: NOME })
     await expect(cartao).toBeVisible()
@@ -89,13 +93,13 @@ test('KPI manual, meta, lançamento e OKR, em 390 px', async ({ page }) => {
     // D.3 — a meta a partir do cartão
     await cartao.getByRole('button', { name: 'Definir meta' }).click()
     await page.getByLabel(/Valor-alvo/).fill('9')
-    await page.getByRole('button', { name: 'Salvar' }).click()
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('Meta criada.')
 
     // D.4 — lançar. Com o dia de lançar já chegado, o botão é o "Lançar agora" da faixa pendente (C.1).
     await page.getByRole('article', { name: NOME }).getByRole('button', { name: /^Lançar (valor|agora)$/ }).click()
     await page.getByLabel(/^Valor/).fill('8,5')
-    await page.getByRole('button', { name: 'Salvar' }).click()
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('Valor lançado.')
 
     // D.2 — o OKR com esse KPI: ele sai da Saúde e entra no OKR
@@ -104,12 +108,18 @@ test('KPI manual, meta, lançamento e OKR, em 390 px', async ({ page }) => {
     await page.getByLabel('Objetivo').fill(OBJETIVO)
     await page.getByLabel('Indicador 1').selectOption({ label: NOME })
     await page.getByLabel(/Valor-alvo/).fill('9,5')
-    await page.getByRole('button', { name: 'Salvar' }).click()
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('OKR criado.')
     const okr = page.getByRole('article', { name: OBJETIVO })
     await expect(okr.getByRole('article', { name: NOME })).toBeVisible()
     const okrs = await api(page, 'v1/indicadores/okrs')
     ids.okr = (okrs.corpo as { itens: { id: string; objetivo: string }[] }).itens.find((o) => o.objetivo === OBJETIVO)?.id
+    // P1: o resumo da faixa é o `prioridades` do servidor (os ativos do trimestre), não uma média do navegador.
+    const p = (okrs.corpo as { prioridades: { quantos: number; media: number | null } }).prioridades
+    expect(p.quantos).toBeGreaterThanOrEqual(1)
+    await expect(page.locator('.ii-faixa-cabeca').first().locator('.ii-resumo')).toHaveText(
+      `${p.quantos} em andamento${p.media === null ? '' : ` · média ${p.media}%`}`,
+    )
     expect(await semRolagemDeLado(page)).toBe(true)
   } finally {
     if (ids.okr !== undefined) await api(page, `v1/indicadores/okrs/${ids.okr}/arquivar`, { method: 'POST', body: {} })
@@ -140,5 +150,50 @@ test('sem `valores`: o cartão mostra só o percentual e a prévia não tem R$',
     await page.getByLabel(/Valor-alvo/).fill('120.000,00')
     await expect(page.locator('.ii-previa')).toBeVisible()
     await expect(page.locator('.ii-previa')).not.toContainText('R$')
+  }
+})
+
+test('KPI semanal: o minigráfico mostra as últimas 8 semanas (1.9 C.1)', async ({ page }) => {
+  await entrar(page)
+  const nome = `Semanal E2E ${Date.now()}`
+  const criado = await api(page, 'v1/indicadores/kpis', {
+    method: 'POST',
+    body: { origem: 'manual', nome, pilar: 'Processos', unidade: 'quantidade', direcao: 'maior', frequencia: 'semanal', diaDeLancamento: 1, comoMedir: '', responsavelId: null },
+  })
+  expect(criado.status).toBeLessThan(300)
+  const id = (criado.corpo as { id: string }).id
+  try {
+    // Sem lançamento, a série vem sem número; para ver a forma, cada semana
+    // ganha um valor na resposta — o que se mede aqui é QUANTAS semanas a tela pede.
+    // Um pedido só para todos os minigráficos (revisão P6), com a janela do servidor.
+    let pedida: { agrupamento: string; pontos: number } | null = null
+    let pedidos = 0
+    await page.route(/\/api\/v1\/indicadores\/series\?/, async (route) => {
+      pedidos++
+      const r = await route.fetch()
+      const j = (await r.json()) as { itens: { kpiId: string; agrupamento: string; pontos: { numero: { emNumero: string | null } }[] }[] }
+      const s = j.itens.find((x) => x.kpiId === id)
+      if (s !== undefined) {
+        pedida = { agrupamento: s.agrupamento, pontos: s.pontos.length }
+        s.pontos.forEach((p, i) => (p.numero.emNumero = String((i + 1) * 100)))
+      }
+      return route.fulfill({ response: r, json: j })
+    })
+    const porKpi: string[] = []
+    page.on('request', (q) => {
+      if (/\/api\/v1\/indicadores\/kpis\/[^/]+\/serie/.test(q.url())) porKpi.push(q.url())
+    })
+    await page.goto('/indicadores')
+    const cartao = page.getByRole('article', { name: nome })
+    await expect(cartao.locator('.ind-faisca-linha')).toBeVisible()
+    expect(pedida).toEqual({ agrupamento: 'semana', pontos: 8 })
+    // Sem N+1: nenhuma série pedida KPI a KPI na tela principal.
+    expect(pedidos).toBeGreaterThanOrEqual(1)
+    expect(porKpi).toEqual([])
+    const pontos = await cartao.locator('.ind-faisca-linha').getAttribute('points')
+    expect(pontos?.trim().split(/\s+/).length).toBe(8)
+    expect(await semRolagemDeLado(page)).toBe(true)
+  } finally {
+    await api(page, `v1/indicadores/kpis/${id}/arquivar`, { method: 'POST', body: {} })
   }
 })

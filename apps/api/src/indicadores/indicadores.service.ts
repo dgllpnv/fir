@@ -11,6 +11,7 @@ import {
   type MetaDeKpiNaSaida,
   type PreviaDaMeta,
   type SerieDoKpi,
+  type SeriesDosKpis,
 } from '@fir/contracts'
 import {
   type Agregacao,
@@ -131,6 +132,7 @@ export type Definicao = {
   readonly teto: bigint | null
   readonly somenteMesCivil: boolean
   readonly fonte: string | null
+  readonly explicacao: string | null
 }
 
 const SELECT_KPI = `
@@ -160,6 +162,7 @@ export function definicaoDe(k: LinhaDeKpi): Definicao {
       teto: null,
       somenteMesCivil: false,
       fonte: null,
+      explicacao: null,
     }
   }
   const c = kpiDoCatalogo(k.chave_catalogo)
@@ -173,6 +176,7 @@ export function definicaoDe(k: LinhaDeKpi): Definicao {
     teto: c.teto,
     somenteMesCivil: c.somenteMesCivil,
     fonte: c.fonte,
+    explicacao: c.explicacao,
   }
 }
 
@@ -180,6 +184,16 @@ export const numeroDe = (u: UnidadeDeKpi, centavos: string | null, numero: strin
   const t = u === 'reais' ? centavos : numero
   return t === null ? null : NumeroDoKpi.de(u, BigInt(t))
 }
+
+/**
+ * O id da prévia do catálogo quando o KPI ainda não existe na clínica. As
+ * fontes de catálogo não leem o id (só o KPI manual, que não tem prévia, e o
+ * log do incidente c.16): é um marcador, nunca um id gravado.
+ */
+const KPI_AINDA_NAO_CRIADO = '00000000-0000-0000-0000-000000000000'
+
+/** Quantas séries do lote se medem ao mesmo tempo, cada uma numa conexão do pool (de 10). */
+const SERIES_EM_PARALELO = 4
 
 const paraTexto = (p: Record<string, unknown>): Record<string, string> =>
   Object.fromEntries(Object.entries(p).map(([k, v]) => [k, String(v)]))
@@ -228,7 +242,15 @@ export class IndicadoresService {
 
   /* ---------------------------------------------------------------- leitura */
 
+  /**
+   * O catálogo do D.1, com a PRÉVIA de cada linha (backlog 1.9 D.1; revisão
+   * S3): o valor do período corrente pela mesma `medir` do cartão, na
+   * frequência padrão da criação, sem parâmetro e sem meta. Só as chaves que
+   * a pessoa pode ver (C5) chegam a ser medidas; a redação de `emDinheiro` é
+   * do `RedacaoInterceptor`, como em toda saída.
+   */
   async catalogo(ctx: ContextoDeIndicadores): Promise<CatalogoDeKpisNaSaida> {
+    const hoje = this.hoje(ctx)
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const vivos = await c.query<{ id: string; chave: string }>(
         `SELECT id, chave_catalogo AS chave FROM kpis
@@ -236,8 +258,9 @@ export class IndicadoresService {
         [ctx.clinicaId],
       )
       const porChave = new Map(vivos.rows.map((x) => [x.chave, x.id]))
-      return {
-        itens: CATALOGO_DE_KPIS.filter((k) => this.podeVer(ctx, k.chave)).map((k) => ({
+      const itens: CatalogoDeKpisNaSaida['itens'] = []
+      for (const k of CATALOGO_DE_KPIS.filter((x) => this.podeVer(ctx, x.chave))) {
+        itens.push({
           chave: k.chave,
           nome: k.nome,
           pilar: k.pilar,
@@ -247,11 +270,46 @@ export class IndicadoresService {
           frequencias: [...k.frequencias],
           parametros: [...k.parametros],
           fonte: k.fonte,
+          explicacao: k.explicacao,
           somenteMesCivil: k.somenteMesCivil,
           kpiId: porChave.get(k.chave) ?? null,
-        })),
+          previa: await this.previaDoCatalogo(c, ctx, k.chave, porChave.get(k.chave) ?? null, hoje),
+        })
       }
+      return { itens }
     })
+  }
+
+  /** A prévia de uma linha do catálogo: `null` na chave que não mede nada sem parâmetro. */
+  private async previaDoCatalogo(
+    c: pg.PoolClient,
+    ctx: ContextoDeIndicadores,
+    chave: ChaveDoCatalogo,
+    kpiId: string | null,
+    hoje: string,
+  ): Promise<CatalogoDeKpisNaSaida['itens'][number]['previa']> {
+    const item = kpiDoCatalogo(chave)
+    if (item.parametrosObrigatorios.length > 0) return null
+    // O KPI como `criarKpi` o criaria agora: a última frequência do catálogo, sem parâmetro.
+    const k: LinhaDeKpi = {
+      id: kpiId ?? KPI_AINDA_NAO_CRIADO,
+      origem: 'catalogo',
+      chave_catalogo: chave,
+      parametros: {},
+      nome: item.nome,
+      pilar: null,
+      unidade: null,
+      direcao: null,
+      frequencia: item.frequencias.at(-1)!,
+      dia_de_lancamento: null,
+      como_medir: '',
+      responsavel_id: null,
+      metrica: null,
+    }
+    const d = definicaoDe(k)
+    const de = referenciaDoPeriodo(d.somenteMesCivil ? 'mensal' : k.frequencia, hoje)
+    const medidaPor = d.chave === 'faturamento_conferido' ? await this.visao.medidaPadrao(c, ctx) : 'fir'
+    return valorNaTela(d.unidade, (await this.medir(c, ctx, k, d, de, hoje, hoje, medidaPor)).numero)
   }
 
   async listar(
@@ -306,6 +364,7 @@ export class IndicadoresService {
         comoMedir: k.como_medir,
         diaDeLancamento: k.dia_de_lancamento,
         fonte: d.fonte,
+        explicacao: d.explicacao,
         metas: saida,
       }
     })
@@ -317,55 +376,96 @@ export class IndicadoresService {
     consulta: { de?: string | undefined; ate?: string | undefined; agrupamento?: Agrupamento | undefined },
   ): Promise<SerieDoKpi> {
     const hoje = this.hoje(ctx)
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) =>
+      this.serieNaConexao(c, ctx, await this.kpiVisivel(c, ctx, id), consulta, hoje),
+    )
+  }
+
+  /**
+   * **Os minigráficos da tela principal, num pedido só** (revisão P6). A MESMA
+   * `serieNaConexao` da rota de um KPI, com a janela de cada um pela
+   * frequência: o semanal, 8 semanas (`semana`, revisão S1); o mensal, 6
+   * meses (`mes`, I-29). Os ids passam pela porta única `kpisVisiveis` (C5):
+   * o que a pessoa não vê, ou não é desta clínica, não existe na resposta —
+   * sem 404, para a lista não depender de um id que sumiu entre dois pedidos.
+   */
+  async seriesDoMinigrafico(ctx: ContextoDeIndicadores, ids: readonly string[]): Promise<SeriesDosKpis> {
+    const hoje = this.hoje(ctx)
+    const pedidos = new Set(ids)
+    const kpis = (await this.banco.naClinica(ctx.clinicaId, ctx.ator, (c) => this.kpisVisiveis(c, ctx, null))).filter((k) =>
+      pedidos.has(k.id),
+    )
+    // Uma conexão só mede em série (R-7: 20 KPIs levavam ~590 ms numa transação,
+    // contra ~330 ms das 20 rotas em paralelo). Cada KPI na própria transação,
+    // até `SERIES_EM_PARALELO` por vez: o pool é de 10, e a tela de uma pessoa
+    // não o toma inteiro. Cada transação passa pela RLS da clínica, como a rota de um.
+    const itens: SerieDoKpi[] = new Array(kpis.length)
+    let proximo = 0
+    const trabalhador = async () => {
+      for (let i = proximo++; i < kpis.length; i = proximo++) {
+        const k = kpis[i]!
+        itens[i] = await this.banco.naClinica(ctx.clinicaId, ctx.ator, (c) =>
+          this.serieNaConexao(c, ctx, k, { agrupamento: k.frequencia === 'semanal' ? 'semana' : 'mes' }, hoje),
+        )
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(SERIES_EM_PARALELO, kpis.length) }, trabalhador))
+    return { itens }
+  }
+
+  private async serieNaConexao(
+    c: pg.PoolClient,
+    ctx: ContextoDeIndicadores,
+    k: LinhaDeKpi,
+    consulta: { de?: string | undefined; ate?: string | undefined; agrupamento?: Agrupamento | undefined },
+    hoje: string,
+  ): Promise<SerieDoKpi> {
     const ate = consulta.ate ?? hoje
-    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const k = await this.kpiVisivel(c, ctx, id)
-      const d = definicaoDe(k)
-      // Chave só de mês civil agrupa por MÊS (validação T2, W2): a fonte é do mês
-      // inteiro, e uma barra por dia repetiria o mês em cada uma. Fora dela, o
-      // agrupamento pedido vale (o minigráfico do KPI semanal pede `semana`,
-      // I-29: 8 semanas); sem pedido, `agrupamentoPara`.
-      const pedido = consulta.agrupamento
-      const de = consulta.de ?? inicioPadraoDaSerie(d.somenteMesCivil ? 'mes' : pedido, hoje)
-      const v = validarJanela(de, ate, hoje)
-      if (v.tipo === 'erro') throw new UnprocessableEntityException(v.erro.mensagem)
-      if (pedido === 'dia' && de.slice(0, 7) !== ate.slice(0, 7)) {
-        throw new UnprocessableEntityException('A série por dia é de um mês só.')
+    const d = definicaoDe(k)
+    // Chave só de mês civil agrupa por MÊS (validação T2, W2): a fonte é do mês
+    // inteiro, e uma barra por dia repetiria o mês em cada uma. Fora dela, o
+    // agrupamento pedido vale (o minigráfico do KPI semanal pede `semana`,
+    // I-29: 8 semanas); sem pedido, `agrupamentoPara`.
+    const pedido = consulta.agrupamento
+    const de = consulta.de ?? inicioPadraoDaSerie(d.somenteMesCivil ? 'mes' : pedido, hoje)
+    const v = validarJanela(de, ate, hoje)
+    if (v.tipo === 'erro') throw new UnprocessableEntityException(v.erro.mensagem)
+    if (pedido === 'dia' && de.slice(0, 7) !== ate.slice(0, 7)) {
+      throw new UnprocessableEntityException('A série por dia é de um mês só.')
+    }
+    const agrupamento: Agrupamento = d.somenteMesCivil ? 'mes' : (pedido ?? agrupamentoPara(de, ate, k.frequencia))
+    const medidos = []
+    for (const b of baldes(de, ate, agrupamento, hoje)) {
+      // `fim` do balde é EXCLUSIVO; a fonte mede dias civis inclusivos. Cada
+      // balde pela régua do PRÓPRIO mês, como a Visão daquele mês (V-T5-1).
+      const m = await this.medirPelaReguaDeCadaMes(c, ctx, k, d, b.inicio, somarDias(b.fim, -1), hoje)
+      // Regra 6 em toda série de dinheiro (c.10): dia aguardando vai SEM valor e sem escala.
+      medidos.push({ b, m, aberto: agrupamento === 'dia' && m.diasAguardando > 0 })
+    }
+    // A escala de cada ponto é relativa à série do PRÓPRIO KPI (ADR
+    // kpi-escala-e-valor-na-tela): sem `valores`, o minigráfico em reais
+    // desenha a forma sem um centavo. O ponto aguardando fica fora da régua.
+    const regua = medidos.filter((x) => !x.aberto).map((x) => x.m.numero)
+    const pontos = medidos.map(({ b, m, aberto }) => ({
+      inicio: b.inicio,
+      fim: somarDias(b.fim, -1),
+      parcial: b.parcial,
+      diaAguardando: aberto,
+      numero: aberto ? valorAguardando(d.unidade) : valorNaTela(d.unidade, m.numero, null, regua),
+    }))
+    // A linha do ritmo diário da meta (backlog 1.9 E): só dia a dia, só `soma`,
+    // só com meta vigente — a MESMA conta da prévia D.3 (`ritmoPorDiaUtil`).
+    let ritmoDiario: SerieDoKpi['ritmoDiario'] = null
+    if (agrupamento === 'dia' && d.agregacao === 'soma') {
+      const { vigente } = await this.reguaDoCartao(c, ctx, k, d, hoje)
+      const alvo = vigente === null ? null : numeroDe(d.unidade, vigente.alvo_centavos, vigente.alvo_numero)
+      if (vigente !== null && alvo !== null) {
+        const partida = numeroDe(d.unidade, vigente.partida_centavos, vigente.partida_numero)
+        const r = ritmoPorDiaUtil(d.unidade, vigente.inicio, vigente.prazo, alvo.emMenorUnidade, partida?.emMenorUnidade ?? 0n)
+        ritmoDiario = valorNaTela(d.unidade, r, alvo, regua)
       }
-      const agrupamento: Agrupamento = d.somenteMesCivil ? 'mes' : (pedido ?? agrupamentoPara(de, ate, k.frequencia))
-      const medidos = []
-      for (const b of baldes(de, ate, agrupamento, hoje)) {
-        // `fim` do balde é EXCLUSIVO; a fonte mede dias civis inclusivos. Cada
-        // balde pela régua do PRÓPRIO mês, como a Visão daquele mês (V-T5-1).
-        const m = await this.medirPelaReguaDeCadaMes(c, ctx, k, d, b.inicio, somarDias(b.fim, -1), hoje)
-        // Regra 6 em toda série de dinheiro (c.10): dia aguardando vai SEM valor e sem escala.
-        medidos.push({ b, m, aberto: agrupamento === 'dia' && m.diasAguardando > 0 })
-      }
-      // A escala de cada ponto é relativa à série do PRÓPRIO KPI (ADR
-      // kpi-escala-e-valor-na-tela): sem `valores`, o minigráfico em reais
-      // desenha a forma sem um centavo. O ponto aguardando fica fora da régua.
-      const regua = medidos.filter((x) => !x.aberto).map((x) => x.m.numero)
-      const pontos = medidos.map(({ b, m, aberto }) => ({
-        inicio: b.inicio,
-        fim: somarDias(b.fim, -1),
-        parcial: b.parcial,
-        diaAguardando: aberto,
-        numero: aberto ? valorAguardando(d.unidade) : valorNaTela(d.unidade, m.numero, null, regua),
-      }))
-      // A linha do ritmo diário da meta (backlog 1.9 E): só dia a dia, só `soma`,
-      // só com meta vigente — a MESMA conta da prévia D.3 (`ritmoPorDiaUtil`).
-      let ritmoDiario: SerieDoKpi['ritmoDiario'] = null
-      if (agrupamento === 'dia' && d.agregacao === 'soma') {
-        const { vigente } = await this.reguaDoCartao(c, ctx, k, d, hoje)
-        const alvo = vigente === null ? null : numeroDe(d.unidade, vigente.alvo_centavos, vigente.alvo_numero)
-        if (vigente !== null && alvo !== null) {
-          const partida = numeroDe(d.unidade, vigente.partida_centavos, vigente.partida_numero)
-          const r = ritmoPorDiaUtil(d.unidade, vigente.inicio, vigente.prazo, alvo.emMenorUnidade, partida?.emMenorUnidade ?? 0n)
-          ritmoDiario = valorNaTela(d.unidade, r, alvo, regua)
-        }
-      }
-      return { kpiId: k.id, agrupamento, barrasSomamOTotal: recombinaBaldes(d.agregacao), pontos, ritmoDiario }
-    })
+    }
+    return { kpiId: k.id, agrupamento, barrasSomamOTotal: recombinaBaldes(d.agregacao), pontos, ritmoDiario }
   }
 
   /** Prévia D.3 (I-23): números estruturados, nunca a frase (appsec C8). */

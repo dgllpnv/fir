@@ -4,13 +4,11 @@ import {
   type ChaveDeRelatorio,
   type ColunaDoCatalogo,
   type ColunaNaSaida,
-  JANELA_MAXIMA_EM_MESES,
   LIMITE_DE_LINHAS,
   type ResultadoDaExportacao,
 } from '@fir/contracts'
 import { ROTULO_DE_ETAPA } from '@fir/domain'
 import { formatarDinheiro, formatarQuantidade } from '@fir/ui'
-import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
 import { diaEmTexto } from '@/lib/formato'
 import type { CelulaDaPlanilha, TabelaDaPlanilha } from '@/lib/planilha'
 
@@ -253,186 +251,17 @@ export function tabelaDaExportacao(e: ResultadoDaExportacao): TabelaDaPlanilha {
 
 /* --------------------------------------------------------------- filtros */
 
-/**
- * Os campos do formulário de filtros, como texto e caixa: o que a tela guarda
- * enquanto a pessoa digita. `paraFiltros` monta o objeto que o servidor valida
- * (o mesmo schema `.strict()` do contrato) e `deFiltros` faz o caminho de
- * volta, para mostrar os filtros de um favorito.
- */
-export type Campos = {
-  readonly meses: string
-  readonly procedimentoId: string
-  readonly valorMinimo: string
-  readonly valorMaximo: string
-  readonly de: string
-  readonly ate: string
-  readonly modo: 'analise' | 'calendario'
-  readonly itemId: string
-  readonly incluirPaciente: boolean
-  readonly responsavelId: string
-  /** O top N do relatório 3. */
-  readonly quantos: string
-  readonly incluirEncerrados: boolean
-  readonly campanhaId: string
-  /** `1`..`12`: o mês dos aniversariantes. */
-  readonly mes: string
-  /** O corte dos saldos em aberto; vazio = agora. */
-  readonly corte: string
-  readonly situacaoDaConta: 'todas' | 'abertas' | 'pagas'
-}
-
-export function camposIniciais(hoje: string): Campos {
-  return {
-    meses: '6',
-    procedimentoId: '',
-    valorMinimo: '',
-    valorMaximo: '',
-    de: `${hoje.slice(0, 7)}-01`,
-    ate: hoje,
-    modo: 'calendario',
-    itemId: '',
-    incluirPaciente: false,
-    responsavelId: '',
-    quantos: '50',
-    incluirEncerrados: false,
-    campanhaId: '',
-    mes: String(Number(hoje.slice(5, 7))),
-    corte: '',
-    situacaoDaConta: 'todas',
-  }
-}
-
-export type FiltrosMontados = { readonly filtros: Record<string, unknown> } | { readonly erro: string }
-
-/** A faixa de valor digitada em reais → centavos inteiros (I-40). Devolve o erro, ou `null`. */
-function faixa(c: Campos, f: Record<string, unknown>): string | null {
-  for (const k of ['valorMinimo', 'valorMaximo'] as const) {
-    if (c[k].trim() === '') continue
-    const centavos = centavosDoTexto(c[k])
-    if (centavos === null || centavos < 0n) return 'Digite o valor como 1.000,00.'
-    f[k] = centavos.toString()
-  }
-  return null
-}
-
-const inteiro = (t: string, min: number, max: number): number | null => {
-  if (!/^\d{1,3}$/.test(t.trim())) return null
-  const n = Number(t.trim())
-  return n >= min && n <= max ? n : null
-}
-
-export function paraFiltros(chave: ChaveDeRelatorio, c: Campos): FiltrosMontados {
-  const periodo = { de: c.de, ate: c.ate }
-  switch (chave) {
-    case 'pacientes-sem-compra':
-    case 'pacientes-sem-atendimento': {
-      const meses = inteiro(c.meses, 1, JANELA_MAXIMA_EM_MESES)
-      if (meses === null) return { erro: `Informe há quantos meses, de 1 a ${JANELA_MAXIMA_EM_MESES}.` }
-      if (chave === 'pacientes-sem-atendimento') return { filtros: { semAtendimentoHaMeses: meses } }
-      const f: Record<string, unknown> = { semCompraHaMeses: meses }
-      if (c.procedimentoId !== '') f['procedimentoId'] = c.procedimentoId
-      const erro = faixa(c, f)
-      return erro === null ? { filtros: f } : { erro }
-    }
-    case 'pacientes-maior-ltv': {
-      const quantos = inteiro(c.quantos, 1, 500)
-      return quantos === null ? { erro: 'Informe quantos pacientes, de 1 a 500.' } : { filtros: { quantos } }
-    }
-    case 'pacientes-por-procedimento': {
-      const f: Record<string, unknown> = { incluirEncerrados: c.incluirEncerrados }
-      if (c.procedimentoId !== '') f['procedimentoId'] = c.procedimentoId
-      return { filtros: f }
-    }
-    case 'pacientes-por-origem-e-campanha': {
-      const f: Record<string, unknown> = { ...periodo }
-      if (c.campanhaId !== '') f['campanhaId'] = c.campanhaId
-      return { filtros: f }
-    }
-    case 'aniversariantes': {
-      const mes = inteiro(c.mes, 1, 12)
-      return mes === null ? { erro: 'Escolha o mês.' } : { filtros: { mes } }
-    }
-    case 'saldos-em-aberto': {
-      const f: Record<string, unknown> = {}
-      if (c.corte !== '') f['ate'] = c.corte
-      const erro = faixa(c, f)
-      return erro === null ? { filtros: f } : { erro }
-    }
-    case 'contas':
-      return { filtros: { ...periodo, situacao: c.situacaoDaConta } }
-    case 'saidas-de-estoque': {
-      const f: Record<string, unknown> = { modo: c.modo, ...periodo, incluirPaciente: c.incluirPaciente }
-      if (c.itemId !== '') f['itemId'] = c.itemId
-      return { filtros: f }
-    }
-    case 'entradas-de-estoque': {
-      const f: Record<string, unknown> = { ...periodo }
-      if (c.itemId !== '') f['itemId'] = c.itemId
-      return { filtros: f }
-    }
-    case 'tarefas-da-equipe': {
-      const f: Record<string, unknown> = { ...periodo }
-      if (c.responsavelId !== '') f['responsavelId'] = c.responsavelId
-      return { filtros: f }
-    }
-    case 'recebimentos':
-    case 'pacientes-que-indicaram':
-    case 'orcamentos':
-    case 'faltas-e-desmarcacoes':
-      return { filtros: periodo }
-  }
-}
-
-const texto = (v: unknown): string => (typeof v === 'string' ? v : '')
-const numero = (v: unknown, base: string): string => (typeof v === 'number' ? String(v) : base)
-const reais = (v: unknown): string => (ehCentavos(v) ? textoDeCentavos(BigInt(v)) : '')
-
-/** O caminho de volta: os filtros de um favorito nos campos. O que não veio fica como estava. */
-export function deFiltros(chave: ChaveDeRelatorio, f: Readonly<Record<string, unknown>>, base: Campos): Campos {
-  const comPeriodo: Campos = { ...base, de: texto(f['de']) || base.de, ate: texto(f['ate']) || base.ate }
-  switch (chave) {
-    case 'pacientes-sem-compra':
-      return {
-        ...base,
-        meses: numero(f['semCompraHaMeses'], base.meses),
-        procedimentoId: texto(f['procedimentoId']),
-        valorMinimo: reais(f['valorMinimo']),
-        valorMaximo: reais(f['valorMaximo']),
-      }
-    case 'pacientes-sem-atendimento':
-      return { ...base, meses: numero(f['semAtendimentoHaMeses'], base.meses) }
-    case 'pacientes-maior-ltv':
-      return { ...base, quantos: numero(f['quantos'], base.quantos) }
-    case 'pacientes-por-procedimento':
-      return { ...base, procedimentoId: texto(f['procedimentoId']), incluirEncerrados: f['incluirEncerrados'] === true }
-    case 'pacientes-por-origem-e-campanha':
-      return { ...comPeriodo, campanhaId: texto(f['campanhaId']) }
-    case 'aniversariantes':
-      return { ...base, mes: numero(f['mes'], base.mes) }
-    case 'saldos-em-aberto':
-      return { ...base, corte: texto(f['ate']), valorMinimo: reais(f['valorMinimo']), valorMaximo: reais(f['valorMaximo']) }
-    case 'contas': {
-      const s = f['situacao']
-      return { ...comPeriodo, situacaoDaConta: s === 'abertas' || s === 'pagas' ? s : 'todas' }
-    }
-    case 'saidas-de-estoque':
-      return {
-        ...comPeriodo,
-        modo: f['modo'] === 'analise' ? 'analise' : 'calendario',
-        itemId: texto(f['itemId']),
-        incluirPaciente: f['incluirPaciente'] === true,
-      }
-    case 'entradas-de-estoque':
-      return { ...comPeriodo, itemId: texto(f['itemId']) }
-    case 'tarefas-da-equipe':
-      return { ...comPeriodo, responsavelId: texto(f['responsavelId']) }
-    case 'recebimentos':
-    case 'pacientes-que-indicaram':
-    case 'orcamentos':
-    case 'faltas-e-desmarcacoes':
-      return comPeriodo
-  }
-}
+// Os campos do formulário, `paraFiltros` e `deFiltros` moram em
+// `campos-do-filtro.ts` desde os filtros da 1.8 (S2); daqui, o mesmo nome.
+export {
+  type Campos,
+  camposIniciais,
+  deFiltros,
+  type FiltrosMontados,
+  paraFiltros,
+  SITUACOES_DO_PROGRAMA_NA_TELA,
+  temMaisOpcoesEmUso,
+} from './campos-do-filtro'
 
 /* -------------------------------------------------------- aberto por link */
 

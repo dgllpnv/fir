@@ -17,7 +17,7 @@ import {
   type ResultadoDoRelatorio,
   temFaixaDeValor,
 } from '@fir/contracts'
-import { type ChaveDePermissao, diaCivil } from '@fir/domain'
+import { type ChaveDePermissao, diaCivil, ehChaveDePermissao } from '@fir/domain'
 import {
   ForbiddenException,
   HttpException,
@@ -45,7 +45,7 @@ import {
   saidasDeEstoque,
   tarefasDaEquipe,
 } from './consultas'
-import { contas, entradasDeEstoque, saldosEmAberto } from './consultas/financeiro-e-estoque'
+import { contas, entradasDeEstoque, fornecedoresDaClinica, saldosEmAberto } from './consultas/financeiro-e-estoque'
 import { faltasEDesmarcacoes, orcamentos } from './consultas/jornada'
 import {
   aniversariantes,
@@ -233,7 +233,7 @@ export class MotorDeRelatorios {
       clinicaId: ctx.clinicaId,
       fuso: ctx.fuso,
       hoje,
-      pode: (k) => ctx.pode(k as ChaveDePermissao),
+      pode: (k) => ehChaveDePermissao(k) && ctx.pode(k),
       limite: this.limites.linhas,
       incluirTelefone: exportacao?.incluirTelefone === true,
     }
@@ -340,7 +340,7 @@ export class MotorDeRelatorios {
       clinicaId: ctx.clinicaId,
       fuso: ctx.fuso,
       hoje: diaCivil(this.relogio.agora(), ctx.fuso),
-      pode: (k) => ctx.pode(k as ChaveDePermissao),
+      pode: (k) => ehChaveDePermissao(k) && ctx.pode(k),
       limite: this.limites.linhas,
       incluirTelefone: false,
     }
@@ -363,6 +363,11 @@ export class MotorDeRelatorios {
       }
       throw e
     }
+  }
+
+  /** `GET /v1/relatorios/opcoes/fornecedores`: os emissores das notas desta clínica, pelo id opaco. */
+  async fornecedores(ctx: ContextoDoMotor): Promise<{ fornecedores: { id: string; nome: string }[] }> {
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => ({ fornecedores: await fornecedoresDaClinica(c, ctx.clinicaId) }))
   }
 
   /**

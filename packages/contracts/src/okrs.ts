@@ -119,5 +119,40 @@ export const OkrNaSaida = z
   .strict()
 export type OkrNaSaida = z.infer<typeof OkrNaSaida>
 
-export const ListaDeOkrs = z.object({ hoje: DiaDoKpi, itens: z.array(OkrNaSaida) }).strict()
+/**
+ * A faixa "Prioridades do trimestre" (revisão P1), calculada no servidor por
+ * `prioridadesDoTrimestre`: os OKRs ATIVOS que tocam o trimestre, e a média
+ * deles. A capa da reunião leva o mesmo objeto (sem o filtro de responsável).
+ */
+export const PrioridadesDoTrimestreNaSaida = z
+  .object({
+    quantos: z.number().int(),
+    /** Percentual inteiro de 0 a 100; `null` sem nenhum KR com progresso. */
+    media: z.number().int().nullable(),
+  })
+  .strict()
+export type PrioridadesDoTrimestreNaSaida = z.infer<typeof PrioridadesDoTrimestreNaSaida>
+
+/**
+ * `GET /v1/indicadores/okrs`. `trimestre` é o 1º dia do trimestre da faixa
+ * (sem ele, o de hoje); `responsavel` filtra a faixa. Os dois só mudam
+ * `prioridades` — `itens` continua sendo todo OKR não arquivado.
+ */
+export const ConsultaDeOkrs = z
+  .object({ trimestre: DiaDoKpi.optional(), responsavel: Uuid.optional() })
+  .strict()
+export type ConsultaDeOkrs = z.infer<typeof ConsultaDeOkrs>
+
+export const ListaDeOkrs = z
+  .object({
+    hoje: DiaDoKpi,
+    itens: z.array(OkrNaSaida),
+    /** O servidor sempre manda; opcional só para a web que monta o tipo à mão. */
+    prioridades: PrioridadesDoTrimestreNaSaida.extend({
+      trimestre: z.object({ inicio: DiaDoKpi, fim: DiaDoKpi }).strict(),
+    })
+      .strict()
+      .optional(),
+  })
+  .strict()
 export type ListaDeOkrs = z.infer<typeof ListaDeOkrs>

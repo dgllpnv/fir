@@ -283,6 +283,13 @@ export const MetasDoMes = z
     /** Só fichas ATIVAS, como na tela dela. Quem saiu não tem meta a bater. */
     pessoas: z.array(MetasDaPessoa),
     maxMetasPorPessoa: z.number().int(),
+    /**
+     * O destino do link "Ver em Indicadores" (lugar único, revisão S6): o KPI
+     * `atingimento_metas_individuais` VIVO da clínica. `null` quando a clínica
+     * não o acompanha. Só o id, nenhum valor. Opcional só para a web que monta
+     * o tipo à mão.
+     */
+    kpiDoAtingimentoId: Uuid.nullable().optional(),
   })
   .strict()
 export type MetasDoMes = z.infer<typeof MetasDoMes>

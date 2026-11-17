@@ -686,6 +686,11 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'Indicadores (T2): o recebido só entra pelos dias que CONTAM (I-9) — com o caixa de hoje aberto, o período em reais termina ontem, e o contador de dias aguardando não depende de haver pagamento hoje. Nenhum recorte por forma. Provado byte a byte em `indicadores.e2e.test.ts` (`regra-6-nenhum-byte-de-hoje`).',
   },
   {
+    caminho: '/v1/indicadores/series',
+    razao:
+      'As séries de vários KPIs num pedido só (revisão P6): chama a MESMA função da rota por KPI (`/kpis/:id/serie`), então herda o corte dos dias que CONTAM (I-9) — nenhum byte do caixa de hoje aberto, nenhum recorte por forma.',
+  },
+  {
     caminho: '/v1/indicadores/okrs',
     razao:
       'OKRs (T4): a meta de cada KR sai pela MESMA conta da meta de KPI (`IndicadoresService.metaNaSaida`), que só mede os dias que CONTAM (I-9). Nenhum recorte por forma, nenhum total de hoje.',
@@ -870,5 +875,11 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'O catálogo de relatórios e os favoritos da clínica (T8): títulos, colunas e filtros salvos. ' +
       'Nenhuma linha, nenhum total, nenhuma forma de pagamento. As linhas saem só por POST ' +
       '(execucoes/exportacoes), e o relatório 8 apaga valor e forma do dia sem caixa (c.10).',
+  },
+  {
+    caminho: '/v1/relatorios/opcoes/fornecedores',
+    razao:
+      'As opções do filtro de fornecedor do relatório 12 (1.8): o id opaco e o nome do emissor das notas. ' +
+      'Nenhuma quantidade, nenhum custo, nenhum dia de caixa.',
   },
 ]

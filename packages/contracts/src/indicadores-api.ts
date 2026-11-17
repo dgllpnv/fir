@@ -125,7 +125,10 @@ export type ListaDeKpis = z.infer<typeof ListaDeKpis>
 export const DetalheDoKpi = KpiNaLista.extend({
   comoMedir: z.string(),
   diaDeLancamento: z.number().int().nullable(),
+  /** A referência interna, com "(I-9)". Não vai para a tela: use `explicacao`. */
   fonte: z.string().nullable(),
+  /** O "como é calculado" do catálogo, sem a referência da spec; `null` no KPI manual (revisão S3). */
+  explicacao: z.string().nullable(),
   metas: z.array(MetaDeKpiNaSaida),
 }).strict()
 export type DetalheDoKpi = z.infer<typeof DetalheDoKpi>
@@ -169,6 +172,35 @@ export const ConsultaDaSerie = z
   .object({ de: DiaDoKpi.optional(), ate: DiaDoKpi.optional(), agrupamento: z.enum(['mes', 'semana', 'dia']).optional() })
   .strict()
 
+/** O teto de ids num pedido de séries (revisão P6): acima dele, a tela divide em lotes. */
+export const MAXIMO_DE_SERIES_POR_PEDIDO = 40
+
+/**
+ * `GET /v1/indicadores/series?ids=a,b,c` — os minigráficos da tela principal
+ * num pedido só (revisão P6). Ids separados por vírgula, de 1 ao teto, sem
+ * repetição. A janela NÃO se pede: o servidor dá a de cada KPI pela
+ * frequência (semanal, 8 semanas; mensal, 6 meses).
+ */
+export const ConsultaDasSeries = z
+  .object({
+    ids: z
+      .string()
+      .transform((s) => s.split(',').map((x) => x.trim()).filter((x) => x !== ''))
+      .pipe(
+        z
+          .array(Uuid)
+          .min(1, 'peça ao menos um indicador')
+          .max(MAXIMO_DE_SERIES_POR_PEDIDO, `no máximo ${MAXIMO_DE_SERIES_POR_PEDIDO} indicadores por pedido`)
+          .refine((xs) => new Set(xs).size === xs.length, 'indicador repetido no pedido'),
+      ),
+  })
+  .strict()
+export type ConsultaDasSeries = z.infer<typeof ConsultaDasSeries>
+
+/** Na ordem da lista de KPIs; o id que a pessoa não pode ver não aparece (C5). */
+export const SeriesDosKpis = z.object({ itens: z.array(SerieDoKpi) }).strict()
+export type SeriesDosKpis = z.infer<typeof SeriesDosKpis>
+
 export const ConsultaDeKpis = z
   .object({
     de: DiaDoKpi.optional(),
@@ -194,10 +226,20 @@ export const ItemDoCatalogo = z
     agregacao: AgregacaoSchema,
     frequencias: z.array(FrequenciaDeKpiSchema),
     parametros: z.array(z.enum(['origem', 'campanhaId'])),
+    /** A referência interna, com "(I-9)". Não vai para a tela: use `explicacao`. */
     fonte: z.string(),
+    /** O "como é calculado" que a usuária lê, sem a referência da spec (revisão S3). */
+    explicacao: z.string(),
     somenteMesCivil: z.boolean(),
     /** Já criado nesta clínica, sem parâmetros: o id do vivo. */
     kpiId: Uuid.nullable(),
+    /**
+     * O valor atual (backlog 1.9 D.1), pela `CalculadoraDeKpi`: o período
+     * corrente da frequência padrão, sem parâmetros e sem meta. Sem `valores`,
+     * `emDinheiro` sai apagado pela redação. `null` na chave que não mede nada
+     * sem parâmetro (`resultado_de_campanha`).
+     */
+    previa: ValorNaTelaSchema.nullable(),
   })
   .strict()
 export const CatalogoDeKpisNaSaida = z.object({ itens: z.array(ItemDoCatalogo) }).strict()

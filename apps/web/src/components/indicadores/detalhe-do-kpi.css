@@ -137,7 +137,7 @@
 
 .kd-rodape { border-top: 1px solid var(--line); padding-top: 14px; }
 .kd-lista-simples { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.kd-lista-simples li { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 36px; font-size: 13.5px; }
+.kd-lista-simples li { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 44px; font-size: 13.5px; }
 .kd-tabular { font-variant-numeric: tabular-nums; }
 
 /* ---------- composição: grupos por bloco ---------- */

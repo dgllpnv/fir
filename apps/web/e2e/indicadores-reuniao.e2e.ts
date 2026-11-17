@@ -20,13 +20,13 @@ const USUARIO = process.env['FIR_E2E_USUARIO'] || 'helena'
 const SENHA = process.env['FIR_E2E_SENHA'] || 'quatro-pedras-no-caminho'
 
 async function entrar(page: Page): Promise<void> {
-  await page.goto('/entrar')
-  // Espera o formulário inteiro: o campo "Clínica" pode aparecer depois do
-  // "Usuário", e perguntar antes deixa a clínica em branco.
-  await page.getByRole('button', { name: 'Entrar' }).waitFor()
-  await page.waitForLoadState('load')
-  const clinica = page.getByLabel('Clínica', { exact: true })
-  if (await clinica.isVisible().catch(() => false)) await clinica.fill(CLINICA)
+  // A clínica vai no link, e o teste espera ela RECOLHER: isso só acontece no
+  // efeito de montagem, depois da hidratação. Perguntar antes ("o campo
+  // Clínica está visível?") lia o HTML do servidor; no `next dev` a hidratação
+  // demora, o campo sumia no meio do `fill` e o que já fora digitado era
+  // apagado — "juliana não sai de /entrar" sem nenhuma tentativa falha.
+  await page.goto(`/entrar?clinica=${encodeURIComponent(CLINICA)}`)
+  await expect(page.locator('.clinica-do-link')).toContainText(CLINICA, { timeout: 30_000 })
   await page.getByLabel('Usuário').fill(USUARIO)
   await page.getByLabel('Senha', { exact: true }).fill(SENHA)
   await page.getByRole('button', { name: 'Entrar' }).click()

@@ -425,6 +425,9 @@ export type ParteDaJanela = {
   readonly forma: string
   readonly valor: Dinheiro
   readonly registradoPor: string | null
+  /** Os ids dos filtros do relatório 8 (unidade do recebimento e quem registrou). */
+  readonly unidadeId: string | null
+  readonly registradoPorId: string
 }
 
 /**
@@ -452,8 +455,10 @@ export async function partesDosRecebidosDaJanela(
     forma: string
     valor: string
     registrado_por: string | null
+    unidade_id: string | null
+    registrado_por_id: string
   }>(
-    `SELECT r.id AS recebimento_id, r.paciente_id,
+    `SELECT r.id AS recebimento_id, r.paciente_id, r.unidade_id, r.registrado_por AS registrado_por_id,
             CASE WHEN p.ativo THEN p.nome END AS paciente,
             ((r.recebido_em AT TIME ZONE $4)::date)::text AS dia,
             r.tipo, pt.forma, pt.valor::text AS valor, pe.nome AS registrado_por
@@ -475,6 +480,8 @@ export async function partesDosRecebidosDaJanela(
     forma: x.forma,
     valor: dinheiro(x.valor),
     registradoPor: x.registrado_por,
+    unidadeId: x.unidade_id,
+    registradoPorId: x.registrado_por_id,
   }))
 }
 

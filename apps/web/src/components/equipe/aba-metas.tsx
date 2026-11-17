@@ -14,6 +14,7 @@ import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { nomeDoMes, rotuloDoMes } from '@/lib/financeiro'
 import { ICONE_ANTERIOR, ICONE_PROXIMO } from '@/lib/icones'
 import { Carregando, Erro, Vazio } from '../estados'
+import { AtalhoDoIndicador } from '../indicadores/atalho-do-indicador'
 import { type CorpoDaMeta, MetaDoMes } from './meta-do-mes'
 
 /**
@@ -46,11 +47,14 @@ export function AbaMetas({
   hoje,
   avisar,
   podeValores,
+  podeIndicadores = false,
 }: {
   hoje: string
   avisar: (a: string) => void
   /** `temPerm(…, 'valores')`. Sem ela, a meta em R$ não é oferecida (a API dá 403). */
   podeValores: boolean
+  /** `temPerm(…, 'indicadores')`: o atalho para o KPI "Atingimento das metas individuais". */
+  podeIndicadores?: boolean
 }) {
   const [mes, setMes] = useState(hoje.slice(0, 7))
   const [versao, setVersao] = useState(0)
@@ -122,6 +126,8 @@ export function AbaMetas({
           {ICONE_PROXIMO}
         </button>
       </div>
+
+      {d === null ? null : <AtalhoDoIndicador kpiId={d.kpiDoAtingimentoId} podeIndicadores={podeIndicadores} />}
 
       {d !== null && d.mesAnteriorTemMetas ? (
         <div className="acoes-de-tela" style={{ marginBottom: 12 }}>

@@ -375,3 +375,37 @@ describe('permissão e clínica (appsec C3, C6)', () => {
     }
   })
 })
+
+describe('prioridades do trimestre (revisão P1): o servidor dá {quantos, media}, e a lista e a capa dão o mesmo', () => {
+  it('só os ATIVOS que tocam o trimestre; o encerrado e o do trimestre seguinte ficam fora', async () => {
+    const [a, b, e, f] = [await kpiManual('P-A'), await kpiManual('P-B'), await kpiManual('P-E'), await kpiManual('P-F')]
+    await lancar(a, 3000)
+    await lancar(b, 9000)
+    await lancar(e, 1000)
+    const ra = await criarOkr({ objetivo: 'Trinta', periodo: OUTUBRO, responsavelId: c.pessoas['beatriz'], resultadosChave: [{ kpiId: a, alvo: '10000' }] })
+    const rb = await criarOkr({ objetivo: 'Noventa', periodo: OUTUBRO, resultadosChave: [{ kpiId: b, alvo: '10000' }] })
+    const re = await criarOkr({ objetivo: 'Encerrado', periodo: OUTUBRO, resultadosChave: [{ kpiId: e, alvo: '10000' }] })
+    const rf = await criarOkr({ objetivo: 'Futuro', periodo: { tipo: 'trimestre', inicio: '2027-01-01' }, resultadosChave: [{ kpiId: f, alvo: '10000' }] })
+    for (const r of [ra, rb, re, rf]) expect(r.statusCode, JSON.stringify(r.body)).toBe(201)
+    expect((await postar(c, `/v1/indicadores/okrs/${re.body.id}/encerrar`, {}, 'beatriz')).statusCode).toBe(200)
+
+    const l = await pegar(c, '/v1/indicadores/okrs', {}, 'beatriz')
+    expect(l.statusCode).toBe(200)
+    // Os quatro na lista; na faixa, só Trinta e Noventa: média 60, não 43 (com o encerrado).
+    expect((l.body as { itens: Okr[] }).itens).toHaveLength(4)
+    expect(l.body.prioridades).toEqual({ quantos: 2, media: 60, trimestre: { inicio: '2026-10-01', fim: '2026-12-31' } })
+
+    // A capa da TV: o MESMO número, na mesma semana.
+    const capa = (await pegar(c, '/v1/indicadores/reuniao', {}, 'beatriz')).body.capa as { prioridades: unknown }
+    expect(capa.prioridades).toEqual({ quantos: 2, media: 60 })
+
+    // Os filtros da tela mudam só a faixa.
+    const minha = await pegar(c, '/v1/indicadores/okrs', { responsavel: c.pessoas['beatriz']! }, 'beatriz')
+    expect(minha.body.prioridades).toMatchObject({ quantos: 1, media: 30 })
+    const proximo = await pegar(c, '/v1/indicadores/okrs', { trimestre: '2027-01-01' }, 'beatriz')
+    expect(proximo.body.prioridades).toEqual({ quantos: 1, media: null, trimestre: { inicio: '2027-01-01', fim: '2027-03-31' } })
+    expect((proximo.body as { itens: Okr[] }).itens).toHaveLength(4)
+    expect((await pegar(c, '/v1/indicadores/okrs', { trimestre: '2026-10-15' }, 'beatriz')).statusCode).toBe(422)
+    expect((await pegar(c, '/v1/indicadores/okrs', { outro: '1' }, 'beatriz')).statusCode).toBe(400)
+  })
+})

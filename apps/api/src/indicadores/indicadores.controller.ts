@@ -2,6 +2,7 @@ import {
   type CatalogoDeKpisNaSaida,
   ConsultaDaPrevia,
   ConsultaDaSerie,
+  ConsultaDasSeries,
   ConsultaDeKpis,
   CriarKpi,
   CriarMetaDeKpi,
@@ -12,6 +13,7 @@ import {
   type MetaDeKpiNaSaida,
   type PreviaDaMeta,
   type SerieDoKpi,
+  type SeriesDosKpis,
 } from '@fir/contracts'
 import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, Put, Query, Req } from '@nestjs/common'
 import type { z } from 'zod'
@@ -68,6 +70,13 @@ export class IndicadoresController {
   @Exige('indicadores')
   async detalhe(@Req() req: RequisicaoComContexto, @Param('id', ParseUUIDPipe) id: string): Promise<DetalheDoKpi> {
     return this.indicadores.detalhe(ctxDe(req), id)
+  }
+
+  /** Os minigráficos da tela principal num pedido só (revisão P6); a permissão de cada KPI é a da porta única. */
+  @Get('series')
+  @Exige('indicadores')
+  async series(@Req() req: RequisicaoComContexto, @Query() q: unknown): Promise<SeriesDosKpis> {
+    return this.indicadores.seriesDoMinigrafico(ctxDe(req), ler(ConsultaDasSeries, q).ids)
   }
 
   @Get('kpis/:id/serie')

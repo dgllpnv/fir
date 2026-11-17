@@ -105,11 +105,14 @@ function canonico(v: unknown): unknown {
   if (typeof v === 'bigint') return v.toString()
   if (Array.isArray(v)) return v.map(canonico)
   if (typeof v === 'object' && v !== null) {
+    // Estreitado uma vez: as mesmas chaves próprias de `Object.keys`, na mesma
+    // ordem de unidade UTF-16 do `sort()` — o hash gravado na 0109 não muda.
+    const campos: [string, unknown][] = Object.entries(v)
     return Object.fromEntries(
-      Object.keys(v)
-        .sort()
-        .filter((k) => (v as Record<string, unknown>)[k] !== undefined)
-        .map((k) => [k, canonico((v as Record<string, unknown>)[k])]),
+      campos
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .filter(([, x]) => x !== undefined)
+        .map(([k, x]) => [k, canonico(x)]),
     )
   }
   return v

@@ -1,7 +1,17 @@
 'use client'
 
-import type { KpiNaLista, ListaDaEquipe, ListaDeKpis, ListaDeOkrs, ListaDeUnidades, OkrNaSaida, SerieDoKpi } from '@fir/contracts'
-import { type PilarDeKpi, PILARES_DE_KPI, progressoDoOkr, somarMeses } from '@fir/domain'
+import {
+  type KpiNaLista,
+  type ListaDaEquipe,
+  type ListaDeKpis,
+  type ListaDeOkrs,
+  type ListaDeUnidades,
+  MAXIMO_DE_SERIES_POR_PEDIDO,
+  type OkrNaSaida,
+  type SerieDoKpi,
+  type SeriesDosKpis,
+} from '@fir/contracts'
+import { type PilarDeKpi, PILARES_DE_KPI } from '@fir/domain'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Carregando, Erro, Toast, Vazio } from '@/components/estados'
 import { Modal } from '@/components/modal'
@@ -48,11 +58,10 @@ type Pergunta = { readonly titulo: string; readonly texto: string; readonly rotu
  * ────────────────────────────────────────────────────────────────────────────
  * ESTA TELA NÃO CALCULA NADA QUE O SERVIDOR CALCULA
  *
- * Valor, meta, ritmo, situação, progresso, projeção e variação chegam prontos.
- * O único número feito aqui é a média do resumo da faixa de OKRs, e ele sai
- * da MESMA função do domínio que o servidor usa no progresso de cada OKR
- * (`progressoDoOkr`, média meio-para-cima dos exibidos, números c.12) — e
- * contar cartões ("12 indicadores · 2 em atenção") é contar, não calcular.
+ * Valor, meta, ritmo, situação, progresso, projeção e variação chegam prontos,
+ * e o resumo da faixa de OKRs também (`prioridades`, revisão P1: os ATIVOS do
+ * trimestre e a média deles, o mesmo número da capa da reunião). Contar
+ * cartões ("12 indicadores · 2 em atenção") é contar, não calcular.
  * ────────────────────────────────────────────────────────────────────────────
  *
  * Os botões de gestão ("+ Novo", "Editar OKR", "Definir meta") aparecem para
@@ -81,7 +90,11 @@ export function TelaIndicadores({
   const [pergunta, setPergunta] = useState<Pergunta | null>(null)
   const [respondendo, setRespondendo] = useState(false)
 
-  const okrs = useDados<ListaDeOkrs>('v1/indicadores/okrs')
+  // `trimestre` e `responsavel` só mudam `prioridades` (o resumo da faixa); a
+  // lista de OKRs vem inteira. Trimestre vazio é o de hoje, no servidor.
+  const okrs = useDados<ListaDeOkrs>(
+    `v1/indicadores/okrs${consultaEmTexto({ trimestre: trimestre === '' ? undefined : trimestre, responsavel: responsavel === '' ? undefined : responsavel })}`,
+  )
   const hojeDoServidor = okrs.dados?.hoje ?? null
   const trimestres = useMemo(() => (hojeDoServidor === null ? [] : trimestresAte(hojeDoServidor)), [hojeDoServidor])
   const atual = trimestres[0] ?? null
@@ -208,7 +221,7 @@ export function TelaIndicadores({
   const okrsDoPeriodo = (okrs.dados?.itens ?? []).filter(
     (o) => (escolhido === null || okrNoPeriodo(o, escolhido)) && (responsavel === '' || o.responsavelId === responsavel),
   )
-  const media = progressoDoOkr(okrsDoPeriodo.map((o) => o.progresso))
+  const prioridades = okrs.dados?.prioridades ?? null
   const okrsAtivos = (okrs.dados?.itens ?? []).filter((o) => o.estado === 'ativo')
 
   // ---- faixa 2
@@ -229,6 +242,11 @@ export function TelaIndicadores({
           <a className="btn ghost" href="/indicadores/reuniao">
             Modo reunião
           </a>
+          {/* Backlog 1.5. É o mesmo desenho da tela: sem `valores`, o servidor já
+              apagou os reais, e o papel sai sem R$ do mesmo jeito. */}
+          <button type="button" className="btn ghost" onClick={() => window.print()}>
+            Imprimir ou salvar em PDF
+          </button>
           {podeGerir ? (
             <MenuSuspenso
               rotulo="+ Novo"
@@ -313,10 +331,10 @@ export function TelaIndicadores({
       <section className="ii-faixa" aria-labelledby="ii-faixa-okrs">
         <div className="ii-faixa-cabeca">
           <h3 id="ii-faixa-okrs">Prioridades do trimestre</h3>
-          {okrs.dados === null || okrsDoPeriodo.length === 0 ? null : (
+          {prioridades === null || prioridades.quantos === 0 ? null : (
             <span className="ii-resumo">
-              {okrsDoPeriodo.length} {okrsDoPeriodo.length === 1 ? 'objetivo' : 'objetivos'}
-              {media === null ? '' : ` · média ${media}%`}
+              {prioridades.quantos} em andamento
+              {prioridades.media === null ? '' : ` · média ${prioridades.media}%`}
             </span>
           )}
         </div>
@@ -459,29 +477,26 @@ export function TelaIndicadores({
 }
 
 /**
- * Os minigráficos: uma série por KPI, pedida depois da lista. KPI mensal pede
- * os últimos 6 meses (C.1); o semanal fica com a janela padrão da rota (os
- * últimos 3 meses, mês a mês) — a rota agrupa por mês toda janela de mais de
- * um mês, e as 8 semanas da 1.9 ainda não têm como sair dela.
+ * Os minigráficos (backlog 1.9 C.1): as séries de todos os KPIs num pedido só
+ * (revisão P6), em lotes do teto da rota. A janela é do servidor: o KPI
+ * semanal sai com as últimas 8 semanas, o mensal com os últimos 6 meses.
  */
 function useSeries(lista: ListaDeKpis | null): ReadonlyMap<string, SerieDoKpi> {
   const [series, setSeries] = useState<ReadonlyMap<string, SerieDoKpi>>(new Map())
   useEffect(() => {
     if (lista === null) return
     let valeu = true
-    const seisMeses = somarMeses(`${lista.hoje.slice(0, 7)}-01`, -5)
-    Promise.allSettled(
-      lista.itens.map((k) =>
-        chamar<SerieDoKpi>(
-          `v1/indicadores/kpis/${k.id}/serie${k.frequencia === 'mensal' ? consultaEmTexto({ de: seisMeses, ate: lista.hoje }) : ''}`,
-        ),
-      ),
-    ).then((rs) => {
-      if (!valeu) return
-      const m = new Map<string, SerieDoKpi>()
-      for (const r of rs) if (r.status === 'fulfilled') m.set(r.value.kpiId, r.value)
-      setSeries(m)
-    })
+    const ids = lista.itens.map((k) => k.id)
+    const lotes: string[][] = []
+    for (let i = 0; i < ids.length; i += MAXIMO_DE_SERIES_POR_PEDIDO) lotes.push(ids.slice(i, i + MAXIMO_DE_SERIES_POR_PEDIDO))
+    Promise.allSettled(lotes.map((lote) => chamar<SeriesDosKpis>(`v1/indicadores/series${consultaEmTexto({ ids: lote.join(',') })}`))).then(
+      (rs) => {
+        if (!valeu) return
+        const m = new Map<string, SerieDoKpi>()
+        for (const r of rs) if (r.status === 'fulfilled') for (const s of r.value.itens) m.set(s.kpiId, s)
+        setSeries(m)
+      },
+    )
     return () => {
       valeu = false
     }

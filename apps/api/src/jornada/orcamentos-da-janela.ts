@@ -13,6 +13,8 @@ export type OrcamentoDaJanela = {
   readonly etapa: string
   /** O NOME do motivo do último `perder` vivo — só com o cartão em `perdido`. Nunca a nota. */
   readonly motivo: string | null
+  /** O id do motivo desse mesmo `perder` (o filtro do relatório 13); o da coluna para o evento antigo sem ele. */
+  readonly motivoId: string | null
   readonly valorOrcamento: bigint | null
 }
 
@@ -38,6 +40,7 @@ export async function orcamentosDaJanela(
     dia: string
     etapa: string
     motivo: string | null
+    motivo_id: string | null
     valor_orcamento: string | null
   }>(
     `SELECT t.id, t.paciente_id, CASE WHEN pa.ativo THEN pa.nome END AS nome,
@@ -46,6 +49,10 @@ export async function orcamentosDaJanela(
               SELECT p.v->>'motivo' FROM jsonb_array_elements(t.historico) WITH ORDINALITY AS p(v, o)
                WHERE p.v->>'acao' = 'perder' AND NOT ${sqlEventoDesfeito('t', 'p.v', 'p.o')}
                ORDER BY p.o DESC LIMIT 1) END AS motivo,
+            CASE WHEN t.etapa = 'perdido' THEN coalesce((
+              SELECT p.v->>'motivoId' FROM jsonb_array_elements(t.historico) WITH ORDINALITY AS p(v, o)
+               WHERE p.v->>'acao' = 'perder' AND NOT ${sqlEventoDesfeito('t', 'p.v', 'p.o')}
+               ORDER BY p.o DESC LIMIT 1), t.motivo_perda_id::text) END AS motivo_id,
             t.valor_orcamento::text AS valor_orcamento
        FROM tarefas t
        JOIN pacientes pa ON pa.id = t.paciente_id AND pa.clinica_id = t.clinica_id
@@ -73,6 +80,7 @@ export async function orcamentosDaJanela(
     dia: l.dia,
     etapa: l.etapa,
     motivo: l.motivo,
+    motivoId: l.motivo_id,
     valorOrcamento: l.valor_orcamento === null ? null : BigInt(l.valor_orcamento),
   }))
 }

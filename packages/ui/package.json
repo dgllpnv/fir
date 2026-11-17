@@ -25,6 +25,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@fir/domain": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.7",
     "vitest": "^2"

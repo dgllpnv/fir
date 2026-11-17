@@ -82,6 +82,8 @@ function folha(s: z.ZodTypeAny): z.ZodTypeAny {
   for (;;) {
     if (atual instanceof z.ZodOptional || atual instanceof z.ZodNullable) atual = atual.unwrap()
     else if (atual instanceof z.ZodDefault) atual = atual.removeDefault()
+    // A lista (procedimentos e situações do 5) é tão livre quanto o elemento dela.
+    else if (atual instanceof z.ZodArray) atual = atual.element
     else if (atual instanceof z.ZodEffects) atual = atual.innerType()
     else return atual
   }

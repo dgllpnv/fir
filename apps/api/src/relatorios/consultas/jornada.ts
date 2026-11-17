@@ -6,14 +6,14 @@ import type {
   ResumoOrcamentos,
   SituacaoDoRecontato,
 } from '@fir/contracts'
-import { Dinheiro, faltaMadura, janela, recontatoEmAteDoisDias, somarDias } from '@fir/domain'
+import { Dinheiro, faltaMadura, janela, recontatoEmAteDoisDias, ROTULO_DE_ETAPA, somarDias } from '@fir/domain'
 import type pg from 'pg'
 import type { z } from 'zod'
 import { historicosDaJanela } from '../../jornada/historicos-da-janela'
 import { cartoesDosPagamentos, orcamentosDaJanela } from '../../jornada/orcamentos-da-janela'
 import { contarConversaoDeOrcamentos } from '../../painel-geral/metricas-diarias'
 import { pagamentosDeOrcamentoDosDiasQueContam } from '../../painel-geral/totais-de-pacientes'
-import { type ContextoDaConsulta, cortar, type Linha, periodoEmTexto, type SaidaDaConsulta } from '../consultas'
+import { type ContextoDaConsulta, cortar, type Linha, nomeOu422, periodoEmTexto, type SaidaDaConsulta } from '../consultas'
 
 /**
  * **AS CONSULTAS DA JORNADA DO T9** (relatórios 13 e 14).
@@ -46,16 +46,38 @@ export async function orcamentos(
     ctx.clinicaId,
     pagamentos.map((p) => p.tarefaId),
   )
-  const todos = await orcamentosDaJanela(c, ctx.clinicaId, j, ctx.fuso, [...new Set(cartaoDe.values())])
+  const filtrosEmTexto = [periodoEmTexto(f.de, f.ate), 'Pela data do orçamento ou do pagamento do orçamento']
+  if (f.etapa !== undefined) filtrosEmTexto.push(`Etapa: ${ROTULO_DE_ETAPA[f.etapa]}`)
+  if (f.motivoDePerdaId !== undefined) {
+    const nome = await nomeOu422(
+      c,
+      'SELECT nome FROM motivos_de_perda WHERE id = $1 AND clinica_id = $2',
+      [f.motivoDePerdaId, ctx.clinicaId],
+      'Motivo de perda',
+    )
+    filtrosEmTexto.push(`Motivo da perda: ${nome}`)
+  }
+  // A etapa é a do CARTÃO (a coluna); o motivo, o do último `perder` vivo — só
+  // cartão perdido o tem. O pagamento sem cartão é "fechado" e não tem motivo.
+  const casa = (etapa: string, motivoId: string | null): boolean =>
+    (f.etapa === undefined || etapa === f.etapa) && (f.motivoDePerdaId === undefined || motivoId === f.motivoDePerdaId)
+  const todos = (await orcamentosDaJanela(c, ctx.clinicaId, j, ctx.fuso, [...new Set(cartaoDe.values())])).filter((o) =>
+    casa(o.etapa, o.motivoId),
+  )
+  const comRecorte = f.etapa !== undefined || f.motivoDePerdaId !== undefined
   const funil = await contarConversaoDeOrcamentos(c, ctx.clinicaId, j)
 
   // Cada pagamento vai para a linha do seu cartão; o sem cartão vira linha própria.
   const doCartao = new Map<string, Dinheiro>()
   const semCartao = new Map<string, Dinheiro>()
   let total = Dinheiro.zero()
+  const cartoesDoRecorte = new Set(todos.map((o) => o.tarefaId))
   for (const p of pagamentos) {
-    total = total.mais(p.valor)
     const k = cartaoDe.get(p.tarefaId)
+    // Com recorte, o pagamento entra só com o cartão dele no recorte (ou, sem
+    // cartão, se o recorte aceita "fechado" sem motivo): Σ da coluna = resumo.
+    if (comRecorte && (k === undefined ? !casa('fechado', null) : !cartoesDoRecorte.has(k))) continue
+    total = total.mais(p.valor)
     if (k === undefined) semCartao.set(p.tarefaId, (semCartao.get(p.tarefaId) ?? Dinheiro.zero()).mais(p.valor))
     else doCartao.set(k, (doCartao.get(k) ?? Dinheiro.zero()).mais(p.valor))
   }
@@ -108,7 +130,7 @@ export async function orcamentos(
       valorFechado: total.centavos.toString(),
     },
     truncado,
-    filtrosEmTexto: [periodoEmTexto(f.de, f.ate), 'Pela data do orçamento ou do pagamento do orçamento'],
+    filtrosEmTexto,
     pacienteIds: [...new Set(linhas.flatMap((o) => (typeof o.pacienteId === 'string' ? [o.pacienteId] : [])))],
     optIn: [],
   }
@@ -154,19 +176,25 @@ export async function faltasEDesmarcacoes(
     }
   }
   todas.sort((a, b) => (a.em === b.em ? (a.cartao < b.cartao ? -1 : 1) : a.em < b.em ? -1 : 1))
-  const maduras = todas.filter((x) => x.madura)
+  // "Recontatada: sim" = houve recontato, no prazo ou depois; "não" = ainda não.
+  const RECONTATADAS: ReadonlySet<string> = new Set(['recontatada', 'recontatada-depois'])
+  const doRecorte = f.recontatada === undefined ? todas : todas.filter((x) => RECONTATADAS.has(x.situacao) === (f.recontatada === 'sim'))
+  const maduras = doRecorte.filter((x) => x.madura)
 
-  const { linhas, truncado } = cortar(todas, ctx.limite)
+  const { linhas, truncado } = cortar(doRecorte, ctx.limite)
   return {
     linhas: linhas.map(({ em: _em, cartao: _c, madura: _m, emAteDoisDias: _e, ...l }) => l),
     resumo: {
-      faltas: todas.length,
+      faltas: doRecorte.length,
       maduras: maduras.length,
       recontatadasEmAteDoisDias: maduras.filter((x) => x.emAteDoisDias).length,
-      aguardandoPrazo: todas.filter((x) => x.situacao === 'aguardando-prazo').length,
+      aguardandoPrazo: doRecorte.filter((x) => x.situacao === 'aguardando-prazo').length,
     },
     truncado,
-    filtrosEmTexto: [periodoEmTexto(f.de, f.ate)],
+    filtrosEmTexto: [
+      periodoEmTexto(f.de, f.ate),
+      ...(f.recontatada === undefined ? [] : [f.recontatada === 'sim' ? 'Só as recontatadas' : 'Só as sem recontato']),
+    ],
     pacienteIds: [...new Set(linhas.flatMap((l) => (l.pacienteId === null || l.pacienteId === undefined ? [] : [l.pacienteId])))],
     optIn: ctx.incluirTelefone ? ['telefone'] : [],
   }

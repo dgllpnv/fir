@@ -17,6 +17,7 @@ import { consultaEmTexto, useDados } from '@/lib/dados'
 import { centavos } from '@/lib/financeiro'
 import { diaCurto, plural } from '@/lib/formato'
 import { CartaoDeTarefa } from './cartao-de-tarefa'
+import { AtalhoDoIndicador } from './indicadores/atalho-do-indicador'
 import { Carregando, Erro, Toast } from './estados'
 import { PainelDeEdicao } from './painel-de-edicao'
 import {
@@ -80,6 +81,7 @@ export function TelaCampanha({
   podeReceber,
   podeValores,
   podePacientes,
+  podeIndicadores = false,
 }: {
   id: string
   /** Os recortes da lista de onde a pessoa veio, para o "← Campanhas" voltar a ela. */
@@ -90,6 +92,8 @@ export function TelaCampanha({
   podeReceber: boolean
   podeValores: boolean
   podePacientes: boolean
+  /** Só para o atalho "Acompanhar em Indicadores" (S6). */
+  podeIndicadores?: boolean
 }) {
   const router = useRouter()
   const [situacao, setSituacao] = useState<Situacao>('tudo')
@@ -323,6 +327,7 @@ export function TelaCampanha({
           </span>
         </div>
         {c.objetivo === '' ? null : <p className="nota">{c.objetivo}</p>}
+        <AtalhoDoIndicador kpiId={c.kpiDoResultadoId} podeIndicadores={podeIndicadores} />
       </div>
 
       <div className="acoes-de-tela" style={{ marginBottom: 12 }}>

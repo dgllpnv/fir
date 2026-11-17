@@ -1,5 +1,4 @@
 import type { KpiNaReuniao, ReuniaoDeIndicadores } from '@fir/contracts'
-import { progressoDoOkr } from '@fir/domain'
 import { diaEMes, emAtencao, ordenarPorSituacao, situacaoDoCartao } from './na-tela'
 
 /**
@@ -10,9 +9,9 @@ import { diaEMes, emAtencao, ordenarPorSituacao, situacaoDoCartao } from './na-t
  * amarelo, o vermelho antes; (4) "Planos de ação da semana".
  *
  * Aqui só se ESCOLHE e se ORDENA o que o servidor mandou. A situação de cada
- * meta chega pronta; o único número montado é a média da capa, e ele sai da
- * mesma função do domínio que o servidor usa no progresso do OKR
- * (`progressoDoOkr`) — o mesmo da faixa "Prioridades do trimestre" (T5).
+ * meta chega pronta, e o número da capa também (`capa.prioridades`, revisão
+ * P1): é o MESMO objeto da faixa "Prioridades do trimestre", então a tela e a
+ * TV dão o mesmo número na mesma semana.
  */
 type OkrNaReuniao = ReuniaoDeIndicadores['okrs'][number]
 
@@ -40,11 +39,13 @@ export const textoDaSemana = (s: ReuniaoDeIndicadores['semana']): string => `Sem
  * contagens (appsec C8) — nenhuma frase pronta —, e a frase nasce aqui. Sem
  * dinheiro: nada nela vem de um `ValorNaTela`.
  */
-export function resumoDaCapa(r: Pick<ReuniaoDeIndicadores, 'capa' | 'okrs'>): string {
+export function resumoDaCapa(r: Pick<ReuniaoDeIndicadores, 'capa'>): string {
   const partes: string[] = []
-  const n = r.capa.okrsAtivos
+  // Sem `prioridades` (servidor antigo), a contagem dos slides e nenhuma média:
+  // a média não se refaz aqui.
+  const n = r.capa.prioridades?.quantos ?? r.capa.okrsAtivos
   partes.push(`${n} ${n === 1 ? 'OKR' : 'OKRs'}`)
-  const media = progressoDoOkr(r.okrs.map((o) => o.progresso))
+  const media = r.capa.prioridades?.media ?? null
   if (media !== null) partes.push(`${media}%`)
   const v = r.capa.abaixo
   partes.push(v === 0 ? 'nenhuma meta em vermelho' : `${v} ${v === 1 ? 'meta em vermelho' : 'metas em vermelho'}`)

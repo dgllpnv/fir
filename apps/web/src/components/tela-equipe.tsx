@@ -65,7 +65,16 @@ type Aberta =
       readonly prefixo?: { nome: string; cargo: string; pessoaId: string }
     }
 
-export function TelaEquipe({ hoje, podeValores }: { hoje: string; podeValores: boolean }) {
+export function TelaEquipe({
+  hoje,
+  podeValores,
+  podeIndicadores = false,
+}: {
+  hoje: string
+  podeValores: boolean
+  /** Só para o atalho "Acompanhar em Indicadores" das metas (S6). */
+  podeIndicadores?: boolean
+}) {
   const [aba, setAba] = useState<Aba>('geral')
   const [aberta, setAberta] = useState<Aberta>({ tipo: 'nenhuma' })
   const [recado, setRecado] = useState<string | null>(null)
@@ -132,7 +141,7 @@ export function TelaEquipe({ hoje, podeValores }: { hoje: string; podeValores: b
       {aba === 'geral' ? (
         <VisaoGeral key={versao} abrir={(a) => setAberta(a)} avisar={setRecado} />
       ) : aba === 'metas' ? (
-        <AbaMetas hoje={hoje} avisar={setRecado} podeValores={podeValores} />
+        <AbaMetas hoje={hoje} avisar={setRecado} podeValores={podeValores} podeIndicadores={podeIndicadores} />
       ) : aba === 'conversas' ? (
         <AbaConversas hoje={hoje} avisar={setRecado} />
       ) : (

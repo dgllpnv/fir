@@ -602,12 +602,24 @@ export class MetasService {
       [mesAnterior],
     )
 
+    // O KPI `atingimento_metas_individuais` VIVO (lugar único, revisão S6): só o
+    // id, para o link "Ver em Indicadores". A rota já exige `pessoas.gerir`, que
+    // é a `permissaoDoValor` dele — quem vê esta aba pode ver o KPI.
+    const kpi = await c.query<{ id: string }>(
+      `SELECT id FROM kpis
+        WHERE clinica_id = $1 AND origem = 'catalogo' AND chave_catalogo = 'atingimento_metas_individuais'
+          AND parametros = '{}'::jsonb AND arquivado_em IS NULL
+        ORDER BY criado_em, id LIMIT 1`,
+      [ctx.clinicaId],
+    )
+
     return {
       mes,
       mesAnterior,
       mesAnteriorTemMetas: Number(anterior.rows[0]!.n) > 0,
       pessoas,
       maxMetasPorPessoa: MAX_METAS_POR_PESSOA_NO_MES,
+      kpiDoAtingimentoId: kpi.rows[0]?.id ?? null,
     }
   }
 

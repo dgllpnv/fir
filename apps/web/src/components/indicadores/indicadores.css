@@ -162,7 +162,7 @@
 .ii-kpi-rodape { display: flex; justify-content: space-between; align-items: center; gap: 6px 10px; flex-wrap: wrap; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .ii-kpi-rodape .ii-fonte { color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
 .ii-kpi-acoes { display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.ii-kpi-acoes .link { min-height: 36px; font-size: 13px; }
+.ii-kpi-acoes .link { min-height: 44px; font-size: 13px; }
 /* KPI manual com lançamento atrasado (C.1): faixa amarela no topo. O texto é
    `--ink` sobre `--warn-soft` (par medido em contraste.test.ts); o amarelo
    que carrega o aviso é o traço da esquerda, `--warn`. */
@@ -269,6 +269,7 @@
 .ii-catalogo button:hover b { color: var(--gold-ink); }
 .ii-catalogo button:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: -2px; }
 .ii-catalogo button span { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.ii-catalogo-previa { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; align-self: center; white-space: nowrap; }
 .ii-catalogo button em { font-style: normal; font-size: 12px; font-weight: 600; color: var(--on-gold-soft); background: var(--gold-soft); border-radius: 999px; padding: 2px 8px; align-self: center; }
 
 .ii-opcoes { display: flex; flex-wrap: wrap; gap: 6px 16px; }
@@ -287,3 +288,13 @@ fieldset.ii-grupo legend { font-size: 13px; font-weight: 600; padding: 0; margin
 .ii-painel .campo input, .ii-painel .campo select, .ii-filtros .campo select { font-variant-numeric: tabular-nums; }
 .ii-painel .campo .erro { display: block; }
 .ii-veu[hidden] { display: none; }
+
+/* ---------- impressão (backlog 1.5) ----------
+   O menu e a barra do topo já somem pelo `@media print` global (rotina.css).
+   Aqui some o que é ação e fica o que é número; cartão não se parte entre
+   páginas. Os filtros ficam, recolhidos ou não: dizem de que período é o papel. */
+@media print {
+  .ii-acoes, .ii-abas, .ii-filtros-botao, .ii-faixa .btn, .ii-kpi-acoes, .ii-okr-rodape button, .ii-kpi-pendente button { display: none !important; }
+  .ii-filtros-campos { display: flex !important; }
+  .ii-kpi, .ii-okr { break-inside: avoid; }
+}

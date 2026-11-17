@@ -1,4 +1,4 @@
-import type { ConfigDoAcesso } from '@fir/contracts'
+import { ConfigDoAcesso } from '@fir/contracts'
 
 const API = process.env.FIR_API_URL || 'http://127.0.0.1:4811'
 
@@ -14,8 +14,8 @@ export async function envioDeEmailLigado(): Promise<boolean> {
   try {
     const r = await fetch(`${API}/v1/acesso/config`, { cache: 'no-store' })
     if (!r.ok) return false
-    const c = (await r.json()) as Partial<ConfigDoAcesso>
-    return c.envioDeEmail === true
+    const c = ConfigDoAcesso.safeParse(await r.json().catch(() => null))
+    return c.success && c.data.envioDeEmail
   } catch {
     return false
   }

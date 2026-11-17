@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CAMPOS_MONETARIOS, PERMS, perfisPadrao, temPerm, type Perfil } from './permissoes'
+import { CAMPOS_MONETARIOS, ehChaveDePermissao, PERMS, perfisPadrao, temPerm, type Perfil } from './permissoes'
 
 const perfis = perfisPadrao()
 const recepcao = { admin: false, perfilId: 'pf_rec' }
@@ -66,5 +66,12 @@ describe('campos monetários', () => {
     for (const c of ['valor', 'valorAberto', 'valorOrcamento', 'custo', 'salario']) {
       expect(CAMPOS_MONETARIOS).toContain(c)
     }
+  })
+})
+
+describe('ehChaveDePermissao', () => {
+  it('toda chave da tabela é chave; texto fora dela não é (falha fechado)', () => {
+    for (const p of PERMS) expect(ehChaveDePermissao(p[1])).toBe(true)
+    for (const x of ['', 'Valores', 'valores ', 'admin', 'jornada.tudo']) expect(ehChaveDePermissao(x), x).toBe(false)
   })
 })

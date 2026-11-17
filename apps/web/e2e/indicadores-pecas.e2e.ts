@@ -22,9 +22,13 @@ const GESTORA = process.env['FIR_E2E_USUARIO'] || 'helena'
 const RECEPCAO = process.env['FIR_E2E_RECEPCAO'] || 'juliana'
 
 async function entrar(page: Page, usuario: string): Promise<void> {
-  await page.goto('/entrar')
-  const clinica = page.getByLabel('Clínica', { exact: true })
-  if (await clinica.isVisible().catch(() => false)) await clinica.fill(CLINICA)
+  // A clínica vai no link, e o teste espera ela RECOLHER: isso só acontece no
+  // efeito de montagem, depois da hidratação. Perguntar antes ("o campo
+  // Clínica está visível?") lia o HTML do servidor; no `next dev` a hidratação
+  // demora, o campo sumia no meio do `fill` e o que já fora digitado era
+  // apagado — "juliana não sai de /entrar" sem nenhuma tentativa falha.
+  await page.goto(`/entrar?clinica=${encodeURIComponent(CLINICA)}`)
+  await expect(page.locator('.clinica-do-link')).toContainText(CLINICA, { timeout: 30_000 })
   await page.getByLabel('Usuário').fill(usuario)
   await page.getByLabel('Senha', { exact: true }).fill(SENHA)
   await page.getByRole('button', { name: 'Entrar' }).click()
@@ -116,7 +120,7 @@ test('a responsável SEM `indicadores` lança pela tarefa em Hoje', async ({ pag
     await expect(janela.getByRole('heading', { name: `Lançar: ${nome}` })).toBeVisible()
     await expect(janela.getByText('Nota média do Google no domingo')).toBeVisible()
     await janela.getByLabel(/^Valor/).fill('9,1')
-    await janela.getByRole('button', { name: 'Salvar' }).click()
+    await janela.getByRole('button', { name: 'Salvar', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('Valor lançado. A tarefa de lançamento foi concluída.')
     await expect(janela).toBeHidden()
 
@@ -147,7 +151,7 @@ test('o cartão pendente mostra a faixa amarela, e "Lançar agora" a tira', asyn
     // Quem gerencia também lança (podeLancar).
     await cartao.getByRole('button', { name: 'Lançar agora' }).click()
     await page.getByRole('dialog').getByLabel(/^Valor/).fill('8')
-    await page.getByRole('dialog').getByRole('button', { name: 'Salvar' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Salvar', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('Valor lançado')
     await expect(cartao.getByText('Lançamento da semana pendente')).toBeHidden()
     await expect(cartao.getByText(/^lançado por \S+ em \d{2}\/\d{2}$/)).toBeVisible()
@@ -172,7 +176,7 @@ test('a meta "Todo mês (recorrente)": mês inteiro, partida 0, e o detalhe diz 
     await expect(page.getByLabel('Valor de partida')).toBeDisabled()
     await page.getByLabel(/Valor-alvo/).fill('9')
     expect(await semRolagemDeLado(page)).toBe(true)
-    await page.getByRole('button', { name: 'Salvar' }).click()
+    await page.getByRole('button', { name: 'Salvar', exact: true }).click()
     await expect(page.getByRole('status')).toContainText('Meta criada.')
 
     // O servidor criou a série: este mês e o próximo.

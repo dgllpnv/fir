@@ -129,7 +129,7 @@ const paraSaida = (l: LinhaDePaciente, s: SaldoDoPaciente): PacienteNaLista => (
  * discordaria do da ficha no primeiro filtro que só um dos dois recebesse.
  * Pressupõe `pacientes p` e `recebimentos r`.
  */
-const COMPRA_DO_PACIENTE = `r.paciente_id = p.id AND r.estornado_em IS NULL
+export const COMPRA_DO_PACIENTE = `r.paciente_id = p.id AND r.estornado_em IS NULL
              AND ${DINHEIRO_QUE_ENTROU}`
 
 /**
@@ -264,30 +264,6 @@ export async function comprasDosPacientes(
     valorDaUltimaCompra: BigInt(l.valor_da_ultima),
     procedimento: l.procedimento,
   }))
-}
-
-/**
- * O LTV e o número de compras de pacientes ESCOLHIDOS, ativas ou não — o mesmo
- * `COMPRA_DO_PACIENTE` da ficha. É a "receita das indicadas" do relatório 4:
- * a indicada desativada conta, como conta em "Quem mais indica" (N-20).
- */
-export async function comprasPorPaciente(
-  c: pg.PoolClient,
-  clinicaId: ClinicaId,
-  pacienteIds: readonly string[],
-): Promise<Map<string, { readonly ltv: bigint; readonly compras: number }>> {
-  const fora = new Map<string, { ltv: bigint; compras: number }>()
-  if (pacienteIds.length === 0) return fora
-  const r = await c.query<{ id: string; ltv: string; compras: string }>(
-    `SELECT p.id, coalesce(sum(r.valor), 0)::bigint::text AS ltv, count(r.id)::text AS compras
-       FROM pacientes p
-       LEFT JOIN recebimentos r ON ${COMPRA_DO_PACIENTE}
-      WHERE p.clinica_id = $1 AND p.id = ANY($2::uuid[])
-      GROUP BY p.id`,
-    [clinicaId, [...pacienteIds]],
-  )
-  for (const l of r.rows) fora.set(l.id, { ltv: BigInt(l.ltv), compras: Number(l.compras) })
-  return fora
 }
 
 /** A paciente ATIVA com o "movimento" da lista de pacientes (relatórios 2 e 7). */

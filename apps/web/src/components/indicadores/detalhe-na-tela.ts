@@ -401,6 +401,14 @@ export function desenharMeta(
       }
     }
   }
+  // O último vértice do acumulado é o `meta.atual` do servidor, não a soma das
+  // barras: se a série e a meta medirem janelas diferentes (um dia fora, um
+  // balde parcial), a linha terminaria longe do "Valor atual" impresso ao lado
+  // e do começo da projeção. A soma acima só dá a FORMA até lá.
+  const ultimo = real[real.length - 1]
+  if (agregacao === 'soma' && atual !== null && ultimo !== undefined && real.length > 1) {
+    real[real.length - 1] = { ...ultimo, v: atual }
+  }
   if (real.length === 0 && atual !== null && xCorte !== null) {
     real.push({ x: 0, v: partida, texto: `${diaEMes(meta.inicio)}: partida` })
     real.push({ x: xCorte, v: atual, texto: `${diaEMes(corte)}: ${textoDaMedida(meta.atual)}` })
@@ -487,9 +495,6 @@ export function textoDoAlvo(meta: MetaDeKpiNaSaida): string {
   return formatarValorNaTela(meta.alvo) ?? 'Meta definida'
 }
 
-/** A fonte do catálogo sem a referência interna da spec, "(I-9)". */
-export const fonteNaTela = (fonte: string | null): string | null =>
-  fonte === null ? null : fonte.replace(/\s*\((?:I|c|B|C)-?\d+[a-z]?\)/g, '').trim()
 
 /** As metas que já terminaram, da mais recente para a mais antiga. */
 export function metasAnteriores(metas: readonly MetaDeKpiNaSaida[], vigente: string | null, hoje: string): MetaDeKpiNaSaida[] {

@@ -119,6 +119,7 @@ type LinhaDeCampanha = {
   pac_alcancados: string
   pac_convertidos: string
   receita: string
+  kpi_do_resultado_id: string | null
 }
 
 @Injectable()
@@ -1047,7 +1048,13 @@ export class CampanhasService {
                   WHERE f.status = 'concluida' AND f.paciente_id IS NOT NULL
                     AND f.tipo = ANY($3)
                 )::text AS pac_convertidos,
-                coalesce(sum(f.receita), 0)::text AS receita
+                coalesce(sum(f.receita), 0)::text AS receita,
+                -- O KPI \`resultado_de_campanha\` VIVO desta campanha (lugar único, S6): só o id, nunca o valor.
+                (SELECT k.id::text FROM kpis k
+                  WHERE k.clinica_id = cp.clinica_id AND k.origem = 'catalogo'
+                    AND k.chave_catalogo = 'resultado_de_campanha' AND k.arquivado_em IS NULL
+                    AND k.parametros->>'campanhaId' = cp.id::text
+                  ORDER BY k.criado_em, k.id LIMIT 1) AS kpi_do_resultado_id
            FROM campanhas cp
            LEFT JOIN feitas f ON f.campanha_id = cp.id
           WHERE cp.clinica_id = $1 AND cp.excluida_em IS NULL
@@ -1156,6 +1163,7 @@ function montarCampanha(
       pacAlcancados === 0
         ? null
         : percentualInteiro(BigInt(pacConvertidos), BigInt(pacAlcancados)),
+    kpiDoResultadoId: l.kpi_do_resultado_id,
   }
 }
 

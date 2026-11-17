@@ -1,9 +1,10 @@
-import { type ChaveDePermissao, somarMeses } from '@fir/domain'
+import { CATEGORIAS_DESP, type ChaveDePermissao, ETAPAS, type NomeDeCategoria, somarMeses, TIPOS } from '@fir/domain'
 import { z } from 'zod'
 import { MAX_LINHAS_DA_CAMPANHA, SalvarCampanha } from './campanhas'
 import { centavosNaSaida, DiaCivil, Uuid } from './comum'
 import { QuantidadeNaSaida } from './estoque'
-import { tipoQueNaoEhPagamento } from './tarefas'
+import { ORIGENS } from './pacientes'
+import { FORMAS, tipoQueNaoEhPagamento } from './tarefas'
 import { ValorNaTelaSchema } from './indicadores-api'
 import { CumprimentoDePrazos } from './painel'
 
@@ -98,6 +99,52 @@ const comFaixa = (f: { valorMinimo?: string | undefined; valorMaximo?: string | 
   }
 }
 
+/**
+ * O período OPCIONAL (relatórios 3 e 5): os dois dias juntos, ou nenhum. Sem
+ * ele, "desde sempre" — o comportamento de antes, que os favoritos guardam.
+ */
+const comPeriodoOpcional = (f: { de?: string | undefined; ate?: string | undefined }, ctx: z.RefinementCtx): void => {
+  if ((f.de === undefined) !== (f.ate === undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: [f.de === undefined ? 'de' : 'ate'], message: 'Informe as duas datas do período, ou nenhuma.' })
+  } else if (f.de !== undefined && f.ate !== undefined) {
+    comPeriodo({ de: f.de, ate: f.ate }, ctx)
+  }
+}
+
+/* ---- os valores dos filtros da 1.8 (S2): só enum e id (L-IN-7) -------- */
+
+/**
+ * **A ORIGEM NO FILTRO É UMA DA LISTA** (LGPD L-IN-7). A coluna é texto livre
+ * de 60 (e pode ter um nome: "indicação da Maria"), então o filtro nunca a
+ * recebe digitada: é uma das `ORIGENS` do cadastro, casada sem caixa nem
+ * acento; `nao-informada` é a origem vazia (o "Não informada" do Painel);
+ * `fora-da-lista` é toda grafia que não é nenhuma das `ORIGENS`.
+ */
+export const ORIGEM_NAO_INFORMADA = 'nao-informada'
+export const ORIGEM_FORA_DA_LISTA = 'fora-da-lista'
+export const OrigemDoFiltro = z.enum([...ORIGENS, ORIGEM_NAO_INFORMADA, ORIGEM_FORA_DA_LISTA] as const)
+export type OrigemDoFiltro = z.infer<typeof OrigemDoFiltro>
+
+type NomeDoTipo = (typeof TIPOS)[number]['nome']
+const nomesDeTipo = (ts: readonly { nome: string }[]) => ts.map((t) => t.nome) as [NomeDoTipo, ...NomeDoTipo[]]
+
+/** Os tipos que contam como atendimento (`atende`): o "tipo de atendimento" do relatório 2. */
+export const TIPOS_DE_ATENDIMENTO_DO_FILTRO = nomesDeTipo(TIPOS.filter((t) => t.atende === true))
+/** Todo tipo do catálogo: o tipo do recebimento (8) e o da tarefa (15). Nunca texto livre. */
+const TipoDoCatalogo = z.enum(nomesDeTipo(TIPOS))
+
+const NOMES_DE_CATEGORIA = CATEGORIAS_DESP.map((c) => c.nome) as [NomeDeCategoria, ...NomeDeCategoria[]]
+
+/**
+ * Relatório 11. O motivo é o TIPO da saída — "uso em paciente" é `consumo`.
+ * O ajuste não é saída (é a coluna assinada da Análise, números B8): filtrá-lo
+ * aqui mudaria o que o relatório é. O texto livre do motivo nunca é filtro.
+ */
+export const MOTIVOS_DE_SAIDA = ['consumo', 'descarte', 'interno'] as const
+
+/** Relatório 5: a situação do programa, a de `situacaoDoPrograma` (encerrado > concluído > o resto). */
+export const SITUACOES_DO_PROGRAMA_NO_FILTRO = ['ativo', 'concluido', 'encerrado'] as const
+
 /** Relatório 1. "Procedimento" = já comprou o procedimento; "sem compra" = nenhuma compra no período. */
 export const CamposPacientesSemCompra = z
   .object({
@@ -106,12 +153,28 @@ export const CamposPacientesSemCompra = z
     /** Faixa de LTV, em centavos. Exige `valores` (I-40). */
     valorMinimo: CentavosDoFiltro.optional(),
     valorMaximo: CentavosDoFiltro.optional(),
+    /** A unidade PRINCIPAL da paciente (`pacientes.unidade_id`), a régua do Painel por unidade. */
+    unidadeId: Uuid.optional(),
+    origem: OrigemDoFiltro.optional(),
   })
   .strict()
 export const FiltrosPacientesSemCompra = CamposPacientesSemCompra.superRefine(comFaixa)
 
-/** Relatório 8. Os dias de `[de, ate]`, no fuso da clínica. */
-export const CamposRecebimentos = z.object({ de: DiaCivil, ate: DiaCivil }).strict()
+/**
+ * Relatório 8. Os dias de `[de, ate]`, no fuso da clínica. `forma` só olha os
+ * dias que contam: no dia aguardando, a forma é o esperado da gaveta (c.10).
+ */
+export const CamposRecebimentos = z
+  .object({
+    de: DiaCivil,
+    ate: DiaCivil,
+    forma: z.enum(FORMAS).optional(),
+    tipo: TipoDoCatalogo.optional(),
+    /** A unidade do RECEBIMENTO (`recebimentos.unidade_id`). */
+    unidadeId: Uuid.optional(),
+    registradoPorId: Uuid.optional(),
+  })
+  .strict()
 export const FiltrosRecebimentos = CamposRecebimentos.superRefine(comPeriodo)
 
 /**
@@ -130,13 +193,25 @@ export const CamposSaidasDeEstoque = z
     ate: DiaCivil,
     itemId: Uuid.optional(),
     incluirPaciente: z.boolean().default(false),
+    motivo: z.enum(MOTIVOS_DE_SAIDA).optional(),
+    /** O local de estoque do ITEM (`itens_de_estoque.local_id`). */
+    localId: Uuid.optional(),
   })
   .strict()
 export const FiltrosSaidasDeEstoque = CamposSaidasDeEstoque.superRefine(comPeriodo)
 
+/** A classificação de `consultarPrazos`, por tarefa. */
+export const SituacaoDoPrazo = z.enum(['ok', 'tarde', 'atrasada', 'a_vencer'])
+
 /** Relatório 15. Tarefas com PRAZO em `[de, ate]` — o recorte do Painel. */
 export const CamposTarefasDaEquipe = z
-  .object({ de: DiaCivil, ate: DiaCivil, responsavelId: Uuid.optional() })
+  .object({
+    de: DiaCivil,
+    ate: DiaCivil,
+    responsavelId: Uuid.optional(),
+    situacao: SituacaoDoPrazo.optional(),
+    tipo: TipoDoCatalogo.optional(),
+  })
   .strict()
 export const FiltrosTarefasDaEquipe = CamposTarefasDaEquipe.superRefine(comPeriodo)
 
@@ -150,31 +225,110 @@ const CamposDoPeriodo = z.object({ de: DiaCivil, ate: DiaCivil }).strict()
  * recente entre o último atendimento registrado e a última consulta do
  * cadastro (o atalho "Sem retorno"). Quem nunca veio não entra.
  */
-export const FiltrosPacientesSemAtendimento = z
-  .object({ semAtendimentoHaMeses: z.number().int().min(1).max(JANELA_MAXIMA_EM_MESES) })
-  .strict()
+export const DIAS_MAXIMOS_SEM_ATENDIMENTO = 730
 
-/** Relatório 3 (top N por LTV). O relatório inteiro exige `valores` (números c.11c). */
-export const FiltrosPacientesMaiorLtv = z
-  .object({ quantos: z.number().int().min(1).max(500).default(50) })
+/**
+ * Relatório 2. Há quanto tempo em MESES ou em DIAS, um dos dois (1.8). Com
+ * `tipo`, a régua é o último atendimento CONCLUÍDO daquele tipo, e quem nunca
+ * teve um não entra; sem ele, o movimento da lista.
+ */
+export const FiltrosPacientesSemAtendimento = z
+  .object({
+    semAtendimentoHaMeses: z.number().int().min(1).max(JANELA_MAXIMA_EM_MESES).optional(),
+    semAtendimentoHaDias: z.number().int().min(1).max(DIAS_MAXIMOS_SEM_ATENDIMENTO).optional(),
+    tipo: z.enum(TIPOS_DE_ATENDIMENTO_DO_FILTRO).optional(),
+    unidadeId: Uuid.optional(),
+  })
   .strict()
+  .superRefine((f, ctx) => {
+    if ((f.semAtendimentoHaMeses === undefined) === (f.semAtendimentoHaDias === undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['semAtendimentoHaMeses'], message: 'Informe há quantos meses ou há quantos dias, um dos dois.' })
+    }
+  })
+
+/**
+ * Relatório 3 (top N por LTV). O relatório inteiro exige `valores` (números c.11c).
+ * Com `[de, ate]`, o LTV é o das compras do período (o mesmo conjunto da ficha,
+ * recortado); sem ele, desde sempre.
+ */
+export const FiltrosPacientesMaiorLtv = z
+  .object({
+    quantos: z.number().int().min(1).max(500).default(50),
+    de: DiaCivil.optional(),
+    ate: DiaCivil.optional(),
+    unidadeId: Uuid.optional(),
+    origem: OrigemDoFiltro.optional(),
+  })
+  .strict()
+  .superRefine(comPeriodoOpcional)
 
 /** Relatório 4. A janela é a do CADASTRO da indicada, como em "Quem mais indica" do Painel. */
-export const FiltrosPacientesQueIndicaram = CamposDoPeriodo.superRefine(comPeriodo)
-
-/** Relatório 5. Classe `saude`: exige `jornada` além de `programas` (LGPD L-IN-2). */
-export const FiltrosPacientesPorProcedimento = z
-  .object({ procedimentoId: Uuid.optional(), incluirEncerrados: z.boolean().default(false) })
-  .strict()
-
-/** Relatório 6. Os pacientes CADASTRADOS em `[de, ate]` — a janela de "Novos pacientes" do Painel. */
-export const FiltrosPacientesPorOrigemECampanha = z
-  .object({ de: DiaCivil, ate: DiaCivil, campanhaId: Uuid.optional() })
+export const FiltrosPacientesQueIndicaram = CamposDoPeriodo.extend({
+  /** A indicadora entra com pelo menos tantas indicadas no período. */
+  minimoDeIndicacoes: z.number().int().min(1).max(100).optional(),
+})
   .strict()
   .superRefine(comPeriodo)
 
-/** Relatório 7. O mês do aniversário; a idade é a de hoje, no fuso da clínica. */
-export const FiltrosAniversariantes = z.object({ mes: z.number().int().min(1).max(12) }).strict()
+/**
+ * Relatório 5. Classe `saude`: exige `jornada` além de `programas` (LGPD L-IN-2).
+ *
+ * `procedimentoIds` (um ou vários) e `situacoes` são os filtros da 1.8.
+ * `procedimentoId` e `incluirEncerrados` são os de antes, mantidos para os
+ * favoritos gravados (I-41): `incluirEncerrados: false` (ou nada) é o que o
+ * banco chama de `ativo` — ativo e concluído; `true`, os três. Antigo e novo
+ * juntos é 422.
+ */
+export const FiltrosPacientesPorProcedimento = z
+  .object({
+    procedimentoIds: z.array(Uuid).min(1).max(50).optional(),
+    situacoes: z.array(z.enum(SITUACOES_DO_PROGRAMA_NO_FILTRO)).min(1).max(SITUACOES_DO_PROGRAMA_NO_FILTRO.length).optional(),
+    /** O INÍCIO do programa em `[de, ate]`. */
+    de: DiaCivil.optional(),
+    ate: DiaCivil.optional(),
+    procedimentoId: Uuid.optional(),
+    incluirEncerrados: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((f, ctx) => {
+    if (f.procedimentoId !== undefined && f.procedimentoIds !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['procedimentoId'], message: 'Use só a lista de procedimentos.' })
+    }
+    if (f.incluirEncerrados !== undefined && f.situacoes !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['incluirEncerrados'], message: 'Use só a situação do programa.' })
+    }
+    comPeriodoOpcional(f, ctx)
+  })
+
+/** Relatório 6. Os pacientes CADASTRADOS em `[de, ate]` — a janela de "Novos pacientes" do Painel. */
+export const FiltrosPacientesPorOrigemECampanha = z
+  .object({ de: DiaCivil, ate: DiaCivil, campanhaId: Uuid.optional(), origem: OrigemDoFiltro.optional() })
+  .strict()
+  .superRefine(comPeriodo)
+
+/**
+ * Relatório 7. O MÊS do aniversário, ou um INTERVALO de dias `[de, ate]` de
+ * menos de um ano (1.8) — um dos dois. A idade é a de hoje, no fuso da clínica.
+ * Quem nasceu em 29/02 faz aniversário em 28/02 no ano que não é bissexto.
+ */
+export const FiltrosAniversariantes = z
+  .object({ mes: z.number().int().min(1).max(12).optional(), de: DiaCivil.optional(), ate: DiaCivil.optional() })
+  .strict()
+  .superRefine((f, ctx) => {
+    const comIntervalo = f.de !== undefined || f.ate !== undefined
+    if ((f.mes === undefined) === !comIntervalo) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['mes'], message: 'Escolha o mês ou o intervalo de datas, um dos dois.' })
+      return
+    }
+    if (!comIntervalo) return
+    if (f.de === undefined || f.ate === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [f.de === undefined ? 'de' : 'ate'], message: 'Informe as duas datas do intervalo.' })
+    } else if (f.ate < f.de) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ate'], message: 'A data final não pode ser anterior à inicial.' })
+    } else if (f.ate >= somarMeses(f.de, 12)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ate'], message: 'O intervalo pode ter no máximo 12 meses.' })
+    }
+  })
 
 /**
  * Relatório 9. `ate` é o CORTE: o saldo no fim daquele dia (`saldosDe(…, { ate })`,
@@ -192,21 +346,63 @@ export const FiltrosSaldosEmAberto = CamposSaldosEmAberto.superRefine(comFaixa)
 
 /** Relatório 10. Contas com VENCIMENTO em `[de, ate]`. */
 export const FiltrosContas = z
-  .object({ de: DiaCivil, ate: DiaCivil, situacao: z.enum(['todas', 'abertas', 'pagas']).default('todas') })
+  .object({
+    de: DiaCivil,
+    ate: DiaCivil,
+    situacao: z.enum(['todas', 'abertas', 'pagas']).default('todas'),
+    categoria: z.enum(NOMES_DE_CATEGORIA).optional(),
+  })
   .strict()
   .superRefine(comPeriodo)
 
-/** Relatório 12. As entradas com dia em `[de, ate]`. */
+/**
+ * Relatório 12. As entradas com dia em `[de, ate]`. O fornecedor é o EMISSOR
+ * da nota (CNPJ, ou o nome quando não há CNPJ — a chave da 0017), por um id
+ * opaco que `GET /v1/relatorios/opcoes/fornecedores` lista. A entrada sem nota
+ * não tem fornecedor e sai do recorte.
+ */
 export const FiltrosEntradasDeEstoque = z
-  .object({ de: DiaCivil, ate: DiaCivil, itemId: Uuid.optional() })
+  .object({ de: DiaCivil, ate: DiaCivil, itemId: Uuid.optional(), fornecedorId: Uuid.optional() })
   .strict()
   .superRefine(comPeriodo)
 
-/** Relatório 13. Os orçamentos REGISTRADOS em `[de, ate]` (evento vivo `registrarOrcamento`). */
-export const FiltrosOrcamentos = CamposDoPeriodo.superRefine(comPeriodo)
+/**
+ * Relatório 13. Os orçamentos REGISTRADOS em `[de, ate]` (evento vivo
+ * `registrarOrcamento`). `etapa` é a situação do cartão (a coluna "Etapa");
+ * `motivoDePerdaId`, o motivo do último `perder` vivo — só cartão perdido.
+ */
+export const FiltrosOrcamentos = CamposDoPeriodo.extend({
+  etapa: z.enum(ETAPAS).optional(),
+  motivoDePerdaId: Uuid.optional(),
+})
+  .strict()
+  .superRefine(comPeriodo)
 
-/** Relatório 14. As faltas e desmarcações com dia em `[de, ate]`. */
-export const FiltrosFaltasEDesmarcacoes = CamposDoPeriodo.superRefine(comPeriodo)
+/** Relatório 14. As faltas e desmarcações com dia em `[de, ate]`. `recontatada`: sim = houve recontato (no prazo ou depois). */
+export const FiltrosFaltasEDesmarcacoes = CamposDoPeriodo.extend({ recontatada: z.enum(['sim', 'nao']).optional() })
+  .strict()
+  .superRefine(comPeriodo)
+
+/** Rótulos dos valores de filtro que não são nome de nada (cabeçalho do arquivo e tela). */
+export const ROTULO_DA_ORIGEM_DO_FILTRO: Readonly<Record<string, string>> = {
+  [ORIGEM_NAO_INFORMADA]: 'Não informada',
+  [ORIGEM_FORA_DA_LISTA]: 'Outra grafia (fora da lista)',
+}
+export const ROTULO_DO_MOTIVO_DE_SAIDA: Readonly<Record<(typeof MOTIVOS_DE_SAIDA)[number], string>> = {
+  consumo: 'Uso em paciente',
+  descarte: 'Descarte',
+  interno: 'Uso interno',
+}
+export const ROTULO_DA_SITUACAO_DO_PROGRAMA: Readonly<Record<(typeof SITUACOES_DO_PROGRAMA_NO_FILTRO)[number], string>> = {
+  ativo: 'Ativo',
+  concluido: 'Concluído',
+  encerrado: 'Encerrado',
+}
+
+/** `GET /v1/relatorios/opcoes/fornecedores` (relatório 12): o id opaco do emissor e o nome mais recente. */
+export const FornecedorNaLista = z.object({ id: Uuid, nome: z.string() }).strict()
+export const ListaDeFornecedores = z.object({ fornecedores: z.array(FornecedorNaLista) }).strict()
+export type ListaDeFornecedores = z.infer<typeof ListaDeFornecedores>
 
 export const FILTROS_DOS_RELATORIOS = {
   'pacientes-sem-compra': FiltrosPacientesSemCompra,
@@ -569,9 +765,6 @@ export const LinhaSaidaDeEstoque = z
     paciente: z.string().nullable().optional(),
   })
   .strict()
-
-/** A classificação de `consultarPrazos`, por tarefa. */
-export const SituacaoDoPrazo = z.enum(['ok', 'tarde', 'atrasada', 'a_vencer'])
 
 /** Relatório 15: sem paciente (I-38). */
 export const LinhaTarefaDaEquipe = z

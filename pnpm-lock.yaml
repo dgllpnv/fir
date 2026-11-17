@@ -187,6 +187,10 @@ importers:
         version: 2.1.9(@types/node@22.20.5)
 
   packages/ui:
+    dependencies:
+      '@fir/domain':
+        specifier: workspace:*
+        version: link:../domain
     devDependencies:
       typescript:
         specifier: ^5.7

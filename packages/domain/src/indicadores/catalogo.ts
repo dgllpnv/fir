@@ -77,8 +77,16 @@ export type KpiDoCatalogo = {
   readonly parametros: readonly ParametroDoKpi[]
   /** Parâmetros sem os quais a chave não mede nada. */
   readonly parametrosObrigatorios: readonly ParametroDoKpi[]
-  /** De onde o número sai, para a dica "como é calculado". */
+  /**
+   * De onde o número sai, com a referência INTERNA da spec ("(I-9)"): é para
+   * quem lê o código, nunca para a tela.
+   */
   readonly fonte: string
+  /**
+   * O "como é calculado" que a usuária lê: a `fonte` sem a referência da
+   * spec. O catálogo do D.1 e o detalhe do KPI saem DAQUI (revisão S3).
+   */
+  readonly explicacao: string
   /** A permissão que abre a composição (I-32). `null` = sem composição. */
   readonly permissaoDaComposicao: ChaveDePermissao | null
   /** A composição tem linha de paciente: rota `@DadoSensivel` (LGPD L-IN-3). */
@@ -101,10 +109,17 @@ const SEM_MES = ['semanal', 'mensal'] as const
 const MES = ['mensal'] as const
 const CEM_POR_CENTO = 100n * ESCALA_DA_UNIDADE.percentual.porUnidade
 
-type Linha = Omit<KpiDoCatalogo, 'parametros' | 'parametrosObrigatorios' | 'somenteMesCivil' | 'admiteNegativo' | 'teto' | 'composicaoComPaciente' | 'porUnidade'> &
+type Linha = Omit<KpiDoCatalogo, 'explicacao' | 'parametros' | 'parametrosObrigatorios' | 'somenteMesCivil' | 'admiteNegativo' | 'teto' | 'composicaoComPaciente' | 'porUnidade'> &
   Partial<Pick<KpiDoCatalogo, 'parametros' | 'parametrosObrigatorios' | 'somenteMesCivil' | 'admiteNegativo' | 'teto' | 'composicaoComPaciente' | 'porUnidade'>>
 
+/** "(I-9)", "(c.12)", "(B4)", "(C5)": as referências da spec e das revisões. */
+const REFERENCIA_DA_SPEC = /\s*\((?:I|c|B|C)[-.]?\d+[a-z]?\)/g
+
+/** A `fonte` sem a referência interna da spec: o texto que vai para a tela. */
+export const semReferenciaDaSpec = (fonte: string): string => fonte.replace(REFERENCIA_DA_SPEC, '').trim()
+
 const linha = (l: Linha): KpiDoCatalogo => ({
+  explicacao: semReferenciaDaSpec(l.fonte),
   parametros: [],
   parametrosObrigatorios: [],
   somenteMesCivil: false,

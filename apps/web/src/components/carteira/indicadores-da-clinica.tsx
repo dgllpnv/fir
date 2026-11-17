@@ -5,7 +5,7 @@ import { formatarValorNaTela } from '@fir/domain'
 import { useEffect, useState } from 'react'
 import { Dica } from '@/components/dica'
 import { Carregando } from '@/components/estados'
-import { agruparPorPilar, diaCompleto, ROTULO_DA_SITUACAO, TOM_DA_SITUACAO } from '@/components/indicadores/na-tela'
+import { agruparPorPilar, diaCompleto, numeroDoCartao, ROTULO_DA_SITUACAO, TOM_DA_SITUACAO } from '@/components/indicadores/na-tela'
 import { chamar, ErroDaApi } from '@/lib/api'
 
 /**
@@ -26,12 +26,8 @@ type Estado =
   | { tag: 'erro'; mensagem: string }
   | { tag: 'pronto'; dados: IndicadoresDaClinicaNaCarteiraSaida }
 
-const numeroDoKpi = (k: KpiDaClinicaNaCarteira): string => {
-  const valor = formatarValorNaTela({ unidade: k.unidade, ...k.atual })
-  if (valor !== null) return valor
-  if (k.percentualDaMeta !== null) return `${k.percentualDaMeta}% da meta`
-  return '—'
-}
+const numeroDoKpi = (k: KpiDaClinicaNaCarteira): string =>
+  numeroDoCartao({ unidade: k.unidade, ...k.atual, percentualDaMeta: k.percentualDaMeta, escala: null }).texto
 
 const alvoDoKpi = (k: KpiDaClinicaNaCarteira): string | null => {
   if (k.alvo === null) return null

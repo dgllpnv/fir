@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { Uuid } from './comum'
 import { DirecaoSchema, PilarDeKpiSchema, UnidadeDeKpiSchema } from './indicadores'
 import { DiaDoKpi, MetaDeKpiNaSaida, SituacaoDaMetaSchema, ValorNaTelaSchema, VariacaoSchema } from './indicadores-api'
+import { PrioridadesDoTrimestreNaSaida } from './okrs'
 
 /**
  * Indicadores & Insights — T7: as rotas que saem da aba (spec I-45, I-46).
@@ -104,7 +105,10 @@ export const ReuniaoDeIndicadores = z
     capa: z
       .object({
         clinica: z.string(),
+        /** Todo OKR ativo, de qualquer período: quantos slides de OKR há. Não é o número da capa. */
         okrsAtivos: z.number().int(),
+        /** O número da capa: o MESMO de `ListaDeOkrs.prioridades` sem filtro (revisão P1). O servidor sempre manda; opcional só para a web que monta o tipo à mão. */
+        prioridades: PrioridadesDoTrimestreNaSaida.optional(),
         metas: z.number().int(),
         abaixo: z.number().int(),
         atencao: z.number().int(),

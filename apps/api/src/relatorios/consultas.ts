@@ -1,14 +1,16 @@
-import type {
-  ChaveDeRelatorio,
-  FiltrosDoRelatorio,
-  LinhaPacientesSemCompra,
-  LinhaRecebimento,
-  LinhaSaidaDeEstoque,
-  LinhaTarefaDaEquipe,
-  ResumoPacientesSemCompra,
-  ResumoRecebimentos,
-  ResumoSaidasDeEstoque,
-  ResumoTarefasDaEquipe,
+import {
+  type ChaveDeRelatorio,
+  type FiltrosDoRelatorio,
+  type LinhaPacientesSemCompra,
+  type LinhaRecebimento,
+  type LinhaSaidaDeEstoque,
+  type LinhaTarefaDaEquipe,
+  type ResumoPacientesSemCompra,
+  type ResumoRecebimentos,
+  type ResumoSaidasDeEstoque,
+  type ResumoTarefasDaEquipe,
+  ROTULO_DO_MOTIVO_DE_SAIDA,
+  SituacaoDoPrazo,
 } from '@fir/contracts'
 import {
   custoDaQuantidade,
@@ -33,7 +35,8 @@ import { movimentosDosItens, quantidadeNaSaida } from '../estoque/movimentos.rep
 import { diasQueContamNasTelas } from '../financeiro/faturamento-conferido'
 import { partesDosRecebidosDaJanela } from '../financeiro/visao-do-mes.service'
 import { comprasDosPacientes } from '../pacientes/pacientes.service'
-import { consultarPrazos, tarefasDoCumprimento } from '../painel-geral/metricas-diarias'
+import { consultarPrazos, cumprimento, tarefasDoCumprimento } from '../painel-geral/metricas-diarias'
+import { nomeDaUnidade, pacientesDoRecorte } from './consultas/recorte'
 
 /**
  * **AS QUATRO CONSULTAS DO T8**, e nenhuma conta nova.
@@ -96,6 +99,9 @@ export async function nomeOu422(c: pg.PoolClient, sql: string, params: unknown[]
   return nome
 }
 
+export const nomeDoLocal = (c: pg.PoolClient, ctx: ContextoDaConsulta, localId: string): Promise<string> =>
+  nomeOu422(c, 'SELECT nome FROM locais_de_estoque WHERE id = $1 AND clinica_id = $2', [localId, ctx.clinicaId], 'Local')
+
 /* ------------------------------------------------------------- relatório 1 */
 
 export async function pacientesSemCompra(
@@ -114,12 +120,17 @@ export async function pacientesSemCompra(
     filtrosEmTexto.push(`Procedimento: ${nome}`)
   }
   if (f.valorMinimo !== undefined || f.valorMaximo !== undefined) filtrosEmTexto.push('Faixa de valor aplicada')
+  const recorte = await pacientesDoRecorte(c, ctx, { unidadeId: f.unidadeId, origem: f.origem }, filtrosEmTexto)
 
   const corte = somarMeses(ctx.hoje, -f.semCompraHaMeses)
   const minimo = f.valorMinimo === undefined ? null : BigInt(f.valorMinimo)
   const maximo = f.valorMaximo === undefined ? null : BigInt(f.valorMaximo)
   const todas = (await comprasDosPacientes(c, ctx.clinicaId, ctx.fuso, f.procedimentoId ?? null)).filter(
-    (p) => p.ultimaCompra < corte && (minimo === null || p.ltv >= minimo) && (maximo === null || p.ltv <= maximo),
+    (p) =>
+      p.ultimaCompra < corte &&
+      (minimo === null || p.ltv >= minimo) &&
+      (maximo === null || p.ltv <= maximo) &&
+      (recorte === null || recorte.has(p.pacienteId)),
   )
 
   const { linhas, truncado } = cortar(todas, ctx.limite)
@@ -155,7 +166,20 @@ export async function recebimentos(
   ctx: ContextoDaConsulta,
   f: FiltrosDoRelatorio<'recebimentos'>,
 ): Promise<SaidaDaConsulta<Linha<typeof LinhaRecebimento>, z.input<typeof ResumoRecebimentos>>> {
-  const [partes, dias] = await Promise.all([
+  const filtrosEmTexto = [periodoEmTexto(f.de, f.ate)]
+  if (f.forma !== undefined) filtrosEmTexto.push(`Forma: ${f.forma} (só nos dias com caixa fechado)`)
+  if (f.tipo !== undefined) filtrosEmTexto.push(`Tipo: ${f.tipo}`)
+  if (f.unidadeId !== undefined) filtrosEmTexto.push(`Unidade: ${await nomeDaUnidade(c, ctx, f.unidadeId)}`)
+  if (f.registradoPorId !== undefined) {
+    const nome = await nomeOu422(
+      c,
+      'SELECT nome FROM pessoas WHERE id = $1 AND clinica_id = $2',
+      [f.registradoPorId, ctx.clinicaId],
+      'Quem registrou',
+    )
+    filtrosEmTexto.push(`Registrado por: ${nome}`)
+  }
+  const [todasAsPartes, dias] = await Promise.all([
     partesDosRecebidosDaJanela(c, ctx.clinicaId, janela(f.de, f.ate, ctx.fuso), ctx.fuso),
     // O 8 ESPELHA a Visão do mês, e segue a regra das chaves que espelham uma
     // tela (ADR 2026-11-17-chaves-em-reais-e-os-dias-de-caixa): dia de mês
@@ -164,6 +188,17 @@ export async function recebimentos(
     diasQueContamNasTelas(c, ctx.clinicaId, f.de, f.ate, ctx.fuso, ctx.hoje),
   ])
   const contam = new Set(dias.corte.dias)
+  // Tipo, unidade e quem registrou estreitam tudo. A FORMA só olha os dias que
+  // contam: no dia aguardando, "o Pix de hoje" é o esperado da gaveta (regra 6,
+  // c.10) — a linha dele sai do recorte, e `aguardandoFechamento` continua o
+  // total sem forma, o mesmo número de sem o filtro de forma.
+  const doRecorte = todasAsPartes.filter(
+    (p) =>
+      (f.tipo === undefined || p.tipo === f.tipo) &&
+      (f.unidadeId === undefined || p.unidadeId === f.unidadeId) &&
+      (f.registradoPorId === undefined || p.registradoPorId === f.registradoPorId),
+  )
+  const partes = doRecorte.filter((p) => f.forma === undefined || (contam.has(p.dia) && p.forma === f.forma))
 
   let total = Dinheiro.zero()
   // O que entrou nos dias que ainda podem ser fechados às cegas. Hoje fica
@@ -172,11 +207,11 @@ export async function recebimentos(
   const porForma: Somas = new Map()
   const porTipo: Somas = new Map()
   const distintos = new Set<string>()
+  for (const p of doRecorte) {
+    if (!contam.has(p.dia) && p.dia !== ctx.hoje) aguardando = aguardando.mais(p.valor)
+  }
   for (const p of partes) {
-    if (!contam.has(p.dia)) {
-      if (p.dia !== ctx.hoje) aguardando = aguardando.mais(p.valor)
-      continue
-    }
+    if (!contam.has(p.dia)) continue
     total = total.mais(p.valor)
     somarEm(porForma, p.forma, p.valor)
     somarEm(porTipo, p.tipo, p.valor)
@@ -209,7 +244,7 @@ export async function recebimentos(
       diasAguardando: dias.diasAguardando,
     },
     truncado,
-    filtrosEmTexto: [periodoEmTexto(f.de, f.ate)],
+    filtrosEmTexto,
     // O 8 traz o paciente pelo nome (I-38): quem está no arquivo vai para
     // `pacientes_da_exportacao` como no 1. Desativado sai sem nome, e fora.
     pacienteIds: [...new Set(linhas.filter((p) => p.paciente !== null).map((p) => p.pacienteId))],
@@ -249,12 +284,20 @@ export async function saidasDeEstoque(
     periodoEmTexto(f.de, f.ate),
   ]
 
-  const itens = (await itensDaAnalise(c)).filter((i) => f.itemId === undefined || i.id === f.itemId)
+  const itens = (await itensDaAnalise(c)).filter(
+    (i) => (f.itemId === undefined || i.id === f.itemId) && (f.localId === undefined || i.local_id === f.localId),
+  )
   if (f.itemId !== undefined) {
-    const item = itens[0]
-    if (item === undefined) throw new UnprocessableEntityException('Item não encontrado nesta clínica.')
-    filtrosEmTexto.push(`Item: ${item.nome}`)
+    const item = await nomeOu422(
+      c,
+      'SELECT nome FROM itens_de_estoque WHERE id = $1 AND clinica_id = $2 AND excluido_em IS NULL AND ativo',
+      [f.itemId, ctx.clinicaId],
+      'Item',
+    )
+    filtrosEmTexto.push(`Item: ${item}`)
   }
+  if (f.localId !== undefined) filtrosEmTexto.push(`Local: ${await nomeDoLocal(c, ctx, f.localId)}`)
+  if (f.motivo !== undefined) filtrosEmTexto.push(`Motivo: ${ROTULO_DO_MOTIVO_DE_SAIDA[f.motivo]}`)
   if (comPaciente) filtrosEmTexto.push('Com a coluna de paciente')
 
   const movs = await movimentosDosItens(
@@ -268,7 +311,9 @@ export async function saidasDeEstoque(
       f.modo === 'analise'
         ? (saidasDoPeriodoDaAnalise(doItem, f.de, f.ate) ?? [])
         : doItem.filter((m) => ehSaidaDeEstoque(m.tipo) && m.dia >= f.de && m.dia <= f.ate)
-    for (const mov of saidas) escolhidos.push({ item, mov })
+    // O motivo é o TIPO da saída; a compensação de uma baixa é do mesmo tipo, e
+    // fica com ela — sem isso, o recorte "consumo" perderia a reabertura (B8).
+    for (const mov of saidas) if (f.motivo === undefined || mov.tipo === f.motivo) escolhidos.push({ item, mov })
   }
   escolhidos.sort((a, b) => (a.mov.dia === b.mov.dia ? (a.mov.sequencia < b.mov.sequencia ? -1 : 1) : a.mov.dia < b.mov.dia ? -1 : 1))
 
@@ -353,6 +398,27 @@ const NOMES_DE_TIPO: ReadonlySet<string> = new Set(TIPOS.map((t) => t.nome))
  */
 const rotuloDaTarefa = (tipo: string): string => (NOMES_DE_TIPO.has(tipo) ? tipo : 'Tarefa avulsa')
 
+const ROTULO_DA_SITUACAO_DO_PRAZO: Readonly<Record<z.infer<typeof SituacaoDoPrazo>, string>> = {
+  ok: 'No prazo',
+  tarde: 'Com atraso',
+  atrasada: 'Atrasada',
+  a_vencer: 'A vencer',
+}
+
+/**
+ * O resumo do recorte por situação: as outras três contagens zeram, e a taxa
+ * sai da MESMA `cumprimento` do Painel — "no prazo" sozinho é 100%, "a vencer"
+ * sozinho não tem denominador. Total = Σ das linhas.
+ */
+function soDaSituacao(
+  r: z.input<typeof ResumoTarefasDaEquipe>['prazos'],
+  s: z.infer<typeof SituacaoDoPrazo>,
+): z.input<typeof ResumoTarefasDaEquipe>['prazos'] {
+  const n = { ok: r.noPrazo, tarde: r.comAtraso, atrasada: r.atrasadas, a_vencer: r.aVencer }[s]
+  const so = (k: typeof s) => String(k === s ? n : 0)
+  return cumprimento({ pessoa: null, nome: null, funcao: null, total: String(n), no_prazo: so('ok'), com_atraso: so('tarde'), atrasadas: so('atrasada'), a_vencer: so('a_vencer') })
+}
+
 export async function tarefasDaEquipe(
   c: pg.PoolClient,
   ctx: ContextoDaConsulta,
@@ -368,13 +434,21 @@ export async function tarefasDaEquipe(
     )
     filtrosEmTexto.push(`Responsável: ${nome}`)
   }
+  if (f.tipo !== undefined) filtrosEmTexto.push(`Tipo: ${f.tipo}`)
+  if (f.situacao !== undefined) filtrosEmTexto.push(`Situação: ${ROTULO_DA_SITUACAO_DO_PRAZO[f.situacao]}`)
   const periodo = { de: f.de, ate: f.ate }
+  // O tipo entra no MESMO `WHERE` do Painel (`TAREFAS_DO_CUMPRIMENTO`) nas duas
+  // leituras: o resumo continua sendo a contagem das linhas.
+  const tipo = f.tipo ?? null
   const [prazos, tarefas] = await Promise.all([
-    consultarPrazos(c, ctx.clinicaId, periodo, ctx.hoje, ctx.fuso),
-    tarefasDoCumprimento(c, ctx.clinicaId, periodo, ctx.hoje, ctx.fuso, f.responsavelId ?? null, ctx.limite + 1),
+    consultarPrazos(c, ctx.clinicaId, periodo, ctx.hoje, ctx.fuso, tipo),
+    tarefasDoCumprimento(c, ctx.clinicaId, periodo, ctx.hoje, ctx.fuso, f.responsavelId ?? null, ctx.limite + 1, {
+      tipo,
+      situacao: f.situacao ?? null,
+    }),
   ])
   const daPessoa = f.responsavelId === undefined ? null : prazos.porPessoa.find((p) => p.pessoaId === f.responsavelId)
-  const resumo =
+  const doRecorte =
     f.responsavelId === undefined
       ? prazos.total
       : daPessoa === undefined || daPessoa === null
@@ -387,6 +461,7 @@ export async function tarefasDaEquipe(
             aVencer: daPessoa.aVencer,
             taxaNoPrazo: daPessoa.taxaNoPrazo,
           }
+  const resumo = f.situacao === undefined ? doRecorte : soDaSituacao(doRecorte, f.situacao)
 
   const { linhas, truncado } = cortar(tarefas, ctx.limite)
   return {

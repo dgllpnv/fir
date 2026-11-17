@@ -30,6 +30,7 @@ export default async function CampanhasPage({
   return (
     <TelaCampanhas
       podeGerir={temPerm(quem, perfis, 'campanhas.gerir')}
+      podeIndicadores={temPerm(quem, perfis, 'indicadores')}
       {...(mes === undefined ? {} : { mesInicial: mes })}
       {...(tipo === undefined ? {} : { tipoInicial: tipo })}
     />

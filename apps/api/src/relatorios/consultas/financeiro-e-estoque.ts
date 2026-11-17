@@ -130,7 +130,8 @@ export async function contas(
   ctx: ContextoDaConsulta,
   f: FiltrosDoRelatorio<'contas'>,
 ): Promise<SaidaDaConsulta<Linha<typeof LinhaConta>, z.input<typeof ResumoContas>>> {
-  const todas = await contasDoPeriodo(c, ctx.clinicaId, f, f.situacao)
+  // A categoria é da lista fechada (`CATEGORIAS_DESP`), e a tela Contas agrupa por ela.
+  const todas = (await contasDoPeriodo(c, ctx.clinicaId, f, f.situacao)).filter((x) => f.categoria === undefined || x.categoria === f.categoria)
   let valor = Dinheiro.zero()
   let pago = Dinheiro.zero()
   for (const x of todas) {
@@ -151,13 +152,54 @@ export async function contas(
     })),
     resumo: { contas: todas.length, valor: valor.centavos.toString(), valorPago: pago.centavos.toString() },
     truncado,
-    filtrosEmTexto: [`Vencimento: ${emDataBr(f.de)} a ${emDataBr(f.ate)}`, SITUACAO_EM_TEXTO[f.situacao]],
+    filtrosEmTexto: [
+      `Vencimento: ${emDataBr(f.de)} a ${emDataBr(f.ate)}`,
+      SITUACAO_EM_TEXTO[f.situacao],
+      ...(f.categoria === undefined ? [] : [`Categoria: ${f.categoria}`]),
+    ],
     pacienteIds: [],
     optIn: [],
   }
 }
 
 /* ------------------------------------------------------------ relatório 12 */
+
+/**
+ * **O ID DO FORNECEDOR** é `md5(emissor_chave)` como uuid: o emissor da nota
+ * (CNPJ, ou o nome normalizado quando não há CNPJ — a mesma chave que a 0017
+ * usa para não deixar a nota entrar duas vezes). Não há tabela de fornecedores,
+ * e o filtro não pode receber o nome digitado (L-IN-7): o id é derivado, opaco
+ * e estável, e só existe se houver nota DESTA clínica com aquele emissor.
+ */
+export async function fornecedoresDaClinica(c: pg.PoolClient, clinicaId: string): Promise<{ id: string; nome: string }[]> {
+  const r = await c.query<{ id: string; nome: string }>(
+    `SELECT DISTINCT ON (n.emissor_chave) md5(n.emissor_chave)::uuid::text AS id, n.fornecedor AS nome
+       FROM notas_de_entrada n
+      WHERE n.clinica_id = $1 AND n.emissor_chave IS NOT NULL AND btrim(n.fornecedor) <> ''
+      ORDER BY n.emissor_chave, n.dia DESC, n.registrada_em DESC`,
+    [clinicaId],
+  )
+  return r.rows.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+}
+
+async function entradasDoFornecedor(
+  c: pg.PoolClient,
+  ctx: ContextoDaConsulta,
+  fornecedorId: string,
+  filtrosEmTexto: string[],
+): Promise<ReadonlySet<string>> {
+  const nome = (await fornecedoresDaClinica(c, ctx.clinicaId)).find((x) => x.id === fornecedorId)?.nome
+  if (nome === undefined) throw new UnprocessableEntityException('Fornecedor não encontrado nesta clínica.')
+  filtrosEmTexto.push(`Fornecedor: ${nome}`)
+  const r = await c.query<{ id: string }>(
+    `SELECT m.id::text AS id
+       FROM movimentos_de_estoque m
+       JOIN notas_de_entrada n ON n.id = m.nota_id AND n.clinica_id = m.clinica_id
+      WHERE m.clinica_id = $1 AND m.tipo = 'entrada' AND md5(n.emissor_chave)::uuid = $2::uuid`,
+    [ctx.clinicaId, fornecedorId],
+  )
+  return new Set(r.rows.map((l) => l.id))
+}
 
 export async function entradasDeEstoque(
   c: pg.PoolClient,
@@ -171,6 +213,9 @@ export async function entradasDeEstoque(
     if (item === undefined) throw new UnprocessableEntityException('Item não encontrado nesta clínica.')
     filtrosEmTexto.push(`Item: ${item.nome}`)
   }
+  // O fornecedor é o EMISSOR da nota da entrada (a chave da 0017), por um id
+  // opaco; a entrada sem nota não tem fornecedor e sai do recorte.
+  const daNota = f.fornecedorId === undefined ? null : await entradasDoFornecedor(c, ctx, f.fornecedorId, filtrosEmTexto)
   const movs = await movimentosDosItens(
     c,
     itens.map((i) => i.id),
@@ -178,7 +223,9 @@ export async function entradasDeEstoque(
   const escolhidos: { item: (typeof itens)[number]; mov: MovimentoDeEstoque }[] = []
   for (const item of itens) {
     for (const mov of movs.get(item.id) ?? []) {
-      if (mov.tipo === 'entrada' && mov.dia >= f.de && mov.dia <= f.ate) escolhidos.push({ item, mov })
+      if (mov.tipo === 'entrada' && mov.dia >= f.de && mov.dia <= f.ate && (daNota === null || daNota.has(mov.id))) {
+        escolhidos.push({ item, mov })
+      }
     }
   }
   escolhidos.sort((a, b) => (a.mov.dia === b.mov.dia ? (a.mov.sequencia < b.mov.sequencia ? -1 : 1) : a.mov.dia < b.mov.dia ? -1 : 1))

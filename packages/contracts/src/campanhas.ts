@@ -274,6 +274,13 @@ export const CampanhaNaLista = z
     pacientesConvertidos: z.number().int(),
     /** `convertidos ÷ alcançados`, em percentual inteiro. `null` sem base. */
     taxaDeConversao: z.number().int().nullable(),
+    /**
+     * O destino do link "Ver em Indicadores" (lugar único, revisão S6): o KPI
+     * `resultado_de_campanha` VIVO desta campanha. `null` quando a clínica não o
+     * acompanha. Só o id, nenhum valor; a tela mostra o link a quem tem
+     * `indicadores`. Opcional só para a web que monta o tipo à mão.
+     */
+    kpiDoResultadoId: Uuid.nullable().optional(),
   })
   .strict()
 export type CampanhaNaLista = z.infer<typeof CampanhaNaLista>

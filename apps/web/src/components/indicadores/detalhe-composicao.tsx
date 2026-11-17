@@ -7,7 +7,6 @@ import { chamar, ErroDaApi } from '@/lib/api'
 import { consultaEmTexto } from '@/lib/dados'
 import {
   enderecoDoRelatorio,
-  fonteNaTela,
   larguraDoGrupo,
   MOTIVO_SEM_COMPOSICAO,
   numeroDoGrupo,
@@ -66,7 +65,7 @@ export function ComposicaoNaTela({ kpi, temAcesso }: { kpi: DetalheDoKpi; temAce
   const total = c.total === null ? null : numeroDoCartao(c.total)
   return (
     <div className="kd-fonte">
-      <p>{fonteNaTela(kpi.fonte) ?? '—'}</p>
+      <p>{kpi.explicacao ?? '—'}</p>
       <p className="kd-numero-nota">
         {diaEMes(c.periodo.de)} a {diaEMes(c.periodo.ate)}
         {total === null ? '' : ` · total ${total.texto}`}

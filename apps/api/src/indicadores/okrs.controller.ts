@@ -1,5 +1,5 @@
-import { CriarOkr, DuplicarOkr, EditarOkr, type ListaDeOkrs, type OkrNaSaida } from '@fir/contracts'
-import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, Put, Req } from '@nestjs/common'
+import { ConsultaDeOkrs, CriarOkr, DuplicarOkr, EditarOkr, type ListaDeOkrs, type OkrNaSaida } from '@fir/contracts'
+import { BadRequestException, Body, Controller, Get, HttpCode, Inject, Param, ParseUUIDPipe, Post, Put, Query, Req } from '@nestjs/common'
 import type { z } from 'zod'
 import { Exige } from '../autorizacao/autorizacao.guard'
 import { primeiroErro } from '../comum/primeiro-erro'
@@ -31,8 +31,8 @@ export class OkrsController {
 
   @Get()
   @Exige('indicadores')
-  async listar(@Req() req: RequisicaoComContexto): Promise<ListaDeOkrs> {
-    return this.okrs.listar(ctxDe(req))
+  async listar(@Req() req: RequisicaoComContexto, @Query() q: unknown): Promise<ListaDeOkrs> {
+    return this.okrs.listar(ctxDe(req), ler(ConsultaDeOkrs, q))
   }
 
   @Get(':id')

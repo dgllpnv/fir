@@ -30,6 +30,18 @@ describe('catálogo (I-7)', () => {
     }
   })
 
+  it('explicacao-sem-referencia-da-spec: a tela lê a explicação, nunca "(I-9)" nem "(c.12)" (revisão S3)', () => {
+    for (const k of CATALOGO_DE_KPIS) {
+      expect(k.explicacao.length, k.chave).toBeGreaterThan(0)
+      expect(k.explicacao, k.chave).not.toMatch(/\((?:I|c|B|C)[-.]?\d/)
+      expect(k.explicacao, k.chave).not.toMatch(/\s$/)
+    }
+    expect(kpiDoCatalogo('faturamento_conferido').explicacao).toBe('Recebimentos dos dias com caixa fechado')
+    expect(kpiDoCatalogo('comparecimento').explicacao).toBe('Realizados ÷ (realizados + faltas)')
+    // O parêntese que é texto fica.
+    expect(kpiDoCatalogo('novos_pacientes').explicacao).toBe('Painel: pacientes novos (origem opcional)')
+  })
+
   it('os três KPIs de RH exigem pessoas.gerir, e a razão monetária exige valores (appsec C5; números c.11b)', () => {
     const comPermissao = CATALOGO_DE_KPIS.filter((k) => k.permissaoDoValor !== null).map((k) => [k.chave, k.permissaoDoValor])
     expect(comPermissao).toEqual([

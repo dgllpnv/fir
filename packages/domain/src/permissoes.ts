@@ -50,6 +50,15 @@ const porChave = new Map(PERMS.map((p) => [p[1] as ChaveDePermissao, p]))
 
 export const infoDaPermissao = (chave: ChaveDePermissao) => porChave.get(chave)
 
+const CHAVES_DE_PERMISSAO: ReadonlySet<string> = new Set(PERMS.map((p) => p[1]))
+
+/**
+ * Estreita um texto a `ChaveDePermissao` sem `as`: o texto que não é uma
+ * chave da tabela dá `false`, e quem pergunta `pode(texto)` recebe "não" —
+ * falha fechado, nunca uma chave inventada que passa pelo tipo.
+ */
+export const ehChaveDePermissao = (k: string): k is ChaveDePermissao => CHAVES_DE_PERMISSAO.has(k)
+
 /**
  * Seis perfis prontos, criados com a clínica. Editáveis pela própria clínica.
  *

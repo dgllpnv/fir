@@ -1226,6 +1226,9 @@ table.lista tr.total td:first-child { color: var(--muted); }
  */
 @media print {
   .side, .topbar, .acoes-de-tela, .toast { display: none !important; }
+  /* Sem a lateral, a grade de duas colunas do computador espremia o conteúdo
+     na coluna de 240 px dela (papel em paisagem passa dos 900 px). */
+  .shell { display: block !important; }
   .wrap { max-width: none; }
   .indicador, .cartao, .meta-do-mes { break-inside: avoid; }
 }

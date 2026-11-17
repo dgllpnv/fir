@@ -69,9 +69,17 @@ const FILTRO = '${DINHEIRO_QUE_ENTROU}'
  */
 const FILTRO_DA_GAVETA = '${NA_GAVETA}'
 
-/** Carrega UM dos dois — nunca nenhum. */
+/**
+ * `COMPRA_DO_PACIENTE` (`pacientes.service.ts`) é a cláusula da compra do
+ * paciente, e ela CARREGA `${DINHEIRO_QUE_ENTROU}` — o teste "a cláusula da
+ * compra carrega o filtro", abaixo, prova isso na fonte. Quem a interpola
+ * herda o filtro sem repetir a composição.
+ */
+const FILTRO_DA_COMPRA = '${COMPRA_DO_PACIENTE}'
+
+/** Carrega UM dos três — nunca nenhum. */
 const temFiltro = (texto: string): boolean =>
-  texto.includes(FILTRO) || texto.includes(FILTRO_DA_GAVETA)
+  texto.includes(FILTRO) || texto.includes(FILTRO_DA_GAVETA) || texto.includes(FILTRO_DA_COMPRA)
 
 /**
  * Uma consulta que **soma ou lista o valor recebido**, em texto de SQL.
@@ -187,6 +195,13 @@ describe('D-9 — o filtro do dinheiro que entrou', () => {
     ]) {
       expect(comFiltro, `${caminho} perdeu o filtro da D-9`).toContain(caminho)
     }
+  })
+
+  it('a cláusula da compra carrega o filtro (é por isso que ela conta como filtro na varredura)', () => {
+    const fonte = readFileSync(join(RAIZ, 'apps/api/src/pacientes/pacientes.service.ts'), 'utf8')
+    const definicao = /export const COMPRA_DO_PACIENTE = `([^`]*)`/.exec(fonte)
+    expect(definicao, 'COMPRA_DO_PACIENTE sumiu de pacientes.service.ts').not.toBeNull()
+    expect(definicao?.[1]).toContain(FILTRO)
   })
 
   it('são DUAS constantes, num arquivo só, e cada uma diz o que diz', () => {

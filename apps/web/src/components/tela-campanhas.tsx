@@ -12,6 +12,7 @@ import { TIPOS, ehPagamento } from '@fir/domain'
 import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
+import { AtalhoDoIndicador } from './indicadores/atalho-do-indicador'
 import { DICA_DO_NOME_DA_CAMPANHA } from '@/conteudo/dica-do-nome-da-campanha'
 import { chamar } from '@/lib/api'
 import { consultaEmTexto, useDados } from '@/lib/dados'
@@ -87,10 +88,13 @@ function somaDeMes(mes: string, k: number): string {
 
 export function TelaCampanhas({
   podeGerir,
+  podeIndicadores = false,
   mesInicial,
   tipoInicial,
 }: {
   podeGerir: boolean
+  /** Só para o atalho "Acompanhar em Indicadores" de cada campanha (S6). */
+  podeIndicadores?: boolean
   /** `aaaa-mm`, vindo da URL (volta do detalhe). Sem ele: o mês atual do servidor. */
   mesInicial?: string
   tipoInicial?: string
@@ -248,7 +252,11 @@ export function TelaCampanhas({
       ) : (
         <div className="lista-de-campanhas">
           {d.campanhas.map((c) => (
-            <Cartao key={c.id} campanha={c} mes={d.mes ?? ''} tipo={tipo} />
+            // O cartão inteiro é um link; o atalho fica FORA dele, logo abaixo (link dentro de link não existe).
+            <div key={c.id} style={{ display: 'grid' }}>
+              <Cartao campanha={c} mes={d.mes ?? ''} tipo={tipo} />
+              <AtalhoDoIndicador kpiId={c.kpiDoResultadoId} podeIndicadores={podeIndicadores} />
+            </div>
           ))}
         </div>
       )}

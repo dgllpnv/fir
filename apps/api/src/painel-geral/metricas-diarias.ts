@@ -117,6 +117,8 @@ export async function tarefasDoCumprimento(
   fuso: string,
   responsavelId: string | null,
   limite: number,
+  /** O recorte do relatório 15 (1.8): o tipo no mesmo `WHERE`, e a situação classificada pelas mesmas expressões. */
+  recorte: { readonly tipo: string | null; readonly situacao: SituacaoDoPrazo | null } = { tipo: null, situacao: null },
 ): Promise<TarefaDoCumprimento[]> {
   const r = await c.query<{
     id: string
@@ -127,21 +129,25 @@ export async function tarefasDoCumprimento(
     concluida_em: string | null
     situacao: SituacaoDoPrazo | null
   }>(
-    `SELECT t.id, t.tipo,
-            t.responsavel_id, p.nome AS responsavel, t.prazo::text AS prazo,
-            CASE WHEN t.status = 'concluida' THEN ((t.concluida_em AT TIME ZONE $5)::date)::text END AS concluida_em,
-            CASE WHEN ${SITUACAO_DO_PRAZO.ok} THEN 'ok'
-                 WHEN ${SITUACAO_DO_PRAZO.tarde} THEN 'tarde'
-                 WHEN ${SITUACAO_DO_PRAZO.atrasada} THEN 'atrasada'
-                 WHEN ${SITUACAO_DO_PRAZO.a_vencer} THEN 'a_vencer'
-            END AS situacao
-       FROM tarefas t
-       LEFT JOIN pessoas p ON p.id = t.responsavel_id
-      WHERE ${TAREFAS_DO_CUMPRIMENTO}
-        AND ($7::uuid IS NULL OR t.responsavel_id = $7::uuid)
-      ORDER BY t.prazo, t.id
+    `SELECT * FROM (
+       SELECT t.id, t.tipo,
+              t.responsavel_id, p.nome AS responsavel, t.prazo::text AS prazo, t.prazo AS prazo_data,
+              CASE WHEN t.status = 'concluida' THEN ((t.concluida_em AT TIME ZONE $5)::date)::text END AS concluida_em,
+              CASE WHEN ${SITUACAO_DO_PRAZO.ok} THEN 'ok'
+                   WHEN ${SITUACAO_DO_PRAZO.tarde} THEN 'tarde'
+                   WHEN ${SITUACAO_DO_PRAZO.atrasada} THEN 'atrasada'
+                   WHEN ${SITUACAO_DO_PRAZO.a_vencer} THEN 'a_vencer'
+              END AS situacao
+         FROM tarefas t
+         LEFT JOIN pessoas p ON p.id = t.responsavel_id
+        WHERE ${TAREFAS_DO_CUMPRIMENTO}
+          AND ($7::uuid IS NULL OR t.responsavel_id = $7::uuid)
+          AND ($9::text IS NULL OR t.tipo = $9::text)
+     ) x
+      WHERE $10::text IS NULL OR x.situacao = $10::text
+      ORDER BY x.prazo_data, x.id
       LIMIT $8`,
-    [clinicaId, periodo.de, periodo.ate, hoje, fuso, TIPOS_DE_SESSAO, responsavelId, limite],
+    [clinicaId, periodo.de, periodo.ate, hoje, fuso, TIPOS_DE_SESSAO, responsavelId, limite, recorte.tipo, recorte.situacao],
   )
   return r.rows
     .filter((l): l is typeof l & { situacao: SituacaoDoPrazo } => l.situacao !== null)
@@ -179,6 +185,8 @@ export async function consultarPrazos(
   periodo: { de: string; ate: string },
   hoje: string,
   fuso: string,
+  /** O tipo do relatório 15 (1.8); o Painel não filtra. */
+  tipo: string | null = null,
 ): Promise<{ total: CumprimentoDePrazos; porPessoa: LinhaPorResponsavel[] }> {
   const r = await c.query<LinhaDePrazo & { e_total: number }>(
     `SELECT t.responsavel_id::text AS pessoa,
@@ -196,9 +204,10 @@ export async function consultarPrazos(
        FROM tarefas t
        LEFT JOIN pessoas p ON p.id = t.responsavel_id
       WHERE ${TAREFAS_DO_CUMPRIMENTO}
+        AND ($7::text IS NULL OR t.tipo = $7::text)
       GROUP BY GROUPING SETS ((t.responsavel_id), ())
       ORDER BY count(*) DESC`,
-    [clinicaId, periodo.de, periodo.ate, hoje, fuso, TIPOS_DE_SESSAO],
+    [clinicaId, periodo.de, periodo.ate, hoje, fuso, TIPOS_DE_SESSAO, tipo],
   )
 
   // A linha do GROUPING SET vazio é o TOTAL (`GROUPING = 1`). A de `pessoa = null`

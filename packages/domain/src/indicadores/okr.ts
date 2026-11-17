@@ -23,6 +23,37 @@ export function progressoDoOkr(progressosExibidos: readonly (number | null)[]): 
   return Math.floor((2 * soma + xs.length) / (2 * xs.length))
 }
 
+/** A faixa "Prioridades do trimestre": quantos OKRs e a média deles. */
+export type PrioridadesDoTrimestre = { readonly quantos: number; readonly media: number | null }
+
+/**
+ * **As prioridades do trimestre** (backlog 1.9, faixa 1; revisão P1): os OKRs
+ * ATIVOS cujo período toca a janela (datas civis inclusivas), e a média deles
+ * por `progressoDoOkr`. Encerrado não entra: a faixa é do que a equipe ainda
+ * persegue. A lista e a capa da reunião chamam ESTA função sobre a mesma
+ * lista do servidor — a tela e a TV dão o mesmo número na mesma semana.
+ * `responsavelId` é o filtro da tela; a capa não o usa.
+ */
+export function prioridadesDoTrimestre(
+  okrs: readonly {
+    readonly estado: 'ativo' | 'encerrado'
+    readonly progresso: number | null
+    readonly periodo: { readonly inicio: string; readonly fim: string }
+    readonly responsavelId: string | null
+  }[],
+  janela: { readonly inicio: string; readonly fim: string },
+  responsavelId?: string,
+): PrioridadesDoTrimestre {
+  const doTrimestre = okrs.filter(
+    (o) =>
+      o.estado === 'ativo' &&
+      o.periodo.inicio <= janela.fim &&
+      o.periodo.fim >= janela.inicio &&
+      (responsavelId === undefined || o.responsavelId === responsavelId),
+  )
+  return { quantos: doTrimestre.length, media: progressoDoOkr(doTrimestre.map((o) => o.progresso)) }
+}
+
 /** Da pior para a melhor. `sem_dado` não piora nem melhora: só vale quando é tudo o que há. */
 const ORDEM: readonly SituacaoDaMeta[] = ['abaixo', 'atencao', 'no_ritmo', 'atingida']
 

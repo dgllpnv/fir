@@ -73,6 +73,10 @@
 .rel-gerar { min-height: 44px; min-width: 110px; }
 .rel-mais { justify-self: start; min-height: 40px; }
 .rel-filtros-mais { border-left: 2px solid var(--gold); padding-left: 12px; }
+/* Relatório 5: os procedimentos marcados numa lista curta, que quebra em linhas e não rola na horizontal. */
+.rel-filtros-linha .campo.rel-escolhas { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; max-width: none; flex: 1 1 100%; }
+.rel-escolhas legend { padding: 0; margin-bottom: 4px; }
+.rel-filtros .campo.rel-escolhas input { width: auto; }
 @media (max-width: 559px) {
   .rel-filtros-linha .campo, .rel-filtros-linha .campo.rel-dia { flex: 1 1 100%; max-width: none; }
   .rel-filtros-linha .campo.rel-dia { flex: 1 1 calc(50% - 5px); }

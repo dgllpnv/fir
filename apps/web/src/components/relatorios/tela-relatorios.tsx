@@ -460,12 +460,13 @@ export function TelaRelatorios({
                             }))}
                           />
                         )}
+                        {/* A ordem da 1.9 G(5): exportar, salvar, e por último a campanha, que é o botão principal. */}
+                        <SalvarFavorito ocupado={salvando} aoSalvar={salvarFavorito} />
                         {definicao.listaDePacientes && podeCampanhas && resultado.linhas.length > 0 ? (
-                          <button type="button" className="btn ghost" onClick={() => setCriandoCampanha(true)}>
+                          <button type="button" className="btn" onClick={() => setCriandoCampanha(true)}>
                             Criar campanha com esta lista
                           </button>
                         ) : null}
-                        <SalvarFavorito ocupado={salvando} aoSalvar={salvarFavorito} />
                       </div>
                     </div>
                     {suporteBarrado ? <p className="nota">A sessão de suporte vê este relatório, mas não o exporta.</p> : null}

@@ -1,6 +1,7 @@
 import type {
   CampanhaDaListaCriada,
   FavoritoNaLista,
+  ListaDeFornecedores,
   ListaDeRelatorios,
   ResultadoDaExportacao,
   ResultadoDoRelatorio,
@@ -106,6 +107,16 @@ export class RelatoriosController {
   @Exige('indicadores')
   async listar(@Req() req: RequisicaoComContexto): Promise<ListaDeRelatorios> {
     return this.favoritos.listar(ctxDe(req))
+  }
+
+  /**
+   * As opções do filtro de fornecedor do relatório 12 (1.8): não há tabela de
+   * fornecedores, e o filtro é por id (L-IN-7). A mesma permissão do relatório.
+   */
+  @Get('opcoes/fornecedores')
+  @Exige('estoque.gerir')
+  async fornecedores(@Req() req: RequisicaoComContexto): Promise<ListaDeFornecedores> {
+    return this.motor.fornecedores(ctxDe(req))
   }
 
   @Post('favoritos')

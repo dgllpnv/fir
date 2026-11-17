@@ -11,7 +11,7 @@ import { inicioDoDia, referenciaDoPeriodo, somarDias } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
 import { BancoService } from '../banco/banco.service'
 import { type ContextoDeIndicadores, IndicadoresService } from './indicadores.service'
-import { OkrsService } from './okrs.service'
+import { type ListaDeOkrsDoServidor, OkrsService } from './okrs.service'
 
 /** Até quatro metas no bloco de Hoje (I-45). */
 const MAXIMO_DA_SEMANA = 4
@@ -103,6 +103,9 @@ export class ReuniaoDeIndicadoresService {
       capa: {
         clinica,
         okrsAtivos: ativos.length,
+        // O número da capa é o da faixa "Prioridades do trimestre" da tela, pela
+        // mesma lista e pela mesma função (revisão P1) — nunca uma média daqui.
+        prioridades: { quantos: okrs.prioridades.quantos, media: okrs.prioridades.media },
         metas: metas.length,
         abaixo: conta('abaixo'),
         atencao: conta('atencao'),
@@ -136,7 +139,7 @@ export class ReuniaoDeIndicadoresService {
     }
   }
 
-  private async ler(ctx: ContextoDeIndicadores): Promise<{ lista: ListaDeKpis; okrs: ListaDeOkrs }> {
+  private async ler(ctx: ContextoDeIndicadores): Promise<{ lista: ListaDeKpis; okrs: ListaDeOkrsDoServidor }> {
     const lista = await this.indicadores.listar(ctx, {})
     const okrs = await this.okrs.listar(ctx)
     return { lista, okrs }

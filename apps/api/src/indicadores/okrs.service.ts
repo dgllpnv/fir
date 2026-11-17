@@ -1,4 +1,5 @@
 import type {
+  ConsultaDeOkrs,
   CriarOkr,
   DuplicarOkr,
   EditarOkr,
@@ -16,6 +17,7 @@ import {
   ordenarOkrs,
   type PeriodoDoOkr,
   periodoDoOkr,
+  prioridadesDoTrimestre,
   progressoDoOkr,
   proximoPeriodoDoOkr,
   situacaoDoOkr,
@@ -70,6 +72,9 @@ type KrPreparado = {
   readonly partida: NumeroDoKpi
 }
 
+/** O servidor sempre manda `prioridades`; o contrato o deixa opcional só para a web. */
+export type ListaDeOkrsDoServidor = ListaDeOkrs & { prioridades: NonNullable<ListaDeOkrs['prioridades']> }
+
 const SELECT_OKR = `
   SELECT id, objetivo, porque, tipo_periodo, inicio::text AS inicio, fim::text AS fim,
          responsavel_id, estado, encerrado_em
@@ -110,8 +115,16 @@ export class OkrsService {
 
   /* ---------------------------------------------------------------- leitura */
 
-  async listar(ctx: ContextoDeIndicadores): Promise<ListaDeOkrs> {
+  /**
+   * Todo OKR não arquivado, e a faixa "Prioridades do trimestre" calculada
+   * AQUI (revisão P1): o trimestre pedido (sem pedido, o de hoje) e o filtro
+   * de responsável só mudam `prioridades`. Trimestre que não começa no 1º dia
+   * de um trimestre civil é 422.
+   */
+  async listar(ctx: ContextoDeIndicadores, consulta: ConsultaDeOkrs = {}): Promise<ListaDeOkrsDoServidor> {
     const hoje = this.hoje(ctx)
+    const trimestre = exigirOk(periodoDoOkr({ tipo: 'trimestre', inicio: consulta.trimestre }, hoje))
+    const janela = { inicio: trimestre.inicio, fim: trimestre.fim }
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const r = await c.query<LinhaDeOkr>(`${SELECT_OKR} WHERE clinica_id = $1 AND arquivado_em IS NULL ORDER BY inicio, id`, [
         ctx.clinicaId,
@@ -119,7 +132,11 @@ export class OkrsService {
       const visiveis = await this.kpisPorId(c, ctx)
       const itens: OkrNaSaida[] = []
       for (const o of r.rows) itens.push(await this.saida(c, ctx, o, visiveis, hoje))
-      return { hoje, itens: ordenarOkrs(itens) }
+      return {
+        hoje,
+        itens: ordenarOkrs(itens),
+        prioridades: { ...prioridadesDoTrimestre(itens, janela, consulta.responsavel), trimestre: janela },
+      }
     })
   }
 

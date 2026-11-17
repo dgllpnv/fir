@@ -64,7 +64,7 @@ function reuniao(redigida = false): ReuniaoDeIndicadores {
   return {
     hoje: '2026-11-17',
     semana: { de: '2026-11-16', ate: '2026-11-22' },
-    capa: { clinica: 'Clínica Demo', okrsAtivos: 2, metas: 5, abaixo: 2, atencao: 1, noRitmo: 1, atingidas: 1 },
+    capa: { clinica: 'Clínica Demo', okrsAtivos: 2, prioridades: { quantos: 2, media: 63 }, metas: 5, abaixo: 2, atencao: 1, noRitmo: 1, atingidas: 1 },
     okrs: [
       {
         id: id(50),
@@ -122,19 +122,19 @@ describe('slidesDaReuniao', () => {
 })
 
 describe('a capa', () => {
-  it('"2 OKRs · 63% · 2 metas em vermelho" — média pela função do domínio, só contagens', () => {
+  it('"2 OKRs · 63% · 2 metas em vermelho" — o número é o `capa.prioridades` do servidor', () => {
     expect(resumoDaCapa(reuniao())).toBe('2 OKRs · 63% · 2 metas em vermelho')
   })
 
-  it('singular, sem média quando nenhum OKR tem progresso, e o zero escrito', () => {
+  it('a média não se refaz no front: o progresso dos slides não muda a capa', () => {
     const r = reuniao()
-    expect(
-      resumoDaCapa({
-        capa: { ...r.capa, okrsAtivos: 1, abaixo: 0 },
-        okrs: [{ ...r.okrs[0]!, progresso: null }],
-      }),
-    ).toBe('1 OKR · nenhuma meta em vermelho')
-    expect(resumoDaCapa({ capa: { ...r.capa, abaixo: 1 }, okrs: [] })).toBe('2 OKRs · 1 meta em vermelho')
+    expect(resumoDaCapa({ capa: { ...r.capa, prioridades: { quantos: 3, media: 41 } } })).toBe('3 OKRs · 41% · 2 metas em vermelho')
+  })
+
+  it('singular, sem média quando o servidor diz `null`, e o zero escrito', () => {
+    const r = reuniao()
+    expect(resumoDaCapa({ capa: { ...r.capa, prioridades: { quantos: 1, media: null }, abaixo: 0 } })).toBe('1 OKR · nenhuma meta em vermelho')
+    expect(resumoDaCapa({ capa: { ...r.capa, prioridades: { quantos: 2, media: null }, abaixo: 1 } })).toBe('2 OKRs · 1 meta em vermelho')
   })
 
   it('a semana que o servidor mediu', () => {

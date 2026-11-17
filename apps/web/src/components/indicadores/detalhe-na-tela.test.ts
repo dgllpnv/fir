@@ -12,7 +12,6 @@ import {
   numeroDoGrupo,
   valorDoLancamento,
   desenharMeta,
-  fonteNaTela,
   janelaDaMeta,
   janelaDosMeses,
   leituraDoPonto,
@@ -156,6 +155,18 @@ describe('as quatro linhas do período da meta', () => {
     expect(d.projecao[1]?.x).toBe(1)
   })
 
+  it('o acumulado termina no `meta.atual` do servidor, mesmo quando as barras somam outro número', () => {
+    // As barras somam R$ 30.000,00; o servidor mediu R$ 40.000,00 para a meta.
+    const s = serie([ponto('2026-11-01', reais('1000000')), ponto('2026-11-02', reais('2000000'))])
+    const d = desenharMeta(meta(), s, 'soma', '2026-11-02')
+    const ultimo = d.real[d.real.length - 1]
+    expect(ultimo?.y).toBe(d.projecao[0]?.y)
+    expect(ultimo?.x).toBe(d.projecao[0]?.x)
+    // O vértice do meio continua sendo o acumulado das barras.
+    const comAtualIgual = desenharMeta(meta({ atual: reais('1000000', null, 8) }), serie([ponto('2026-11-01', reais('1000000'))]), 'soma', '2026-11-17')
+    expect(comAtualIgual.real.length).toBe(2)
+  })
+
   it('sem valores: percentual da meta, sem R$ em nenhuma leitura', () => {
     const semReais = meta({
       alvo: reais(null, null, null),
@@ -177,11 +188,6 @@ describe('as quatro linhas do período da meta', () => {
     expect(t.numero).toMatch(/^R\$\s?104\.000,00$/)
     expect(t.nota).toBe('87% da meta')
   })
-})
-
-it('a fonte perde a referência interna da spec e guarda o resto', () => {
-  expect(fonteNaTela('Recebimentos dos dias com caixa fechado (I-9)')).toBe('Recebimentos dos dias com caixa fechado')
-  expect(fonteNaTela('Análise do estoque (as barras não somam o total)')).toBe('Análise do estoque (as barras não somam o total)')
 })
 
 describe('o ritmo diário da meta no dia a dia', () => {
