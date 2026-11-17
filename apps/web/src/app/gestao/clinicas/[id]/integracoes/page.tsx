@@ -632,29 +632,29 @@ function EstadoDaAgenda({ clinica, agenda }: { clinica: ClinicaNaLista; agenda: 
           {agenda.ciclos.length === 0 ? (
             <p className="nota">Nenhum ciclo registrado ainda.</p>
           ) : (
-            <table className="superadmin-lista">
+            <table className="superadmin-lista superadmin-lista-compacta">
               <thead>
                 <tr>
                   <th>Quando</th>
-                  <th>Janela</th>
+                  <th className="secundaria">Janela</th>
                   <th className="num">Lidos</th>
-                  <th className="num">Páginas</th>
-                  <th className="num">Contatos</th>
-                  <th className="num">Confirmações</th>
+                  <th className="num secundaria">Páginas</th>
+                  <th className="num secundaria">Contatos</th>
+                  <th className="num secundaria">Confirmações</th>
                   <th>Resultado</th>
                 </tr>
               </thead>
               <tbody>
                 {agenda.ciclos.map((c) => (
                   <tr key={c.em}>
-                    <td className="num">{quandoNaClinica(c.em, clinica.fuso)}</td>
-                    <td data-rotulo="Janela" className="num">
+                    <td className="data">{quandoNaClinica(c.em, clinica.fuso)}</td>
+                    <td data-rotulo="Janela" className="data secundaria">
                       {dia(c.janelaDe)} a {dia(c.janelaAte)}
                     </td>
                     <td data-rotulo="Lidos" className="num">{c.agendamentosLidos}</td>
-                    <td data-rotulo="Páginas" className="num">{c.paginas}</td>
-                    <td data-rotulo="Contatos" className="num">{c.chamadasDeContato}</td>
-                    <td data-rotulo="Confirmações" className="num">{c.confirmacoesPorId}</td>
+                    <td data-rotulo="Páginas" className="num secundaria">{c.paginas}</td>
+                    <td data-rotulo="Contatos" className="num secundaria">{c.chamadasDeContato}</td>
+                    <td data-rotulo="Confirmações" className="num secundaria">{c.confirmacoesPorId}</td>
                     <td data-rotulo="Resultado">
                       {c.resultado === 'ok' ? <span className="pill bom">ok</span> : <span className="pill mau">falhou</span>}
                     </td>

@@ -768,6 +768,39 @@ table.superadmin-lista .num { font-variant-numeric: tabular-nums; }
   table.superadmin-lista th.num,
   table.superadmin-lista td.num { text-align: right; }
 }
+/* Data e janela: algarismos tabulares, mas alinhadas à esquerda como o cabeçalho. */
+table.superadmin-lista .data { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/*
+ * LISTA DE LEITURAS: continua TABELA no celular. Cinco leituras viradas cinco
+ * cartões ocupavam três telas, e `design.md` proíbe informação toda em cartão.
+ * Abaixo de 620 px ficam só quando, lidos e resultado; o resto (janela,
+ * páginas, contatos, confirmações) é detalhe técnico que cabe na tela larga.
+ */
+@media (max-width: 620px) {
+  table.superadmin-lista.superadmin-lista-compacta thead { display: table-header-group; }
+  table.superadmin-lista.superadmin-lista-compacta { display: table; width: 100%; }
+  table.superadmin-lista.superadmin-lista-compacta tbody { display: table-row-group; }
+  table.superadmin-lista.superadmin-lista-compacta tr {
+    display: table-row;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+    background: none;
+  }
+  table.superadmin-lista.superadmin-lista-compacta th,
+  table.superadmin-lista.superadmin-lista-compacta td {
+    display: table-cell;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  table.superadmin-lista.superadmin-lista-compacta td { font-size: 14px; }
+  table.superadmin-lista.superadmin-lista-compacta td[data-rotulo]::before { content: none; }
+  table.superadmin-lista.superadmin-lista-compacta .secundaria { display: none; }
+  table.superadmin-lista.superadmin-lista-compacta th.num,
+  table.superadmin-lista.superadmin-lista-compacta td.num { text-align: right; }
+}
 
 /* As contagens do último ciclo: número em cima, rótulo embaixo, quebrando linha. */
 .superadmin-contagens {
