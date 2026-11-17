@@ -109,6 +109,38 @@ export class AcessoPorEmailService {
     @Inject(LIMITE_ENVIOS_POR_PESSOA) private readonly porPessoa: LimitePorOrigem,
   ) {}
 
+  /** O trabalho que roda DEPOIS da resposta, para `ocioso()` poder esperá-lo. */
+  private readonly emAndamento = new Set<Promise<void>>()
+
+  /**
+   * Roda `trabalho` fora da requisição, sem nunca rejeitar: o que acontece
+   * nele não muda resposta nenhuma (esqueci-senha, avisos de L11, envio).
+   */
+  emSegundoPlano(
+    trabalho: () => Promise<unknown>,
+    // Quando começar: por padrão, no próximo giro do laço; o esqueci-senha
+    // passa "quando a resposta saiu".
+    quando: Promise<void> = new Promise<void>((pronto) => setImmediate(pronto)),
+  ): void {
+    const p: Promise<void> = quando
+      .then(trabalho)
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .finally(() => this.emAndamento.delete(p))
+    this.emAndamento.add(p)
+  }
+
+  /**
+   * Resolve quando não há mais trabalho em segundo plano — inclusive o que um
+   * trabalho agendou ao terminar. Para o desligamento ordenado e para os testes,
+   * que esperam o fim em vez de dormir um tempo chutado.
+   */
+  async ocioso(): Promise<void> {
+    while (this.emAndamento.size > 0) await Promise.all([...this.emAndamento])
+  }
+
   get ligado(): boolean {
     return envioLigado(this.envio)
   }
@@ -142,9 +174,7 @@ export class AcessoPorEmailService {
    * SMTP do relógio do esqueci-senha (appsec 11) e dos avisos de L11.
    */
   entregarDepois(m: MensagemDeEmail): void {
-    setImmediate(() => {
-      void this.entregar(m)
-    })
+    this.emSegundoPlano(() => this.entregar(m))
   }
 
   /** Mensagem com link para a pessoa, já montada. */

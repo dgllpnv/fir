@@ -84,13 +84,20 @@ export class AcessoPorEmailController {
       if (!dados.success) {
         throw new BadRequestException(dados.error.issues[0]?.message ?? 'Informe o e-mail.')
       }
-      try {
-        await this.acesso.pedirRedefinicao(dados.data.clinica, dados.data.email)
-      } catch {
-        // Nada que aconteça depois do parse muda o que o cliente vê: nem o
-        // banco, nem o semáforo, nem o SMTP. O erro não é registrado com o
-        // e-mail; o adaptador do correio já registra o seu, mascarado.
-      }
+      // FORA do relógio da resposta (appsec 11). Com conta, o pedido abre uma
+      // transação (link, evento, commit) que mediu de 35 a 127 ms — e passava
+      // do piso: o tempo dizia quem tem conta. Agora toda saída faz só o
+      // parse, o limite por origem e o piso. Nada que aconteça depois muda o
+      // que o cliente vê; o erro não é registrado com o e-mail.
+      // E só DEPOIS de a resposta sair (`finish`): começar no meio da espera
+      // do piso pôs a transação para competir com o timer do piso, e o caminho
+      // "conta" seguia 8 ms mais lento em uma de cinco rodadas.
+      const { clinica, email } = dados.data
+      const respondida = new Promise<void>((pronto) => {
+        res.raw.once('finish', pronto)
+        res.raw.once('close', pronto)
+      })
+      this.acesso.emSegundoPlano(() => this.acesso.pedirRedefinicao(clinica, email), respondida)
       return { mensagem: FRASE_DO_ESQUECI_SENHA }
     } finally {
       const falta = PISO_DE_RESPOSTA_MS - (performance.now() - inicio)

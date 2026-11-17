@@ -14,6 +14,7 @@ import { apagarClinicaDeTeste, apagarOperadorDeTeste, declararAtorSistema } from
 import { RELOGIO } from '../comum/relogio'
 import { registrarCookie } from '../main'
 import { AcessoService } from '../pessoas/acesso.service'
+import { AcessoPorEmailService } from './acesso-por-email.service'
 import { CorreioCapturador, ENVIO } from './correio'
 import { LIMITE_ESQUECI_POR_ORIGEM } from './limites'
 
@@ -175,8 +176,13 @@ const usar = (token: string, senha?: string) =>
   srv()
     .post('/v1/link-de-acesso/usar')
     .send(senha === undefined ? { token } : { token, senha })
-/** As mensagens entregues "depois da resposta" saem num `setImmediate`. */
-const assentar = () => new Promise((r) => setTimeout(r, 30))
+/**
+ * O esqueci-senha e os avisos rodam DEPOIS da resposta: espera o fim deles,
+ * nos dois apps, em vez de dormir um tempo chutado.
+ */
+const assentar = async () => {
+  for (const a of [app, appDesligado]) await a.get(AcessoPorEmailService).ocioso()
+}
 const para = (email: string) => correio.mensagens.filter((m) => m.para === email)
 const ultimoToken = (email: string): string => {
   const m = para(email).at(-1)
@@ -1133,10 +1139,30 @@ describe('revisão: o 429 por origem do esqueci-senha (appsec 12)', () => {
 })
 
 describe('revisão: o tempo do esqueci-senha não diz quem tem conta (appsec 11)', () => {
-  const AMOSTRAS = 7
-  const mediana = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!
+  /**
+   * 15 amostras INTERCALADAS por caminho e MÉDIA APARADA (tira 20% de cada
+   * ponta), sem afrouxar o limite de 10% do piso.
+   *
+   * Medido em 2026-11-17: o `setTimeout` do piso atrasa 0–16 ms, em dois modos
+   * (~1 e ~15 ms; a resolução do timer do Windows), igual em todo caminho.
+   * Com 7 amostras, a MEDIANA de cada caminho caía num modo ou no outro por
+   * sorte, e a diferença entre caminhos chegava a 12 ms sem defeito nenhum. A
+   * média aparada atravessa os dois modos e descarta a rajada de carga.
+   *
+   * O trabalho em segundo plano de uma amostra (que só começa depois da
+   * resposta) é esperado FORA do tempo
+   * medido: senão a transação do caminho "conta" competiria com a amostra
+   * seguinte, e o teste mediria a vizinhança.
+   */
+  const AMOSTRAS = 15
+  const mediaAparada = (xs: number[]): number => {
+    const o = [...xs].sort((a, b) => a - b)
+    const corte = Math.floor(o.length * 0.2)
+    const meio = o.slice(corte, o.length - corte)
+    return meio.reduce((a, b) => a + b, 0) / meio.length
+  }
 
-  it('as medianas dos cinco caminhos diferem menos de 10% do piso', async () => {
+  it('as médias aparadas dos cinco caminhos diferem menos de 10% do piso', async () => {
     expect(PISO_DE_RESPOSTA_MS, 'o piso está desligado: não há o que medir').toBeGreaterThan(0)
     for (let i = 0; i < AMOSTRAS; i++) {
       await pessoa(clinicaA, `tempo.conta${i}`, { email: `tempo.conta${i}@sol.com` })
@@ -1144,6 +1170,7 @@ describe('revisão: o tempo do esqueci-senha não diz quem tem conta (appsec 11)
     }
     // O teto por e-mail já estourado: o caminho "limite" responde igual.
     for (let k = 0; k < 5; k++) await esqueci('tempo.teto@sol.com').expect(202)
+    await assentar()
 
     const caminhos: Record<string, (i: number) => ReturnType<typeof esqueci>> = {
       conta: (i) => esqueci(`tempo.conta${i}@sol.com`),
@@ -1153,22 +1180,27 @@ describe('revisão: o tempo do esqueci-senha não diz quem tem conta (appsec 11)
       limite: () => esqueci('tempo.teto@sol.com'),
     }
     const tempos: Record<string, number[]> = {}
-    // INTERCALADO, como em `oraculo-de-tempo.e2e.test.ts`: uma rajada de carga
-    // atinge os cinco caminhos por igual.
     for (let i = 0; i < AMOSTRAS; i++) {
       for (const [nome, f] of Object.entries(caminhos)) {
+        // Fase aleatória do timer (0–16 ms, fora do tempo medido): sem ela, o
+        // caminho que vem logo depois de um trabalho em segundo plano começava
+        // sempre na mesma fase do tick de 15,6 ms do Windows, e carregava 5 ms
+        // de viés que não são do servidor.
+        await new Promise((r) => setTimeout(r, Math.random() * 16))
         const inicio = performance.now()
         await f(i).expect(202)
         ;(tempos[nome] ??= []).push(performance.now() - inicio)
+        await assentar()
       }
     }
-    await assentar()
-    const medianas = Object.fromEntries(Object.entries(tempos).map(([k, v]) => [k, mediana(v)]))
-    const valores = Object.values(medianas)
+    // A conta recebeu o link: o caminho medido é mesmo o que faz trabalho.
+    expect(para('tempo.conta0@sol.com').length).toBe(1)
+    const medias = Object.fromEntries(Object.entries(tempos).map(([k, v]) => [k, mediaAparada(v)]))
+    const valores = Object.values(medias)
     const diferenca = Math.max(...valores) - Math.min(...valores)
     expect(
       diferenca,
-      `medianas ${JSON.stringify(medianas)} diferem ${diferenca} ms; o limite é 10% do piso (${PISO_DE_RESPOSTA_MS} ms)`,
+      `médias aparadas ${JSON.stringify(medias)} diferem ${diferenca} ms; o limite é 10% do piso (${PISO_DE_RESPOSTA_MS} ms)`,
     ).toBeLessThan(PISO_DE_RESPOSTA_MS * 0.1)
     for (const v of valores) expect(v).toBeGreaterThanOrEqual(PISO_DE_RESPOSTA_MS)
   })
