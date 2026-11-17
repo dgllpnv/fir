@@ -14,6 +14,7 @@ import {
   inicial,
 } from '@/lib/icones'
 import { type ItemDeMenu, secoesDoMenu } from '@/lib/menu'
+import { ContadorDoMenu } from './indicadores/contador-do-menu'
 import { SeletorDeTema } from './seletor-de-tema'
 
 /**
@@ -214,6 +215,8 @@ export function Shell({
                 >
                   {iconeDaRota(b.item.href)}
                   <span>{b.item.rotulo}</span>
+                  {/* O item só chegou aqui se a sessão tem `indicadores` (menu filtrado no servidor). */}
+                  {b.item.href === '/indicadores' ? <ContadorDoMenu /> : null}
                 </Link>
               )
             }

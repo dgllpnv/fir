@@ -62,6 +62,12 @@ export type AcoesDoCartao = {
   readonly meusGrupoIds?: readonly string[]
   /** Nome de pessoa e de grupo, para a frase "concluída por…". */
   readonly nomes?: Nomes
+  /**
+   * Abre a janela D.4 da tarefa "Lançar [KPI]" (1.9 H). Ausente, a tarefa de
+   * lançamento se comporta como as outras — e o servidor recusa concluí-la
+   * sem o lançamento (422), porque ela se conclui LANÇANDO.
+   */
+  readonly lancarKpi?: (t: TarefaNaLista) => void
 }
 
 export type DadosDaConclusao = {
@@ -142,7 +148,7 @@ export function CartaoDeTarefa({
     status: t.status,
   }
   const podeCancelar =
-    !feita && !cancelada && (souSolicitante || podeEquipe)
+    !feita && !cancelada && (souSolicitante || podeEquipe) && t.lancamentoDeKpi === null
   const podeEditarTarefa = podeEditar(paraAutorizar, autor).tipo === 'ok'
   // Assumir é do MEMBRO do grupo (quem só acompanha a equipe não "pega" a tarefa
   // de um grupo a que não pertence — transfere, se for o caso).
@@ -167,6 +173,15 @@ export function CartaoDeTarefa({
     ? 'Esta tarefa não é sua nem da sua equipe. Só quem pediu, quem está com ela ou quem acompanha a equipe conclui.'
     : 'Esta tarefa é de um grupo. Só quem é do grupo conclui.'
   const concluidaPor = acoes.nomes === undefined ? null : quemConcluiu(t, acoes.nomes)
+  // "Lançar [KPI]" (1.9 H): o toque abre a janela de lançamento, que conclui a
+  // tarefa sozinha. Cancelar e excluir essa tarefa o servidor recusa (o
+  // caminho é arquivar o KPI), então os botões não aparecem.
+  const deLancamento = t.lancamentoDeKpi !== null
+  const lancarKpi = acoes.lancarKpi
+  const lancaAqui = deLancamento && !feita && !cancelada && lancarKpi !== undefined
+  // O selo do KPI no plano de ação (1.9 E). A tarefa de lançamento já leva o
+  // nome do KPI na descrição, e o selo ali só repetiria.
+  const seloDoKpi = t.kpi !== null && !deLancamento ? t.kpi.nome : null
   const temFluxo = t.fluxo.length > 0 || t.tarefaOrigemId !== null
 
   // Quem recebe: a pessoa ou o grupo (`destino` já diz qual, com o nome).
@@ -183,6 +198,10 @@ export function CartaoDeTarefa({
 
   async function aoTocarNoCirculo() {
     if (ocupado) return
+    if (lancaAqui) {
+      lancarKpi?.(t)
+      return
+    }
     if (feita || cancelada) {
       setOcupado(true)
       try {
@@ -210,7 +229,7 @@ export function CartaoDeTarefa({
         className="circulo"
         onClick={aoTocarNoCirculo}
         disabled={ocupado || semPermissaoParaConcluir}
-        aria-label={`${feita || cancelada ? 'Reabrir' : 'Concluir'}: ${t.descricao}`}
+        aria-label={`${feita || cancelada ? 'Reabrir' : lancaAqui ? 'Lançar o valor' : 'Concluir'}: ${t.descricao}`}
         title={
           semPermissaoParaConcluir ? motivoSemConcluir : undefined
         }
@@ -299,6 +318,7 @@ export function CartaoDeTarefa({
           {t.serieId === null ? null : (
             <span className="pill">{t.recorrencia === '' ? 'Recorrente' : t.recorrencia}</span>
           )}
+          {seloDoKpi === null ? null : <span className="pill dourado">Indicador: {seloDoKpi}</span>}
         </div>
 
         {t.obs === '' ? null : <div className="obs">{t.obs}</div>}
@@ -344,6 +364,11 @@ export function CartaoDeTarefa({
           />
         ) : (
           <div className="acoes-da-tarefa">
+            {lancaAqui ? (
+              <button type="button" className="link" style={{ fontWeight: 700 }} onClick={() => lancarKpi?.(t)}>
+                Lançar valor
+              </button>
+            ) : null}
             {mostraAssumir ? (
               <button
                 type="button"
@@ -373,7 +398,7 @@ export function CartaoDeTarefa({
             {/* Para a tarefa concluída o caminho da exclusão não pode depender de
                 "Editar" abrir: o dono do cartão pode ter pagamento e orçamento
                 fechado, e é aqui que a recepção procura o botão. */}
-            {feita && (souSolicitante || podeEquipe) && acoes.excluir !== undefined ? (
+            {feita && !deLancamento && (souSolicitante || podeEquipe) && acoes.excluir !== undefined ? (
               <button type="button" className="link perigo" onClick={() => setExcluindo(true)}>
                 Excluir
               </button>

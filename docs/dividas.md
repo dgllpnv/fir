@@ -276,6 +276,22 @@ dos próprios clientes — a limpeza dos outros ~45 arquivos parou de quebrar na
 de `uso_diario_cliente`. **Falta o G3** (`executarGeracaoDeCobrancas`), que
 continua varrendo tudo; a trava consultiva acima ainda o segura.
 
+### D-L · `pnpm lint` não confere nada: nenhum pacote tem script de lint
+
+Medido em 2026-11-17: a raiz roda `turbo run lint`, mas nenhum `package.json`
+de `apps/*`, `packages/*` ou `teste/` declara `lint`, e não existe configuração
+de ESLint nem Biome no repositório. O "2 successful" que o comando imprime são
+os `build` de que a tarefa depende. Todo "lint limpo" relatado até aqui quer
+dizer só isso. O que segura hoje é o TypeScript estrito
+(`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`) e a revisão.
+
+**O que falta sem lint:** promessa solta (`no-floating-promises`), regra de
+hooks do React, `any` implícito em JS, import de app para app.
+
+**Gatilho:** antes do primeiro deploy. Ligar ESLint com `typescript-eslint`
+(type-checked) e `eslint-plugin-react-hooks`, primeiro em modo aviso,
+medir quantos achados há, e só então tornar erro no portão.
+
 ### D-Z · `zod` 3 tem um aviso alto (esgotar memória validando coleção grande), e o conserto só existe no 4
 
 `pnpm audit` (2026-11-17): `zod <4.6.6`, severidade alta — validar uma coleção
@@ -339,7 +355,9 @@ e o único redigido por uma permissão diferente (`pessoas.gerir`). Um `salarioB
 
 Ela é append-only nas duas camadas, então a purga **não é um `DELETE` comum**: é um job privilegiado que, numa transação, desliga `auditoria_sem_update`, apaga a faixa vencida e o religa — o mesmo caminho que `apagarClinicaDeTeste` usa nos testes. Precisa de registro próprio do que apagou (quantas linhas, de que período), senão a purga vira a única operação do sistema sem rastro.
 
-**E as duas tabelas do acesso por e-mail (ADR 2026-11-16, LGPD L5 e L6), no mesmo job:** `links_de_acesso` apagado **30 dias** depois de usado, invalidado ou vencido (só hashes, mas sem razão para ficar), e `eventos_de_acesso` apagado com **1 ano**. As duas não têm o caminho da trilha: `fir_app` não tem `DELETE` nelas, e a purga roda com o papel de migração. O de 30 dias é o primeiro prazo de todo o sistema a vencer — mas sobre dezenas de linhas de hash, e por isso não antecipa o gatilho.
+~~**E as duas tabelas do acesso por e-mail**~~ — **saíram desta dívida** (2026-11-17, migration 0111): `links_de_acesso` (30 dias) e `eventos_de_acesso` (1 ano) têm purga própria, `purgar_acesso_vencido` (SECURITY DEFINER de `fir_migrate`, só a clínica fixada, em lote) chamada pelo job diário `retencao-do-acesso`. Teste: `apps/api/src/acesso/retencao.e2e.test.ts`. O que resta aqui é só a `auditoria`.
+
+**Mas o link apagado continua na trilha** (nota LGPD da revisão appsec da 0111): `links_de_acesso` tem trigger de auditoria, então o `criou` de cada link, as `alterou` do uso ou da invalidação e o `removeu` da purga ficam na `auditoria` pelos **5 anos** da trilha de escrita — com `pessoa_id`, `finalidade` e os instantes; `token_hash` e `email_hmac` saem `[oculto]`. Os 30 dias da L5 valem para a TABELA, não para esses metadados. Quando esta purga existir, ela decide se `entidade = 'links_de_acesso'` segue os 5 anos ou o prazo curto, e a decisão entra em `retencao.md` e no RIPD. Até lá, o texto de `retencao.md` sobre os links precisa ser lido com esta ressalva.
 
 **Gatilho:** a primeira clínica completar **um ano** em produção — é quando o prazo mais curto começa a vencer e o acúmulo deixa de ser hipótese. **Sintoma se esquecer:** nada visível. É o modo de falha da LGPD: acúmulo indefinido de dado sensível não dá erro, dá multa.
 
@@ -770,13 +788,17 @@ O HMAC dos ids do MedX e a referência selada derivam de `FIR_INTEGRACOES_CHAVE_
 Medido: `GET /v1/visao-do-mes` devolve `recebido` com os pagamentos de hoje, caixa aberto ou não, e `quantidadeDeRecebimentos` junto. Quem tem `finmes` (e por isso `valores`) e vai contar a gaveta subtrai o `recebido` de ontem e lê o total do dia — o esperado do caixa, por outra porta (regra 6). O `porForma` já corta no caixa fechado; o total não. O T2 **não amplia** a exposição: a meta passou a medir só dias que contam, `aguardandoFechamento` é um total só e some sem `valores`, e `/v1/indicadores*` não muda nenhum byte com um recebimento de hoje (`regra-6-nenhum-byte-de-hoje`).
 **Gatilho:** a primeira clínica em que quem tem `finmes` também conta o caixa às cegas — ou a próxima mudança na tela da Visão do mês. Caminho: `recebido` com o mesmo corte de `porForma`, e a linha "aguardando fechamento" para o resto.
 
-### D-I3 · O Painel mostra o dinheiro de um dia PASSADO sem caixa fechado, que nunca foi conferido às cegas
+### D-I3 · O Painel ainda mostra o dinheiro de um dia sem caixa de MÊS PASSADO (estreitada em 2026-11-17)
 
-`/v1/painel`, com receita, ticket médio e valor fechado, soma todo dia do período, tenha caixa ou não. Um dia passado sem caixa ainda pode ser fechado (`caixa.service` aceita dia passado). Quem vai fechá-lo lê no Painel o total daquele dia, que é o esperado da gaveta por outra porta (regra 6).
+**Paga, a parte do mês corrente.** `/v1/painel` corta receita, pagamentos, ticket médio, valor dos orçamentos pagos, valor por tipo e outras entradas pelos dias que contam (`totaisDosDiasQueContam` / `diasQueContamNasTelas`), a mesma regra do relatório 13 e dos KPIs. O `ltvTotal` por origem tira os dias do mês corrente que ainda não contam (`diasQueAindaNaoContam`). Hoje, com o caixa aberto, e o dia do mês corrente ainda sem caixa, não atravessam. Testes: `relatorios-t9.e2e` (Painel = resumo do 13, antes e depois de fechar o caixa de hoje), `validador-t9.e2e` (revalidação), `painel.e2e`, `fonte-unica.e2e`.
 
-Os KPIs do mês passado espelham a tela e herdam o buraco: é a emenda da c.10, na [ADR chaves-em-reais-e-os-dias-de-caixa](adr/2026-11-17-chaves-em-reais-e-os-dias-de-caixa.md). No mês corrente o KPI já corta.
+**O que resta:**
+- **Dia de mês passado sem caixa conta sempre** (a emenda da c.10, na [ADR chaves-em-reais-e-os-dias-de-caixa](adr/2026-11-17-chaves-em-reais-e-os-dias-de-caixa.md)). Esse dia ainda pode ser fechado (`caixa.service` aceita dia passado), e quem o fecha lê o total dele no Painel.
+- **Fora deste serviço, mas exibidos no Painel:**
+  - a receita das campanhas (`CampanhasService.noPeriodo`, sem corte);
+  - o `ltvMedio` por unidade, que é de vida inteira e não tem corte por escolha declarada.
 
-**Gatilho:** a primeira clínica que fecha caixa de dia passado, ou a próxima mudança no Painel. Caminho: o Painel passa pelo `recorteDeCaixa`, e o dia sem caixa fica aguardando a partir de `conferencia_desde`. Depois disso, o KPI do mês passado deixa de ter exceção.
+**Gatilho:** a primeira clínica que fecha caixa de dia passado, ou a próxima mudança na emenda da c.10. Caminho: `diasQueContamNasTelas` passa a deixar aguardando o dia sem caixa de mês passado a partir de `conferencia_desde`. Painel, relatórios e KPIs herdam juntos, porque é uma função só. A receita de campanha vai junto com a D-I4.
 
 ### D-I4 · O resultado de campanha é cortado pela conclusão da tarefa, não pelo dia do recebimento
 
@@ -798,6 +820,26 @@ O Painel (`totaisDePacientes`) e `resultado_de_campanha` (`CampanhasService.naJa
 **Gatilho:** o primeiro OKR que mistura KR de RH com KR visível à equipe, ou a próxima mudança na edição de OKR. Caminho:
 - M3: `validarMeta` em todo KR movido, visível ou não;
 - M2: uma mensagem que não distingue o KR oculto.
+
+### D-I9 · A retenção de 2 anos de `kpis_na_carteira` não tem executor (appsec T10, obs. 1)
+
+`docs/compliance/retencao.md` dá 2 anos a `kpis_na_carteira` (0110) e diz "eliminação por job privilegiado", mas o job não existe. A 0110 não dá `DELETE` a ninguém, e isso está certo. É a mesma situação de `uso_diario_cliente`, com uma diferença: `nome` é texto livre e pode trazer nome de paciente se a clínica ignorar o aviso do formulário ([revisão](specs/indicadores-e-insights-t10-appsec.md)).
+**Gatilho:** a primeira linha completar 2 anos (a partir de 2028-11), ou o primeiro pedido de titular que cite um nome de KPI. Caminho: um job privilegiado que apaga por `dia < hoje − 2 anos`, junto com o de `uso_diario_cliente`.
+
+### D-I10 · Renomear ou arquivar um KPI não alcança as linhas dos dias passados (appsec T10, obs. 2)
+
+O UPSERT do job reescreve só a linha de hoje. Se a clínica renomeia um KPI para tirar um nome de pessoa, as linhas antigas guardam o nome velho até a retenção. Um KPI arquivado no meio do dia também deixa a linha daquele dia, porque o UPSERT não remove quem sumiu (`kpis-do-dia.ts`). A API mostra só `max(dia)`, então a partir do dia seguinte nada fica exposto, mas fica guardado.
+**Gatilho:** o primeiro pedido de retificação (LGPD art. 18, III) ou de eliminação que alcance um nome de KPI, ou a primeira tela que mostre a série de dias passados. Caminho: um passo de retificação no job que reescreve `nome` por `kpi_ref` em todas as linhas do cliente, ou as anonimiza, e apaga a linha do dia de um KPI que saiu da calculadora.
+
+### D-A2 · `fir_painel` (e `fir_app`) podem forjar eventos de Atividades (appsec 0111, A2)
+
+Desde a 0111, `fir_painel` tem `INSERT` em `eventos_de_acesso`, e `fir_app` já tinha. Os dois podem gravar qualquer evento, por exemplo `senha_redefinida_pelo_link`, com `por_pessoa_id` de qualquer pessoa da clínica. Só uma credencial de banco comprometida chega a isso. A escrita legítima do painel é só `email_cadastrado` e `convite_reenviado` com `por_pessoa_id NULL` ([revisão](specs/acesso-por-email-dividas-appsec.md); teste `ACHADO A2` em `appsec-0111.e2e.test.ts`, que afirma o comportamento de hoje).
+**Gatilho:** Atividades passar a servir de prova de quem fez o quê numa disputa (incidente, pedido de titular), ou o painel ganhar uma segunda escrita de evento. **Caminho:** uma policy `RESTRICTIVE FOR INSERT TO fir_painel` que limite os dois eventos e exija `por_pessoa_id IS NULL`. Para `fir_app`, a mesma ideia, com uma lista por papel. Quem corrigir inverte o teste.
+
+### D-A4 · Envio de e-mail sem limite pelo PATCH de pessoa (appsec 0111, A4)
+
+O PATCH do painel e o da clínica emitem um link, e agora também um aviso ao endereço antigo, a cada e-mail novo, e nenhum dos dois tem limite de envio. Uma sessão de administradora ou de operador serve então de relé de spam e queima a reputação do domínio remetente. `/v1/eu/email` e o reenvio pela admin já têm `LIMITE_ENVIOS_POR_PESSOA`, e o PATCH da clínica já não tinha limite antes da 0111.
+**Gatilho:** o envio real ligado em produção (`SMTP_HOST`, depois do DPA), ou o primeiro alerta de reputação no provedor. **Caminho:** o mesmo `LIMITE_ENVIOS_POR_PESSOA` por pessoa-alvo nos dois PATCH, com 429 antes da escrita.
 
 ## Pendências de produto, não de código
 

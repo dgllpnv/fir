@@ -29,6 +29,8 @@ export const TELAS_DAS_ROTAS: readonly Linha[] = [
 
   ['*', /^clientes\/:id\/campanhas(\/|$)/, 'campanhas'],
   ['*', /^clientes\/:id\/uso(\/|$)/, 'firclinic'],
+  // T10: os KPIs da clínica são dado da FIR Clinic, como o uso.
+  ['*', /^clientes\/:id\/indicadores-da-clinica(\/|$)/, 'firclinic'],
   ['*', /^clientes\/:id\/(metas|indicadores|lancamentos)(\/|$)/, 'metas'],
   ['*', /^clientes(\/|$)/, 'clientes'],
   ['*', /^cadastro\/opcoes$/, 'clientes'],

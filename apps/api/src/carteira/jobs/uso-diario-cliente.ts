@@ -16,6 +16,7 @@ import {
   contarUsuarios,
   somarReceitaRegistrada,
 } from './metricas-do-dia'
+import { calculadoraDoJob, gravarKpisNaCarteira, kpisParaACarteira } from './kpis-do-dia'
 
 /**
  * **G4 — O JOB QUE POPULA `uso_diario_cliente`.**
@@ -57,14 +58,45 @@ import {
 
 export type FalhaDoJob = { readonly clienteCarteiraId: string; readonly clinicaId: string; readonly erro: string }
 
+/** A falha da fotografia de KPIs (T10) é separada: ela não desfaz o uso do dia. */
+export type FalhaDosKpis = {
+  readonly clienteCarteiraId: string
+  readonly clinicaId: string
+  /**
+   * O `code` do Postgres (ex.: `23514`) ou o nome da classe do erro. NUNCA a
+   * mensagem: ela pode citar o nome livre de um KPI ou um valor (appsec C29).
+   */
+  readonly codigo: string
+}
+
+/** Só o que não carrega conteúdo: o código SQLSTATE, senão o nome da classe. */
+export function codigoDaFalha(erro: unknown): string {
+  if (typeof erro === 'object' && erro !== null && 'code' in erro && typeof erro.code === 'string' && /^[0-9A-Z]{5}$/.test(erro.code)) {
+    return erro.code
+  }
+  return erro instanceof Error ? erro.constructor.name : typeof erro
+}
+
 export type ResumoDoJob = {
   /** Quantos `Cliente Firmare` ativos tiveram a linha do dia escrita. */
   readonly processados: number
   /** Um cliente com erro não derruba os outros — cada um é a própria transação. */
   readonly falhas: readonly FalhaDoJob[]
+  /** T10: linhas de `kpis_na_carteira` escritas (inseridas ou reescritas). */
+  readonly kpisGravados: number
+  /** T10: sem mensagem de erro — ela poderia carregar o nome livre de um KPI (appsec C29). */
+  readonly falhasDosKpis: readonly FalhaDosKpis[]
 }
 
-type ClienteAtivo = { id: string; nome: string; clinica_id: string; grupo_id: string; status: string }
+type ClienteAtivo = {
+  id: string
+  nome: string
+  clinica_id: string
+  grupo_id: string
+  status: string
+  /** A clínica PARTICIPA do grupo do cliente agora (0068). Sem isto, nenhum KPI atravessa (C28). */
+  vinculado: boolean
+}
 
 /**
  * Roda para TODOS os `Cliente Firmare` `ativo` OU em `onboarding` — a MESMA regra da tela
@@ -92,7 +124,11 @@ export async function executarUsoDiarioCliente(
   const recorte = opcoes.clienteIds
   const clientes = await banco.nasTabelasDaCarteiraComEscopo('geral', null, (c) =>
     c.query<ClienteAtivo>(
-      `SELECT id, nome, clinica_id, grupo_id, status FROM clientes_carteira
+      `SELECT id, nome, clinica_id, grupo_id, status,
+              EXISTS (SELECT 1 FROM participacao_clinica_grupo p
+                       WHERE p.clinica_id = clientes_carteira.clinica_id
+                         AND p.grupo_id = clientes_carteira.grupo_id AND p.ate IS NULL) AS vinculado
+         FROM clientes_carteira
         WHERE status IN ('ativo', 'onboarding') AND excluido_em IS NULL
           -- Desde a 0047 o cliente pode existir sem clínica na FIR Clinic (D-22
           -- item 4): sem clínica não há uso a medir, e isso não é falha.
@@ -101,7 +137,7 @@ export async function executarUsoDiarioCliente(
       recorte === undefined ? [] : [[...recorte]],
     ),
   )
-  if (clientes.rows.length === 0) return { processados: 0, falhas: [] }
+  if (clientes.rows.length === 0) return { processados: 0, falhas: [], kpisGravados: 0, falhasDosKpis: [] }
 
   // `clinicas` não é da carteira (0001 já dá `SELECT` a `fir_app`, e é a RAIZ
   // do tenancy, sem RLS — `semIsolamentoDeClinica` é o nome desconfortável de
@@ -117,6 +153,9 @@ export async function executarUsoDiarioCliente(
 
   const falhas: FalhaDoJob[] = []
   let processados = 0
+  const falhasDosKpis: FalhaDosKpis[] = []
+  let kpisGravados = 0
+  const calculadora = calculadoraDoJob(banco, relogio)
 
   for (const cliente of clientes.rows) {
     const fuso = fusoPorClinica.get(cliente.clinica_id)
@@ -219,10 +258,25 @@ export async function executarUsoDiarioCliente(
         clinicaId: cliente.clinica_id,
         erro: erro instanceof Error ? erro.message : String(erro),
       })
+      continue
+    }
+
+    // T10 — os KPIs da clínica (I-47). Só com vínculo ativo (C28); a
+    // fotografia é do INSTANTE (o "hoje" da clínica), não do `diaAlvo` do uso:
+    // a posição de um dia passado não se recompõe. Transação e `try` próprios.
+    if (!cliente.vinculado) continue
+    try {
+      const { hoje, kpis } = await kpisParaACarteira(calculadora, clinicaIdDeFonteConfiavel(cliente.clinica_id), fuso)
+      kpisGravados += await gravarKpisNaCarteira(banco, cliente, hoje, kpis)
+    } catch (erro) {
+      const falha = { clienteCarteiraId: cliente.id, clinicaId: cliente.clinica_id, codigo: codigoDaFalha(erro) }
+      falhasDosKpis.push(falha)
+      // Só ids e o código: sem mensagem, nome de KPI nem valor (C29).
+      console.error(`[carteira:kpis-na-carteira] falha cliente=${falha.clienteCarteiraId} clinica=${falha.clinicaId} codigo=${falha.codigo}`)
     }
   }
 
-  return { processados, falhas }
+  return { processados, falhas, kpisGravados, falhasDosKpis }
 }
 
 /**

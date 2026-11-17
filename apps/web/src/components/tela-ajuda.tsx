@@ -17,7 +17,9 @@ import type { CapituloDoManual, PerguntaDaAjuda, SecaoDoManual } from '@/conteud
 import { Vazio } from './estados'
 
 /**
- * **Ajuda e manual** — as 51 perguntas e os 14 capítulos escritos pela PO.
+ * **Ajuda e manual** — as perguntas e os capítulos escritos pela PO, mais o
+ * capítulo 15 e as entradas do backlog final (a contagem é cobrada em
+ * `conteudo.test.ts`, não aqui).
  *
  * ────────────────────────────────────────────────────────────────────────────
  * UMA TELA, DUAS ABAS, **UM** CAMPO DE BUSCA

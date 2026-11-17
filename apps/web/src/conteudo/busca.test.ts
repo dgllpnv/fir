@@ -127,8 +127,18 @@ describe('o conteúdo de gestão só aparece para quem tem `painel` ou `config`'
     const daRecepcao = manualVisivel(MANUAL, false)
     const daGestao = manualVisivel(MANUAL, true)
 
-    expect(daGestao).toHaveLength(14)
+    expect(daGestao).toHaveLength(15)
     expect(daRecepcao.map((c) => c.numero)).not.toContain(10)
+
+    // O capítulo 15 fica para a recepção só com o que é dela: lançar o KPI
+    // manual de que é responsável, os textos livres e o "sem valores".
+    const indicadores = daRecepcao.find((c) => c.numero === 15)
+    expect(indicadores?.secoes.map((s) => s.titulo)).toEqual([
+      'Para que serve',
+      'Lançar o valor de um KPI manual',
+      'Textos livres: o que não escrever',
+      'Sem acesso a valores',
+    ])
 
     const estoque = daRecepcao.find((c) => c.numero === 12)
     expect(estoque, 'o capítulo 12 não é de gestão e tem de ficar').toBeDefined()
@@ -139,11 +149,46 @@ describe('o conteúdo de gestão só aparece para quem tem `painel` ou `config`'
     for (const c of daRecepcao) expect(c.secoes.length, rotuloDoCapitulo(c)).toBeGreaterThan(0)
   })
 
-  it('as 35 perguntas da equipe, e as 51 da gestão', () => {
-    expect(ajudaVisivel(AJUDA, false)).toHaveLength(35)
-    expect(ajudaVisivel(AJUDA, true)).toHaveLength(51)
-    // Sete temas para a equipe, oito para a gestão — "Gestão" é o oitavo.
-    expect(new Set(ajudaVisivel(AJUDA, false).map((p) => p.tema)).size).toBe(7)
-    expect(new Set(ajudaVisivel(AJUDA, true).map((p) => p.tema)).size).toBe(8)
+  it('as 44 perguntas da equipe, e as 75 da gestão', () => {
+    expect(ajudaVisivel(AJUDA, false)).toHaveLength(44)
+    expect(ajudaVisivel(AJUDA, true)).toHaveLength(75)
+    // Oito temas para a equipe, nove para a gestão — "Gestão" é o nono.
+    expect(new Set(ajudaVisivel(AJUDA, false).map((p) => p.tema)).size).toBe(8)
+    expect(new Set(ajudaVisivel(AJUDA, true).map((p) => p.tema)).size).toBe(9)
+  })
+})
+
+/**
+ * **As perguntas das três entregas são achadas pelo que a recepção digita**,
+ * não pelo título exato. Cada caso é uma dúvida de balcão, com as palavras
+ * dela.
+ */
+describe('a busca acha as entregas do backlog final', () => {
+  const primeira = (digitado: string, gestao = true) =>
+    buscarNaAjuda(ajudaVisivel(AJUDA, gestao), termosDeBusca(digitado))[0]?.pergunta
+
+  it('lançar o indicador, sem acento, pela recepção', () => {
+    expect(primeira('lancar indicador', false)).toBe('Recebi a tarefa “Lançar” um indicador. Como faço?')
+  })
+
+  it('o MedX, o link vencido e o e-mail', () => {
+    expect(primeira('medx agendamento', false)).toBe('A clínica usa o MedX. Preciso lançar o agendamento aqui também?')
+    expect(primeira('link expirou', false)).toBe('O link do e-mail diz que não vale mais. E agora?')
+    expect(primeira('confirmar email', false)).toBe('Como confirmo o meu e-mail?')
+  })
+
+  it('o caixa aberto que não entra na meta, o telefone e a campanha da lista', () => {
+    expect(primeira('aguardando fechamento')).toBe('Por que o recebido de hoje não entra na meta de faturamento?')
+    expect(primeira('telefone exportar')).toBe('Por que o telefone não veio no arquivo exportado?')
+    // "lista campanha" sozinho empata com "Como importo uma lista de pacientes
+    // para a campanha?" (as duas palavras nos dois títulos) e a dela vem antes;
+    // é o "relatório" que separa a lista tirada daqui da planilha importada.
+    expect(primeira('campanha relatorio')).toBe('Como tiro uma lista de pacientes para uma campanha?')
+  })
+
+  it('o manual acha o capítulo 15 pelo título da seção', () => {
+    const achados = buscarNoManual(MANUAL, termosDeBusca('modo reuniao'))
+    expect(achados[0]?.secao.titulo).toBe('Modo reunião')
+    expect(achados[0]?.capitulo.numero).toBe(15)
   })
 })

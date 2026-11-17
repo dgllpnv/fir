@@ -27,7 +27,7 @@ import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
-import { definirMetaDoMes, metaDoMes } from '../metas/metas.repositorio'
+import { definirMetaDoMes, kpiDeFaturamento, metaDoMes } from '../metas/metas.repositorio'
 import { PARTES_VIVAS } from './dinheiro-que-entrou'
 import { caixasDoPeriodo, type FaturamentoConferido, medirFaturamentoConferido } from './faturamento-conferido'
 import { outrasEntradasDaJanela } from './outras-entradas.repositorio'
@@ -80,7 +80,8 @@ export class VisaoDoMesService {
     const hoje = diaCivil(this.relogio.agora(), ctx.fuso)
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const { visao, medida } = await this.visaoNaConexao(c, ctx, mes, hoje)
-      return paraContrato(mes, visao, medida)
+      // O link "Ver em Indicadores" (T7): o KPI que guarda a meta (I-26).
+      return { ...paraContrato(mes, visao, medida), kpiDaMetaId: await kpiDeFaturamento(c, ctx.clinicaId) }
     })
   }
 

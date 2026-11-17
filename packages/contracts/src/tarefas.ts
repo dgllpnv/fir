@@ -295,7 +295,20 @@ const comumDaTarefa = {
  */
 export const CriarTarefa = z
   .discriminatedUnion('vinculo', [
-    z.object({ ...comumDaTarefa, vinculo: z.literal('interna') }).strict(),
+    z
+      .object({
+        ...comumDaTarefa,
+        vinculo: z.literal('interna'),
+        /**
+         * O PLANO DE AÇÃO (spec I-46): a tarefa nasce ligada a um KPI. Só na
+         * tarefa interna — o Modo reunião mostra os planos na TV da sala, e
+         * paciente nunca chega lá (LGPD L-IN-4). O servidor confere a clínica
+         * (appsec C6) e exige `indicadores` mais a `permissaoDoValor` do KPI
+         * (appsec C27).
+         */
+        kpiId: Uuid.optional(),
+      })
+      .strict(),
     z
       .object({
         ...comumDaTarefa,
@@ -772,6 +785,8 @@ export const ConsultaDeTarefas = z.object({
   unidadeId: Uuid.optional(),
   /** Uma campanha, ou `__sem` para as tarefas sem campanha. */
   campanhaId: z.union([Uuid, z.literal('__sem')]).optional(),
+  /** Os planos de ação de um KPI (T6, I-46). Filtra dentro do `escopo`, nunca o amplia. */
+  kpiId: Uuid.optional(),
   solicitanteId: Uuid.optional(),
   responsavelId: Uuid.optional(),
   limite: z.coerce.number().int().min(1).max(200).default(50),

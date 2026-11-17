@@ -4,7 +4,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { CartaoDoKpi } from './cartao-do-kpi'
 import {
+  alvoDaTarefa,
+  alvoDoKpi,
+  faixaDeLancamento,
+  fonteDoKpi,
   fraseDaPrevia,
+  recadoDoLancamento,
   menorUnidadeDoTexto,
   numeroDoCartao,
   okrNoPeriodo,
@@ -13,6 +18,8 @@ import {
   textoDaMenorUnidade,
   textoDaVariacao,
   trimestresAte,
+  avisoDeUnidade,
+  unidadesDoFiltro,
 } from './na-tela'
 
 /**
@@ -24,6 +31,7 @@ import {
  */
 
 const UUID = '11111111-1111-4111-8111-111111111111'
+const FUSO = 'America/Bahia'
 const DINHEIRO = /R\$|\d+,\d{2}/
 
 const reais = (emDinheiro: string | null, percentualDaMeta: number | null = null) => ({
@@ -82,7 +90,7 @@ describe('o cartão do KPI sem `valores` (1.10 item 6)', () => {
   it('mostra só o percentual da meta, sem nenhum R$', () => {
     const k = kpi(true)
     const html = renderToStaticMarkup(
-      createElement(CartaoDoKpi, { kpi: k, meta: k.metaVigente, atual: k.atual, serie: null, acoes: [] }),
+      createElement(CartaoDoKpi, { kpi: k, meta: k.metaVigente, atual: k.atual, serie: null, acoes: [], fuso: FUSO }),
     )
     expect(html).toContain('78% da meta')
     expect(html).not.toMatch(DINHEIRO)
@@ -93,7 +101,7 @@ describe('o cartão do KPI sem `valores` (1.10 item 6)', () => {
   it('com `valores`, o valor e "de R$ …" da meta', () => {
     const k = kpi(false)
     const html = renderToStaticMarkup(
-      createElement(CartaoDoKpi, { kpi: k, meta: k.metaVigente, atual: k.atual, serie: null, acoes: [] }),
+      createElement(CartaoDoKpi, { kpi: k, meta: k.metaVigente, atual: k.atual, serie: null, acoes: [], fuso: FUSO }),
     )
     expect(html).toContain('R$')
     expect(html).toContain('93.600,00')
@@ -112,7 +120,7 @@ describe('o cartão do KPI sem `valores` (1.10 item 6)', () => {
       atual: { unidade: 'percentual', emDinheiro: null, emNumero: '3550', percentualDaMeta: null, escala: null },
       metaVigente: null,
     }
-    const html = renderToStaticMarkup(createElement(CartaoDoKpi, { kpi: k, meta: null, atual: k.atual, serie: null, acoes: [] }))
+    const html = renderToStaticMarkup(createElement(CartaoDoKpi, { kpi: k, meta: null, atual: k.atual, serie: null, acoes: [], fuso: FUSO }))
     expect(html).toContain('Como é calculado: Despesas fixas sobre o recebido')
     expect(html).toContain('35,5%')
     expect(html).toContain('Sem meta')
@@ -220,5 +228,106 @@ describe('período', () => {
     const t = { inicio: '2026-10-01', fim: '2026-12-31' }
     expect(okrNoPeriodo({ periodo: { tipo: 'datas', inicio: '2026-09-15', fim: '2026-10-01' } }, t)).toBe(true)
     expect(okrNoPeriodo({ periodo: { tipo: 'trimestre', inicio: '2027-01-01', fim: '2027-03-31' } }, t)).toBe(false)
+  })
+})
+
+describe('o lançamento do KPI manual (C.1, D.4, H)', () => {
+  const manual = (extra: Partial<KpiNaLista> = {}): KpiNaLista => ({
+    ...kpi(false),
+    origem: 'manual',
+    chave: null,
+    nome: 'NPS',
+    unidade: 'nota',
+    agregacao: 'posicao',
+    frequencia: 'semanal',
+    periodo: { de: '2026-11-16', ate: '2026-11-17' },
+    atual: { unidade: 'nota', emDinheiro: null, emNumero: null, percentualDaMeta: null, escala: null },
+    anterior: null,
+    variacao: null,
+    metaVigente: null,
+    lancamentoPendente: false,
+    ultimoLancamento: null,
+    ...extra,
+  })
+
+  it('a faixa amarela só no manual pendente, pela frequência', () => {
+    expect(faixaDeLancamento(manual({ lancamentoPendente: true }))).toBe('Lançamento da semana pendente')
+    expect(faixaDeLancamento(manual({ lancamentoPendente: true, frequencia: 'mensal' }))).toBe('Lançamento do mês pendente')
+    expect(faixaDeLancamento(manual())).toBeNull()
+    // Sem o campo (web antiga montando o tipo à mão), nada de faixa.
+    const semCampo = manual()
+    Reflect.deleteProperty(semCampo, 'lancamentoPendente')
+    expect(faixaDeLancamento(semCampo)).toBeNull()
+    expect(faixaDeLancamento({ ...kpi(false), lancamentoPendente: true })).toBeNull()
+  })
+
+  it('o cartão pendente mostra a faixa, e "Lançar agora" só para quem lança', () => {
+    const k = manual({ lancamentoPendente: true })
+    const base = { kpi: k, meta: null, atual: k.atual, serie: null, acoes: [], fuso: FUSO }
+    const comBotao = renderToStaticMarkup(createElement(CartaoDoKpi, { ...base, aoLancarAgora: () => undefined }))
+    expect(comBotao).toContain('Lançamento da semana pendente')
+    expect(comBotao).toContain('Lançar agora')
+    const semBotao = renderToStaticMarkup(createElement(CartaoDoKpi, { ...base, aoLancarAgora: null }))
+    expect(semBotao).toContain('Lançamento da semana pendente')
+    expect(semBotao).not.toContain('Lançar agora')
+    const emDia = renderToStaticMarkup(createElement(CartaoDoKpi, { ...base, kpi: manual(), aoLancarAgora: () => undefined }))
+    expect(emDia).not.toContain('pendente')
+  })
+
+  it('o selo da fonte: autor e o dia NO FUSO DA CLÍNICA', () => {
+    // 02:30 UTC do dia 15 ainda é dia 14 na Bahia (UTC−3).
+    const u = { referencia: '2026-11-09', lancadoEm: '2026-11-15T02:30:00.000Z', autor: 'Juliana Santos' }
+    expect(fonteDoKpi(manual({ ultimoLancamento: u }), FUSO)).toBe('lançado por Juliana em 14/11')
+    expect(fonteDoKpi(manual({ ultimoLancamento: u }), 'UTC')).toBe('lançado por Juliana em 15/11')
+    expect(fonteDoKpi(manual({ ultimoLancamento: { ...u, autor: null } }), FUSO)).toBe('lançado em 14/11')
+    expect(fonteDoKpi(manual(), FUSO)).toBe('ainda sem lançamento')
+    expect(fonteDoKpi(kpi(false), FUSO)).toBe('automático')
+  })
+
+  it('a janela abre pelas duas portas, sem a tarefa adivinhar a frequência', () => {
+    const daTarefa = alvoDaTarefa({
+      kpiId: UUID,
+      nome: 'NPS',
+      unidade: 'nota',
+      comoMedir: 'Nota média do Google no domingo',
+      referencia: '2026-11-16',
+      prazo: '2026-11-17',
+    })
+    expect(daTarefa).toEqual({
+      kpiId: UUID,
+      nome: 'NPS',
+      unidade: 'nota',
+      semanal: null,
+      referencia: '2026-11-16',
+      comoMedir: 'Nota média do Google no domingo',
+    })
+    // Do cartão, o "como medir" ainda vem do detalhe (null = ler de lá).
+    expect(alvoDoKpi(manual())).toMatchObject({ semanal: true, referencia: '2026-11-16', comoMedir: null })
+  })
+
+  it('o recado diz quando a tarefa de Hoje saiu', () => {
+    expect(recadoDoLancamento({ tarefaConcluidaId: UUID })).toBe('Valor lançado. A tarefa de lançamento foi concluída.')
+    expect(recadoDoLancamento({ tarefaConcluidaId: null })).toBe('Valor lançado.')
+  })
+})
+
+describe('filtro Unidade (1.9 B)', () => {
+  it('só aparece com mais de uma unidade ATIVA, e oferece só as ativas', () => {
+    const u = (id: string, ativa: boolean) => ({ id, nome: `U ${id}`, endereco: '', ativa })
+    expect(unidadesDoFiltro(undefined)).toEqual([])
+    expect(unidadesDoFiltro([u('a', true)])).toEqual([])
+    expect(unidadesDoFiltro([u('a', true), u('b', false)])).toEqual([])
+    expect(unidadesDoFiltro([u('a', true), u('b', true), u('c', false)])).toEqual([
+      { id: 'a', nome: 'U a' },
+      { id: 'b', nome: 'U b' },
+    ])
+  })
+
+  it('o KPI que não se divide por unidade diz isso no cartão; o que se divide, não', () => {
+    const k = { ...kpi(false), naoSeDividePorUnidade: true }
+    const html = renderToStaticMarkup(createElement(CartaoDoKpi, { kpi: k, meta: null, atual: k.atual, serie: null, acoes: [], fuso: FUSO }))
+    expect(html).toContain('Não se divide por unidade')
+    expect(avisoDeUnidade({ naoSeDividePorUnidade: false })).toBeNull()
+    expect(avisoDeUnidade({})).toBeNull()
   })
 })

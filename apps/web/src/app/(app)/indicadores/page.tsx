@@ -10,6 +10,12 @@ import { sessaoAtual } from '@/lib/sessao'
  * `indicadores`.
  */
 export default async function IndicadoresPage() {
-  const { perfis, quem, minhaPessoaId } = await sessaoAtual()
-  return <TelaIndicadores podeGerir={temPerm(quem, perfis, 'indicadores.gerir')} minhaPessoaId={minhaPessoaId} />
+  const { eu, perfis, quem, minhaPessoaId } = await sessaoAtual()
+  return (
+    <TelaIndicadores
+      podeGerir={temPerm(quem, perfis, 'indicadores.gerir')}
+      minhaPessoaId={minhaPessoaId}
+      fuso={eu.clinica.fuso}
+    />
+  )
 }

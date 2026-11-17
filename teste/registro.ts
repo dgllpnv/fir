@@ -719,6 +719,13 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
    */
   { metodo: 'GET', caminho: '/v1/carteira/painel', camposDeDinheiro: ['mrr', 'ticketMedio', 'valorEstimado'] },
   /**
+   * T10 (I-47, appsec C28): os KPIs da clínica na ficha do Cliente Firmare,
+   * lidos de `kpis_na_carteira`. Os reais viajam em `emDinheiro`, apagado pelo
+   * espaço `carteira` do interceptor sem `temPermCarteira(…,'valores')`.
+   * Provado em `kpis-na-carteira.e2e.test.ts` (`carteira-sem-valores-null`).
+   */
+  { metodo: 'GET', caminho: '/v1/carteira/clientes/:id/indicadores-da-clinica', camposDeDinheiro: ['emDinheiro'] },
+  /**
    * Indicadores & Insights (T2, I-34): todo valor de KPI em reais viaja em
    * `ValorNaTela.emDinheiro`, e SÓ nele — a lista, o detalhe, a série, a
    * prévia e as escritas que devolvem o cartão ou a meta. `aguardandoFechamento`
@@ -743,17 +750,42 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'PUT', caminho: '/v1/indicadores/okrs/:id', camposDeDinheiro: ['emDinheiro'] },
   { metodo: 'POST', caminho: '/v1/indicadores/okrs/:id/encerrar', camposDeDinheiro: ['emDinheiro'] },
   { metodo: 'POST', caminho: '/v1/indicadores/okrs/:id/duplicar', camposDeDinheiro: ['emDinheiro'] },
+  // Hoje e o Modo reunião (T7): a meta e o cartão em `ValorNaTela`. O contador é só contagem.
+  { metodo: 'GET', caminho: '/v1/indicadores/da-semana', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'GET', caminho: '/v1/indicadores/reuniao', camposDeDinheiro: ['emDinheiro'] },
+  // O detalhe do KPI (T6): os grupos da composição e o valor de cada lançamento, só em `emDinheiro`.
+  { metodo: 'GET', caminho: '/v1/indicadores/kpis/:id/composicao', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'GET', caminho: '/v1/indicadores/kpis/:id/lancamentos', camposDeDinheiro: ['emDinheiro'] },
   /**
    * Relatórios (T8, I-36 a I-41). As linhas levam `valorDaUltimaCompra` e `ltv`
    * (1), `valor` (8) e `custo` (11); o resumo, `emDinheiro` (`ValorNaTela`) e
    * `aguardandoFechamento` (8). Sem `valores`, o MOTOR tira as colunas
    * `dinheiro` e o interceptor é a segunda camada (appsec C16). A faixa de
    * valor dos filtros (`valorMinimo`/`valorMaximo`) volta em todo favorito.
+   * T9: `ticketMedio` (3), `receitaDasIndicadas` (4), `receita` (6),
+   * `valorAberto` e `aReceber` (9), `valorPago` (10), `valorOrcamento` e
+   * `valorFechado` (13). "Criar campanha" (`:chave/campanha`) só devolve
+   * contagens e o id: não entra aqui.
    */
   ...(['execucoes', 'exportacoes'] as const).map((rota) => ({
     metodo: 'POST' as const,
     caminho: `/v1/relatorios/:chave/${rota}`,
-    camposDeDinheiro: ['valorDaUltimaCompra', 'ltv', 'valor', 'custo', 'emDinheiro', 'aguardandoFechamento'],
+    camposDeDinheiro: [
+      'valorDaUltimaCompra',
+      'ltv',
+      'valor',
+      'custo',
+      'emDinheiro',
+      'aguardandoFechamento',
+      'ticketMedio',
+      'receitaDasIndicadas',
+      'receita',
+      'valorAberto',
+      'aReceber',
+      'valorPago',
+      'valorOrcamento',
+      'valorFechado',
+    ],
   })),
   { metodo: 'GET', caminho: '/v1/relatorios', camposDeDinheiro: ['valorMinimo', 'valorMaximo'] },
   { metodo: 'POST', caminho: '/v1/relatorios/favoritos', camposDeDinheiro: ['valorMinimo', 'valorMaximo'] },
@@ -879,6 +911,8 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   // `pacientes_da_exportacao` é APPEND-ONLY (só INSERT) e sem trilha por decisão.
   'relatorios_favoritos',
   'pacientes_da_exportacao',
+  // 0108 (revisão appsec do T8, B1): o contador do limite por hora.
+  'tentativas_de_relatorio',
   'movimentos_de_estoque',
   'motivos_de_perda',
   'notas_de_entrada',
@@ -920,6 +954,9 @@ export const ENTIDADES_SEM_TRILHA_POR_DECISAO: readonly string[] = [
   // transação da linha `exportou` a que aponta. Copiá-la para a `auditoria`
   // transformaria cada exportação de N pacientes em N linhas de trilha.
   'pacientes_da_exportacao',
+  // 0108 (T8, appsec B1): contador de taxa, sem conteúdo (quem e quando), vive
+  // uma hora. O sucesso já está na trilha como `acessou`/`exportou`.
+  'tentativas_de_relatorio',
 ]
 
 /**

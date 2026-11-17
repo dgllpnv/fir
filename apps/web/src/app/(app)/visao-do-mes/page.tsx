@@ -20,6 +20,7 @@ export default async function VisaoDoMes() {
     <TelaVisaoDoMes
       mesCorrente={eu.hoje.slice(0, 7)}
       podeAbrirContas={temPerm(quem, perfis, 'contas.gerir')}
+      podeIndicadores={temPerm(quem, perfis, 'indicadores')}
     />
   )
 }

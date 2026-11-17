@@ -1,6 +1,6 @@
 'use client'
 
-import type { KpiNaLista, ListaDaEquipe, ListaDeKpis, ListaDeOkrs, OkrNaSaida, SerieDoKpi } from '@fir/contracts'
+import type { KpiNaLista, ListaDaEquipe, ListaDeKpis, ListaDeOkrs, ListaDeUnidades, OkrNaSaida, SerieDoKpi } from '@fir/contracts'
 import { type PilarDeKpi, PILARES_DE_KPI, progressoDoOkr, somarMeses } from '@fir/domain'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Carregando, Erro, Toast, Vazio } from '@/components/estados'
@@ -14,13 +14,24 @@ import { FormularioDeMeta } from './formulario-de-meta'
 import { FormularioDeOkr } from './formulario-de-okr'
 import { JanelaDeLancamento } from './janela-de-lancamento'
 import { MenuSuspenso } from './menu-suspenso'
-import { agruparPorPilar, emAtencao, okrNoPeriodo, ordenarPorSituacao, situacaoDoCartao, trimestresAte } from './na-tela'
+import {
+  agruparPorPilar,
+  type AlvoDoLancamento,
+  alvoDoKpi,
+  emAtencao,
+  faixaDeLancamento,
+  okrNoPeriodo,
+  ordenarPorSituacao,
+  situacaoDoCartao,
+  trimestresAte,
+  unidadesDoFiltro,
+} from './na-tela'
 
 type Aberto =
   | { readonly tipo: 'kpi' }
   | { readonly tipo: 'okr'; readonly okr: OkrNaSaida | null }
   | { readonly tipo: 'meta'; readonly kpi: KpiNaLista | null }
-  | { readonly tipo: 'lancar'; readonly kpi: KpiNaLista }
+  | { readonly tipo: 'lancar'; readonly alvo: AlvoDoLancamento }
   | null
 
 type Pergunta = { readonly titulo: string; readonly texto: string; readonly rotulo: string; readonly acao: () => Promise<void> }
@@ -49,10 +60,20 @@ type Pergunta = { readonly titulo: string; readonly texto: string; readonly rotu
  * jeito. Nenhum `if` aqui toca dinheiro: sem `valores`, o servidor já apagou
  * `emDinheiro`, e o cartão desenha o percentual que sobrou.
  */
-export function TelaIndicadores({ podeGerir, minhaPessoaId }: { podeGerir: boolean; minhaPessoaId: string }) {
+export function TelaIndicadores({
+  podeGerir,
+  minhaPessoaId,
+  fuso,
+}: {
+  podeGerir: boolean
+  minhaPessoaId: string
+  /** O fuso da clínica (da sessão), para o dia do selo "lançado por … em dd/mm". */
+  fuso: string
+}) {
   const [trimestre, setTrimestre] = useState('')
   const [pilar, setPilar] = useState<PilarDeKpi | ''>('')
   const [responsavel, setResponsavel] = useState('')
+  const [unidade, setUnidade] = useState('')
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
   const [aberto, setAberto] = useState<Aberto>(null)
   const [kpiPorCima, setKpiPorCima] = useState(false)
@@ -77,8 +98,12 @@ export function TelaIndicadores({ podeGerir, minhaPessoaId }: { podeGerir: boole
           ate: passado ? escolhido.fim : undefined,
           pilar: pilar === '' ? undefined : pilar,
           responsavel: responsavel === '' ? undefined : responsavel,
+          // O filtro Unidade é MEDIDO no servidor (só o KPI `porUnidade` se divide).
+          unidade: unidade === '' ? undefined : unidade,
         })}`,
   )
+  const unidadesDaClinica = useDados<ListaDeUnidades>('v1/unidades')
+  const unidades = useMemo(() => unidadesDoFiltro(unidadesDaClinica.dados?.unidades), [unidadesDaClinica.dados])
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
   const pessoas = equipe.dados?.equipe ?? []
   const nomeDe = useCallback((id: string | null) => (id === null ? null : (pessoas.find((p) => p.id === id)?.nome ?? null)), [pessoas])
@@ -118,11 +143,23 @@ export function TelaIndicadores({ podeGerir, minhaPessoaId }: { podeGerir: boole
   )
   const fecharPergunta = useCallback(() => setPergunta(null), [])
 
+  // Quem lança: a responsável e quem gerencia (`podeLancar`, T3). Conveniência:
+  // o servidor decide do mesmo jeito.
+  const lancarDoKpi = useCallback(
+    (k: KpiNaLista): (() => void) | null =>
+      k.origem === 'manual' && (podeGerir || (minhaPessoaId !== '' && k.responsavelId === minhaPessoaId))
+        ? () => setAberto({ tipo: 'lancar', alvo: alvoDoKpi(k) })
+        : null,
+    [podeGerir, minhaPessoaId],
+  )
+
   const acoesDoKpi = useCallback(
     (k: KpiNaLista, noOkr: boolean) => {
       const acoes: { rotulo: string; aoTocar: () => void }[] = []
-      if (k.origem === 'manual' && (podeGerir || (minhaPessoaId !== '' && k.responsavelId === minhaPessoaId))) {
-        acoes.push({ rotulo: 'Lançar valor', aoTocar: () => setAberto({ tipo: 'lancar', kpi: k }) })
+      const lancar = lancarDoKpi(k)
+      // Com a faixa de pendente, o "Lançar agora" dela é o botão: dois iguais confundem.
+      if (lancar !== null && faixaDeLancamento(k) === null) {
+        acoes.push({ rotulo: 'Lançar valor', aoTocar: lancar })
       }
       if (podeGerir && !noOkr) {
         acoes.push({
@@ -132,7 +169,7 @@ export function TelaIndicadores({ podeGerir, minhaPessoaId }: { podeGerir: boole
       }
       return acoes
     },
-    [podeGerir, minhaPessoaId],
+    [podeGerir, lancarDoKpi],
   )
 
   const acaoDoOkr = (okr: OkrNaSaida, tipo: 'encerrar' | 'duplicar' | 'arquivar') => {
@@ -221,7 +258,7 @@ export function TelaIndicadores({ podeGerir, minhaPessoaId }: { podeGerir: boole
           aria-expanded={filtrosAbertos}
           onClick={() => setFiltrosAbertos((v) => !v)}
         >
-          Filtros{pilar !== '' || responsavel !== '' || passado ? ' (ativos)' : ''}
+          Filtros{pilar !== '' || responsavel !== '' || unidade !== '' || passado ? ' (ativos)' : ''}
         </button>
         <div className="ii-filtros-campos">
           <label className="campo">
@@ -256,6 +293,19 @@ export function TelaIndicadores({ podeGerir, minhaPessoaId }: { podeGerir: boole
               ))}
             </select>
           </label>
+          {unidades.length === 0 ? null : (
+            <label className="campo">
+              Unidade
+              <select value={unidade} onChange={(e) => setUnidade(e.target.value)}>
+                <option value="">Todas</option>
+                {unidades.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nome}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       </div>
 
@@ -291,6 +341,8 @@ export function TelaIndicadores({ podeGerir, minhaPessoaId }: { podeGerir: boole
             responsavel={nomeDe(o.responsavelId)}
             podeGerir={podeGerir}
             acoesDoKpi={(k) => acoesDoKpi(k, true)}
+            lancarDoKpi={lancarDoKpi}
+            fuso={fuso}
             aoEditar={() => setAberto({ tipo: 'okr', okr: o })}
             aoEncerrar={() => acaoDoOkr(o, 'encerrar')}
             aoDuplicar={() => acaoDoOkr(o, 'duplicar')}
@@ -340,6 +392,8 @@ export function TelaIndicadores({ podeGerir, minhaPessoaId }: { podeGerir: boole
                   atual={k.atual}
                   serie={series.get(k.id) ?? null}
                   acoes={acoesDoKpi(k, false)}
+                  fuso={fuso}
+                  aoLancarAgora={lancarDoKpi(k)}
                 />
               ))}
             </div>
@@ -383,7 +437,7 @@ export function TelaIndicadores({ podeGerir, minhaPessoaId }: { podeGerir: boole
           aoSalvo={salvo}
         />
       ) : null}
-      {aberto?.tipo === 'lancar' ? <JanelaDeLancamento kpi={aberto.kpi} aoFechar={fechar} aoSalvo={salvo} /> : null}
+      {aberto?.tipo === 'lancar' ? <JanelaDeLancamento alvo={aberto.alvo} aoFechar={fechar} aoSalvo={salvo} /> : null}
 
       {pergunta === null ? null : (
         <Modal titulo={pergunta.titulo} aoFechar={fecharPergunta}>

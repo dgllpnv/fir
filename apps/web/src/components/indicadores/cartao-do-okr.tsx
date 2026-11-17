@@ -21,6 +21,8 @@ export function CartaoDoOkr({
   responsavel,
   podeGerir,
   acoesDoKpi,
+  lancarDoKpi,
+  fuso,
   aoEditar,
   aoEncerrar,
   aoDuplicar,
@@ -32,6 +34,9 @@ export function CartaoDoOkr({
   responsavel: string | null
   podeGerir: boolean
   acoesDoKpi: (k: KpiNaLista) => readonly { rotulo: string; aoTocar: () => void }[]
+  /** "Lançar agora" da faixa de pendente, ou `null` para quem não lança o KPI. */
+  lancarDoKpi: (k: KpiNaLista) => (() => void) | null
+  fuso: string
   aoEditar: () => void
   aoEncerrar: () => void
   aoDuplicar: () => void
@@ -90,6 +95,8 @@ export function CartaoDoOkr({
                 atual={kr.metaDoKr.atual}
                 serie={series.get(k.id) ?? null}
                 acoes={acoesDoKpi(k)}
+                fuso={fuso}
+                aoLancarAgora={lancarDoKpi(k)}
               />
             )
           })}

@@ -291,6 +291,11 @@ export class ConsultaDeTarefasService {
           : `t.campanha_id = ${p.prox(consulta.campanhaId)}`,
       )
     }
+    if (consulta.kpiId !== undefined) {
+      // Os planos de ação de um KPI (T6, I-46). Só filtra: o alcance continua
+      // o do `escopo`, e a lista não ganha nenhuma tarefa que já não mostrasse.
+      onde.push(`t.kpi_id = ${p.prox(consulta.kpiId)}`)
+    }
     if (consulta.q !== undefined && consulta.q !== '') {
       // `normalizar_nome` é a MESMA função que indexa o nome do paciente —
       // sem acento, sem caixa, espaços colapsados. Uma segunda normalização

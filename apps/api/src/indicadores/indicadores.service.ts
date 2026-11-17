@@ -28,6 +28,7 @@ import {
   diasUteisEntre,
   type Direcao,
   exigeValoresParaEscrever,
+  fimDoMes,
   type FrequenciaDeKpi,
   janelaComparavel,
   kpiDoCatalogo,
@@ -70,6 +71,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { VisaoDoMesService } from '../financeiro/visao-do-mes.service'
 import { trechosContinuos } from '../financeiro/faturamento-conferido'
+import { metaDoMes } from '../metas/metas.repositorio'
 import { materializarSeries } from './series-de-meta'
 import { type ContextoDoKpi, FontesDosKpis, type KpiParaMedir, type MedidaDoKpi } from './fontes'
 import { cancelarTarefasDeLancamento, gerarTarefasDeLancamento, reatribuirTarefasDeLancamento } from './lancamentos-tarefas'
@@ -80,6 +82,11 @@ export type ContextoDeIndicadores = {
   readonly ator: Ator
   readonly fuso: string
   readonly pode: (chave: ChaveDePermissao) => boolean
+  /**
+   * O filtro Unidade da lista (backlog 1.9 B; ADR 2026-11-17-filtro-de-unidade-nos-indicadores):
+   * só o KPI `porUnidade` do catálogo se mede por ela. Já conferido contra a clínica.
+   */
+  readonly unidadeId?: string
 }
 
 export type LinhaDeKpi = {
@@ -210,7 +217,13 @@ export class IndicadoresService {
   }
 
   private paraFonte(ctx: ContextoDeIndicadores): ContextoDoKpi {
-    return { clinicaId: ctx.clinicaId, ator: ctx.ator, fuso: ctx.fuso, valores: ctx.pode('valores') }
+    return {
+      clinicaId: ctx.clinicaId,
+      ator: ctx.ator,
+      fuso: ctx.fuso,
+      valores: ctx.pode('valores'),
+      ...(ctx.unidadeId === undefined ? {} : { unidadeId: ctx.unidadeId }),
+    }
   }
 
   /* ---------------------------------------------------------------- leitura */
@@ -243,7 +256,13 @@ export class IndicadoresService {
 
   async listar(
     ctx: ContextoDeIndicadores,
-    consulta: { de?: string | undefined; ate?: string | undefined; pilar?: PilarDeKpi | undefined; responsavel?: string | undefined },
+    consulta: {
+      de?: string | undefined
+      ate?: string | undefined
+      pilar?: PilarDeKpi | undefined
+      responsavel?: string | undefined
+      unidade?: string | undefined
+    },
   ): Promise<ListaDeKpis> {
     const hoje = this.hoje(ctx)
     if (consulta.de !== undefined || consulta.ate !== undefined) {
@@ -251,13 +270,19 @@ export class IndicadoresService {
       if (v.tipo === 'erro') throw new UnprocessableEntityException(v.erro.mensagem)
     }
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      // A unidade do filtro é conferida contra a CLÍNICA (appsec C6): de outra, a RLS a esconde → 422.
+      if (consulta.unidade !== undefined) {
+        const u = await c.query('SELECT 1 FROM unidades WHERE clinica_id = $1 AND id = $2', [ctx.clinicaId, consulta.unidade])
+        if (u.rowCount === 0) throw new UnprocessableEntityException('Unidade não encontrada.')
+      }
+      const ctxDaLista: ContextoDeIndicadores = consulta.unidade === undefined ? ctx : { ...ctx, unidadeId: consulta.unidade }
       const kpis = await this.kpisVisiveis(c, ctx, null)
       const itens: KpiNaLista[] = []
       for (const k of kpis) {
         const d = definicaoDe(k)
         if (consulta.pilar !== undefined && d.pilar !== consulta.pilar) continue
         if (consulta.responsavel !== undefined && k.responsavel_id !== consulta.responsavel) continue
-        itens.push(await this.cartao(c, ctx, k, hoje, consulta.de, consulta.ate))
+        itens.push(await this.cartao(c, ctxDaLista, k, hoje, consulta.de, consulta.ate))
       }
       return { hoje, itens }
     })
@@ -308,12 +333,11 @@ export class IndicadoresService {
         throw new UnprocessableEntityException('A série por dia é de um mês só.')
       }
       const agrupamento: Agrupamento = d.somenteMesCivil ? 'mes' : (pedido ?? agrupamentoPara(de, ate, k.frequencia))
-      // A mesma régua do cartão: a série do faturamento medido pelo MedX é do MedX.
-      const { medidaPor } = await this.reguaDoCartao(c, ctx, k, d, hoje)
       const medidos = []
       for (const b of baldes(de, ate, agrupamento, hoje)) {
-        // `fim` do balde é EXCLUSIVO; a fonte mede dias civis inclusivos.
-        const m = await this.medir(c, ctx, k, d, b.inicio, somarDias(b.fim, -1), hoje, medidaPor)
+        // `fim` do balde é EXCLUSIVO; a fonte mede dias civis inclusivos. Cada
+        // balde pela régua do PRÓPRIO mês, como a Visão daquele mês (V-T5-1).
+        const m = await this.medirPelaReguaDeCadaMes(c, ctx, k, d, b.inicio, somarDias(b.fim, -1), hoje)
         // Regra 6 em toda série de dinheiro (c.10): dia aguardando vai SEM valor e sem escala.
         medidos.push({ b, m, aberto: agrupamento === 'dia' && m.diasAguardando > 0 })
       }
@@ -328,7 +352,19 @@ export class IndicadoresService {
         diaAguardando: aberto,
         numero: aberto ? valorAguardando(d.unidade) : valorNaTela(d.unidade, m.numero, null, regua),
       }))
-      return { kpiId: k.id, agrupamento, barrasSomamOTotal: recombinaBaldes(d.agregacao), pontos }
+      // A linha do ritmo diário da meta (backlog 1.9 E): só dia a dia, só `soma`,
+      // só com meta vigente — a MESMA conta da prévia D.3 (`ritmoPorDiaUtil`).
+      let ritmoDiario: SerieDoKpi['ritmoDiario'] = null
+      if (agrupamento === 'dia' && d.agregacao === 'soma') {
+        const { vigente } = await this.reguaDoCartao(c, ctx, k, d, hoje)
+        const alvo = vigente === null ? null : numeroDe(d.unidade, vigente.alvo_centavos, vigente.alvo_numero)
+        if (vigente !== null && alvo !== null) {
+          const partida = numeroDe(d.unidade, vigente.partida_centavos, vigente.partida_numero)
+          const r = ritmoPorDiaUtil(d.unidade, vigente.inicio, vigente.prazo, alvo.emMenorUnidade, partida?.emMenorUnidade ?? 0n)
+          ritmoDiario = valorNaTela(d.unidade, r, alvo, regua)
+        }
+      }
+      return { kpiId: k.id, agrupamento, barrasSomamOTotal: recombinaBaldes(d.agregacao), pontos, ritmoDiario }
     })
   }
 
@@ -343,8 +379,7 @@ export class IndicadoresService {
       const d = definicaoDe(k)
       this.exigirEscritaNaUnidade(ctx, d.unidade)
       const U = BigInt(diasUteisEntre(q.inicio, q.prazo))
-      const alvo = BigInt(q.alvo) - BigInt(q.partida ?? '0')
-      const ritmo = U === 0n ? null : NumeroDoKpi.de(d.unidade, arredondar({ numerador: alvo, denominador: U }))
+      const ritmo = ritmoPorDiaUtil(d.unidade, q.inicio, q.prazo, BigInt(q.alvo), BigInt(q.partida ?? '0'))
       const fim = hoje < q.prazo ? hoje : q.prazo
       let atual: NumeroDoKpi | null = null
       if (fim >= q.inicio) {
@@ -675,6 +710,38 @@ export class IndicadoresService {
   }
 
   /**
+   * **Cada mês pela régua dele** (validação T8, V-T5-1). O faturamento de um
+   * mês é medido como a Visão daquele mês o mede: `metaDoMes(mês)?.medidaPor
+   * ?? medidaPadrao`. A janela que cruza meses (a semana de 28/09 a 04/10, o
+   * anterior comparável) é medida trecho a trecho e somada; um trecho `null`
+   * (MedX sem leitura) deixa o todo `null`. As outras chaves não têm régua.
+   */
+  private async medirPelaReguaDeCadaMes(
+    c: pg.PoolClient,
+    ctx: ContextoDeIndicadores,
+    k: LinhaDeKpi,
+    d: Definicao,
+    de: string,
+    ate: string,
+    hoje: string,
+  ): Promise<MedidaDoKpi> {
+    if (d.chave !== 'faturamento_conferido') return this.medir(c, ctx, k, d, de, ate, hoje)
+    const padrao = await this.visao.medidaPadrao(c, ctx)
+    let numero: NumeroDoKpi | null = NumeroDoKpi.zero(d.unidade)
+    let diasAguardando = 0
+    const dias: string[] = []
+    for (let inicio = de; inicio <= ate; inicio = somarDias(fimDoMes(inicio.slice(0, 7)), 1)) {
+      const fimDoTrecho = fimDoMes(inicio.slice(0, 7)) < ate ? fimDoMes(inicio.slice(0, 7)) : ate
+      const regua = (await metaDoMes(c, ctx.clinicaId, inicio.slice(0, 7)))?.medidaPor ?? padrao
+      const m = await this.medir(c, ctx, k, d, inicio, fimDoTrecho, hoje, regua)
+      numero = numero === null || m.numero === null ? null : numero.mais(m.numero)
+      diasAguardando += m.diasAguardando
+      dias.push(...(typeof m.corte === 'string' ? diasDe(inicio, m.corte < fimDoTrecho ? m.corte : fimDoTrecho) : m.corte.dias))
+    }
+    return { numero, diasAguardando, corte: { ultimo: dias.at(-1) ?? null, dias } }
+  }
+
+  /**
    * KPI manual (spec 1.9 C.1): a faixa "lançamento pendente" e o selo da fonte.
    * Pendente = o período corrente ainda não tem lançamento e o dia de lançar
    * dele já chegou (`prazoDoLancamento`, o mesmo prazo da tarefa "Lançar").
@@ -726,8 +793,16 @@ export class IndicadoresService {
     const de = deConsulta ?? referenciaDoPeriodo(d.somenteMesCivil ? 'mensal' : k.frequencia, ate)
     const { vigente, medidaPor } = await this.reguaDoCartao(c, ctx, k, d, hoje)
     const m = await this.medir(c, ctx, k, d, de, ate, hoje, medidaPor)
-    const meta = vigente === null ? null : await this.metaNaSaida(c, ctx, k, d, vigente, hoje)
-    const alvo = vigente === null ? null : numeroDe(d.unidade, vigente.alvo_centavos, vigente.alvo_numero)
+    // Filtro Unidade (ADR 2026-11-17-filtro-de-unidade-nos-indicadores): a META é
+    // da clínica e se mede na clínica inteira; o número da unidade não ganha
+    // `percentualDaMeta` contra um alvo que não é dele.
+    const { unidadeId, ...daClinica } = ctx
+    const porUnidade = d.chave !== null && kpiDoCatalogo(d.chave).porUnidade
+    const meta = vigente === null ? null : await this.metaNaSaida(c, daClinica, k, d, vigente, hoje)
+    const alvo =
+      vigente === null || (unidadeId !== undefined && porUnidade)
+        ? null
+        : numeroDe(d.unidade, vigente.alvo_centavos, vigente.alvo_numero)
 
     let anterior: NumeroDoKpi | null = null
     const comparavel = diasDoAnterior(d, k.frequencia, de, ate, m.corte)
@@ -748,11 +823,12 @@ export class IndicadoresService {
         // só os dias comparáveis — nunca o prefixo até o corte (B1, W1).
         anterior = NumeroDoKpi.zero(d.unidade)
         for (const t of trechosContinuos(comparavel)) {
-          const parte = (await this.medir(c, ctx, k, d, t.de, t.ate, hoje, medidaPor)).numero
+          // O período anterior pela régua do PRÓPRIO mês dele (V-T5-1), nunca a de hoje.
+          const parte = (await this.medirPelaReguaDeCadaMes(c, ctx, k, d, t.de, t.ate, hoje)).numero
           anterior = parte === null || anterior === null ? null : anterior.mais(parte)
         }
       } else {
-        anterior = (await this.medir(c, ctx, k, d, comparavel[0]!, fimAnt, hoje, medidaPor)).numero
+        anterior = (await this.medirPelaReguaDeCadaMes(c, ctx, k, d, comparavel[0]!, fimAnt, hoje)).numero
       }
     }
     const v = variacao(m.numero, anterior)
@@ -779,6 +855,8 @@ export class IndicadoresService {
       parametros: paraTexto(k.parametros),
       responsavelId: k.responsavel_id,
       periodo: { de, ate },
+      // Com o filtro Unidade, o KPI que não se divide por ela mostra o número da clínica e diz isso.
+      naoSeDividePorUnidade: unidadeId !== undefined && !porUnidade,
       atual: valorNaTela(d.unidade, m.numero, alvo),
       anterior: anterior === null ? null : valorNaTela(d.unidade, anterior),
       variacao:
@@ -876,6 +954,16 @@ function inicioPadraoDaSerie(agrupamento: Agrupamento | undefined, hoje: string)
   if (agrupamento === 'dia') return `${hoje.slice(0, 7)}-01`
   const meses = agrupamento === 'mes' ? 5 : 2
   return `${somarMeses(`${hoje.slice(0, 7)}-01`, -meses).slice(0, 7)}-01`
+}
+
+/**
+ * O ritmo por dia útil de uma meta: `(alvo − partida) ÷ U`, `U` = dias úteis
+ * de `[início, prazo]`, meio-para-cima só aqui, na exibição (I-19). Uma conta
+ * só para a prévia D.3 e para a linha do ritmo diário da série.
+ */
+function ritmoPorDiaUtil(unidade: UnidadeDeKpi, inicio: string, prazo: string, alvo: bigint, partida: bigint): NumeroDoKpi | null {
+  const U = BigInt(diasUteisEntre(inicio, prazo))
+  return U === 0n ? null : NumeroDoKpi.de(unidade, arredondar({ numerador: alvo - partida, denominador: U }))
 }
 
 /** Erros do banco que são do USUÁRIO viram 4xx; o resto sobe. */

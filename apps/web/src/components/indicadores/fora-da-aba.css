@@ -1,0 +1,66 @@
+/*
+ * Indicadores FORA da aba (1.9 A e H): o contador do menu e o bloco
+ * "Indicadores da semana" em Hoje. Só tokens e pares já medidos em
+ * `packages/ui/src/contraste.test.ts` (`--bad` sobre `--bad-soft` é o
+ * "contador de pendentes"). Números tabulares.
+ */
+
+/* ---------- o contador vermelho do menu ---------- */
+.navitem .ii-contador-menu {
+  flex: none;
+  overflow: visible;
+  min-width: 18px;
+  padding: 0 5px;
+  /* O nome inteiro cabe na lateral de 240 px com o selo ao lado: o vão do
+     item (gap) é apertado só antes do selo, e o nome ocupa o resto. */
+  margin-left: -6px;
+  border-radius: 999px;
+  background: var(--bad-soft);
+  color: var(--bad);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.navitem .ii-contador-menu > span { overflow: visible; }
+/* Com o selo, o nome quebra em vez de virar "Indicadores & Ins…" na lateral de 240 px. */
+.navitem:has(> .ii-contador-menu) > span:not(.ii-contador-menu) { flex: 1 1 auto; white-space: normal; line-height: 1.25; }
+
+/* ---------- Hoje: "Indicadores da semana" ---------- */
+.hs-cabeca { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.hs-cabeca h3 { font-size: 16px; margin: 0; }
+.hs-ver { min-height: 44px; display: inline-flex; align-items: center; font-size: 14px; }
+.hs-reserva { height: 96px; border-radius: var(--r); background: var(--surface); border: 1px solid var(--line); }
+
+.hs-grade {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+@media (min-width: 560px) { .hs-grade { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); } }
+
+.hs-cartao {
+  display: grid;
+  gap: 6px;
+  min-height: 44px;
+  height: 100%;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--ink);
+  text-decoration: none;
+  min-width: 0;
+}
+.hs-cartao:hover { border-color: var(--gold); }
+.hs-cartao:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.hs-nome { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 2px 8px; min-width: 0; }
+.hs-nome > span:first-child { font-weight: 600; font-size: 14px; min-width: 0; overflow-wrap: break-word; }
+.hs-valor { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; min-width: 0; }
+.hs-valor strong { font-family: var(--display); font-size: 20px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums lining-nums; overflow-wrap: anywhere; }
+.hs-valor small { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.hs-origem { color: var(--muted); font-size: 12px; }

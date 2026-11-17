@@ -386,6 +386,8 @@ const EM_ORDEM_DE_APAGAR = [
   'eventos_de_acesso',
   // Os favoritos de relatório (0104) apontam para `pessoas` (`criado_por`).
   'relatorios_favoritos',
+  // O contador do limite dos relatórios (0108).
+  'tentativas_de_relatorio',
   'pessoas',
   'perfis',
 ] as const
@@ -425,6 +427,7 @@ export async function apagarClinicaDeTeste(cliente: pg.Client, clinicaId: string
   try {
     await cliente.query('SELECT id FROM clientes_carteira WHERE clinica_id = $1 FOR UPDATE', [clinicaId])
     await cliente.query('DELETE FROM uso_diario_cliente WHERE cliente_carteira_id IN (SELECT id FROM clientes_carteira WHERE clinica_id = $1)', [clinicaId])
+    await cliente.query('DELETE FROM kpis_na_carteira WHERE cliente_carteira_id IN (SELECT id FROM clientes_carteira WHERE clinica_id = $1)', [clinicaId])
     await cliente.query('DELETE FROM clientes_carteira WHERE clinica_id = $1', [clinicaId])
     await cliente.query('COMMIT')
   } catch (e) {

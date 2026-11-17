@@ -723,6 +723,13 @@ export const VisaoDoMes = z
     /** Ver `PercentualDaMeta.aguardandoFechamento`. */
     aguardandoFechamento: centavosNaSaida.optional(),
     diasAguardandoFechamento: z.number().int().optional(),
+    /**
+     * O destino do link "Ver em Indicadores" (T7): o KPI `faturamento_conferido`
+     * vivo e sem parâmetros, que guarda a meta do mês (I-26). `null` antes da
+     * primeira meta. Não é dinheiro; a tela só mostra o link a quem tem
+     * `indicadores`. Opcional só para a tela antiga continuar compilando.
+     */
+    kpiDaMetaId: Uuid.nullable().optional(),
 
     caixa: z.object({
       fechados: z.number().int(),

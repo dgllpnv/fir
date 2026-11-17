@@ -35,6 +35,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common'
 import type pg from 'pg'
 import { exigePessoa, pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
@@ -501,25 +502,10 @@ export class CampanhasService {
     // `metaEmDinheiro` = 1 o `percentualDaMeta` (que atravessa a redacao) viraria
     // a receita em claro. O mesmo vale ao TIRAR a metrica de 'receita', que
     // sobrescreveria a meta em reais que ela nao pode ver.
-    const SEM_VALORES =
-      'Definir ou alterar uma campanha em R$ exige a permissão de valores. Peça a quem a tem.'
     if (!podeVerValores && dados.metrica === METRICA_EM_DINHEIRO) {
       throw new ForbiddenException(SEM_VALORES)
     }
-    // O ALVO num inteiro só, na escala da MÉTRICA (migration 0020, decisão 2).
-    // O contrato já garantiu que o campo preenchido combina com a métrica.
-    const meta = dados.metaEmDinheiro !== null ? dados.metaEmDinheiro : BigInt(dados.metaEmNumero!)
-    const campos = [
-      dados.categoria === '' ? 'Outra' : dados.categoria,
-      dados.foco,
-      dados.nome,
-      dados.objetivo,
-      dados.inicio,
-      dados.fim,
-      dados.metrica,
-      dados.tipoMetrica,
-      meta.toString(),
-    ]
+    const campos = camposDaCampanha(dados)
 
     const hoje = diaDaClinica(this.relogio, ctx.fuso)
     await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
@@ -532,13 +518,7 @@ export class CampanhasService {
       }
       try {
         if (id === null) {
-          await c.query(
-            `INSERT INTO campanhas
-               (clinica_id, categoria, foco, nome, objetivo, inicio, fim, metrica,
-                tipo_metrica, meta, criada_por)
-             VALUES ($1, $2, $3, $4, $5, $6::date, $7::date, $8, $9, $10, $11)`,
-            [ctx.clinicaId, ...campos, pessoaDoAtor(ctx.ator)],
-          )
+          await this.criarNaTransacao(c, ctx, dados, podeVerValores, null)
           return
         }
         const r = await c.query(
@@ -558,6 +538,128 @@ export class CampanhasService {
       }
     })
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => this.montar(c, ctx, hoje))
+  }
+
+  /**
+   * **CRIAR, DENTRO DA TRANSAÇÃO DE QUEM CHAMA** — o `salvar` (sem chave) e
+   * "Criar campanha com esta lista" (T9, com o `Idempotency-Key`).
+   *
+   * Com `chave`: `ON CONFLICT` na UNIQUE `(clinica_id, chave_de_idempotencia)`
+   * (0106). O segundo pedido com a mesma chave ESPERA o primeiro (a
+   * pré-checagem do índice árbitro espera a linha em andamento) e recebe a
+   * MESMA campanha — três POSTs, uma campanha. A campanha excluída com aquela
+   * chave não renasce (regra 27): 409. Nome repetido continua 409 pelo
+   * `campanha_por_nome`.
+   *
+   * O `hash` do pedido mora ao lado da chave (0109, appsec M1): a mesma chave
+   * com OUTRO pedido é 422 — sem isto, ela devolvia a campanha do primeiro e
+   * a lista nova entrava nela.
+   */
+  async criarNaTransacao(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    dados: SalvarCampanha,
+    podeVerValores: boolean,
+    idempotencia: { readonly chave: string; readonly hash: string } | null,
+  ): Promise<{ readonly id: string; readonly nome: string }> {
+    if (!podeVerValores && dados.metrica === METRICA_EM_DINHEIRO) throw new ForbiddenException(SEM_VALORES)
+    try {
+      const r = await c.query<{ id: string; nome: string }>(
+        `INSERT INTO campanhas
+           (clinica_id, categoria, foco, nome, objetivo, inicio, fim, metrica,
+            tipo_metrica, meta, criada_por, chave_de_idempotencia, hash_do_pedido)
+         VALUES ($1, $2, $3, $4, $5, $6::date, $7::date, $8, $9, $10, $11, $12::uuid, $13)
+         ON CONFLICT ON CONSTRAINT campanha_por_chave_de_idempotencia DO NOTHING
+         RETURNING id::text AS id, nome`,
+        [
+          ctx.clinicaId,
+          ...camposDaCampanha(dados),
+          pessoaDoAtor(ctx.ator),
+          idempotencia?.chave ?? null,
+          idempotencia?.hash ?? null,
+        ],
+      )
+      const nova = r.rows[0]
+      if (nova !== undefined) return nova
+    } catch (e: unknown) {
+      if (ehNomeRepetido(e)) throw new ConflictException(`Já existe uma campanha chamada "${dados.nome}".`)
+      throw e
+    }
+    // Só chega aqui com `chave` (NULL nunca colide): é a repetição do pedido.
+    const ja = await c.query<{ id: string; nome: string; excluida: boolean; outro_pedido: boolean }>(
+      `SELECT id::text AS id, nome, excluida_em IS NOT NULL AS excluida,
+              hash_do_pedido IS DISTINCT FROM $3 AS outro_pedido
+         FROM campanhas WHERE clinica_id = $1 AND chave_de_idempotencia = $2::uuid`,
+      [ctx.clinicaId, idempotencia?.chave ?? null, idempotencia?.hash ?? null],
+    )
+    const existente = ja.rows[0]
+    if (existente === undefined) throw new ConflictException('Pedido repetido em andamento. Tente de novo.')
+    if (existente.excluida) throw new ConflictException('A campanha deste pedido foi excluída.')
+    // Chave sem hash (anterior à 0109) também conta como outro pedido: falha fechado.
+    if (existente.outro_pedido) throw new UnprocessableEntityException('Esta chave já foi usada com outro pedido.')
+    return { id: existente.id, nome: existente.nome }
+  }
+
+  /**
+   * **A TAREFA DE CADA PACIENTE, NUM `INSERT` SÓ** — "Criar campanha com esta
+   * lista" (T9). Os ids são os que o SERVIDOR leu (appsec C20); aqui eles
+   * ainda passam por `pacientes.ativo` (desativada, anonimizada e quem pediu
+   * para sair ficam fora) e pelo `tarefa_viva_da_campanha` (0020): repetir dá
+   * `criadas: 0`. Nunca reescreve `pacientes.campanha_id` — a campanha de
+   * ORIGEM é a que trouxe a paciente, não a que a contatou depois.
+   */
+  async adicionarPacientesNaTransacao(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    campanhaId: string,
+    pacienteIds: readonly string[],
+    tarefa: { readonly tipo: string; readonly descricao: string; readonly prazo: string; readonly responsavelId: string },
+  ): Promise<{ readonly pacientes: number; readonly criadas: number; readonly ignoradas: number }> {
+    const campanha = (
+      await c.query<{ nome: string }>(
+        'SELECT nome FROM campanhas WHERE id = $1 AND clinica_id = $2 AND excluida_em IS NULL',
+        [campanhaId, ctx.clinicaId],
+      )
+    ).rows[0]
+    if (campanha === undefined) throw new UnprocessableEntityException('Campanha não encontrada nesta clínica.')
+    const responsavel = await c.query('SELECT 1 FROM pessoas WHERE id = $1 AND clinica_id = $2 AND ativo', [
+      tarefa.responsavelId,
+      ctx.clinicaId,
+    ])
+    if (responsavel.rowCount === 0) throw new UnprocessableEntityException('Responsável não encontrado nesta clínica.')
+
+    const descricao = tarefa.descricao === '' ? `Contato da campanha: ${campanha.nome}` : tarefa.descricao
+    const r = await c.query<{ pacientes: string; criadas: string }>(
+      `WITH alvo AS (
+         SELECT p.id FROM pacientes p
+          WHERE p.clinica_id = $1 AND p.ativo AND p.id = ANY($2::uuid[])
+       ), gravadas AS (
+         INSERT INTO tarefas
+           (clinica_id, solicitante_id, responsavel_id, descricao, prazo, prioridade,
+            status, historico, resultado, obs, recorrencia, paciente_id, tipo, campanha_id)
+         SELECT $1, $3, $4, $5, $6::date, 'normal', 'aberta', '[]', '', '', '', a.id, $7, $8 FROM alvo a
+         ON CONFLICT (clinica_id, campanha_id, paciente_id, tipo)
+           WHERE campanha_id IS NOT NULL AND paciente_id IS NOT NULL
+             AND status = 'aberta' AND excluida_em IS NULL AND serie_id IS NULL
+           DO NOTHING
+         RETURNING 1
+       )
+       SELECT (SELECT count(*) FROM alvo)::text AS pacientes, (SELECT count(*) FROM gravadas)::text AS criadas`,
+      [
+        ctx.clinicaId,
+        [...pacienteIds],
+        // `tarefas.solicitante_id` é NOT NULL e guarda uma PESSOA (D-13).
+        exigePessoa(ctx.ator),
+        tarefa.responsavelId,
+        descricao,
+        tarefa.prazo,
+        tarefa.tipo,
+        campanhaId,
+      ],
+    )
+    const pacientes = Number(r.rows[0]!.pacientes)
+    const criadas = Number(r.rows[0]!.criadas)
+    return { pacientes, criadas, ignoradas: pacientes - criadas }
   }
 
   /**
@@ -1095,6 +1197,26 @@ function rotuloDaSituacao(
 }
 
 const emDiaEMes = (dia: string): string => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`
+
+const SEM_VALORES = 'Definir ou alterar uma campanha em R$ exige a permissão de valores. Peça a quem a tem.'
+
+/** As colunas `$2..$10` do `INSERT`/`UPDATE` de campanha, na ordem. */
+function camposDaCampanha(dados: SalvarCampanha): string[] {
+  // O ALVO num inteiro só, na escala da MÉTRICA (migration 0020, decisão 2).
+  // O contrato já garantiu que o campo preenchido combina com a métrica.
+  const meta = dados.metaEmDinheiro !== null ? dados.metaEmDinheiro : BigInt(dados.metaEmNumero!)
+  return [
+    dados.categoria === '' ? 'Outra' : dados.categoria,
+    dados.foco,
+    dados.nome,
+    dados.objetivo,
+    dados.inicio,
+    dados.fim,
+    dados.metrica,
+    dados.tipoMetrica,
+    meta.toString(),
+  ]
+}
 
 /**
  * O 23505 do índice `campanha_por_nome`, e SÓ dele.

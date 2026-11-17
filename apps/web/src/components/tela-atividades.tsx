@@ -134,6 +134,15 @@ export function TelaAtividades({ fuso }: { fuso: string }) {
           Até
           <input type="date" value={f.ate} min={f.de || undefined} onChange={(e) => mudar({ ate: e.target.value })} />
         </label>
+        {/* LGPD R-b: as exportações de relatório (arquivos com dado de paciente) num toque. */}
+        <button
+          type="button"
+          className="btn ghost"
+          aria-pressed={f.acao === 'exportou'}
+          onClick={() => mudar({ acao: f.acao === 'exportou' ? '' : 'exportou' })}
+        >
+          Exportações
+        </button>
         {filtrado && (
           <button type="button" className="btn ghost" onClick={() => setF(SEM_FILTRO)}>
             Limpar filtros

@@ -35,6 +35,7 @@ export default async function Hoje() {
       podeReceber={podeReceber}
       podeValores={temPerm(quem, perfis, 'valores')}
       podePacientes={temPerm(quem, perfis, 'pacientes')}
+      podeIndicadores={temPerm(quem, perfis, 'indicadores')}
       {...(inicial === null ? {} : { inicial: { caminho: CAMINHO_INICIAL, dados: inicial } })}
     />
   )

@@ -84,6 +84,12 @@ export const KpiNaLista = z
     responsavelId: Uuid.nullable(),
     periodo: z.object({ de: DiaDoKpi, ate: DiaDoKpi }).strict(),
     /**
+     * Com o filtro Unidade: este KPI não se divide por unidade, e o número é o
+     * da clínica inteira (a tela diz "não se divide por unidade"). `false` sem
+     * filtro. Opcional para a web que monta o tipo à mão.
+     */
+    naoSeDividePorUnidade: z.boolean().optional(),
+    /**
      * O valor do período. `atual`, e não `valor`: a redação apaga por NOME, e
      * `valor` (como `meta` e `aberto`) está em `CAMPOS_MONETARIOS` — apagaria
      * o objeto inteiro, contagens e percentuais junto.
@@ -142,6 +148,14 @@ export const SerieDoKpi = z
     /** `analise`/`posicao`/`media_mensal`: as barras NÃO somam o total do período. */
     barrasSomamOTotal: z.boolean(),
     pontos: z.array(PontoDaSerie),
+    /**
+     * A linha do ritmo diário da meta (backlog 1.9 E): `(alvo − partida) ÷
+     * dias úteis da meta`, a mesma conta da prévia D.3. Só no agrupamento
+     * `dia`, num KPI de `soma` com meta vigente; `null` fora disso. Sem
+     * `valores`, sai `percentualDaMeta` (do alvo) e `escala` (na régua das
+     * barras desta série), nunca o valor. Opcional para a web que monta o tipo à mão.
+     */
+    ritmoDiario: ValorNaTelaSchema.nullable().optional(),
   })
   .strict()
 export type SerieDoKpi = z.infer<typeof SerieDoKpi>
@@ -161,6 +175,12 @@ export const ConsultaDeKpis = z
     ate: DiaDoKpi.optional(),
     pilar: PilarDeKpiSchema.optional(),
     responsavel: Uuid.optional(),
+    /**
+     * A UNIDADE DA CLÍNICA (o endereço), não a unidade de medida (backlog 1.9 B).
+     * Só o KPI `porUnidade` do catalogo se mede por ela; os outros saem com
+     * `naoSeDividePorUnidade`. De outra clínica → 422.
+     */
+    unidade: Uuid.optional(),
   })
   .strict()
 

@@ -74,5 +74,11 @@ export * from './indicadores-api'
 export * from './indicadores-lancamentos'
 // Indicadores & Insights (T4: OKRs e resultados-chave).
 export * from './okrs'
+// Indicadores & Insights (T7: Hoje, o contador do menu e o Modo reunião).
+export * from './indicadores-reuniao'
+// Indicadores & Insights (T6: a composição do número e os lançamentos no detalhe).
+export * from './indicadores-detalhe'
+// Indicadores & Insights (T10: os KPIs da clínica na carteira).
+export * from './kpis-na-carteira'
 // Indicadores & Insights (T8: o motor de relatórios, a exportação e os favoritos).
 export * from './relatorios'

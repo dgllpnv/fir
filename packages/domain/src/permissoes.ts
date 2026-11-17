@@ -479,6 +479,8 @@ export const CAMPOS_MONETARIOS = [
   'valorDaUltimaCompra',
   'valorMinimo',
   'valorMaximo',
+  /** T9: o relatório 4 — Σ do LTV das indicadas de cada indicadora. */
+  'receitaDasIndicadas',
 ] as const
 
 const NOMES_MONETARIOS = new Set<string>(CAMPOS_MONETARIOS)

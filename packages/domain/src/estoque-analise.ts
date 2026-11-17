@@ -50,6 +50,9 @@ const SAIDAS = new Set(['consumo', 'descarte', 'interno'])
  */
 export const ehSaidaDeEstoque = (tipo: string): boolean => SAIDAS.has(tipo)
 
+/** O motivo do descarte que a baixa automática grava (regra 15) — não é texto livre. */
+export const MOTIVO_SOBRA_DE_FRASCO = 'Sobra de frasco aberto'
+
 /** Os índices das linhas de um grupo de contagem, na ordem canônica. */
 const indicesDoGrupo = (ordenados: readonly MovimentoDeEstoque[], chave: string): number[] =>
   ordenados.flatMap((m, i) =>

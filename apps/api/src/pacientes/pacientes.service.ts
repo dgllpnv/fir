@@ -192,6 +192,8 @@ export type CompraDoPaciente = {
   readonly nome: string
   readonly telefone: string
   readonly ltv: bigint
+  /** Quantas compras formam o LTV (relatório 3: o divisor do ticket médio). */
+  readonly compras: number
   readonly ultimaCompra: string
   readonly valorDaUltimaCompra: bigint
   /** O procedimento do filtro, quando houver — pelo nome do catálogo. */
@@ -221,12 +223,14 @@ export async function comprasDosPacientes(
     nome: string
     telefone: string
     ltv: string
+    compras: string
     ultima_compra: string
     valor_da_ultima: string
     procedimento: string | null
   }>(
     `SELECT p.id, p.nome, p.telefone,
             (SELECT coalesce(sum(r.valor), 0)::bigint FROM recebimentos r WHERE ${COMPRA_DO_PACIENTE})::text AS ltv,
+            (SELECT count(*) FROM recebimentos r WHERE ${COMPRA_DO_PACIENTE})::text AS compras,
             u.dia AS ultima_compra, u.centavos AS valor_da_ultima,
             (SELECT pr.nome FROM procedimentos pr WHERE pr.id = $3::uuid AND pr.clinica_id = p.clinica_id) AS procedimento
        FROM pacientes p
@@ -255,9 +259,80 @@ export async function comprasDosPacientes(
     nome: l.nome,
     telefone: l.telefone,
     ltv: BigInt(l.ltv),
+    compras: Number(l.compras),
     ultimaCompra: l.ultima_compra,
     valorDaUltimaCompra: BigInt(l.valor_da_ultima),
     procedimento: l.procedimento,
+  }))
+}
+
+/**
+ * O LTV e o número de compras de pacientes ESCOLHIDOS, ativas ou não — o mesmo
+ * `COMPRA_DO_PACIENTE` da ficha. É a "receita das indicadas" do relatório 4:
+ * a indicada desativada conta, como conta em "Quem mais indica" (N-20).
+ */
+export async function comprasPorPaciente(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  pacienteIds: readonly string[],
+): Promise<Map<string, { readonly ltv: bigint; readonly compras: number }>> {
+  const fora = new Map<string, { ltv: bigint; compras: number }>()
+  if (pacienteIds.length === 0) return fora
+  const r = await c.query<{ id: string; ltv: string; compras: string }>(
+    `SELECT p.id, coalesce(sum(r.valor), 0)::bigint::text AS ltv, count(r.id)::text AS compras
+       FROM pacientes p
+       LEFT JOIN recebimentos r ON ${COMPRA_DO_PACIENTE}
+      WHERE p.clinica_id = $1 AND p.id = ANY($2::uuid[])
+      GROUP BY p.id`,
+    [clinicaId, [...pacienteIds]],
+  )
+  for (const l of r.rows) fora.set(l.id, { ltv: BigInt(l.ltv), compras: Number(l.compras) })
+  return fora
+}
+
+/** A paciente ATIVA com o "movimento" da lista de pacientes (relatórios 2 e 7). */
+export type MovimentoDoPaciente = {
+  readonly pacienteId: string
+  readonly nome: string
+  readonly telefone: string
+  /** O mais recente entre o último atendimento e a última consulta do cadastro; `null` se nunca veio. */
+  readonly ultimoAtendimento: string | null
+  /** O nascimento: só para o domínio derivar dia/mês e idade. Nunca sai inteiro (I-38). */
+  readonly aniversario: string | null
+}
+
+/**
+ * **O MOVIMENTO DAS PACIENTES ATIVAS** — o `SELECT_BASE` e o `MOVIMENTO` da
+ * lista de pacientes, sem segunda definição de "último atendimento".
+ *
+ *  - relatório 2: quem tem movimento (`comMovimento`), do mais antigo para o
+ *    mais recente — a ordem do atalho "Sem retorno";
+ *  - relatório 7: as aniversariantes do `mes`, pelo dia — o atalho
+ *    "Aniversariantes".
+ */
+export async function movimentosDosPacientes(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  fuso: string,
+  recorte: { readonly comMovimento: true } | { readonly aniversarioNoMes: number },
+): Promise<MovimentoDoPaciente[]> {
+  const aniversario = 'aniversarioNoMes' in recorte
+  const r = await c.query<{ id: string; nome: string; telefone: string; aniversario: string | null; movimento: string | null }>(
+    `WITH base AS (${SELECT_BASE} AND p.ativo
+                     AND ($4::int IS NULL OR extract(month FROM p.aniversario) = $4::int))
+     SELECT id, nome, telefone, aniversario, (${MOVIMENTO})::text AS movimento
+       FROM base
+      WHERE $4::int IS NOT NULL OR ${MOVIMENTO} IS NOT NULL
+      ORDER BY CASE WHEN $4::int IS NULL THEN ${MOVIMENTO} END ASC,
+               extract(day FROM aniversario_data) ASC, nome ASC, id ASC`,
+    [clinicaId, fuso, TIPOS_DE_ATENDIMENTO, aniversario ? recorte.aniversarioNoMes : null],
+  )
+  return r.rows.map((l) => ({
+    pacienteId: l.id,
+    nome: l.nome,
+    telefone: l.telefone,
+    ultimoAtendimento: l.movimento,
+    aniversario: l.aniversario,
   }))
 }
 

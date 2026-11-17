@@ -23,12 +23,16 @@ export function TelaGruposDaClinica({ fuso, hoje }: { fuso: string; hoje: string
       <Dica rotulo="O que significa receber a clínica" titulo={<h2>Grupos que recebem a clínica</h2>}>
         <p>
           Cada grupo listado recebe os números <b>agregados</b> de uso e de resultado das campanhas
-          desta clínica. Nenhum grupo vê pacientes, prontuário nem outros grupos.
+          desta clínica, e dos indicadores e metas. Nenhum grupo vê pacientes, prontuário nem outros grupos.
+        </p>
+        <p>
+          Dos indicadores, os de equipe (banco de horas, metas individuais e conversas 1:1) nunca saem da clínica, e
+          os do pilar Pessoas saem só com a situação e o percentual da meta.
         </p>
         <p>Para sair de um grupo, fale com a Firmare.</p>
       </Dica>
       <p className="nota" style={{ marginBottom: 14 }}>
-        Quem recebe os números agregados da clínica, desde quando e por quê.
+        Quem recebe os números agregados da clínica (uso, campanhas, indicadores e metas), desde quando e por quê.
       </p>
 
       {grupos === null && lista.carregando ? (

@@ -37,6 +37,7 @@ import { conferirAvisosDoRecebimento, confirmacoesDe } from '../financeiro/receb
 import { lerAtorDeAcesso, lerPerfisDoDominio } from '../pessoas/acesso-do-ator'
 import { comGrupos } from './grupos-do-autor'
 import { brAno, lerTarefas, TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from './leitura'
+import { kpiDoPlanoDeAcao } from './plano-de-acao'
 
 /**
  * Um erro de domínio vira 400 com a MENSAGEM DELE.
@@ -51,7 +52,7 @@ export function exigirDominio<T>(r: Result<T>): T {
   return r.valor
 }
 
-/** As 21 colunas que toda tarefa nova preenche, na ordem. */
+/** As 22 colunas que toda tarefa nova preenche, na ordem. */
 const COLUNAS = [
   'clinica_id',
   'solicitante_id',
@@ -74,6 +75,8 @@ const COLUNAS = [
   'recorrencia',
   'unidade_id',
   'campanha_id',
+  // O plano de ação (I-46): `null` em toda tarefa que não é plano.
+  'kpi_id',
 ] as const
 
 type LinhaNova = readonly unknown[]
@@ -257,6 +260,10 @@ export class TarefasService {
         tarefaOrigemId = dados.tarefaOrigemId
       }
 
+      // O plano de ação (I-46): `indicadores` + a `permissaoDoValor` do KPI, e
+      // a clínica conferida (appsec C6, C27). Só a tarefa interna o aceita.
+      const kpiId = await kpiDoPlanoDeAcao(c, clinicaId, autor, dados.vinculo === 'interna' ? dados.kpiId : undefined)
+
       const comum = {
         clinicaId,
         autor,
@@ -271,6 +278,7 @@ export class TarefasService {
         tipo,
         unidade,
         campanhaId,
+        kpiId,
       }
 
       const ids =
@@ -458,6 +466,7 @@ type Comum = {
   readonly tipo: string
   readonly unidade: string | null
   readonly campanhaId: string | null
+  readonly kpiId: string | null
 }
 
 /**
@@ -513,6 +522,7 @@ const linha = (
   x.recorrencia,
   t.unidade,
   t.campanhaId,
+  t.kpiId,
 ]
 
 /**

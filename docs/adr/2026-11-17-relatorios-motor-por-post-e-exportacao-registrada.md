@@ -78,12 +78,28 @@ a opção recomendada).
    (`CATALOGO_DE_RELATORIOS`) é a lista das colunas; a tela e o arquivo mostram
    só elas.
 
-7. **Limites contados na própria trilha.** O limite de 60 gerações +
-   exportações por pessoa por hora (C13) conta as linhas `relatorio` /
-   `exportacao_de_relatorio` da pessoa na última hora (índice parcial na 0104).
-   Nenhuma tabela de contador nova, e a contagem já é transacional com o
-   registro. `statement_timeout` de 10 s por `set_config(…, true)`; estouro
-   (57014) ou espera de lock (55P03) → 503, sem linha e sem registro.
+7. **Limites contados na TENTATIVA, fora da leitura** (emenda de 2026-11-17,
+   revisão appsec do T8, B1 — [parecer](../specs/indicadores-e-insights-t8-appsec.md)).
+   A primeira versão contava a própria trilha, e falhou duas vezes: pedidos
+   em paralelo liam o mesmo número (15 em paralelo com limite 3 deram 11 × 200),
+   e a consulta que estourava o tempo desfazia o próprio registro e nunca
+   chegava ao 429. Agora o motor grava a tentativa em `tentativas_de_relatorio`
+   (0108) numa transação CURTA e PRÓPRIA, com COMMIT antes da consulta, sob
+   `pg_advisory_xact_lock(hashtextextended("relatorios:<clínica>:<pessoa>", 0))`.
+   A tentativa que dá 503 conta. A trilha continua gravando só o sucesso
+   (L-IN-8). Erro no contador sobe: falha fechado.
+   - **Orçamento de tempo.** `statement_timeout` (10 s) vale POR COMANDO, não
+     pela execução. A consulta mais longa (11) roda até 4 comandos de leitura,
+     então o teto real de uma execução é ~40 s; com o limite por hora, isso
+     custa no máximo 60 × 40 s por pessoa por hora. Aceito pela revisão (L2).
+     Estouro (57014) ou espera de lock (55P03) → 503, sem linha e sem registro.
+   - **O código da exportação é único na clínica** (índice parcial da 0108,
+     `acao = exportou`): na colisão dos 32 bits o motor sorteia outro, com
+     SAVEPOINT, até 5 vezes (L1).
+   - **Texto livre fora do relatório `nenhuma`** (B2, M1): o 15 mostra só o
+     tipo da tarefa do catálogo, ou "Tarefa avulsa", e nunca a descrição; o 11
+     só mostra o motivo digitado no recorte `saude` (com a coluna de paciente,
+     que exige `jornada`) — fora dele, o rótulo e o motivo que o sistema grava.
 
 ## Consequências
 

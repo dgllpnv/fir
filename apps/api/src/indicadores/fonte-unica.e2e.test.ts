@@ -286,12 +286,13 @@ describe('fonte única com o Painel (c.1)', () => {
     expect(doKpi(out.itens, 'ticket_medio').atual.emDinheiro).toBe(ate14)
   })
 
-  it('fonte-unica-valor_fechado_em_orcamentos: setembro = Painel; outubro = Painel sem o dia aberto', async () => {
+  it('fonte-unica-valor_fechado_em_orcamentos: setembro = Painel; outubro = Painel, que já corta o dia aberto (D-I3)', async () => {
     expect(doKpi(set.itens, 'valor_fechado_em_orcamentos').atual.emDinheiro).toBe(
       (await painel(SEP.de, SEP.ate)).pacientes.valorDosOrcamentosPagos,
     )
-    const tela = BigInt((await painel('2026-10-01', '2026-10-24')).pacientes.valorDosOrcamentosPagos)
-    expect(doKpi(out.itens, 'valor_fechado_em_orcamentos').atual.emDinheiro).toBe(String(tela - BigInt(VALOR_DO_DIA_ABERTO)))
+    const tela = await painel('2026-10-01', '2026-10-24')
+    expect(doKpi(out.itens, 'valor_fechado_em_orcamentos').atual.emDinheiro).toBe(tela.pacientes.valorDosOrcamentosPagos)
+    expect(JSON.stringify(tela)).not.toContain(VALOR_DO_DIA_ABERTO)
   })
 
   it('fonte-unica-novos_pacientes: o total e a linha de uma origem do Painel', async () => {

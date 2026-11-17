@@ -99,6 +99,7 @@ const TEXTO: readonly [string, string, string][] = [
   ['--gold', '--on-gold', 'pílula invertida na faixa do painel, "Sair" sob o cursor'],
   ['--warn-ink', '--surface', 'pílula “Atrasada”'],
   ['--warn-ink', '--bg', 'pílula “Atrasada” fora de cartão'],
+  ['--ink', '--warn-soft', 'faixa “Lançamento pendente” do cartão do KPI, com o “Lançar agora”'],
   ['--ok', '--surface', 'pílula “Concluída”, botão de WhatsApp'],
   ['--bad', '--surface', 'pílula “Urgente”, “Cancelar tarefa”, erro'],
   ['--bad', '--bg', 'erro fora de cartão'],

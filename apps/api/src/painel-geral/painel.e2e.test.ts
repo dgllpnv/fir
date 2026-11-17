@@ -633,8 +633,9 @@ describe('o recebido POR FORMA só alcança dias com caixa já fechado (regra 6)
     })
 
     const p = (await ver()).pacientes
-    // A receita do período continua inteira: R$ 900 + R$ 450 + R$ 120.
-    expect(p.receita).toBe('147000')
+    // A receita também só dos dias que contam (D-I3): "inteira", R$ 1.470 − R$ 900
+    // era o esperado de hoje (R$ 570) por subtração. Fica o dia 10.
+    expect(p.receita).toBe('90000')
     // A tabela por forma, não.
     expect(p.porForma).toHaveLength(1)
     expect(p.porForma[0]).toMatchObject({

@@ -1,4 +1,5 @@
 import {
+  podeAbrirRelatorio,
   CATALOGO_DE_RELATORIOS,
   CHAVES_DE_RELATORIO,
   ChaveDeRelatorio,
@@ -57,7 +58,7 @@ export class FavoritosService {
   constructor(@Inject(BancoService) private readonly banco: BancoService) {}
 
   async listar(ctx: ContextoDoFavorito): Promise<ListaDeRelatorios> {
-    const abertos = CHAVES_DE_RELATORIO.filter((k) => ctx.pode(CATALOGO_DE_RELATORIOS[k].permissao))
+    const abertos = CHAVES_DE_RELATORIO.filter((k) => podeAbrirRelatorio(k, ctx.pode))
     const r = await this.banco.naClinica(ctx.clinicaId, ctx.ator, (c) =>
       c.query<LinhaDoFavorito>(
         `SELECT id, chave_relatorio, nome, filtros, criado_em
@@ -115,7 +116,7 @@ export class FavoritosService {
       )
       const linha = atual.rows[0]
       const chave = ChaveDeRelatorio.safeParse(linha?.chave_relatorio)
-      if (linha === undefined || !chave.success || !ctx.pode(CATALOGO_DE_RELATORIOS[chave.data].permissao)) {
+      if (linha === undefined || !chave.success || !podeAbrirRelatorio(chave.data, ctx.pode)) {
         throw new NotFoundException('Favorito não encontrado.')
       }
       const filtros = e.filtros === undefined ? null : this.validarFiltros(ctx, chave.data, e.filtros)
@@ -146,7 +147,7 @@ export class FavoritosService {
       const chave = ChaveDeRelatorio.safeParse(r.rows[0]?.chave_relatorio)
       // Favorito de relatório que a pessoa não abre não existe para ela: o
       // `throw` desfaz o UPDATE.
-      if (!chave.success || !ctx.pode(CATALOGO_DE_RELATORIOS[chave.data].permissao)) {
+      if (!chave.success || !podeAbrirRelatorio(chave.data, ctx.pode)) {
         throw new NotFoundException('Favorito não encontrado.')
       }
     })
@@ -160,7 +161,7 @@ export class FavoritosService {
   }
 
   private validarFiltros(ctx: ContextoDoFavorito, chave: ChaveDeRelatorio, filtros: Record<string, unknown>) {
-    if (!ctx.pode(CATALOGO_DE_RELATORIOS[chave].permissao)) {
+    if (!podeAbrirRelatorio(chave, ctx.pode)) {
       throw new ForbiddenException('Sem permissão para este relatório.')
     }
     if (temFaixaDeValor(filtros) && !ctx.pode('valores' satisfies ChaveDePermissao)) {

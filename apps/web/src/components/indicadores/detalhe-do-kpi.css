@@ -1,0 +1,165 @@
+/*
+ * INDICADORES & INSIGHTS — o detalhe do KPI (1.9 E).
+ *
+ * Mesma família de `indicadores.css`: papel e dourado, tipografia conduzindo.
+ * Os quatro números são blocos pequenos (agrupamento, 2×2 no celular); as
+ * colunas de baixo são texto solto com título, não cartões. Só tokens de
+ * `tokens.css` e pares que o teste de contraste já mede.
+ *
+ * O gráfico é SVG com `preserveAspectRatio="none"`: estica na largura sem
+ * rolar de lado em 390 px. Por isso nenhum texto mora dentro dele — os
+ * rótulos são HTML, embaixo, e o traço tem `vector-effect: non-scaling-stroke`.
+ */
+
+.kd { display: grid; gap: 18px; min-width: 0; }
+.kd-voltar { display: inline-flex; align-items: center; min-height: 44px; color: var(--gold-ink); font-weight: 600; text-decoration: none; width: max-content; }
+.kd-voltar:hover { text-decoration: underline; }
+.kd-voltar:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; border-radius: 4px; }
+
+.kd-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; margin-top: -10px; }
+.kd-topo h2 { font-size: 26px; margin: 0; overflow-wrap: anywhere; }
+.kd-sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+.kd-topo .ii-acoes { align-items: center; }
+
+/* ---------- a linha de quatro números ---------- */
+.kd-numeros { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+@media (min-width: 760px) { .kd-numeros { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kd-numeros > div { display: grid; gap: 4px; align-content: start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; min-width: 0; }
+.kd-numeros dt { font-size: 12px; color: var(--muted); font-weight: 600; }
+.kd-numeros dd { margin: 0; font-family: var(--display); font-size: 21px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums lining-nums; overflow-wrap: anywhere; }
+.kd-numeros dd.kd-so-percentual { font-size: 19px; }
+.kd-numero-nota { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; }
+.kd-numero-nota .ii-selo { font-size: 12px; }
+
+/* ---------- o gráfico ---------- */
+.kd-grafico { display: grid; gap: 8px; min-width: 0; }
+.kd-grafico-cabeca { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.kd-etiqueta { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; color: var(--gold-ink); }
+.kd-seletor { display: flex; flex-wrap: wrap; gap: 4px; border: 1px solid var(--line); border-radius: var(--r); padding: 3px; background: var(--surface); }
+.kd-seletor button {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.kd-seletor button[aria-pressed='true'] { background: var(--gold-soft); color: var(--on-gold-soft); }
+.kd-seletor button:hover { color: var(--ink); }
+.kd-seletor button[aria-pressed='true']:hover { color: var(--on-gold-soft); }
+.kd-seletor button:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 1px; }
+@media (max-width: 520px) {
+  .kd-seletor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .kd-seletor button { min-height: 44px; }
+}
+
+.kd-personalizado { display: grid; gap: 6px; }
+.kd-personalizado-campos { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.kd-personalizado-campos .campo { flex: 1 1 150px; max-width: 220px; }
+.kd-personalizado-campos input { font-variant-numeric: tabular-nums; }
+.kd-personalizado-campos .btn { min-height: 44px; }
+@media (max-width: 520px) { .kd-personalizado-campos .campo { max-width: none; } }
+.kd-erro { margin: 0; }
+.kd-atalhos { display: flex; flex-wrap: wrap; gap: 2px 16px; }
+.kd-atalhos .link { min-height: 40px; font-size: 13.5px; }
+
+.kd-aviso { margin: 0; font-size: 13px; color: var(--warn-ink); font-weight: 600; }
+.kd-aviso-dica .dica { margin: 0; }
+.kd-aviso-dica .dica-texto { font-weight: 400; color: var(--ink); }
+
+.kd-leitura { margin: 0; min-height: 1.5em; font-size: 13.5px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.kd-area { position: relative; height: 200px; min-width: 0; border-bottom: 1px solid var(--line); touch-action: pan-y; }
+.kd-area:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 3px; border-radius: 4px; }
+.kd-area-vazia { display: grid; place-items: center; color: var(--muted); font-size: 13.5px; border: 1px dashed var(--line); border-radius: var(--r); }
+.kd-area-vazia p { margin: 0; }
+@media (max-width: 520px) { .kd-area { height: 180px; } }
+.kd-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+.kd-eixo { stroke: var(--line); stroke-width: 1; }
+.kd-foco { fill: var(--gold-soft); fill-opacity: 0.7; }
+.kd-barra-cheia { fill: var(--muted); }
+.kd-barra-parcial { fill: var(--gold); stroke: var(--gold-ink); stroke-width: 1; }
+/* Dia aguardando (números c.10): claro, tracejado, altura fixa — marca, não valor. */
+.kd-barra-aguardando { fill: var(--gold-soft); stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.kd-linha-real { fill: none; stroke: var(--ink); stroke-width: 2.25; stroke-linejoin: round; stroke-linecap: round; }
+.kd-linha-ritmo { fill: none; stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 7 5; }
+.kd-linha-projecao { fill: none; stroke: var(--gold-ink); stroke-width: 2; stroke-dasharray: 1.5 4; stroke-linecap: round; }
+.kd-linha-alvo { stroke: var(--gold); stroke-width: 2; }
+.kd-hoje { stroke: var(--line); stroke-width: 1; }
+.kd-guia { stroke: var(--gold-ink); stroke-width: 1; }
+
+.kd-rotulos { display: grid; gap: 0; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; min-height: 2.6em; }
+.kd-rotulos span { display: grid; align-content: start; min-width: 0; overflow: visible; white-space: nowrap; }
+.kd-rotulos em { font-style: normal; font-weight: 600; color: var(--gold-ink); font-size: 10.5px; }
+.kd-rotulos-meta { position: relative; height: 1.6em; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.kd-rotulos-meta span { position: absolute; top: 0; white-space: nowrap; }
+.kd-rotulos-meta .kd-rotulo-hoje { transform: translateX(-50%); }
+
+.kd-legenda { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--muted); }
+.kd-legenda li { display: inline-flex; align-items: center; gap: 6px; }
+.kd-legenda i { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--ink); }
+.kd-legenda .kd-legenda-ritmo { border-top: 1.5px dashed var(--muted); }
+.kd-legenda .kd-legenda-projecao { border-top: 2px dotted var(--gold-ink); }
+.kd-legenda .kd-legenda-alvo { border-top: 2px solid var(--gold); }
+.kd-legenda .kd-legenda-parcial { width: 10px; height: 10px; border: 1px solid var(--gold-ink); background: var(--gold); }
+.kd-legenda .kd-legenda-aguardando { width: 10px; height: 10px; border: 1px dashed var(--muted); background: var(--gold-soft); }
+.kd-nota { margin: 0; font-size: 12px; color: var(--muted); }
+
+/* ---------- as duas colunas ---------- */
+.kd-colunas { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px 28px; }
+@media (min-width: 900px) { .kd-colunas { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kd-colunas > section { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.kd-colunas h3 { font-family: var(--display); font-size: 18px; font-weight: 600; margin: 0; }
+.kd-coluna-cabeca { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kd-coluna-cabeca .btn { min-height: 44px; padding: 8px 14px; font-size: 14px; }
+.kd-fonte { display: grid; gap: 8px; justify-items: start; }
+.kd-fonte p { margin: 0; font-size: 14px; line-height: 1.5; }
+.kd-fonte .link { min-height: 40px; display: inline-flex; align-items: center; }
+.kd-sem-acesso { margin: 0; padding: 12px; border: 1px dashed var(--line); border-radius: var(--r); color: var(--muted); font-size: 14px; }
+
+.kd-tabela { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.kd-tabela th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 6px 6px 6px 0; border-bottom: 1px solid var(--line); }
+.kd-tabela td { padding: 6px 6px 6px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.kd-lapis { display: inline-grid; place-items: center; width: 40px; height: 40px; background: none; border: 0; color: var(--gold-ink); cursor: pointer; border-radius: 8px; }
+.kd-lapis:focus-visible { outline: 2px solid var(--gold-ink); }
+.kd-lapis svg { width: 18px; height: 18px; }
+
+.kd-planos { list-style: none; margin: 0; padding: 0; display: grid; }
+.kd-planos li { display: grid; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.kd-planos li[data-status='concluida'] .kd-plano-descricao,
+.kd-planos li[data-status='cancelada'] .kd-plano-descricao { color: var(--muted); }
+.kd-plano-descricao { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+.kd-plano-quem { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.kd-rodape { border-top: 1px solid var(--line); padding-top: 14px; }
+.kd-lista-simples { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.kd-lista-simples li { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 36px; font-size: 13.5px; }
+.kd-tabular { font-variant-numeric: tabular-nums; }
+
+/* ---------- composição: grupos por bloco ---------- */
+.kd-bloco { display: grid; gap: 4px; width: 100%; }
+.kd-bloco h4 { margin: 6px 0 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; color: var(--gold-ink); }
+.kd-grupos { list-style: none; margin: 0; padding: 0; display: grid; }
+.kd-grupos li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  padding: 6px 0 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.kd-grupo-rotulo { overflow-wrap: anywhere; }
+.kd-grupo-qtd { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.kd-grupo-numero { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.kd-grupo-barra { grid-column: 1 / -1; height: 4px; border-radius: 999px; background: var(--gold-soft); overflow: hidden; }
+.kd-grupo-barra i { display: block; height: 100%; background: var(--gold); border-radius: 999px; }
+.kd-num { text-align: right; }
+@media (max-width: 520px) { .kd-col-comentario { display: none; } }
+.kd-linha-ritmo-diario { stroke: var(--ink); stroke-dasharray: 5 4; }
+.kd-fonte > .link:disabled { opacity: 0.6; }
+.kd-legenda .kd-legenda-ritmo-diario { border-top: 1.5px dashed var(--ink); }

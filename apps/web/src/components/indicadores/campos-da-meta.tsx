@@ -13,14 +13,16 @@ import { EXEMPLO_DA_UNIDADE, fraseDaPrevia, menorUnidadeDoTexto, ROTULO_DA_UNIDA
  * meta agora" do D.1. Tipo, valor-alvo, início e prazo, valor de partida e
  * responsável — e a prévia ao vivo, cuja frase é montada aqui (appsec C8).
  *
- * Os tipos são "Do mês" e "Até uma data": são os dois que a rota de meta
- * aceita hoje (`CriarMetaDeKpi.tipo`). A meta recorrente existe no banco
- * (`series_de_meta`), mas ainda não tem rota de escrita.
+ * Os tipos são os três da D.3: "Do mês", "Até uma data" e "Todo mês
+ * (recorrente)". A recorrente (I-24) é uma série: o mês escolhido é o
+ * primeiro, cada mês é um mês civil inteiro com o mesmo alvo, e cada um parte
+ * do zero — a rota recusa partida (422), então o campo fica travado em 0 e a
+ * partida não vai no corpo. Os meses seguintes o servidor cria sozinho.
  */
 
 export type EstadoDaMeta = {
-  readonly tipo: 'mes' | 'ate_data'
-  /** `aaaa-mm`, no tipo "Do mês". */
+  readonly tipo: TipoDaMetaNaTela
+  /** `aaaa-mm`, nos tipos "Do mês" e "Todo mês" (o primeiro mês da série). */
   readonly mes: string
   readonly inicio: string
   readonly prazo: string
@@ -38,15 +40,30 @@ export type KpiDaMeta = Pick<KpiNaLista, 'unidade' | 'agregacao' | 'responsavelI
   readonly atual: KpiNaLista['atual'] | null
 }
 
+export type TipoDaMetaNaTela = 'mes' | 'ate_data' | 'recorrente'
+
+/** Mês civil inteiro: "Do mês" e "Todo mês" escolhem o mês, não as datas. */
+export const tipoPorMes = (tipo: TipoDaMetaNaTela): boolean => tipo === 'mes' || tipo === 'recorrente'
+
+export const OPCOES_DE_TIPO_DA_META: readonly (readonly [TipoDaMetaNaTela, string])[] = [
+  ['mes', 'Do mês'],
+  ['ate_data', 'Até uma data'],
+  ['recorrente', 'Todo mês (recorrente)'],
+]
+
 export type ErrosDaMeta = Partial<Record<'alvo' | 'partida' | 'prazo' | 'mes', string>>
 
 /** Soma começa do zero, sempre (I-17): o campo de partida fica travado. */
 export const partidaTravada = (k: Pick<KpiNaLista, 'agregacao'>): boolean => k.agregacao === 'soma'
 
+/** A partida que a tela manda: nenhuma quando é soma (I-17) ou série (I-24, cada mês parte do zero). */
+const semPartida = (k: Pick<KpiNaLista, 'agregacao'>, e: Pick<EstadoDaMeta, 'tipo'>): boolean =>
+  partidaTravada(k) || e.tipo === 'recorrente'
+
 export function estadoInicialDaMeta(kpi: KpiDaMeta | null, meta: MetaDeKpiNaSaida | null, hoje: string): EstadoDaMeta {
   if (meta !== null) {
     return {
-      tipo: meta.tipo === 'ate_data' ? 'ate_data' : 'mes',
+      tipo: meta.tipo,
       mes: meta.inicio.slice(0, 7),
       inicio: meta.inicio,
       prazo: meta.prazo,
@@ -68,13 +85,13 @@ export function estadoInicialDaMeta(kpi: KpiDaMeta | null, meta: MetaDeKpiNaSaid
 
 /** Início e prazo como a rota os quer: "Do mês" é o mês civil inteiro. */
 export function janelaDoEstado(e: EstadoDaMeta): { inicio: string; prazo: string } {
-  if (e.tipo === 'mes') return { inicio: `${e.mes}-01`, prazo: fimDoMes(e.mes) }
+  if (tipoPorMes(e.tipo)) return { inicio: `${e.mes}-01`, prazo: fimDoMes(e.mes) }
   return { inicio: e.inicio, prazo: e.prazo }
 }
 
 export function validarEstadoDaMeta(e: EstadoDaMeta, kpi: KpiDaMeta, editando = false): ErrosDaMeta {
   const erros: ErrosDaMeta = {}
-  if (e.tipo === 'mes' && !/^\d{4}-\d{2}$/.test(e.mes)) erros.mes = 'Escolha o mês.'
+  if (tipoPorMes(e.tipo) && !/^\d{4}-\d{2}$/.test(e.mes)) erros.mes = 'Escolha o mês.'
   if (e.tipo === 'ate_data') {
     if (e.inicio === '' || e.prazo === '') erros.prazo = 'Escolha o início e o prazo.'
     else if (e.prazo < e.inicio) erros.prazo = 'O prazo é antes do início.'
@@ -82,7 +99,7 @@ export function validarEstadoDaMeta(e: EstadoDaMeta, kpi: KpiDaMeta, editando = 
   // Na edição, o alvo em branco fica como está (a rota só troca o que vem).
   const alvoEmBrancoNaEdicao = editando && e.alvo.trim() === ''
   if (!alvoEmBrancoNaEdicao && menorUnidadeDoTexto(kpi.unidade, e.alvo) === null) erros.alvo = 'Escreva o valor-alvo, só com números.'
-  if (!partidaTravada(kpi) && e.partida.trim() !== '' && menorUnidadeDoTexto(kpi.unidade, e.partida) === null) {
+  if (!semPartida(kpi, e) && e.partida.trim() !== '' && menorUnidadeDoTexto(kpi.unidade, e.partida) === null) {
     erros.partida = 'Escreva o valor de partida, só com números.'
   }
   return erros
@@ -114,12 +131,7 @@ export function CamposDaMeta({
         <fieldset className="ii-grupo">
           <legend>Tipo</legend>
           <div className="ii-opcoes">
-            {(
-              [
-                ['mes', 'Do mês'],
-                ['ate_data', 'Até uma data'],
-              ] as const
-            ).map(([valor, rotulo]) => (
+            {OPCOES_DE_TIPO_DA_META.map(([valor, rotulo]) => (
               <label key={valor}>
                 <input
                   type="radio"
@@ -147,9 +159,9 @@ export function CamposDaMeta({
         <ErroDoCampo id={`${id}-alvo`} mensagem={erros.alvo} />
       </label>
 
-      {estado.tipo === 'mes' ? (
+      {tipoPorMes(estado.tipo) ? (
         <label className="campo">
-          Mês
+          {estado.tipo === 'recorrente' ? 'A partir de' : 'Mês'}
           <input
             type="month"
             value={estado.mes}
@@ -157,6 +169,9 @@ export function CamposDaMeta({
             aria-invalid={erros.mes !== undefined}
             onChange={(e) => mudar('mes', e.target.value)}
           />
+          {estado.tipo === 'recorrente' ? (
+            <small>{editando ? 'Vale só para este mês; os outros meses da série seguem o alvo dela.' : 'Os meses seguintes nascem sozinhos, com o mesmo alvo.'}</small>
+          ) : null}
           <ErroDoCampo id={`${id}-mes`} mensagem={erros.mes} />
         </label>
       ) : (
@@ -180,10 +195,14 @@ export function CamposDaMeta({
 
       <label className="campo">
         Valor de partida
-        {partidaTravada(kpi) ? (
+        {semPartida(kpi, estado) ? (
           <>
             <input value="0" disabled readOnly />
-            <small>Este indicador soma no período: começa sempre do zero.</small>
+            <small>
+              {estado.tipo === 'recorrente'
+                ? 'Cada mês da série começa do zero.'
+                : 'Este indicador soma no período: começa sempre do zero.'}
+            </small>
           </>
         ) : (
           <>
@@ -227,7 +246,7 @@ export function CamposDaMeta({
  */
 function PreviaAoVivo({ kpi, estado }: { kpi: KpiDaMeta; estado: EstadoDaMeta }) {
   const alvo = menorUnidadeDoTexto(kpi.unidade, estado.alvo)
-  const partida = partidaTravada(kpi) ? null : menorUnidadeDoTexto(kpi.unidade, estado.partida)
+  const partida = semPartida(kpi, estado) ? null : menorUnidadeDoTexto(kpi.unidade, estado.partida)
   const { inicio, prazo } = janelaDoEstado(estado)
   const pronto = alvo !== null && /^\d{4}-\d{2}-\d{2}$/.test(inicio) && /^\d{4}-\d{2}-\d{2}$/.test(prazo) && prazo >= inicio
   const caminho =
@@ -270,7 +289,7 @@ function PreviaAoVivo({ kpi, estado }: { kpi: KpiDaMeta; estado: EstadoDaMeta })
 export function corpoDaMetaNova(kpi: Pick<KpiNaLista, 'id' | 'unidade' | 'agregacao'>, e: EstadoDaMeta) {
   const { inicio, prazo } = janelaDoEstado(e)
   const alvo = menorUnidadeDoTexto(kpi.unidade, e.alvo)
-  const partida = partidaTravada(kpi) ? null : menorUnidadeDoTexto(kpi.unidade, e.partida)
+  const partida = semPartida(kpi, e) ? null : menorUnidadeDoTexto(kpi.unidade, e.partida)
   return {
     kpiId: kpi.id,
     tipo: e.tipo,
@@ -286,7 +305,7 @@ export function corpoDaMetaNova(kpi: Pick<KpiNaLista, 'id' | 'unidade' | 'agrega
 export function corpoDaMetaEditada(kpi: Pick<KpiNaLista, 'unidade' | 'agregacao'>, e: EstadoDaMeta) {
   const { prazo } = janelaDoEstado(e)
   const alvo = menorUnidadeDoTexto(kpi.unidade, e.alvo)
-  const partida = partidaTravada(kpi) ? null : menorUnidadeDoTexto(kpi.unidade, e.partida)
+  const partida = semPartida(kpi, e) ? null : menorUnidadeDoTexto(kpi.unidade, e.partida)
   return {
     ...(alvo === null ? {} : { alvo: alvo.toString() }),
     ...(partida === null ? {} : { partida: partida.toString() }),

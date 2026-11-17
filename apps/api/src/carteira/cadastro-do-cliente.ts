@@ -357,6 +357,8 @@ export const FILHAS_DIRETAS_QUE_MUDAM_DE_GRUPO = [
   // 0051 (rotina completa, 2A): os itens da tarefa carregam o cliente direto.
   'itens_de_tarefa_interna',
   'uso_diario_cliente',
+  // T10 (0110): a fotografia dos KPIs da clínica, no molde do uso diário.
+  'kpis_na_carteira',
 ] as const
 
 /** Netas: o `grupo_id` delas acompanha o da filha, que acompanha o cliente. */

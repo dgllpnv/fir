@@ -32,6 +32,7 @@ import type { Ator } from '../banco/ator'
 import type { ClinicaId } from '../banco/clinica-id'
 import { CampanhasService } from '../campanhas/campanhas.service'
 import { analiseNaConexao } from '../estoque/analise.service'
+import { historicosDaJanela as cartoesDaJanela } from '../jornada/historicos-da-janela'
 import { movimentosDosItens } from '../estoque/movimentos.repositorio'
 import {
   caixasDoPeriodo,
@@ -44,7 +45,7 @@ import { pacientesQuePodemTerSaldo, saldosDe } from '../financeiro/saldo.reposit
 import { VisaoDoMesService } from '../financeiro/visao-do-mes.service'
 import { consultarPrazos, contarConversaoDeOrcamentos, TIPOS_DE_SESSAO } from '../painel-geral/metricas-diarias'
 import { ORIGEM_DO_PACIENTE, PACIENTE_NOVO_NA_JANELA } from '../painel-geral/novos-pacientes'
-import { somarTotais, type TotaisDePacientes, ticketMedio, totaisDePacientes } from '../painel-geral/totais-de-pacientes'
+import { ticketMedio, totaisDosDiasQueContam } from '../painel-geral/totais-de-pacientes'
 import { MetasService } from '../pessoas/metas.service'
 
 export type ContextoDoKpi = {
@@ -52,6 +53,8 @@ export type ContextoDoKpi = {
   readonly ator: Ator
   readonly fuso: string
   readonly valores: boolean
+  /** O filtro Unidade da lista: só as fontes de chave `porUnidade` o leem. */
+  readonly unidadeId?: string
 }
 
 /** `[de, ate]` em dias civis da clínica, inclusivos; `hoje` é do servidor. */
@@ -123,18 +126,16 @@ export class FontesDosKpis {
       case 'valor_fechado_em_orcamentos': {
         // A fonte do Painel, medida em cada trecho contínuo de `D` (ADR
         // chaves-em-reais-e-os-dias-de-caixa): o dia aguardando fica fora.
-        const d = await diasQueContamNasTelas(c, ctx.clinicaId, p.de, fim, ctx.fuso, p.hoje)
-        const partes: TotaisDePacientes[] = []
-        for (const t of trechosContinuos(d.corte.dias)) partes.push(await totaisDePacientes(c, ctx.clinicaId, j(t.de, t.ate)))
-        const totais = somarTotais(partes)
+        // A mesma composição do resumo do relatório 13 (`totaisDosDiasQueContam`).
+        const { totais, dias: d } = await totaisDosDiasQueContam(c, ctx.clinicaId, { de: p.de, ate: fim }, ctx.fuso, p.hoje)
         const numero = kpi.chave === 'ticket_medio' ? reais(ticketMedio(totais)) : reais(totais.valorDosOrcamentosPagos)
         return { numero, diasAguardando: d.diasAguardando, corte: d.corte }
       }
       case 'saldo_a_receber': {
         // A posição no INSTANTE `início(fim + 1)` (I-6, c.9); o período em curso
         // é a de agora — a mesma de `aReceber` da Visão do mês.
-        const candidatos = await pacientesQuePodemTerSaldo(c, ctx.clinicaId)
         const opcoes = p.ate < p.hoje ? { ate: inicioDoDia(somarDias(p.ate, 1), ctx.fuso) } : {}
+        const candidatos = await pacientesQuePodemTerSaldo(c, ctx.clinicaId, opcoes)
         const saldos = await saldosDe(c, ctx.clinicaId, candidatos, opcoes)
         return simples(reais([...saldos.values()].reduce((s, x) => s.mais(x.saldo), Dinheiro.zero())))
       }
@@ -147,7 +148,9 @@ export class FontesDosKpis {
         return simples(percentual(r.percentual))
       }
       case 'novos_pacientes':
-        return simples(contagem(await contarNovosPacientes(c, ctx.clinicaId, j(p.de, fim), kpi.parametros['origem'])))
+        return simples(
+          contagem(await contarNovosPacientes(c, ctx.clinicaId, j(p.de, fim), kpi.parametros['origem'], ctx.unidadeId)),
+        )
       case 'conversao_de_orcamentos': {
         const { enviados, fechados } = await contarConversaoDeOrcamentos(c, ctx.clinicaId, j(p.de, fim))
         return simples(percentual(conversaoDeOrcamentos(enviados, fechados)))
@@ -319,20 +322,13 @@ export function mesesCivisInteiros(de: string, ate: string, hoje: string): strin
 
 type EventoDoHistorico = Parameters<typeof classificarDesfecho>[0][number]
 
-/** Os históricos dos cartões com algum evento na janela (I-10, I-11). */
+/** Os históricos dos cartões com algum evento na janela (I-10, I-11) — a leitura do relatório 14 também. */
 async function historicosDaJanela(
   c: pg.PoolClient,
   clinicaId: ClinicaId,
   j: { de: Date; ate: Date },
-): Promise<EventoDoHistorico[][]> {
-  const r = await c.query<{ historico: EventoDoHistorico[] }>(
-    `SELECT t.historico FROM tarefas t
-      WHERE t.clinica_id = $1 AND t.excluida_em IS NULL AND t.paciente_id IS NOT NULL
-        AND EXISTS (SELECT 1 FROM jsonb_array_elements(t.historico) ev
-                     WHERE ev ? 'em' AND (ev->>'em')::timestamptz >= $2 AND (ev->>'em')::timestamptz < $3)`,
-    [clinicaId, j.de, j.ate],
-  )
-  return r.rows.map((x) => x.historico)
+): Promise<(readonly EventoDoHistorico[])[]> {
+  return (await cartoesDaJanela(c, clinicaId, j)).map((x) => x.historico)
 }
 
 /** Pacientes novos na janela — o `WHERE` e o rótulo de origem do Painel (`novos-pacientes.ts`). */
@@ -341,12 +337,15 @@ export async function contarNovosPacientes(
   clinicaId: ClinicaId,
   j: { de: Date; ate: Date },
   origem: string | undefined,
+  /** O filtro Unidade: a unidade PRINCIPAL da paciente, a mesma régua do Painel por unidade. */
+  unidadeId?: string,
 ): Promise<number> {
   const r = await c.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM pacientes pa
       WHERE ${PACIENTE_NOVO_NA_JANELA}
-        AND ($4::text IS NULL OR (${ORIGEM_DO_PACIENTE}) = $4)`,
-    [clinicaId, j.de, j.ate, origem ?? null],
+        AND ($4::text IS NULL OR (${ORIGEM_DO_PACIENTE}) = $4)
+        AND ($5::uuid IS NULL OR pa.unidade_id = $5::uuid)`,
+    [clinicaId, j.de, j.ate, origem ?? null, unidadeId ?? null],
   )
   return Number(r.rows[0]!.n)
 }

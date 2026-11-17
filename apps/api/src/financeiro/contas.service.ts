@@ -108,6 +108,48 @@ const paraSaida = (l: LinhaDeConta, hoje: string): ContaNaLista => ({
   pagoPor: l.pago_por_nome,
 })
 
+/** Uma conta no relatório 10 (Contas a pagar). */
+export type ContaDoRelatorio = {
+  readonly id: string
+  readonly vencimento: string
+  readonly descricao: string
+  readonly categoria: string
+  readonly valor: bigint
+  readonly pagoEm: string | null
+  readonly valorPago: bigint | null
+  /** A usada na conta paga, a prevista na aberta — a forma que o filtro da tela olha. */
+  readonly forma: string
+}
+
+/**
+ * **AS CONTAS COM VENCIMENTO EM `[de, ate]`** — a leitura da tela Contas
+ * (`SELECT_BASE`), para o relatório 10. Todas as da clínica: o relatório exige
+ * `contas.gerir`, o alcance "todas" da tela.
+ */
+export async function contasDoPeriodo(
+  c: pg.PoolClient,
+  clinicaId: string,
+  periodo: { readonly de: string; readonly ate: string },
+  situacao: 'todas' | 'abertas' | 'pagas',
+): Promise<ContaDoRelatorio[]> {
+  const r = await c.query<LinhaDeConta>(
+    `${SELECT_BASE} AND c.vencimento >= $2::date AND c.vencimento <= $3::date
+        AND ($4::text = 'todas' OR ($4::text = 'abertas') = (c.pago_em IS NULL))
+      ORDER BY c.vencimento ASC, c.descricao ASC, c.id ASC`,
+    [clinicaId, periodo.de, periodo.ate, situacao],
+  )
+  return r.rows.map((l) => ({
+    id: l.id,
+    vencimento: l.vencimento,
+    descricao: l.descricao,
+    categoria: l.categoria,
+    valor: BigInt(l.valor),
+    pagoEm: l.pago_em,
+    valorPago: l.valor_pago === null ? null : BigInt(l.valor_pago),
+    forma: (l.pago_em === null ? l.forma_prevista : l.forma_pagamento).trim(),
+  }))
+}
+
 /**
  * A forma que o filtro olha: a USADA numa conta paga, a PREVISTA numa aberta
  * (ADR 0020). Aparada como o domínio apara ao agrupar o bloco "Pago por

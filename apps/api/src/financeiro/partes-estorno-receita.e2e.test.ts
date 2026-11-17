@@ -380,16 +380,20 @@ describe('(e) outras entradas — as bordas', () => {
 
   it('fora de LTV, ticket, campanhas e receita: o painel as mostra em linha própria', async () => {
     await tarefaComPagamento({ valor: '10000', forma: 'Pix' })
-    const antes = (await pegar(c, '/v1/painel', { periodo: 'mes' }, 'beatriz')).body
     await lancar(await categoria(), { valor: '7000' })
-    const depois = (await pegar(c, '/v1/painel', { periodo: 'mes' }, 'beatriz')).body
-    expect(depois.pacientes.outrasEntradas).toBe('7000')
-    expect(depois.pacientes.quantidadeDeOutrasEntradas).toBe(1)
-    for (const k of ['receita', 'pagamentos', 'ticketMedio', 'pacientesAtendidos']) {
-      expect(depois.pacientes[k], k).toEqual(antes.pacientes[k])
-    }
-    expect(depois.topPagantes).toEqual(antes.topPagantes)
-    expect(depois.campanhas).toEqual(antes.campanhas)
+    // O Painel só mostra o dinheiro de HOJE depois do fechamento (regra 6):
+    // com o caixa aberto, receita e outras entradas do dia ficam de fora juntas.
+    const aberto = (await pegar(c, '/v1/painel', { periodo: 'mes' }, 'beatriz')).body
+    expect(aberto.pacientes.outrasEntradas).toBe('0')
+    const fecho = await postar(c, '/v1/caixa', { dia: HOJE, obs: '', contado: [{ forma: 'Pix', valor: '17000' }] }, 'beatriz')
+    expect(fecho.statusCode, fecho.text).toBe(201)
+    const fechado = (await pegar(c, '/v1/painel', { periodo: 'mes' }, 'beatriz')).body
+    // Linha própria, e só nela: a receita é só o pagamento do paciente.
+    expect(fechado.pacientes.outrasEntradas).toBe('7000')
+    expect(fechado.pacientes.quantidadeDeOutrasEntradas).toBe(1)
+    expect(fechado.pacientes.receita).toBe('10000')
+    expect(fechado.pacientes.pagamentos).toBe(1)
+    expect(fechado.pacientes.ticketMedio).toBe('10000')
     expect(await receitaDoDia(c)).toBe(10000n)
   })
 

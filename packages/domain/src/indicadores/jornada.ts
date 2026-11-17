@@ -88,6 +88,8 @@ export type FaltaComRecontato = {
   readonly recontatadaNoDia: string | null
   /** Recontatada até `dia + 2`, no fuso da clínica. */
   readonly emAteDoisDias: boolean
+  /** `noshow` é falta; `desmarcar`, desmarcação (relatório 14). */
+  readonly motivo: 'falta' | 'desmarcacao'
 }
 
 /**
@@ -112,7 +114,13 @@ export function recontatoEmAteDoisDias(historico: readonly Evento[], fuso: strin
         break
       }
     }
-    r.push({ dia, em: ev.em, recontatadaNoDia: recontato, emAteDoisDias: recontato !== null && recontato <= somarDias(dia, 2) })
+    r.push({
+      dia,
+      em: ev.em,
+      recontatadaNoDia: recontato,
+      emAteDoisDias: recontato !== null && recontato <= somarDias(dia, 2),
+      motivo: ev.acao === 'noshow' ? 'falta' : 'desmarcacao',
+    })
   }
   return r
 }

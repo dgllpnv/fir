@@ -40,8 +40,9 @@ import { diaDaClinica } from '../estoque/dia-da-clinica'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 import { outrasEntradasDaJanela } from '../financeiro/outras-entradas.repositorio'
 import { somaDoMedx } from '../integracoes/faturamento-lido'
-import { ticketMedio, totaisDePacientes } from './totais-de-pacientes'
-import { ORIGEM_DO_PACIENTE, PACIENTE_NOVO_NA_JANELA } from './novos-pacientes'
+import { ticketMedio, totaisDePacientes, totaisDosDiasQueContam } from './totais-de-pacientes'
+import { diasQueAindaNaoContam, JA_ATENDIDO, LTV_DO_NOVO, ltvNosDias, ORIGEM_DO_PACIENTE, PACIENTE_NOVO_NA_JANELA } from './novos-pacientes'
+import { indicadorasDaJanela } from './quem-mais-indica'
 import { FORA_DE_PACIENTE_DESATIVADO } from '../tarefas/leitura'
 import {
   TIPOS_DE_SESSAO,
@@ -117,10 +118,10 @@ export class PainelService {
           this.prazos(c, ctx, periodo, hoje),
           this.criadasNoPeriodo(c, ctx, periodo),
           this.porSolicitante(c, ctx, periodo),
-          this.pacientes(c, ctx, periodo),
+          this.pacientes(c, ctx, periodo, hoje),
           this.topPagantes(c, ctx, periodo, filtro.top),
           this.porUnidade(c, ctx, periodo, hoje),
-          this.novosPacientes(c, ctx, periodo),
+          this.novosPacientes(c, ctx, periodo, hoje),
           this.quemMaisIndica(c, ctx, periodo),
         ])
       const medx = await this.conferenciaMedx(c, ctx, periodo, hoje)
@@ -296,6 +297,7 @@ export class PainelService {
     c: pg.PoolClient,
     ctx: Contexto,
     periodo: { de: string; ate: string },
+    hoje: string,
   ): Promise<PacientesNoPainel> {
     const j = janela(periodo.de, periodo.ate, ctx.fuso)
     const args = [
@@ -310,10 +312,16 @@ export class PainelService {
     ]
     const EH_RECEITA = `(t.tipo = ANY($4::text[]) OR (t.tipo = ANY($5::text[]) AND r.valor > 0))`
 
-    // Os totais da tabela: a MESMA função dos KPIs de ticket e de orçamento (I-7).
+    // As contagens da tabela: a MESMA função dos KPIs (I-7), na janela inteira.
     const t = await totaisDePacientes(c, ctx.clinicaId, j)
-    const receita = t.receita
-    const pagamentos = t.pagamentos
+    // O DINHEIRO, só nos dias que contam (regra 6; D-I3): hoje com o caixa
+    // aberto, e o dia do mês corrente ainda sem caixa, são o esperado da gaveta.
+    // A MESMA função do relatório 13 e dos KPIs `ticket_medio` e
+    // `valor_fechado_em_orcamentos`: os quatro dão o mesmo número.
+    const { totais: m, dias } = await totaisDosDiasQueContam(c, ctx.clinicaId, periodo, ctx.fuso, hoje)
+    const contam = dias.corte.dias
+    const receita = m.receita
+    const pagamentos = m.pagamentos
 
     /**
      * AS FORMAS DE PAGAMENTO — **SÓ DOS DIAS COM CAIXA JÁ FECHADO** (regra 6).
@@ -433,7 +441,8 @@ export class PainelService {
        ), concluidas AS (
          SELECT t.tipo,
                 count(*)::bigint AS n,
-                coalesce(sum(r.valor), 0)::bigint AS valor
+                coalesce(sum(r.valor) FILTER (
+                  WHERE ((t.concluida_em AT TIME ZONE $7)::date)::text = ANY($6::text[])), 0)::bigint AS valor
            FROM tarefas t
            LEFT JOIN recebimentos r
                   ON r.tarefa_id = t.id AND r.estornado_em IS NULL AND ${DINHEIRO_QUE_ENTROU}
@@ -453,7 +462,7 @@ export class PainelService {
       // Parâmetros próprios, pela mesma razão de `argsDeForma`: esta consulta
       // usa cinco dos oito de `args`, e um parâmetro declarado e não usado faz
       // o Postgres recusar o statement.
-      [ctx.clinicaId, j.de, j.ate, periodo.de, periodo.ate],
+      [ctx.clinicaId, j.de, j.ate, periodo.de, periodo.ate, [...contam], ctx.fuso],
     )
 
     // A CONVERSÃO DE ORÇAMENTOS, por `acao` declarada (ADR 0004) — extraída
@@ -465,7 +474,9 @@ export class PainelService {
     const somaDasFormas = formas.rows.reduce((s2, f) => s2 + BigInt(f.valor), 0n)
     const receitaTexto = receita.centavos.toString()
     // As OUTRAS ENTRADAS da janela, em linha própria: nunca somadas à receita.
-    const outras = await outrasEntradasDaJanela(c, ctx.clinicaId, j, ctx.fuso)
+    // Também só dos dias que contam: a outra entrada de hoje está na mesma gaveta.
+    const diasQueContam = new Set(contam)
+    const outras = (await outrasEntradasDaJanela(c, ctx.clinicaId, j, ctx.fuso)).filter((x) => diasQueContam.has(x.dia))
     return {
       receita: receitaTexto,
       pagamentos,
@@ -474,10 +485,10 @@ export class PainelService {
       pacientesAtendidos: t.atendidos,
       // **Pelo value object** (regra 1), e `null` sem pagamento nenhum:
       // `R$ 0,00` diria que o ticket médio é zero, e ele não existe.
-      ticketMedio: ticketMedio(t)?.centavos.toString() ?? null,
+      ticketMedio: ticketMedio(m)?.centavos.toString() ?? null,
       contatos: t.contatos,
       orcamentosPagos: t.orcamentosPagos,
-      valorDosOrcamentosPagos: t.valorDosOrcamentosPagos.centavos.toString(),
+      valorDosOrcamentosPagos: m.valorDosOrcamentosPagos.centavos.toString(),
       orcamentosEnviados: enviados,
       // A regra (com o limite de 100) é do domínio, a MESMA do KPI (números c.1).
       conversaoDeOrcamentos: conversaoDeOrcamentos(enviados, fechados),
@@ -847,8 +858,8 @@ export class PainelService {
    * tela dela diz.
    *
    * `ltvTotal` é a soma do LTV dessas pacientes — a mesma definição de
-   * `pacientes.service.ts`, e por isso **sem** o corte de caixa: é o que elas
-   * pagaram na vida, não na janela.
+   * `pacientes.service.ts`, sem janela (é o que elas pagaram na vida), MENOS
+   * os dias do mês corrente que ainda não contam (`diasQueAindaNaoContam`).
    *
    * Só paciente **ativa**: um cadastro feito por engano e desativado não é
    * uma paciente nova, e deixá-lo aqui faria a origem "Instagram" crescer com
@@ -858,8 +869,13 @@ export class PainelService {
     c: pg.PoolClient,
     ctx: Contexto,
     periodo: { de: string; ate: string },
+    hoje: string,
   ): Promise<NovosPacientes> {
     const j = janela(periodo.de, periodo.ate, ctx.fuso)
+    // O LTV é a vida, MENOS os dias do mês corrente que ainda não contam: com
+    // uma paciente nova só na origem, o LTV dela seria o pagamento de hoje — o
+    // esperado da gaveta (regra 6). A mesma conta da receita do relatório 6.
+    const naoContam = await diasQueAindaNaoContam(c, ctx.clinicaId, ctx.fuso, hoje)
     const r = await c.query<{
       origem: string
       novos: string
@@ -868,23 +884,15 @@ export class PainelService {
     }>(
       `SELECT ${ORIGEM_DO_PACIENTE} AS origem,
               count(*)::text AS novos,
-              count(*) FILTER (
-                WHERE EXISTS (SELECT 1 FROM tarefas t
-                               WHERE t.paciente_id = pa.id AND t.excluida_em IS NULL
-                                 AND t.status = 'concluida' AND t.tipo = ANY($4::text[]))
-              )::text AS atendidos,
-              coalesce(sum(ltv.valor), 0)::text AS ltv
+              count(*) FILTER (WHERE ${JA_ATENDIDO})::text AS atendidos,
+              coalesce(sum(ltv.valor - aguarda.valor), 0)::text AS ltv
          FROM pacientes pa
-         CROSS JOIN LATERAL (
-           SELECT coalesce(sum(r.valor), 0) AS valor
-             FROM recebimentos r
-            WHERE r.paciente_id = pa.id AND r.estornado_em IS NULL
-              AND ${DINHEIRO_QUE_ENTROU}
-         ) ltv
+         CROSS JOIN LATERAL (${LTV_DO_NOVO}) ltv
+         CROSS JOIN LATERAL (${ltvNosDias('$5', '$6')}) aguarda
         WHERE ${PACIENTE_NOVO_NA_JANELA}
         GROUP BY 1
         ORDER BY count(*) DESC, 1 ASC`,
-      [ctx.clinicaId, j.de, j.ate, [...TIPOS_QUE_ATENDEM]],
+      [ctx.clinicaId, j.de, j.ate, [...TIPOS_QUE_ATENDEM], naoContam, ctx.fuso],
     )
 
     const porOrigem = r.rows.map((l) => ({
@@ -934,21 +942,9 @@ export class PainelService {
     ctx: Contexto,
     periodo: { de: string; ate: string },
   ): Promise<IndicadoraNoPainel[]> {
-    const j = janela(periodo.de, periodo.ate, ctx.fuso)
-    const r = await c.query<{ id: string; nome: string; n: string }>(
-      `SELECT i.id::text AS id, i.nome, count(DISTINCT p.id)::text AS n
-         FROM pacientes p
-         JOIN pacientes i ON i.clinica_id = p.clinica_id AND i.id = p.indicado_por_id
-        WHERE p.clinica_id = $1 AND i.clinica_id = $1
-          AND p.indicado_por_id IS NOT NULL
-          AND i.ativo
-          AND p.criado_em >= $2 AND p.criado_em < $3
-        GROUP BY i.id, i.nome
-        ORDER BY count(DISTINCT p.id) DESC, i.nome ASC, i.id ASC
-        LIMIT 10`,
-      [ctx.clinicaId, j.de, j.ate],
-    )
-    return r.rows.map((l) => ({ pacienteId: l.id, nome: l.nome, indicadas: Number(l.n) }))
+    // A consulta mora em `quem-mais-indica.ts`: o relatório 4 conta as mesmas.
+    const r = await indicadorasDaJanela(c, ctx.clinicaId, janela(periodo.de, periodo.ate, ctx.fuso), 10)
+    return r.map((l) => ({ pacienteId: l.pacienteId, nome: l.nome, indicadas: l.indicadas }))
   }
 }
 

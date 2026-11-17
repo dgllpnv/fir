@@ -163,6 +163,26 @@
 .ii-kpi-rodape .ii-fonte { color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
 .ii-kpi-acoes { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .ii-kpi-acoes .link { min-height: 36px; font-size: 13px; }
+/* KPI manual com lançamento atrasado (C.1): faixa amarela no topo. O texto é
+   `--ink` sobre `--warn-soft` (par medido em contraste.test.ts); o amarelo
+   que carrega o aviso é o traço da esquerda, `--warn`. */
+.ii-kpi-pendente {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: -12px -14px 0;
+  padding: 6px 14px;
+  background: var(--warn-soft);
+  border-left: 4px solid var(--warn);
+  border-radius: var(--r) var(--r) 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ii-kpi-pendente .link { color: var(--ink); text-decoration: underline; min-height: 40px; font-size: 13.5px; font-weight: 700; }
+.ii-kpi-pendente .link:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .ii-faisca-vazia { height: 44px; display: grid; align-items: center; color: var(--muted); font-size: 12px; }
 
 .ii-tom-ok { color: var(--ok); }

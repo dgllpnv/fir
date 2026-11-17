@@ -41,6 +41,7 @@ const exportar = (chave: string, corpo: Record<string, unknown>, quem = 'beatriz
 /** O limite por hora e o registro são da própria trilha: cada `it` começa do zero. */
 async function zerarRegistros(): Promise<void> {
   await apagarPacientesDaExportacaoDeTeste(c.migrate, c.clinica)
+  await c.migrate.query('DELETE FROM tentativas_de_relatorio WHERE clinica_id = $1', [c.clinica])
   await c.migrate.query('BEGIN')
   try {
     await c.migrate.query('ALTER TABLE auditoria DISABLE TRIGGER auditoria_sem_update')
@@ -484,7 +485,7 @@ describe('execução segura (appsec C12–C15; LGPD L-IN-8, L-IN-16)', () => {
   it('relatorio-61-execucao-429: 60 por pessoa por hora; a 61ª é 429', async () => {
     for (let i = 0; i < 59; i++) {
       await c.migrate.query(
-        `INSERT INTO auditoria (clinica_id, ator_tipo, ator_id, acao, entidade, entidade_id) VALUES ($1, 'pessoa', $2, 'acessou', 'relatorio', 'tarefas-da-equipe')`,
+        `INSERT INTO tentativas_de_relatorio (clinica_id, ator_id) VALUES ($1, $2)`,
         [c.clinica, c.pessoas['sonia']],
       )
     }
@@ -801,7 +802,10 @@ describe('favoritos (appsec C9, C19; LGPD L-IN-17)', () => {
     expect(salvo.statusCode).toBe(201)
     const lista = await pegar(c, '/v1/relatorios', {}, 'juliana')
     expect(lista.statusCode).toBe(200)
-    expect((lista.body.relatorios as { chave: string }[]).map((r) => r.chave)).toEqual(['pacientes-sem-compra'])
+    const abertos = (lista.body.relatorios as { chave: string }[]).map((r) => r.chave)
+    // O T9 acrescenta relatórios ao catálogo: a prova é o 8 (finmes) FORA e o 1 (pacientes) DENTRO.
+    expect(abertos).toContain('pacientes-sem-compra')
+    expect(abertos).not.toContain('recebimentos')
     expect(lista.body.favoritos).toEqual([])
     expect((await botar(c, `/v1/relatorios/favoritos/${salvo.body.id}`, { nome: 'Meu' }, 'juliana')).statusCode).toBe(404)
     expect((await postar(c, `/v1/relatorios/favoritos/${salvo.body.id}/arquivar`, {}, 'juliana')).statusCode).toBe(404)

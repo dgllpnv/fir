@@ -33,6 +33,7 @@ import { PortalGuard } from './carteira/portal/portal.guard'
 import { CarteiraPortalModule } from './carteira/portal/portal.module'
 import { CarteiraAnexosModule } from './carteira/anexos/anexos.module'
 import { CarteiraUsoModule } from './carteira/uso/uso-carteira.module'
+import { CarteiraIndicadoresDaClinicaModule } from './carteira/indicadores-da-clinica/indicadores-da-clinica.module'
 import { CarteiraPlanilhasModule } from './carteira/planilhas/planilhas-carteira.module'
 import { CarteiraConteudoModule } from './carteira/conteudo/conteudo.module'
 import { CarteiraMensagensModule } from './carteira/mensagens/mensagens.module'
@@ -66,6 +67,7 @@ import { TarefasModule } from './tarefas/tarefas.module'
     CarteiraPortalModule,
     CarteiraAnexosModule,
     CarteiraUsoModule,
+    CarteiraIndicadoresDaClinicaModule,
     CarteiraPlanilhasModule,
     CarteiraConteudoModule,
     CarteiraMensagensModule,

@@ -3297,3 +3297,34 @@ a.visao-linha:focus-visible { outline: 2px solid var(--gold-ink); outline-offset
 /* As ações descem para o rodapé do card: numa linha de cards, "Abrir" e "Editar" ficam no mesmo nível. */
 .bib-pagina .conteudo-material-acoes { margin-top: auto; gap: 6px 12px; padding-top: 4px; }
 .bib-pagina .conteudo-material-acoes .link { color: var(--gold-ink); }
+
+/* ---------------------------------------------------------------------------
+ * T10 — "Indicadores da clínica" na ficha do Cliente Firmare (kpis_na_carteira).
+ * Lista, não cards: o nome à esquerda e o selo da situação à direita; o valor
+ * em algarismos tabulares embaixo. Em 390 px o selo quebra para baixo do nome.
+ * ------------------------------------------------------------------------- */
+.carteira-kpis-nota { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.carteira-kpis-pilar { display: grid; gap: 6px; min-width: 0; }
+.carteira-kpis-pilar-titulo {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.carteira-kpis-lista { list-style: none; margin: 0; padding: 0; display: grid; min-width: 0; }
+.carteira-kpi { display: grid; gap: 2px; padding: 10px 0; border-top: 1px solid var(--line); min-width: 0; }
+.carteira-kpi:first-child { border-top: 0; padding-top: 2px; }
+.carteira-kpi-cabeca { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; }
+.carteira-kpi-nome { font-weight: 600; color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
+.carteira-kpi-selo { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.carteira-kpi-selo::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.carteira-kpi-tom-ok { color: var(--ok); }
+.carteira-kpi-tom-atencao { color: var(--warn-ink); }
+.carteira-kpi-tom-mau { color: var(--bad); }
+.carteira-kpi-tom-neutro { color: var(--muted); }
+.carteira-kpi-valor { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-variant-numeric: tabular-nums; }
+.carteira-kpi-valor b { font-family: var(--display); font-size: 20px; font-weight: 600; color: var(--ink); }
+.carteira-kpi-valor span { font-size: 13px; color: var(--muted); }
+.carteira-kpi-prazo { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }

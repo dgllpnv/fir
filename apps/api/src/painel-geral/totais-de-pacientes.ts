@@ -1,5 +1,6 @@
 import {
   Dinheiro,
+  janela,
   TIPOS_DE_CONTATO,
   TIPOS_DE_RECEITA,
   TIPOS_PAGAVEIS,
@@ -9,6 +10,7 @@ import {
 import type pg from 'pg'
 import type { ClinicaId } from '../banco/clinica-id'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
+import { type DiasQueContam, diasQueContamNasTelas, trechosContinuos } from '../financeiro/faturamento-conferido'
 
 export type TotaisDePacientes = {
   /** `ehReceita`: grupo Pagamentos, mais o atendimento pagável com dinheiro na própria tarefa. */
@@ -96,3 +98,79 @@ export const somarTotais = (partes: readonly TotaisDePacientes[]): TotaisAditivo
     }),
     { receita: Dinheiro.zero(), pagamentos: 0, valorDosOrcamentosPagos: Dinheiro.zero() },
   )
+
+/**
+ * **OS TOTAIS DO PAINEL SÓ NOS DIAS QUE CONTAM** (ADR
+ * chaves-em-reais-e-os-dias-de-caixa): `totaisDePacientes` medido em cada
+ * trecho contínuo dos dias de `diasQueContamNasTelas`, e somado. É a fonte dos
+ * KPIs `ticket_medio` e `valor_fechado_em_orcamentos` e do resumo do
+ * relatório 13 (números c.3) — uma composição só.
+ */
+export async function totaisDosDiasQueContam(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  periodo: { readonly de: string; readonly ate: string },
+  fuso: string,
+  hoje: string,
+): Promise<{ readonly totais: TotaisAditivos; readonly dias: DiasQueContam }> {
+  const dias = await diasQueContamNasTelas(c, clinicaId, periodo.de, periodo.ate, fuso, hoje)
+  const partes: TotaisDePacientes[] = []
+  for (const t of trechosContinuos(dias.corte.dias)) partes.push(await totaisDePacientes(c, clinicaId, janela(t.de, t.ate, fuso)))
+  return { totais: somarTotais(partes), dias }
+}
+
+/** Um "Pagamento de orçamento" concluído: a parcela de `orc_valor` que ele soma. */
+export type PagamentoDeOrcamento = {
+  readonly tarefaId: string
+  readonly pacienteId: string
+  readonly concluidaEm: string
+  readonly valor: Dinheiro
+}
+
+/**
+ * **O `orc_valor` TAREFA A TAREFA** — o MESMO `FROM`/`WHERE` de
+ * `totaisDePacientes` com o `FILTER (WHERE t.tipo = Pagamento de orçamento)`
+ * virado em `WHERE`, agrupado por tarefa. Σ das linhas = `valorDosOrcamentosPagos`
+ * da mesma janela, por construção (protótipo, `orc_valor`). Relatório 13.
+ */
+export async function pagamentosDeOrcamentoDaJanela(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  j: { de: Date; ate: Date },
+): Promise<PagamentoDeOrcamento[]> {
+  const r = await c.query<{ id: string; paciente_id: string; concluida_em: Date; valor: string }>(
+    `SELECT t.id::text AS id, t.paciente_id::text AS paciente_id, t.concluida_em,
+            coalesce(sum(r.valor), 0)::text AS valor
+       FROM tarefas t
+       LEFT JOIN recebimentos r
+              ON r.tarefa_id = t.id AND r.estornado_em IS NULL AND ${DINHEIRO_QUE_ENTROU}
+      WHERE t.clinica_id = $1
+        AND t.excluida_em IS NULL
+        AND t.status = 'concluida'
+        AND t.paciente_id IS NOT NULL
+        AND t.concluida_em >= $2 AND t.concluida_em < $3
+        AND t.tipo = $4
+      GROUP BY t.id, t.paciente_id, t.concluida_em`,
+    [clinicaId, j.de, j.ate, TIPO_PAGAMENTO_DE_ORCAMENTO],
+  )
+  return r.rows.map((l) => ({
+    tarefaId: l.id,
+    pacienteId: l.paciente_id,
+    concluidaEm: l.concluida_em.toISOString(),
+    valor: Dinheiro.deCentavos(BigInt(l.valor)),
+  }))
+}
+
+/** `pagamentosDeOrcamentoDaJanela` só nos dias que contam — os trechos de `totaisDosDiasQueContam`. */
+export async function pagamentosDeOrcamentoDosDiasQueContam(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  periodo: { readonly de: string; readonly ate: string },
+  fuso: string,
+  hoje: string,
+): Promise<PagamentoDeOrcamento[]> {
+  const dias = await diasQueContamNasTelas(c, clinicaId, periodo.de, periodo.ate, fuso, hoje)
+  const fora: PagamentoDeOrcamento[] = []
+  for (const t of trechosContinuos(dias.corte.dias)) fora.push(...(await pagamentosDeOrcamentoDaJanela(c, clinicaId, janela(t.de, t.ate, fuso))))
+  return fora
+}

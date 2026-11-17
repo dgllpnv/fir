@@ -1,0 +1,212 @@
+/*
+ * INDICADORES & INSIGHTS — a aba Relatórios e a folha de impressão (1.9 G; T8).
+ *
+ * Mesma família da tela principal (`indicadores.css`): papel e dourado,
+ * tipografia conduzindo, card só onde há agrupamento. Só tokens de
+ * `tokens.css`, e só pares de cor que `contraste.test.ts` já mede.
+ *
+ * 390 px é o caso principal: o catálogo vem em cima e se recolhe depois da
+ * escolha; a tabela vira blocos com o rótulo de cada célula. Nada rola de lado.
+ * Toda coluna de número, data ou quantidade é tabular.
+ */
+
+.rel-corpo { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (min-width: 960px) {
+  .rel-corpo { grid-template-columns: 270px minmax(0, 1fr); gap: 24px; }
+}
+
+/* ---------- catálogo ---------- */
+.rel-catalogo { display: grid; gap: 10px; min-width: 0; }
+.rel-catalogo-corpo { display: grid; gap: 12px; }
+.rel-trocar { display: none; justify-self: start; min-height: 44px; }
+@media (max-width: 959px) {
+  .rel-corpo[data-escolhido='true'] .rel-trocar { display: inline-flex; }
+  .rel-corpo[data-escolhido='true'] .rel-catalogo[data-aberto='false'] .rel-catalogo-corpo { display: none; }
+}
+@media (min-width: 960px) {
+  .rel-catalogo { position: sticky; top: 12px; }
+}
+.rel-catalogo input[type='search'] { width: 100%; }
+.rel-grupo { display: grid; gap: 2px; }
+.rel-grupo h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; color: var(--gold-ink); margin: 0 0 4px; }
+.rel-grupo ul { list-style: none; margin: 0; padding: 0; display: grid; }
+.rel-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
+  padding: 9px 8px;
+  min-height: 44px;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.rel-item b { font-weight: 600; font-size: 14.5px; }
+.rel-item span { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.rel-item:hover b { color: var(--gold-ink); }
+.rel-item[aria-current='true'] { border-left-color: var(--gold); background: var(--surface); }
+.rel-item:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: -2px; }
+.rel-item:disabled { cursor: default; }
+.rel-item:disabled b { color: var(--muted); }
+.rel-favorito { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-bottom: 1px solid var(--line); }
+.rel-favorito .rel-item { border-bottom: 0; }
+.rel-remover { color: var(--muted); }
+.rel-remover:hover { color: var(--bad); }
+
+/* ---------- área do relatório ---------- */
+.rel-area { display: grid; gap: 14px; min-width: 0; }
+.rel-escolha { padding: 18px 0; }
+.rel-cabeca { display: grid; gap: 4px; }
+.rel-cabeca h3 { font-family: var(--display); font-size: 21px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.rel-antes { padding: 8px 0; }
+
+.rel-filtros { display: grid; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 14px; }
+.rel-filtros-linha { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.rel-filtros-linha .campo { flex: 1 1 170px; max-width: 280px; min-width: 0; }
+.rel-filtros-linha .campo.rel-dia { flex: 1 1 150px; max-width: 190px; }
+.rel-filtros-linha .campo.rel-curto { flex: 0 1 110px; }
+.rel-filtros .campo input, .rel-filtros .campo select { font-variant-numeric: tabular-nums; width: 100%; }
+.rel-gerar { min-height: 44px; min-width: 110px; }
+.rel-mais { justify-self: start; min-height: 40px; }
+.rel-filtros-mais { border-left: 2px solid var(--gold); padding-left: 12px; }
+@media (max-width: 559px) {
+  .rel-filtros-linha .campo, .rel-filtros-linha .campo.rel-dia { flex: 1 1 100%; max-width: none; }
+  .rel-filtros-linha .campo.rel-dia { flex: 1 1 calc(50% - 5px); }
+  .rel-gerar { flex: 1 1 100%; }
+}
+
+/* ---------- resumo e ações ---------- */
+.rel-resultado { display: grid; gap: 12px; min-width: 0; }
+.rel-resultado[aria-busy='true'] { opacity: 0.6; }
+.rel-barra { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px 16px; }
+.rel-resumo { display: grid; gap: 6px; min-width: 0; flex: 1 1 260px; }
+.rel-resumo-linha { margin: 0; font-family: var(--display); font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums lining-nums; overflow-wrap: anywhere; }
+.rel-aviso { margin: 0; font-size: 13px; color: var(--warn-ink); font-variant-numeric: tabular-nums; }
+.rel-resumo .dica { margin: 0; }
+.rel-totais { display: flex; flex-wrap: wrap; gap: 6px 28px; margin: 0; font-size: 13px; }
+.rel-totais > div { display: grid; gap: 2px; min-width: 160px; }
+.rel-totais dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; color: var(--gold-ink); }
+.rel-totais dd { margin: 0; display: flex; justify-content: space-between; gap: 12px; }
+.rel-totais dd span { color: var(--muted); }
+.rel-totais dd b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.rel-acoes { display: flex; flex-wrap: wrap; gap: 8px; position: relative; }
+.rel-acoes .btn { min-height: 44px; padding: 10px 14px; font-size: 14px; }
+.rel-acoes .btn:disabled { opacity: 0.55; cursor: default; }
+
+/* ---------- tabela ---------- */
+.rel-tabela-area { display: grid; gap: 10px; min-width: 0; }
+.rel-tabela { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.rel-tabela th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding: 0;
+  vertical-align: bottom;
+}
+.rel-tabela th button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 8px;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.rel-tabela th.rel-num button { justify-content: flex-end; }
+.rel-tabela th button:hover { color: var(--ink); }
+.rel-tabela th button:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: -2px; }
+.rel-tabela th[aria-sort='ascending'], .rel-tabela th[aria-sort='descending'] { color: var(--ink); }
+.rel-seta { font-size: 9px; color: var(--gold-ink); min-width: 9px; }
+.rel-tabela td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+.rel-tabela tbody tr:hover td { background: var(--surface); }
+.rel-num { font-variant-numeric: tabular-nums lining-nums; }
+.rel-tabela th.rel-num, .rel-tabela td.rel-num { text-align: right; white-space: nowrap; }
+.rel-tabela td a { color: var(--ink); font-weight: 600; text-decoration-color: var(--gold); text-underline-offset: 3px; }
+.rel-tabela td a:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.rel-ordem-celular { display: none; }
+
+@media (max-width: 719px) {
+  .rel-ordem-celular { display: grid; }
+  .rel-tabela, .rel-tabela tbody, .rel-tabela tr, .rel-tabela td { display: block; width: 100%; }
+  .rel-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .rel-tabela tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
+  .rel-tabela td {
+    display: grid;
+    grid-template-columns: minmax(96px, 38%) minmax(0, 1fr);
+    gap: 10px;
+    border: 0;
+    padding: 3px 0;
+  }
+  .rel-tabela td::before { content: attr(data-rotulo); color: var(--muted); font-size: 12px; }
+  .rel-tabela td.rel-num { text-align: left; white-space: normal; }
+  .rel-tabela tbody tr:hover td { background: none; }
+}
+
+.rel-paginas { display: flex; align-items: center; justify-content: center; gap: 14px; font-size: 13.5px; }
+.rel-paginas .btn { min-height: 44px; }
+.rel-paginas .btn:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------- confirmação ---------- */
+.rel-confirmar { display: grid; gap: 14px; }
+.rel-confirmar-botoes { display: flex; justify-content: flex-end; align-items: center; gap: 18px; }
+.rel-aviso-forte { margin: 0; padding: 10px 12px; background: var(--gold-soft); color: var(--ink); border-radius: var(--r); font-size: 13.5px; line-height: 1.5; }
+
+/* ---------- a folha de impressão ---------- */
+.rel-impressao { display: grid; gap: 16px; max-width: 1100px; }
+.rel-impressao-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.rel-impressao-acoes .btn { min-height: 44px; }
+.rel-impressao-cabeca { display: grid; gap: 6px; border-bottom: 2px solid var(--gold); padding-bottom: 12px; }
+.rel-impressao-marca { font-family: var(--display); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold-ink); font-weight: 600; }
+.rel-impressao-cabeca h1 { font-family: var(--display); font-size: 26px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.rel-impressao-clinica { margin: 0; font-weight: 600; }
+.rel-impressao-cabeca dl { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 4px 0 0; font-size: 13px; }
+.rel-impressao-cabeca dl > div { display: flex; gap: 6px; min-width: 0; }
+.rel-impressao-cabeca dt { color: var(--muted); }
+.rel-impressao-cabeca dd { margin: 0; overflow-wrap: anywhere; }
+.rel-impressao-aviso { margin: 6px 0 0; padding: 8px 10px; border-left: 3px solid var(--gold); background: var(--gold-soft); color: var(--ink); font-size: 12.5px; line-height: 1.5; }
+.rel-impressao-rodape { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
+
+@media print {
+  .rel-impressao-acoes, .rel-impressao .dica-botao { display: none !important; }
+  .rel-impressao { max-width: none; gap: 10px; }
+  .rel-impressao-cabeca h1 { font-size: 18pt; }
+  /* No papel a tabela é tabela, qualquer que seja a largura da janela. */
+  .rel-impressao .rel-tabela { display: table; font-size: 9pt; }
+  .rel-impressao .rel-tabela thead { display: table-header-group; position: static; width: auto; height: auto; clip-path: none; }
+  .rel-impressao .rel-tabela tbody { display: table-row-group; }
+  .rel-impressao .rel-tabela tr { display: table-row; padding: 0; break-inside: avoid; }
+  /* No papel a palavra quebra inteira: "Consulta", nunca "Cons-ulta". */
+  .rel-impressao .rel-tabela td { display: table-cell; padding: 3pt 4pt; border-bottom: 0.5pt solid var(--line); overflow-wrap: break-word; }
+  .rel-impressao .rel-tabela td::before { content: none; }
+  .rel-impressao .rel-tabela th { position: static; padding: 3pt 4pt; }
+  .rel-impressao .rel-tabela td.rel-num { text-align: right; }
+}
+
+/* ---- T9: "Criar campanha com esta lista" */
+.veu-de-modal > .modal.rel-modal-largo { max-width: 560px; }
+.rel-campanha { display: grid; gap: 12px; min-width: 0; }
+.rel-campanha .campo select,
+.rel-campanha .campo input,
+.rel-campanha .campo textarea { min-height: 44px; width: 100%; min-width: 0; }
+.rel-modal-largo .formulario-de-campanha { border: 0; padding: 0; margin: 0; background: none; }
+/* O título do modal já diz "Nova campanha": o do formulário reusado repetiria. */
+.rel-modal-largo .formulario-de-campanha > h3 { display: none; }

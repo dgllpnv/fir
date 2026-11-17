@@ -1,4 +1,10 @@
-import type { FavoritoNaLista, ListaDeRelatorios, ResultadoDaExportacao, ResultadoDoRelatorio } from '@fir/contracts'
+import type {
+  CampanhaDaListaCriada,
+  FavoritoNaLista,
+  ListaDeRelatorios,
+  ResultadoDaExportacao,
+  ResultadoDoRelatorio,
+} from '@fir/contracts'
 import {
   type ArgumentsHost,
   Body,
@@ -6,6 +12,7 @@ import {
   Controller,
   type ExceptionFilter,
   Get,
+  Headers,
   HttpCode,
   HttpException,
   Inject,
@@ -22,6 +29,7 @@ import { Exige } from '../autorizacao/autorizacao.guard'
 import { SessaoDeSuporteNaoAssina } from '../banco/ator'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { FiltroDeSessaoDeSuporte } from '../comum/sessao-de-suporte.filtro'
+import { CampanhaDaListaService } from './campanha.service'
 import { FavoritosService, type ContextoDoFavorito } from './favoritos.service'
 import { MotorDeRelatorios } from './motor'
 
@@ -91,6 +99,7 @@ export class RelatoriosController {
   constructor(
     @Inject(MotorDeRelatorios) private readonly motor: MotorDeRelatorios,
     @Inject(FavoritosService) private readonly favoritos: FavoritosService,
+    @Inject(CampanhaDaListaService) private readonly campanha: CampanhaDaListaService,
   ) {}
 
   @Get()
@@ -142,5 +151,18 @@ export class RelatoriosController {
     @Body() corpo: unknown,
   ): Promise<ResultadoDaExportacao> {
     return this.motor.exportar(ctxDe(req), chave, corpo)
+  }
+
+  /** T9: o servidor re-executa o relatório; `campanhas.gerir` é conferido no serviço. */
+  @Post(':chave/campanha')
+  @HttpCode(200)
+  @Exige('indicadores')
+  async criarCampanha(
+    @Req() req: RequisicaoComContexto,
+    @Param('chave') chave: string,
+    @Headers('idempotency-key') idempotencia: string | undefined,
+    @Body() corpo: unknown,
+  ): Promise<CampanhaDaListaCriada> {
+    return this.campanha.criar(ctxDe(req), chave, idempotencia, corpo)
   }
 }

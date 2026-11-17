@@ -136,6 +136,18 @@ const SELECT_PROGRAMA = `
  */
 export const PESSOA_NINGUEM = '00000000-0000-0000-0000-000000000000'
 
+/**
+ * As sessões que CONTAM e as FEITAS — "realizadas de total" da lista de
+ * programas e o "feitas e restantes" do relatório 5: cancelada não conta, e
+ * feita é a concluída. Uma definição só para as duas telas.
+ */
+export function sessoesDoPrograma<T extends { readonly status: string }>(
+  sessoes: readonly T[],
+): { readonly validas: readonly T[]; readonly feitas: readonly T[] } {
+  const validas = sessoes.filter((x) => x.status !== 'cancelada')
+  return { validas, feitas: validas.filter((x) => x.status === 'concluida') }
+}
+
 @Injectable()
 export class LeituraDeProgramasService {
   // `@Inject` explícito: o esbuild não emite `design:paramtypes`.
@@ -529,8 +541,7 @@ export class LeituraDeProgramasService {
     for (const p of programas) {
       const sessoes = sessoesPorPrograma.get(p.id) ?? []
       const situacao = this.situacao(p, sessoes, hoje)
-      const validas = sessoes.filter((x) => x.status !== 'cancelada')
-      const feitas = validas.filter((x) => x.status === 'concluida')
+      const { validas, feitas } = sessoesDoPrograma(sessoes)
       const abertas = validas
         .filter((x) => x.status === 'aberta')
         .sort((a, b) => a.prazo.localeCompare(b.prazo))

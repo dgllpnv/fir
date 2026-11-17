@@ -186,13 +186,20 @@ export async function saldoDe(
 export async function pacientesQuePodemTerSaldo(
   c: pg.PoolClient,
   clinicaId: string,
+  opcoes: { readonly ate?: Date } = {},
 ): Promise<readonly string[]> {
+  // Com `ate`, o MESMO recorte de instante de `GRUPOS` (c.9): a dívida estornada
+  // DEPOIS do corte ainda existia nele. Sem isto, a paciente nem chegava a
+  // `saldosDe(…, { ate })` — e a posição passada mudava depois de um estorno.
   const r = await c.query<{ id: string }>(
     `SELECT p.id FROM pacientes p
       WHERE p.clinica_id = $1 AND p.ativo
         AND EXISTS (SELECT 1 FROM recebimentos r
-                     WHERE r.paciente_id = p.id AND r.estornado_em IS NULL AND r.valor_aberto > 0)`,
-    [clinicaId],
+                     WHERE r.paciente_id = p.id AND r.valor_aberto > 0
+                       AND ($2::timestamptz IS NULL AND r.estornado_em IS NULL
+                            OR $2::timestamptz IS NOT NULL AND r.recebido_em < $2::timestamptz
+                               AND (r.estornado_em IS NULL OR r.estornado_em >= $2::timestamptz)))`,
+    [clinicaId, opcoes.ate ?? null],
   )
   return r.rows.map((x) => x.id)
 }

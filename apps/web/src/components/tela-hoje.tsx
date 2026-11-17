@@ -14,6 +14,9 @@ import { CartaoDeTarefa } from './cartao-de-tarefa'
 import { Carregando, Erro, Toast } from './estados'
 import { PainelDeEdicao } from './painel-de-edicao'
 import { Semana } from './semana'
+import { IndicadoresDaSemanaEmHoje } from './indicadores/indicadores-da-semana'
+import { JanelaDeLancamento } from './indicadores/janela-de-lancamento'
+import { type AlvoDoLancamento, alvoDaTarefa } from './indicadores/na-tela'
 
 /**
  * A tela que a clínica deixa aberta o dia inteiro.
@@ -34,6 +37,7 @@ export function TelaHoje({
   podeReceber,
   podeValores,
   podePacientes,
+  podeIndicadores = false,
   inicial,
 }: {
   eu: string
@@ -43,11 +47,16 @@ export function TelaHoje({
   podeValores: boolean
   /** `temPerm(…, 'pacientes')`: sem ela, o nome no cartão não leva à ficha (S-1). */
   podePacientes: boolean
+  /** `temPerm(…, 'indicadores')`: o bloco "Indicadores da semana" (1.9 H). A rota recusa do mesmo jeito. */
+  podeIndicadores?: boolean
   /** O que o servidor já trouxe para o caminho padrão. Ver `DadoInicial`. */
   inicial?: DadoInicial<HojeComProgramas>
 }) {
   const [dia, setDia] = useState<string | null>(null)
   const [escopo, setEscopo] = useState<Escopo>('meu')
+  // A janela D.4 da tarefa "Lançar [KPI]" (1.9 H). Os dados vêm da própria
+  // tarefa: a responsável pode não ter `indicadores` (appsec C2).
+  const [lancando, setLancando] = useState<AlvoDoLancamento | null>(null)
 
   const caminho = `v1/hoje${consultaEmTexto({ dia: dia ?? undefined, escopo })}`
   const { dados, carregando, erro, recarregar } = useDados<HojeComProgramas>(caminho, inicial)
@@ -70,7 +79,13 @@ export function TelaHoje({
       podeEquipe={podeEquipe}
       podePacientes={podePacientes}
       podeReceber={podeReceber}
-      acoes={{ ...acoes, mover }}
+      acoes={{
+        ...acoes,
+        mover,
+        lancarKpi: (x) => {
+          if (x.lancamentoDeKpi !== null) setLancando(alvoDaTarefa(x.lancamentoDeKpi))
+        },
+      }}
       semPrazo={semPrazo}
     />
   )
@@ -206,6 +221,9 @@ export function TelaHoje({
               dados.tarefas.map((t) => cartao(t, true))
             )}
           </div>
+
+          {/* "Indicadores da semana" (1.9 H): logo abaixo do bloco do dia, só no dia de hoje. */}
+          {podeIndicadores && dados.dia === dados.hoje ? <IndicadoresDaSemanaEmHoje /> : null}
 
           {/*
             RECONTATAR — e é aqui que a ferramenta deixa de ser uma lista de
@@ -382,6 +400,18 @@ export function TelaHoje({
           aoFechar={fecharEdicao}
           aoSalvar={aoSalvarEdicao}
           transferir={acoes.transferir}
+        />
+      )}
+
+      {lancando === null ? null : (
+        <JanelaDeLancamento
+          alvo={lancando}
+          aoFechar={() => setLancando(null)}
+          aoSalvo={(r) => {
+            setLancando(null)
+            setRecado(r)
+            recarregar()
+          }}
         />
       )}
 

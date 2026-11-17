@@ -344,6 +344,7 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   { caminho: '/v1/carteira/uso', razao:'Uso diário da FIR Clinic na carteira (G8 1D): lê só dias ANTERIORES a hoje no fuso de cada clínica; a receita é o dinheiro que entrou (painel), nunca o esperado do caixa por forma, e sai redigida.' },
   // G8 0.4 — o cadastro do Cliente Firmare.
   { caminho: '/v1/carteira/clientes/:id', razao: 'O cadastro de UM Cliente Firmare (G8 0.4): campos comerciais e de contato; mensalidade e pagamento redigidos sem valores. Nenhum agregado de caixa.' },
+  { caminho: '/v1/carteira/clientes/:id/indicadores-da-clinica', razao: 'Os KPIs da clínica na carteira (T10, ADR que emenda a 0013): a fotografia gravada pelo job, que lê os KPIs pela mesma CalculadoraDeKpi da tela; o faturamento conferido só conta dia de caixa fechado, então o esperado do caixa aberto nunca está ali. Reais redigidos sem `valores` da carteira.' },
   { caminho: '/v1/carteira/cadastro/opcoes', razao: 'As opções dos selects do cadastro (G8 0.4): responsáveis ativos e grupos. Nenhum valor, nenhum caixa.' },
   { caminho: '/v1/superadmin/clientes-carteira', razao: 'Os Cliente Firmare por grupo, para o Operador (G8 0.4): tenancy e status; mensalidade redigida. Nenhum agregado de caixa.' },
   { caminho: '/v1/carteira/clientes/:id/uso', razao: 'Série de uso de um cliente (G8 1D): dias anteriores a hoje, mesmo agregado do painel, redigido. Não é agregado de caixa aberto.' },
@@ -693,6 +694,20 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     caminho: '/v1/indicadores/okrs/:id',
     razao:
       'OKRs (T4): a meta de cada KR sai pela MESMA conta da meta de KPI (`IndicadoresService.metaNaSaida`), que só mede os dias que CONTAM (I-9). Nenhum recorte por forma, nenhum total de hoje.',
+  },
+  ...(['/v1/indicadores/da-semana', '/v1/indicadores/contador', '/v1/indicadores/reuniao'] as const).map((caminho) => ({
+    caminho,
+    razao:
+      'Hoje, contador e Modo reunião (T7): montados SÓ de `IndicadoresService.listar` e `OkrsService.listar`, que medem os dias que CONTAM (I-9). Nenhum recorte por forma, nenhum total de hoje; o contador é só contagem.',
+  })),
+  {
+    caminho: '/v1/indicadores/kpis/:id/composicao',
+    razao:
+      'Composição do KPI (T6): o recorte por FORMA existe, mas só nos dias que CONTAM pela `medirFaturamentoConferido` (I-9) — hoje com o caixa aberto nunca conta, e o dia aguardando sai só como contagem. Provado em `detalhe.e2e.test.ts` (`composicao-sem-hoje`).',
+  },
+  {
+    caminho: '/v1/indicadores/kpis/:id/lancamentos',
+    razao: 'Lançamentos de KPI manual (T6): valores digitados pela equipe, por referência. Nenhum recebimento, nenhum caixa.',
   },
   {
     caminho: '/v1/metas/:mes/percentual',

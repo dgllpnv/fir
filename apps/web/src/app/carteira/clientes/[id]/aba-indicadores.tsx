@@ -1,11 +1,14 @@
 'use client'
 
 import type { IndicadoresDoClienteSaida, PlanilhaDoClienteNaSaida } from '@fir/contracts'
+import { temPermCarteira } from '@fir/domain'
 import { useEffect, useState } from 'react'
+import { IndicadoresDaClinica } from '@/components/carteira/indicadores-da-clinica'
 import { IndicadoresDoCliente } from '@/components/carteira/indicadores-do-cliente'
 import { PlanilhaDoCliente, PlanilhaSemLeitura } from '@/components/carteira/planilha-do-cliente'
 import { Carregando, Toast } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
+import { useCarteira } from '../../contexto'
 import { ErroDaCarteira } from '../../pecas'
 
 /**
@@ -18,6 +21,12 @@ import { ErroDaCarteira } from '../../pecas'
  * As duas leituras vão juntas. A dos indicadores manuais é a que decide o
  * erro da aba; a da planilha, se falhar, só tira o bloco dela e diz isso —
  * a aba não fica refém de uma integração externa.
+ *
+ * Em cima, o bloco "Indicadores da clínica" (T10): os KPIs que a clínica
+ * acompanha na FIR Clinic, com leitura e estados próprios. A rota é da tela
+ * `firclinic`: quem tem `metas` e não tem `firclinic` não vê o bloco (sem ele,
+ * o guard responderia "Seu acesso não inclui esta tela"). O servidor continua
+ * sendo quem decide; aqui é só não pedir o que seria recusado.
  */
 type Estado =
   | { tag: 'carregando' }
@@ -28,6 +37,8 @@ const mensagemDe = (e: unknown): string =>
   e instanceof ErroDaApi ? e.message : 'Não consegui falar com o servidor. Confira a conexão.'
 
 export default function AbaDeIndicadores({ clienteId }: { clienteId: string }) {
+  const { sessao } = useCarteira()
+  const veFirClinic = sessao.tag === 'pronta' && temPermCarteira(sessao.usuarioDeGestao, 'firclinic')
   const [estado, setEstado] = useState<Estado>({ tag: 'carregando' })
   const [tentativa, setTentativa] = useState(0)
   const [recado, setRecado] = useState<string | null>(null)
@@ -64,6 +75,7 @@ export default function AbaDeIndicadores({ clienteId }: { clienteId: string }) {
 
   return (
     <div className="ficha-pilha">
+      {veFirClinic ? <IndicadoresDaClinica clienteId={clienteId} /> : null}
       {lida ? (
         <PlanilhaDoCliente clienteId={clienteId} inicial={planilha} aoMudar={aoMudar} />
       ) : (

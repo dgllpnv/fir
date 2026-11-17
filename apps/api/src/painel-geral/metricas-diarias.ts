@@ -91,12 +91,11 @@ export type SituacaoDoPrazo = keyof typeof SITUACAO_DO_PRAZO
 export type TarefaDoCumprimento = {
   readonly tarefaId: string
   /**
-   * O que a tarefa É, sem paciente (I-38: o 15 "nunca" traz paciente). Na
-   * tarefa de paciente a descrição é texto livre e pode levar o nome dela ou o
-   * procedimento ("Aplicação 3/4 · Tirzepatida") — sai o TIPO. Na tarefa
-   * interna sai a descrição.
+   * O TIPO da tarefa, e nunca a descrição: ela é texto livre do balcão, com ou
+   * sem paciente, e pode levar nome, telefone e medicamento (revisão appsec do
+   * T8, B2). Quem rotula é o relatório; o Painel não lê esta função.
    */
-  readonly tarefa: string
+  readonly tipo: string
   readonly responsavelId: string | null
   readonly responsavel: string | null
   readonly prazo: string
@@ -121,16 +120,14 @@ export async function tarefasDoCumprimento(
 ): Promise<TarefaDoCumprimento[]> {
   const r = await c.query<{
     id: string
-    descricao: string
     tipo: string | null
-    de_paciente: boolean
     responsavel_id: string | null
     responsavel: string | null
     prazo: string
     concluida_em: string | null
     situacao: SituacaoDoPrazo | null
   }>(
-    `SELECT t.id, t.descricao, t.tipo, (t.paciente_id IS NOT NULL) AS de_paciente,
+    `SELECT t.id, t.tipo,
             t.responsavel_id, p.nome AS responsavel, t.prazo::text AS prazo,
             CASE WHEN t.status = 'concluida' THEN ((t.concluida_em AT TIME ZONE $5)::date)::text END AS concluida_em,
             CASE WHEN ${SITUACAO_DO_PRAZO.ok} THEN 'ok'
@@ -150,7 +147,7 @@ export async function tarefasDoCumprimento(
     .filter((l): l is typeof l & { situacao: SituacaoDoPrazo } => l.situacao !== null)
     .map((l) => ({
       tarefaId: l.id,
-      tarefa: l.de_paciente ? (l.tipo ?? 'Tarefa de paciente') : l.descricao,
+      tipo: l.tipo ?? '',
       responsavelId: l.responsavel_id,
       responsavel: l.responsavel,
       prazo: l.prazo,

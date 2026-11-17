@@ -5,7 +5,10 @@ import { Dica } from '@/components/dica'
 import { Faisca } from '@/components/graficos/faisca'
 import { larguraDaBarra } from '@/lib/financeiro'
 import {
+  avisoDeUnidade,
   dicaDoKpi,
+  faixaDeLancamento,
+  fonteDoKpi,
   numeroDoCartao,
   ROTULO_DA_SITUACAO,
   rotuloDaComparacao,
@@ -27,6 +30,11 @@ import {
  * percentual da meta que ele deixou ("78% da meta"), a frase "de R$…" some
  * porque o alvo não veio, e nada disso é um `if` de permissão aqui — é o que
  * os `null` da resposta desenham.
+ *
+ * **KPI manual com lançamento atrasado** (C.1): faixa amarela no topo,
+ * "Lançamento da semana pendente", com "Lançar agora" só para a responsável e
+ * para quem gerencia (`aoLancarAgora` nulo para os outros). Quem diz que está
+ * pendente é o servidor (`lancamentoPendente`).
  */
 export function CartaoDoKpi({
   kpi,
@@ -34,6 +42,8 @@ export function CartaoDoKpi({
   atual,
   serie,
   acoes,
+  fuso,
+  aoLancarAgora = null,
 }: {
   kpi: KpiNaLista
   /** A meta mostrada: a vigente do KPI, ou a do resultado-chave dentro do OKR. */
@@ -42,7 +52,12 @@ export function CartaoDoKpi({
   atual: KpiNaLista['atual']
   serie: SerieDoKpi | null
   acoes: readonly { rotulo: string; aoTocar: () => void }[]
+  /** O fuso da clínica, para o dia do selo "lançado por … em dd/mm" (regra 22). */
+  fuso: string
+  /** "Lançar agora" na faixa de pendente; `null` para quem não lança este KPI. */
+  aoLancarAgora?: (() => void) | null
 }) {
+  const pendente = faixaDeLancamento(kpi)
   const situacao = situacaoDoCartao(meta)
   const numero = numeroDoCartao(atual)
   const deMeta = textoDaMeta(meta)
@@ -55,7 +70,17 @@ export function CartaoDoKpi({
   )
 
   return (
-    <article className="ii-kpi" aria-label={kpi.nome}>
+    <article className="ii-kpi" aria-label={kpi.nome} data-pendente={pendente === null ? undefined : 'sim'}>
+      {pendente === null ? null : (
+        <div className="ii-kpi-pendente ii-acima">
+          <span>{pendente}</span>
+          {aoLancarAgora === null ? null : (
+            <button type="button" className="link" onClick={aoLancarAgora}>
+              Lançar agora
+            </button>
+          )}
+        </div>
+      )}
       <div className="ii-kpi-cabeca">
         {dica === null ? (
           nome
@@ -71,6 +96,7 @@ export function CartaoDoKpi({
         <strong className={numero.soPercentual ? 'ii-so-percentual' : undefined}>{numero.texto}</strong>
         {deMeta === null ? null : <span>{deMeta}</span>}
       </div>
+      {avisoDeUnidade(kpi) === null ? null : <span className="ii-fonte">{avisoDeUnidade(kpi)}</span>}
 
       {meta === null ? null : (
         <div
@@ -97,7 +123,7 @@ export function CartaoDoKpi({
               : 'sem comparação'
             : `${variacao.texto} ${rotuloDaComparacao(kpi)}`}
         </span>
-        <span className="ii-fonte">{kpi.origem === 'catalogo' ? 'automático' : 'lançado pela equipe'}</span>
+        <span className="ii-fonte">{fonteDoKpi(kpi, fuso)}</span>
       </div>
 
       {acoes.length === 0 ? null : (

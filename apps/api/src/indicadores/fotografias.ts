@@ -32,7 +32,7 @@ export async function posicaoNoDia(
   const instante = inicioDoDia(somarDias(dia, 1), fuso)
   switch (chave) {
     case 'saldo_a_receber': {
-      const saldos = await saldosDe(c, clinicaId, await pacientesQuePodemTerSaldo(c, clinicaId), { ate: instante })
+      const saldos = await saldosDe(c, clinicaId, await pacientesQuePodemTerSaldo(c, clinicaId, { ate: instante }), { ate: instante })
       let total = 0n
       for (const s of saldos.values()) total += s.saldo.centavos
       return { centavos: total, numero: null }

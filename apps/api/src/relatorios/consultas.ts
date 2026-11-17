@@ -15,10 +15,12 @@ import {
   Dinheiro,
   ehSaidaDeEstoque,
   janela,
+  MOTIVO_SOBRA_DE_FRASCO,
   NumeroDoKpi,
   Quantidade,
   saidasDoPeriodoDaAnalise,
   somarMeses,
+  TIPOS,
   valorNaTela,
   type MovimentoDeEstoque,
 } from '@fir/domain'
@@ -73,19 +75,21 @@ export type SaidaDaConsulta<L, R> = {
   readonly optIn: readonly ('telefone' | 'paciente')[]
 }
 
-type Linha<S extends z.ZodTypeAny> = z.input<S>
+// Exportados para as consultas do T9 (`./consultas/*.ts`): o mesmo corte, o
+// mesmo texto de período e a mesma busca de nome por id, uma vez só.
+export type Linha<S extends z.ZodTypeAny> = z.input<S>
 
-const cortar = <T>(xs: readonly T[], limite: number): { linhas: readonly T[]; truncado: boolean } =>
+export const cortar = <T>(xs: readonly T[], limite: number): { linhas: readonly T[]; truncado: boolean } =>
   xs.length > limite ? { linhas: xs.slice(0, limite), truncado: true } : { linhas: xs, truncado: false }
 
 /** `aaaa-mm-dd` → `dd/mm/aaaa`. Texto de cabeçalho, nunca dinheiro. */
-const emDataBr = (dia: string): string => `${dia.slice(8, 10)}/${dia.slice(5, 7)}/${dia.slice(0, 4)}`
+export const emDataBr = (dia: string): string => `${dia.slice(8, 10)}/${dia.slice(5, 7)}/${dia.slice(0, 4)}`
 
-const periodoEmTexto = (de: string, ate: string): string => `Período: ${emDataBr(de)} a ${emDataBr(ate)}`
+export const periodoEmTexto = (de: string, ate: string): string => `Período: ${emDataBr(de)} a ${emDataBr(ate)}`
 
-const reais = (d: Dinheiro) => valorNaTela('reais', NumeroDoKpi.deDinheiro(d))
+export const reais = (d: Dinheiro) => valorNaTela('reais', NumeroDoKpi.deDinheiro(d))
 
-async function nomeOu422(c: pg.PoolClient, sql: string, params: unknown[], oQue: string): Promise<string> {
+export async function nomeOu422(c: pg.PoolClient, sql: string, params: unknown[], oQue: string): Promise<string> {
   const r = await c.query<{ nome: string }>(sql, params)
   const nome = r.rows[0]?.nome
   if (nome === undefined) throw new UnprocessableEntityException(`${oQue} não encontrado nesta clínica.`)
@@ -221,6 +225,9 @@ const ROTULO_DA_SAIDA: Readonly<Record<string, string>> = {
   interno: 'Uso interno',
 }
 
+/** Os motivos que o SISTEMA grava (baixa automática): não são texto de ninguém. */
+const MOTIVOS_DO_SISTEMA: ReadonlySet<string> = new Set([MOTIVO_SOBRA_DE_FRASCO])
+
 type DetalheDoMovimento = {
   id: string
   motivo: string
@@ -283,8 +290,8 @@ export async function saidasDeEstoque(
               m.paciente_id,
               CASE WHEN pa.ativo THEN pa.nome END AS paciente
          FROM movimentos_de_estoque m
-         LEFT JOIN pessoas pe ON pe.id = coalesce(m.criado_por, m.aplicado_por_id)
-         LEFT JOIN pacientes pa ON pa.id = m.paciente_id
+         LEFT JOIN pessoas pe ON pe.id = coalesce(m.criado_por, m.aplicado_por_id) AND pe.clinica_id = m.clinica_id
+         LEFT JOIN pacientes pa ON pa.id = m.paciente_id AND pa.clinica_id = m.clinica_id
         WHERE m.clinica_id = $1 AND m.id = ANY($2::uuid[])`,
       [ctx.clinicaId, linhas.map((l) => l.mov.id)],
     )
@@ -295,11 +302,16 @@ export async function saidasDeEstoque(
   const saida = linhas.map(({ item, mov }, i) => {
     const d = detalhes.get(mov.id)
     const rotulo = ROTULO_DA_SAIDA[mov.tipo] ?? mov.tipo
+    // O motivo é TEXTO LIVRE ("Frasco da Ana caiu"): sai só no recorte de
+    // classe `saude` (com a coluna de paciente, que exige `jornada`, e com aviso
+    // e finalidade na exportação). Fora dele, só o rótulo e o motivo que o
+    // próprio sistema escreve (revisão appsec do T8, M1).
+    const livre = d === undefined ? '' : d.motivo.trim()
     const motivo =
       d?.compensa === true
         ? `Compensação de ${rotulo.toLowerCase()} (sessão reaberta)`
-        : d !== undefined && d.motivo.trim() !== ''
-          ? `${rotulo} · ${d.motivo.trim()}`
+        : livre !== '' && (comPaciente || MOTIVOS_DO_SISTEMA.has(livre))
+          ? `${rotulo} · ${livre}`
           : rotulo
     const pacienteId = d?.paciente === null || d === undefined ? null : d.paciente_id
     if (comPaciente && pacienteId !== null) pacienteIds.add(pacienteId)
@@ -329,6 +341,17 @@ export async function saidasDeEstoque(
 }
 
 /* ------------------------------------------------------------ relatório 15 */
+
+const NOMES_DE_TIPO: ReadonlySet<string> = new Set(TIPOS.map((t) => t.nome))
+
+/**
+ * O que a tarefa É, por um nome do CATÁLOGO de tipos, nunca pela descrição
+ * (revisão appsec do T8, B2). A descrição é texto livre do balcão ("Ligar para
+ * Maria (71) 9…") em qualquer tarefa, com ou sem paciente — e o 15 é de classe
+ * `nenhuma`, sem aviso, exportável pelo suporte. O relatório mede PRAZO, e o
+ * prazo não precisa do texto. Tipo fora do catálogo também cai no rótulo fixo.
+ */
+const rotuloDaTarefa = (tipo: string): string => (NOMES_DE_TIPO.has(tipo) ? tipo : 'Tarefa avulsa')
 
 export async function tarefasDaEquipe(
   c: pg.PoolClient,
@@ -369,7 +392,7 @@ export async function tarefasDaEquipe(
   return {
     linhas: linhas.map((t) => ({
       tarefaId: t.tarefaId,
-      tarefa: t.tarefa,
+      tarefa: rotuloDaTarefa(t.tipo),
       responsavel: t.responsavel,
       prazo: t.prazo,
       concluidaEm: t.concluidaEm,
@@ -383,15 +406,5 @@ export async function tarefasDaEquipe(
   }
 }
 
-export type ConsultaDeRelatorio = (
-  c: pg.PoolClient,
-  ctx: ContextoDaConsulta,
-  filtros: never,
-) => Promise<SaidaDaConsulta<unknown, unknown>>
-
-export const CONSULTAS = {
-  'pacientes-sem-compra': pacientesSemCompra,
-  recebimentos,
-  'saidas-de-estoque': saidasDeEstoque,
-  'tarefas-da-equipe': tarefasDaEquipe,
-} as const satisfies Record<ChaveDeRelatorio, ConsultaDeRelatorio>
+// O registro das 15 consultas é o `switch` de `consultar` em `motor.ts`: ele é
+// exaustivo por tipo (T9), e um segundo registro aqui teria de ser mantido igual.

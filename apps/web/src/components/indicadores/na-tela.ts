@@ -1,6 +1,14 @@
-import type { KpiNaLista, MetaDeKpiNaSaida, OkrNaSaida, PreviaDaMeta } from '@fir/contracts'
+import type {
+  KpiNaLista,
+  LancamentoDeKpiNaSaida,
+  LancamentoDeKpiNaTarefa,
+  MetaDeKpiNaSaida,
+  OkrNaSaida,
+  PreviaDaMeta,
+} from '@fir/contracts'
 import {
   centavosDoTextoBrasileiro,
+  diaCivil,
   ESCALA_DA_UNIDADE,
   type FrequenciaDeKpi,
   formatarNumeroDoKpi,
@@ -247,6 +255,94 @@ export function dicaDoKpi(chave: KpiNaLista['chave']): string | null {
 
 /** O aviso do nome do KPI manual (LGPD L-IN-18): o nome atravessa para os números agregados. */
 export const AVISO_DO_NOME_DO_KPI = 'Não use nome de pessoa nem de paciente.'
+
+// ---------------------------------------------------------------------------
+// Lançamento do KPI manual (C.1, D.4 e H)
+// ---------------------------------------------------------------------------
+
+/**
+ * O que a janela D.4 precisa para abrir — das DUAS portas: o cartão do KPI
+ * (quem tem `indicadores`) e a tarefa "Lançar [KPI]" em Hoje (a responsável
+ * que pode não ter: appsec C2, os dados chegam pela própria tarefa).
+ *
+ * `semanal` é `null` quando vem da tarefa: ela não diz a frequência, e a
+ * referência que ela traz é o primeiro dia do período — a janela a mostra
+ * como data, sem adivinhar se é semana ou mês. `comoMedir` é `null` quando
+ * ainda tem de ser lido do detalhe do KPI.
+ */
+export type AlvoDoLancamento = {
+  readonly kpiId: string
+  readonly nome: string
+  readonly unidade: UnidadeDeKpi
+  readonly semanal: boolean | null
+  readonly referencia: string
+  readonly comoMedir: string | null
+}
+
+export const alvoDoKpi = (k: Pick<KpiNaLista, 'id' | 'nome' | 'unidade' | 'frequencia' | 'periodo'>): AlvoDoLancamento => ({
+  kpiId: k.id,
+  nome: k.nome,
+  unidade: k.unidade,
+  semanal: k.frequencia === 'semanal',
+  referencia: k.periodo.de,
+  comoMedir: null,
+})
+
+export const alvoDaTarefa = (l: LancamentoDeKpiNaTarefa): AlvoDoLancamento => ({
+  kpiId: l.kpiId,
+  nome: l.nome,
+  unidade: l.unidade,
+  semanal: null,
+  referencia: l.referencia,
+  comoMedir: l.comoMedir,
+})
+
+/** O recado depois de lançar: diz também que a tarefa de Hoje saiu, quando saiu. */
+export const recadoDoLancamento = (r: Pick<LancamentoDeKpiNaSaida, 'tarefaConcluidaId'>): string =>
+  r.tarefaConcluidaId === null ? 'Valor lançado.' : 'Valor lançado. A tarefa de lançamento foi concluída.'
+
+/**
+ * A faixa amarela do cartão (C.1): "Lançamento da semana pendente". Quem
+ * decide se está pendente é o servidor (`lancamentoPendente`: o período
+ * corrente sem lançamento, com o dia de lançar já chegado); a tela só escolhe
+ * a palavra pela frequência.
+ */
+export function faixaDeLancamento(k: Pick<KpiNaLista, 'origem' | 'frequencia' | 'lancamentoPendente'>): string | null {
+  if (k.origem !== 'manual' || k.lancamentoPendente !== true) return null
+  return k.frequencia === 'semanal' ? 'Lançamento da semana pendente' : 'Lançamento do mês pendente'
+}
+
+/**
+ * O selo da fonte (C.1): "automático" ou "lançado por Juliana em 14/11". O
+ * dia é o do instante do lançamento no FUSO DA CLÍNICA (regra 22) — nunca o
+ * do aparelho. Sem lançamento ainda, diz isso.
+ */
+export function fonteDoKpi(k: Pick<KpiNaLista, 'origem' | 'ultimoLancamento'>, fuso: string): string {
+  if (k.origem === 'catalogo') return 'automático'
+  const u = k.ultimoLancamento ?? null
+  if (u === null) return 'ainda sem lançamento'
+  const instante = new Date(u.lancadoEm)
+  const dia = Number.isNaN(instante.getTime()) ? null : diaEMes(diaCivil(instante, fuso))
+  const quem = u.autor === null ? null : (u.autor.trim().split(/\s+/)[0] ?? u.autor)
+  return `lançado${quem === null ? '' : ` por ${quem}`}${dia === null ? '' : ` em ${dia}`}`
+}
+
+// ---------------------------------------------------------------------------
+// Unidade (filtro da linha 3, backlog 1.9 B)
+// ---------------------------------------------------------------------------
+
+/**
+ * As unidades que o filtro oferece: as ATIVAS da clínica, e só quando são mais
+ * de uma — numa clínica de um endereço, o filtro não aparece (1.9 B).
+ */
+export function unidadesDoFiltro(unidades: readonly { id: string; nome: string; ativa: boolean }[] | null | undefined): { id: string; nome: string }[] {
+  const ativas = (unidades ?? []).filter((u) => u.ativa).map((u) => ({ id: u.id, nome: u.nome }))
+  return ativas.length > 1 ? ativas : []
+}
+
+/** Com o filtro Unidade, o KPI que não se divide por ela diz isso (o número é o da clínica). */
+export const avisoDeUnidade = (k: Pick<KpiNaLista, 'naoSeDividePorUnidade'>): string | null =>
+  k.naoSeDividePorUnidade === true ? 'Não se divide por unidade: número da clínica inteira' : null
 
 // ---------------------------------------------------------------------------
 // Período (filtro da linha 3 e OKR)

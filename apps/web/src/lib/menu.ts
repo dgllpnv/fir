@@ -256,7 +256,7 @@ export const MENU: readonly ItemDeMenu[] = [
     perm: null,
     epico: null,
     promessa:
-      'As 51 perguntas frequentes com busca e o manual em 14 capítulos, escritos pela PO.',
+      'As 75 perguntas frequentes com busca e o manual em 15 capítulos.',
   },
 ]
 

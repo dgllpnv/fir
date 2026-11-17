@@ -10,8 +10,10 @@ import { rotuloDoCapitulo } from './busca'
  * que este arquivo protege são as duas coisas que um "ajuste rápido" quebra em
  * silêncio:
  *
- *  1. **A contagem** — 14 capítulos, 78 seções, 51 perguntas. Uma seção que
- *     alguém apague ao resolver um conflito não acusa nada sem isto.
+ *  1. **A contagem** — 15 capítulos, 104 seções, 75 perguntas (os 14
+ *     capítulos e as 51 perguntas dela, mais o capítulo 15 e as entradas das
+ *     três entregas do backlog final). Uma seção que alguém apague ao
+ *     resolver um conflito não acusa nada sem isto.
  *  2. **A D-10** — nenhuma menção a PIN sobrevive: um manual que ensina a
  *     trocar o PIN manda a recepção procurar um campo que não existe. O
  *     e-mail, que a D-10 tinha tirado, VOLTOU pela ADR 2026-11-16 como canal de
@@ -24,10 +26,10 @@ const tudoDoManual = MANUAL.flatMap((c) =>
 const TUDO = `${tudoDaAjuda}\n${tudoDoManual}`
 
 describe('o conteúdo é o dela, inteiro', () => {
-  it('14 capítulos, 78 seções, 51 perguntas', () => {
-    expect(MANUAL).toHaveLength(14)
-    expect(MANUAL.reduce((n, c) => n + c.secoes.length, 0)).toBe(78)
-    expect(AJUDA).toHaveLength(51)
+  it('15 capítulos, 104 seções, 75 perguntas', () => {
+    expect(MANUAL).toHaveLength(15)
+    expect(MANUAL.reduce((n, c) => n + c.secoes.length, 0)).toBe(104)
+    expect(AJUDA).toHaveLength(75)
   })
 
   /**
@@ -35,9 +37,9 @@ describe('o conteúdo é o dela, inteiro', () => {
    * vem antes do 12. O sumário lia "… 11, 13, 12, 14" — contra a numeração que
    * o próprio título de cada capítulo declara.
    */
-  it('os capítulos vão de 1 a 14, em ordem, sem buraco e sem repetição', () => {
-    expect(MANUAL.map((c) => c.numero)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
-    expect(new Set(MANUAL.map((c) => c.id)).size).toBe(14)
+  it('os capítulos vão de 1 a 15, em ordem, sem buraco e sem repetição', () => {
+    expect(MANUAL.map((c) => c.numero)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+    expect(new Set(MANUAL.map((c) => c.id)).size).toBe(15)
   })
 
   it('nenhum capítulo sem seção, nenhuma seção sem texto', () => {
@@ -61,6 +63,47 @@ describe('o conteúdo é o dela, inteiro', () => {
       expect(p.chaves.normalize('NFD'), p.pergunta).toBe(p.chaves)
     }
     expect(new Set(AJUDA.map((p) => p.pergunta)).size).toBe(AJUDA.length)
+  })
+})
+
+/**
+ * **O que o T10 exige do Manual e da Ajuda** (spec indicadores-e-insights, I.2)
+ * e o que as outras duas entregas do backlog final acrescentaram. Cada frase
+ * aqui é uma regra que a clínica precisa ler para não estranhar o número —
+ * apagar uma delas ao "enxugar" o texto devolve a dúvida ao balcão.
+ */
+describe('as três entregas do backlog final estão no conteúdo', () => {
+  const capitulo15 = MANUAL.find((c) => c.numero === 15)
+  const doCapitulo15 = (capitulo15?.secoes ?? []).map((s) => `${s.titulo} ${s.texto}`).join('\n')
+
+  it('o capítulo 15 é Indicadores & Insights', () => {
+    expect(capitulo15?.titulo).toBe('Indicadores & Insights')
+  })
+
+  it('as duas receitas, o KPI manual como posição e a régua do caixa fechado', () => {
+    // números c.2: ticket médio pela conclusão, faturamento pelo recebimento.
+    expect(doCapitulo15).toContain('Ticket médio e faturamento usam datas diferentes')
+    // I-5: o valor do período é o último lançamento.
+    expect(doCapitulo15).toContain('O valor do período é o último lançamento, não a soma')
+    // números B6, R-2: a régua a partir do primeiro caixa fechado; o dia aberto à parte.
+    expect(doCapitulo15).toContain('primeiro caixa fechado da clínica na ferramenta')
+    expect(doCapitulo15).toContain('aguardando fechamento')
+    expect(doCapitulo15).toContain('barra clara')
+  })
+
+  it('as divergências da I-38 e os avisos dos textos livres', () => {
+    expect(doCapitulo15).toContain('não o nome das indicadas')
+    expect(doCapitulo15).toContain('nunca a data completa de nascimento')
+    expect(doCapitulo15).toContain('**Incluir telefone** vem desligado')
+    expect(doCapitulo15).toContain('não use nome de pessoa nem de paciente')
+    expect(doCapitulo15).toContain('não escreva nome de paciente nem dado de saúde')
+  })
+
+  it('o MedX e os links do e-mail', () => {
+    expect(TUDO).toContain('Agenda ligada ao MedX')
+    expect(TUDO).toContain('Conferir cadastro')
+    expect(TUDO).toContain('Este link não vale mais')
+    expect(TUDO).toMatch(/vale 24 horas/)
   })
 })
 

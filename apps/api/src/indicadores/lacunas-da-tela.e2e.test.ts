@@ -139,6 +139,48 @@ describe('3. a série tem escala e o agrupamento pedido', () => {
     ])
   })
 
+  describe('cada mês pela régua dele (validação T8, V-T5-1)', () => {
+    // Setembro medido pela FIR (meta 'fir', R$ 100 recebidos em 30/09); outubro
+    // pelo MedX (meta 'medx', R$ 200 lidos por dia).
+    beforeEach(async () => {
+      const kpiId = await kpiDeFaturamento()
+      await c.migrate.query(
+        `INSERT INTO recebimentos (clinica_id, paciente_id, tipo, valor, forma, valor_aberto, recebido_em, registrado_por)
+         VALUES ($1, $2, 'Pagamento de consulta', 10000, 'Pix', 0, '2026-09-30T15:00:00Z', $3)`,
+        [c.clinica, c.pacientes['ana'], c.pessoas['beatriz']],
+      )
+      for (const [inicio, prazo, medida] of [
+        ['2026-09-01', '2026-09-30', 'fir'],
+        ['2026-10-01', '2026-10-31', 'medx'],
+      ] as const) {
+        await c.migrate.query(
+          `INSERT INTO metas_de_kpi (clinica_id, kpi_id, tipo, inicio, prazo, alvo_centavos, medida_por, definida_por)
+           VALUES ($1, $2, 'mes', $3::date, $4::date, 1000000, $5, $6)`,
+          [c.clinica, kpiId, inicio, prazo, medida, c.pessoas['beatriz']],
+        )
+      }
+    })
+
+    it('semana-cruza-o-mes: 28/09 a 04/10 = FIR de 28–30/09 + MedX de 01–04/10, trecho a trecho', async () => {
+      const kpiId = await kpiDeFaturamento()
+      const s = (
+        await pegar(c, `/v1/indicadores/kpis/${kpiId}/serie`, { de: '2026-09-28', ate: '2026-10-04', agrupamento: 'semana' }, 'beatriz').expect(200)
+      ).body
+      expect(s.pontos).toHaveLength(1)
+      // Pela régua de hoje (MedX) setembro não tem leitura e a barra saía null.
+      expect(s.pontos[0].numero.emDinheiro).toBe(String(10000n + 4n * 20000n))
+    })
+
+    it('anterior-pela-regua-do-mes-dele: o cartão de outubro compara com setembro medido pela FIR', async () => {
+      const kpiId = await kpiDeFaturamento()
+      const k = (await pegar(c, '/v1/indicadores', {}, 'beatriz').expect(200)).body.itens.find(
+        (x: { id: string }) => x.id === kpiId,
+      ) as { anterior: { emDinheiro: string | null } | null }
+      // `D` = 01–23/10 → anterior = 01–23/09 pela FIR = 0 (o R$ 100 é de 30/09), nunca `null` do MedX sem leitura.
+      expect(k.anterior?.emDinheiro).toBe('0')
+    })
+  })
+
   it('a série por dia de mais de um mês é 422', async () => {
     const kpiId = await kpiDeFaturamento()
     await pegar(c, `/v1/indicadores/kpis/${kpiId}/serie`, { de: '2026-09-01', ate: '2026-10-10', agrupamento: 'dia' }, 'beatriz').expect(422)

@@ -2,7 +2,9 @@ import type { PerguntaDaAjuda } from './tipos'
 
 /**
  * **As 51 perguntas frequentes, escritas pela PO** — o `AJUDA` do protótipo,
- * portado palavra por palavra.
+ * portado palavra por palavra — **mais as perguntas das três entregas do
+ * backlog final** (acesso por e-mail, MedX, Indicadores & Insights), no fim
+ * da lista, na mesma voz e conferidas contra o código e as specs.
  *
  * ────────────────────────────────────────────────────────────────────────────
  * ESTE ARQUIVO É CONTEÚDO DO PRODUTO, E POR ISSO NÃO MORA NO BANCO
@@ -347,5 +349,170 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
     resposta: 'Cadastre os locais em Configurações › Unidades. Cada paciente tem uma unidade principal, que já vem preenchida nos atendimentos, pagamentos e programas (dá para trocar em cada um). O Painel e a tela Programas podem ser filtrados por unidade.',
     chaves: 'unidade local endereco filial consultorio varios lugares',
     gestao: true,
+  },
+
+  // ---- Backlog final: acesso por e-mail -------------------------------------
+  {
+    tema: 'Primeiros passos',
+    pergunta: 'Posso entrar com o meu e-mail?',
+    resposta: 'Sim, depois de confirmá-lo. Na tela de entrada, o campo aceita o usuário ou o e-mail. Enquanto o e-mail não está confirmado, entre pelo usuário, como sempre. Quem ainda não confirmou vê no topo do sistema o aviso “Cadastre seu e-mail”.',
+    chaves: 'entrar login email usuario confirmado acesso',
+  },
+  {
+    tema: 'Primeiros passos',
+    pergunta: 'Como confirmo o meu e-mail?',
+    resposta: 'No aviso “Cadastre seu e-mail”, no topo do sistema, informe o e-mail e a senha atual e toque em “Enviar confirmação”. Abra o link que chega na sua caixa de entrada e toque em “Confirmar e-mail”. O link vale 24 horas e serve uma vez. “Agora não” esconde o aviso até a próxima entrada. Depois de confirmar, você pode entrar pelo e-mail e criar uma senha nova sozinha em “Esqueci minha senha”.',
+    chaves: 'confirmar email cadastrar aviso link caixa entrada',
+  },
+  {
+    tema: 'Primeiros passos',
+    pergunta: 'O link do e-mail diz que não vale mais. E agora?',
+    resposta: 'O link venceu, já foi usado ou foi trocado por um mais novo: cada link serve uma vez, e pedir outro cancela o anterior. O convite vale 7 dias, a senha nova vale 1 hora e a confirmação do e-mail vale 24 horas. Peça um link novo em “Esqueci minha senha”, na tela de entrada, ou a quem administra a clínica, que pode reenviar o convite.',
+    chaves: 'link expirou vencido invalido convite email senha nova reenviar',
+  },
+
+  // ---- Backlog final: MedX --------------------------------------------------
+  {
+    tema: 'Rotina e tarefas',
+    pergunta: 'A clínica usa o MedX. Preciso lançar o agendamento aqui também?',
+    resposta: 'Não, quando a agenda está ligada ao MedX. Marque, remarque e cancele só no MedX: a cada 15 minutos a ferramenta cria o cartão Agendada, reagenda o mesmo cartão quando a data muda e manda para Recontatar o que foi cancelado. Paciente nova chega com o selo “Conferir cadastro”. Confirmar, no-show e concluir continuam aqui, e nada disso volta para o MedX.',
+    chaves: 'medx agenda agendamento sistema principal duas vezes cartao jornada sincronizar',
+  },
+  {
+    tema: 'Rotina e tarefas',
+    pergunta: 'A paciente cancelou no MedX. O que acontece com o cartão?',
+    resposta: 'Na próxima leitura (em até 15 minutos), o cartão vai para “Recontatar”, na tela Hoje, para alguém falar com ela e reagendar ou encerrar. Ele nunca é cancelado sozinho, e o que a equipe já fez no cartão não se perde.',
+    chaves: 'medx cancelou desmarcou cancelamento recontatar sumiu agenda',
+  },
+  {
+    tema: 'Gestão',
+    pergunta: 'Onde vejo se a agenda do MedX está funcionando?',
+    resposta: 'Em Configurações › Agenda do sistema: aparece “Ligada ao MedX”, para quem vão os cartões, a última leitura, o último sucesso e as últimas leituras. “Sincronizar agora” pede uma leitura na hora. Se a última leitura falhou, nenhum cartão foi mexido. Ligar, desligar ou mudar a integração é com o suporte da Firmare.',
+    chaves: 'medx agenda sistema integracao leitura falhou sincronizar configuracoes',
+    gestao: true,
+  },
+
+  // ---- Backlog final: Indicadores & Insights --------------------------------
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'O que é a tela Indicadores & Insights?',
+    resposta: 'Em Gestão › Indicadores & Insights ficam juntas as metas da clínica: os OKRs do trimestre (em “Prioridades do trimestre”), os KPIs fora de OKR (em “Saúde da clínica”, por pilar) e os relatórios. Cada KPI mostra o valor, a meta, a cor da situação e um minigráfico. Toque no nome para ver o detalhe.',
+    chaves: 'indicadores insights kpi okr metas painel saude clinica prioridades',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Recebi a tarefa “Lançar” um indicador. Como faço?',
+    resposta: 'Abra Indicadores & Insights e toque em “Lançar valor” no cartão do indicador (ou no detalhe dele). Informe o valor, confira a referência (a semana ou o mês) e, se quiser, um comentário. Ao salvar, a tarefa de Hoje se conclui sozinha: ela não se conclui pelo círculo. O valor do período é o último lançado, não a soma. Se o item Indicadores & Insights não aparece no seu menu, fale com quem administra a clínica.',
+    chaves: 'lancar indicador kpi manual nps valor semana mes tarefa hoje',
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Lancei o valor errado no indicador. Como corrijo?',
+    resposta: 'Lance de novo para a mesma referência (a mesma semana ou o mesmo mês): o valor é corrigido, e a correção fica registrada em Atividades. No detalhe do indicador, a tabela de lançamentos tem o ícone para corrigir cada um.',
+    chaves: 'corrigir lancamento errado indicador kpi valor trocar',
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'O que significam as cores dos indicadores?',
+    resposta: 'Verde (“No ritmo”): no ritmo esperado para hoje ou acima. Amarelo (“Atenção”): até 10% abaixo do ritmo. Vermelho (“Abaixo do ritmo”): mais de 10% abaixo, ou o prazo venceu sem atingir. “Atingida”: chegou ao alvo. O ritmo é a linha reta da partida até o alvo; no faturamento, ela anda pelos dias úteis.',
+    chaves: 'cores verde amarelo vermelho situacao ritmo atencao abaixo atingida meta',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Por que o recebido de hoje não entra na meta de faturamento?',
+    resposta: 'A meta e o “Faturamento conferido” contam só os dias com o caixa fechado. O que entrou num dia ainda aberto aparece à parte, como “aguardando fechamento”, e fica fora da meta, do ritmo e da projeção até o caixa daquele dia ser fechado. No gráfico dia a dia, esse dia é uma barra clara. A regra vale a partir do primeiro caixa fechado da clínica na ferramenta; os meses anteriores não mudam.',
+    chaves: 'faturamento conferido aguardando fechamento caixa aberto meta hoje nao conta',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Por que o ticket médio vezes os pagamentos não dá o faturamento?',
+    resposta: 'Porque usam datas diferentes. O ticket médio (o mesmo do Painel) conta o pagamento pela data em que o atendimento foi concluído; o faturamento (o mesmo da Visão do mês), pela data do recebimento. Os dois estão certos e não se conferem um pelo outro. O valor fechado em orçamentos já está dentro da receita: nunca some os dois.',
+    chaves: 'ticket medio faturamento receita nao bate diferente painel visao mes',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Como crio uma meta com prazo?',
+    resposta: 'Em Indicadores & Insights › + Novo › Nova meta, ou em “Definir meta” no cartão do KPI. Escolha o tipo (Do mês ou Até uma data), o valor-alvo, o prazo, o valor de partida e o responsável. A prévia mostra o ritmo esperado por dia útil. A meta de faturamento da Visão do mês é a mesma que aparece aqui.',
+    chaves: 'meta prazo criar alvo definir faturamento ritmo previa',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Como crio um OKR?',
+    resposta: 'Em Indicadores & Insights › + Novo › Novo OKR: escreva o objetivo em linguagem de dono, escolha o período (o trimestre, ou Datas livres) e o responsável, e adicione de 1 a 5 resultados-chave, cada um com um KPI, o alvo e o prazo. O progresso do OKR é a média dos resultados-chave.',
+    chaves: 'okr objetivo resultado chave trimestre criar prioridade',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Como uso o Modo reunião?',
+    resposta: 'Em Indicadores & Insights, toque em “Modo reunião”. Ele mostra um slide por vez, para a TV: a capa com o resumo, os OKRs, os KPIs em vermelho ou amarelo e, no fim, os planos de ação da semana. Passe com as setas; “Tela cheia” ocupa a tela toda e Esc sai. Em cada slide de KPI dá para criar um plano de ação sem sair da reunião.',
+    chaves: 'modo reuniao semanal tv slides apresentar pauta',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Como crio um plano de ação para uma meta em vermelho?',
+    resposta: 'No detalhe do KPI, em “Planos de ação”, toque em “+ Plano de ação” e informe descrição, responsável e prazo. Vira uma tarefa em Hoje para a responsável, ligada ao indicador. No Modo reunião, o mesmo botão fica em cada slide de KPI.',
+    chaves: 'plano acao meta vermelho tarefa indicador reuniao',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'O que é o número vermelho ao lado de Indicadores no menu?',
+    resposta: 'É quantas metas estão abaixo do ritmo. O mesmo número aparece na capa do Modo reunião, e some quando é zero. Em Hoje, o bloco “Indicadores da semana” mostra até 4 metas em vermelho ou amarelo, com o atalho “Ver todos”.',
+    chaves: 'contador numero vermelho menu indicadores semana hoje',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Como tiro uma lista de pacientes para uma campanha?',
+    resposta: 'Em Indicadores & Insights › Relatórios, escolha a lista (por exemplo, Pacientes sem compra), preencha os filtros e toque em “Gerar”. Depois toque em “Criar campanha com esta lista”: escolha a campanha (ou crie uma nova), o tipo da tarefa, o prazo e quem faz os contatos. Cada paciente ganha uma tarefa, sem exportar nem importar planilha. Até 2.000 pacientes por vez.',
+    chaves: 'lista pacientes campanha relatorio inativos recaptacao sem compra criar tarefas',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Como exporto um relatório em Excel ou PDF?',
+    resposta: 'Depois de gerar o relatório, toque em “Exportar” e escolha Excel, CSV ou PDF (o PDF abre em outra aba, para imprimir ou salvar). O arquivo sai com a clínica, os filtros, a data, quem exportou e um código, e a exportação fica registrada em Atividades. Lista com dado de saúde pergunta para que é o arquivo.',
+    chaves: 'exportar excel csv pdf imprimir planilha baixar arquivo relatorio',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Por que o telefone não veio no arquivo exportado?',
+    resposta: 'O telefone só sai quando se marca “Incluir telefone” na hora de exportar, e ele vem desligado. Para ligar ou mandar mensagem para a lista, use “Criar campanha com esta lista”: as tarefas já trazem o paciente, sem arquivo nenhum circulando.',
+    chaves: 'telefone exportar arquivo incluir faltando relatorio contato',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Como salvo um relatório para rodar de novo?',
+    resposta: 'Gere o relatório com os filtros e toque em “Salvar como favorito”. Ele fica no topo da lista, em Favoritos, e roda com um toque. O favorito é da clínica toda: no nome, não use nome de paciente, telefone, valor nem dado de saúde.',
+    chaves: 'favorito salvar relatorio filtros repetir rodar',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Por que o relatório não mostra o nome das indicadas nem o ano de nascimento?',
+    resposta: 'É de propósito, pela LGPD. “Pacientes que indicaram” mostra quantas pessoas cada paciente indicou e quantas viraram pacientes, sem o nome delas. “Aniversariantes” mostra o dia, o mês e a idade, sem a data completa. Pacientes por procedimento não traz dose nem lote, e nenhum relatório filtra por nome ou telefone.',
+    chaves: 'lgpd indicadas nome aniversariantes nascimento escondido falta coluna relatorio',
+    gestao: true,
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'Por que vejo “78% da meta” no lugar do valor?',
+    resposta: 'Quem não tem a permissão “Ver valores financeiros” vê o percentual da meta no lugar dos reais, nos cartões, no detalhe, no Modo reunião e em Hoje. Nos relatórios, as colunas em reais não aparecem, nem na tela nem no arquivo.',
+    chaves: 'percentual meta valor reais escondido permissao indicador',
+  },
+  {
+    tema: 'Indicadores e relatórios',
+    pergunta: 'O que não posso escrever nos indicadores?',
+    resposta: 'Nome de paciente, dado de saúde e valores em reais, em nenhum texto livre: nome do KPI, como medir, comentário do lançamento, objetivo do OKR, plano de ação e nome do favorito. No nome do KPI, nem nome de pessoa da equipe. Esses textos são lidos pela clínica toda e vão para a TV no Modo reunião.',
+    chaves: 'escrever nome paciente texto livre comentario objetivo cuidado lgpd',
   },
 ]

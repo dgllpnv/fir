@@ -33,6 +33,8 @@ export const ASSUNTOS: Readonly<Record<string, string>> = {
   caixa_por_forma: 'Caixa por forma de pagamento',
   cobrancas: 'Cobranças',
   conversas_1a1: 'Conversas 1:1',
+  relatorio: 'Relatórios',
+  exportacao_de_relatorio: 'Exportação de relatório',
 }
 
 export const ACOES: Readonly<Record<string, string>> = {
@@ -40,6 +42,8 @@ export const ACOES: Readonly<Record<string, string>> = {
   alterou: 'Alterou',
   removeu: 'Removeu',
   acessou: 'Consultou',
+  // 0104 (ADR do T8; LGPD R-a): a exportação de relatório tem ação própria.
+  exportou: 'Exportou',
 }
 
 export const QUEM: Readonly<Record<string, string>> = {

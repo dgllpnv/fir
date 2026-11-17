@@ -116,7 +116,7 @@ describe('o destaque da busca casa SEM acento e corta no texto original', () => 
   })
 })
 
-describe('a marcação atravessa as 78 seções sem perder texto', () => {
+describe('a marcação atravessa as 104 seções sem perder texto', () => {
   /**
    * A varredura que importa: **nenhum caractere do texto dela se perde**.
    *
@@ -135,7 +135,7 @@ describe('a marcação atravessa as 78 seções sem perder texto', () => {
         expect(limpar(textoPuro(s.texto)), `${c.numero}. ${s.titulo}`).toBe(original)
       }
     }
-    expect(secoes).toBe(78)
+    expect(secoes).toBe(104)
   })
 
   it('todo negrito do manual é um par fechado', () => {

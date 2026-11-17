@@ -26,10 +26,13 @@ import { Carregando, Erro, Toast } from './estados'
 export function TelaVisaoDoMes({
   mesCorrente,
   podeAbrirContas,
+  podeIndicadores = false,
 }: {
   mesCorrente: string
   /** `contas.gerir` — decidido no `page.tsx` do servidor, pela mesma `temPerm`. */
   podeAbrirContas: boolean
+  /** `indicadores`: o link "Acompanhar em Indicadores & Insights" (1.9 H). Não toca dinheiro. */
+  podeIndicadores?: boolean
 }) {
   const [mes, setMes] = useState(mesCorrente)
   const [recado, setRecado] = useState<string | null>(null)
@@ -72,7 +75,7 @@ export function TelaVisaoDoMes({
       ) : v.erro !== null ? (
         <Erro mensagem={v.erro} recarregar={v.recarregar} />
       ) : v.dados === null ? null : (
-        <Corpo v={v.dados} mesCorrente={mesCorrente} podeAbrirContas={podeAbrirContas} />
+        <Corpo v={v.dados} mesCorrente={mesCorrente} podeAbrirContas={podeAbrirContas} podeIndicadores={podeIndicadores} />
       )}
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
@@ -84,10 +87,12 @@ function Corpo({
   v,
   mesCorrente,
   podeAbrirContas,
+  podeIndicadores,
 }: {
   v: VisaoDoMes
   mesCorrente: string
   podeAbrirContas: boolean
+  podeIndicadores: boolean
 }) {
   const anterior = nomeDoMes(mesesAte(v.mes)[1] ?? v.mes)
 
@@ -168,6 +173,7 @@ function Corpo({
               : `Faltam ${formatarDinheiro(centavos(v.metaRestante))}.`}
             {v.mes === mesCorrente ? ` ${v.caixa.diasUteis} dias úteis passados.` : ''}
           </span>
+          <AguardandoFechamento v={v} podeIndicadores={podeIndicadores} />
         </div>
       ) : v.medidaDaMeta === 'medx' && v.meta !== null ? (
         /* Medida pelo MedX sem leitura completa: sem percentual, nunca "0%" (N-B6). */
@@ -383,6 +389,36 @@ function Indicador({
           </>
         )}
       </small>
+    </div>
+  )
+}
+
+/**
+ * **Os dias aguardando fechamento do caixa** e o link para o KPI da meta
+ * (1.9 H; ADR "meta medida pelos dias de caixa fechado"). O total e os dias
+ * chegam prontos (`aguardandoFechamento`, `diasAguardandoFechamento`) e
+ * ficam FORA do medido da meta até o caixa fechar — a linha diz isso. O link
+ * vai ao detalhe do KPI que guarda esta meta (`kpiDaMetaId`, um lugar só no
+ * banco), e só para quem abre Indicadores.
+ */
+function AguardandoFechamento({ v, podeIndicadores }: { v: VisaoDoMes; podeIndicadores: boolean }) {
+  const dias = v.diasAguardandoFechamento ?? 0
+  const valor = v.aguardandoFechamento ?? null
+  const kpi = podeIndicadores ? (v.kpiDaMetaId ?? null) : null
+  if (dias <= 0 && kpi === null) return null
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 14px' }}>
+      {dias <= 0 ? null : (
+        <span className="nota num">
+          {valor === null ? '' : `${formatarDinheiro(centavos(valor))} `}
+          aguardando fechamento do caixa em {plural(dias, 'dia', 'dias')}, fora da meta até fechar.
+        </span>
+      )}
+      {kpi === null ? null : (
+        <Link className="link" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center' }} href={`/indicadores/${kpi}`}>
+          Acompanhar em Indicadores &amp; Insights
+        </Link>
+      )}
     </div>
   )
 }

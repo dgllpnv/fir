@@ -69,6 +69,8 @@ test('KPI manual, meta, lançamento e OKR, em 390 px', async ({ page }) => {
     await expect(page.getByRole('heading', { name: 'Prioridades do trimestre' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Saúde da clínica' })).toBeVisible()
     expect(await semRolagemDeLado(page)).toBe(true)
+    // Filtro Unidade (1.9 B): só aparece com mais de uma unidade ativa na clínica.
+    await expect(page.locator('.ii-filtros').getByLabel('Unidade')).toHaveCount(((await api(page, 'v1/unidades')).corpo as { unidades: { ativa: boolean }[] }).unidades.filter((u) => u.ativa).length > 1 ? 1 : 0)
 
     // D.1 — manual, com o aviso do nome (LGPD L-IN-18)
     await page.getByRole('button', { name: '+ Novo' }).click()
@@ -76,7 +78,7 @@ test('KPI manual, meta, lançamento e OKR, em 390 px', async ({ page }) => {
     await page.getByRole('button', { name: /Criar indicador \(manual\)/ }).click()
     await expect(page.getByText('Não use nome de pessoa nem de paciente.')).toBeVisible()
     await page.getByLabel('Nome do indicador').fill(NOME)
-    await page.getByLabel('Unidade').selectOption('nota')
+    await page.getByRole('dialog').getByLabel('Unidade').selectOption('nota')
     await page.getByRole('button', { name: 'Salvar' }).click()
     await expect(page.getByRole('status')).toContainText('Indicador criado.')
     const cartao = page.getByRole('article', { name: NOME })
@@ -90,8 +92,8 @@ test('KPI manual, meta, lançamento e OKR, em 390 px', async ({ page }) => {
     await page.getByRole('button', { name: 'Salvar' }).click()
     await expect(page.getByRole('status')).toContainText('Meta criada.')
 
-    // D.4 — lançar
-    await page.getByRole('article', { name: NOME }).getByRole('button', { name: 'Lançar valor' }).click()
+    // D.4 — lançar. Com o dia de lançar já chegado, o botão é o "Lançar agora" da faixa pendente (C.1).
+    await page.getByRole('article', { name: NOME }).getByRole('button', { name: /^Lançar (valor|agora)$/ }).click()
     await page.getByLabel(/^Valor/).fill('8,5')
     await page.getByRole('button', { name: 'Salvar' }).click()
     await expect(page.getByRole('status')).toContainText('Valor lançado.')

@@ -2,8 +2,11 @@ import { DICA_DO_NOME_DA_CAMPANHA } from './dica-do-nome-da-campanha'
 import type { CapituloDoManual } from './tipos'
 
 /**
- * **O manual da ferramenta: 14 capítulos, 77 seções, escritos pela PO** — o
- * `MANUAL` do protótipo, portado palavra por palavra.
+ * **O manual da ferramenta: 14 capítulos escritos pela PO** — o `MANUAL` do
+ * protótipo, portado palavra por palavra — **mais o capítulo 15 (Indicadores
+ * & Insights) e as seções das três entregas do backlog final** (acesso por
+ * e-mail, MedX, indicadores), escritos na mesma voz e conferidos contra o
+ * código e as specs.
  *
  * Mesma razão de `ajuda.ts` para não morar no banco, e mesma regra sobre o
  * texto: só as passagens da **D-10** foram adaptadas.
@@ -92,6 +95,17 @@ No primeiro uso:
 Esqueceu a senha? Na tela de entrada, toque em **Esqueci minha senha** e informe o seu e-mail confirmado: chega um link para criar uma senha nova, que vale 1 hora e serve uma vez. A resposta da tela é sempre a mesma, tenha o e-mail conta ou não. Sem e-mail confirmado (ou se o link não aparecer na entrada), quem administra a clínica gera uma **senha provisória** para você em Configurações › Usuários e acessos. Ela aparece uma única vez, na tela de quem a gerou: **ninguém lê a senha de outra pessoa**, nem quem a redefiniu.
 
 **Cadastre seu e-mail.** Quem ainda não tem e-mail confirmado vê, no topo do sistema, o aviso **Cadastre seu e-mail**: informe o e-mail e a senha atual e toque em **Enviar confirmação**. O link de confirmação vale 24 horas. Até confirmar nada muda, e você continua entrando pelo usuário. "Agora não" esconde o aviso até a próxima entrada. Para trocar ou retirar o seu e-mail depois, use a parte **E-mail** de “Trocar senha” — sempre com a senha atual.`,
+      },
+      {
+        titulo: 'Links que chegam por e-mail',
+        texto: `Três links podem chegar no seu e-mail. Cada um serve **uma vez**, e só o mais recente vale: pedir outro cancela o anterior.
+- **Convite** ("Seu acesso à FIR Clinic"), com o botão **Criar minha senha**: vale 7 dias.
+- **Senha nova**, pedida em **Esqueci minha senha** ou enviada por quem administra a clínica: vale 1 hora.
+- **Confirmação do e-mail**, pedida no aviso **Cadastre seu e-mail**: vale 24 horas.
+
+Ao criar a senha pelo link, a tela mostra "Senha criada. Agora entre com seu e-mail ou usuário." As outras sessões abertas com a senha antiga caem.
+
+A tela diz **"Este link não vale mais"**? Ele venceu, já foi usado ou foi trocado por um mais novo. Peça outro na tela de entrada (Esqueci minha senha) ou a quem administra a clínica.`,
       },
       {
         titulo: 'Usar no celular',
@@ -194,6 +208,16 @@ Cada movimento fica em **“Evolução”**, no próprio cartão: etapa, data, q
 - **Onde estão os pacientes agora:** colunas com os cartões de cada etapa. Toque no nome para abrir a ficha.
 
 Os números contam os movimentos registrados no período escolhido.`,
+      },
+      {
+        titulo: 'Agenda ligada ao MedX',
+        texto: `Quando a agenda da clínica está ligada ao MedX, **a recepção marca, remarca e cancela só no MedX**. A ferramenta lê a agenda a cada 15 minutos e cuida sozinha do cartão da jornada:
+- **Consulta ou procedimento novo no MedX:** aparece um cartão **Agendada**, para a pessoa responsável pelos cartões da agenda.
+- **Mudou a data ou o horário:** o mesmo cartão é reagendado. Nenhum cartão novo.
+- **Cancelado ou apagado no MedX:** o cartão vai para **Recontatar**, na tela Hoje, para alguém falar com a paciente. Nunca é cancelado sozinho.
+- **Paciente que ainda não existe aqui:** é cadastrada com o selo **Conferir cadastro**. Confira nome e telefone e salve a ficha. Paciente desativada não volta pela agenda.
+
+O que a equipe faz na ferramenta (confirmar, no-show, concluir, registrar orçamento) **nunca é desfeito** pela leitura. E nada volta para o MedX: confirmação e falta ficam registradas só aqui.`,
       },
       {
         titulo: 'Cancelar e excluir',
@@ -516,6 +540,12 @@ Exemplo: toxina botulínica, repetir a cada 4 meses, contato 15 dias antes.`,
 - **Valores em aberto:** todos os saldos a receber, por paciente.
 - Campanhas no período, desempenho por unidade e novos pacientes.`,
       },
+      {
+        titulo: 'Faturamento no MedX',
+        texto: `Com o faturamento do MedX ligado, o Painel mostra o **Faturamento no MedX** ao lado do recebido na ferramenta, com a hora da última leitura, a **Diferença MedX − FIR** (positiva: o MedX registrou mais) e os dias em que os dois discordam.
+
+Os dois números ficam **lado a lado e nunca se somam**: o do MedX não entra no caixa, na receita nem no LTV. "Leitura incompleta" quer dizer que algum dia do período ainda não foi lido do MedX. Quando a meta de faturamento é medida pelo MedX, a Visão do mês avisa "Medida pelo faturamento lido do MedX".`,
+      },
     ],
   },
   {
@@ -547,6 +577,14 @@ Com unidades cadastradas, aparecem filtros por unidade em Tarefas, Programas e n
 A clínica já começa com modelos, que podem ser editados.
 
 **Excluir:** em Editar, “Excluir do catálogo” (toque duas vezes para confirmar). Só itens que nunca foram usados em uma adesão podem ser excluídos, porque o histórico e o contato de retorno desses pacientes dependem do item. Para os demais, desmarque **Ativo**: o item deixa de ser oferecido em novas adesões. Mudanças de sessões e intervalo valem para novas adesões; quem já está no programa mantém as sessões programadas.`,
+      },
+      {
+        titulo: 'Agenda do sistema e MedX',
+        texto: `Em **Configurações › Agenda do sistema** fica a ligação com a agenda do sistema principal da clínica, que cria e reagenda os cartões da jornada sozinha. Há dois caminhos:
+- **Link iCal:** cole o link da agenda e escolha quem fica responsável pelos cartões.
+- **MedX:** quem liga é o suporte da Firmare, com a autorização por escrito da clínica. A tela mostra **Ligada ao MedX**, para quem vão os cartões, a última leitura, o último sucesso e as últimas leituras.
+
+**Sincronizar agora** pede uma leitura na hora; **Atualizar** só recarrega a tela. Se aparecer "A última leitura falhou", nenhum cartão foi mexido por ela. Para ligar, desligar ou mudar o MedX, fale com o suporte da Firmare: a chave do MedX não aparece para a clínica.`,
       },
     ],
   },
@@ -722,6 +760,240 @@ As despesas fixas são o custo para a clínica abrir as portas todo mês. Saber 
 - **Despesas por categoria**, com o peso de cada uma, fixas × variáveis e o valor do mês anterior.
 - **Recebido por forma de pagamento** e os **caixas fechados** do mês, com as diferenças.
 - **Criar rotina mensal de fechamento:** uma tarefa todo dia 1º para revisar o mês.`,
+      },
+    ],
+  },
+  {
+    id: 'm15',
+    numero: 15,
+    titulo: 'Indicadores & Insights',
+    secoes: [
+      {
+        titulo: 'Para que serve',
+        texto: `Em **Gestão › Indicadores & Insights** ficam juntas as metas da clínica, os objetivos do trimestre e os relatórios. Cada indicador tem meta, prazo, responsável e gráfico, e a cor mostra se a clínica está no ritmo.
+- **KPI** (indicador): um número acompanhado no tempo. É **automático** quando o sistema calcula (faturamento, conversão de orçamentos, tarefas no prazo) e **manual** quando alguém da equipe lança (NPS, nota no Google, seguidores).
+- **OKR:** um objetivo com 1 a 5 resultados-chave, cada um ligado a um KPI. Ligar um KPI a um OKR é opcional.
+- **Relatórios:** listas e totais com filtros, para ver na tela, exportar ou virar campanha.
+
+Quem vê a aba tem a permissão **Indicadores & Insights** no perfil de acesso. Criar, editar e arquivar KPIs, metas e OKRs exige também **Criar e editar KPIs, metas e OKRs**.`,
+      },
+      {
+        titulo: 'A tela OKRs e KPIs',
+        gestao: true,
+        texto: `No topo, **Modo reunião** e **+ Novo** (Novo OKR, Novo KPI, Nova meta). Abaixo, as abas **OKRs e KPIs** e **Relatórios**, e os filtros **Período** (o trimestre), **Pilar** e **Responsável**. No celular, os filtros ficam recolhidos no botão **Filtros**.
+
+A tela tem duas faixas:
+- **Prioridades do trimestre:** um cartão por OKR, do mais atrasado (menor progresso) para o mais adiantado, com o resumo "3 objetivos · média 62%".
+- **Saúde da clínica:** os KPIs que não estão em nenhum OKR, por pilar (Financeiro, Comercial, Processos, Pessoas). Em cada pilar vêm primeiro os vermelhos, depois os amarelos e os verdes; os sem meta, por último.
+
+Sem nenhum KPI, a faixa mostra **Abrir catálogo**, para escolher o que a clínica vai acompanhar.`,
+      },
+      {
+        titulo: 'O cartão do KPI',
+        gestao: true,
+        texto: `Cada cartão mostra:
+- o nome (toque nele para abrir o detalhe) e o selo da situação;
+- o **valor atual** em destaque e, ao lado, a meta ("de R$ 120.000,00");
+- a **barra da meta**, com um traço fino onde o número deveria estar hoje;
+- o minigráfico dos últimos meses;
+- a **variação** contra o período anterior: verde quando melhorou, vermelho quando piorou, conforme a direção do KPI. O que soma no mês, como o faturamento, compara com o **mesmo dia do mês anterior** ("▲ 8% vs. mesmo dia de outubro"), nunca o mês pela metade contra o mês inteiro;
+- a fonte: **automático** ou **lançado pela equipe**.
+
+No KPI manual aparece **Lançar valor**; para quem gerencia, também **Definir meta** ou **Editar meta**.`,
+      },
+      {
+        titulo: 'As cores da meta',
+        gestao: true,
+        texto: `A situação compara o valor de hoje com o **ritmo esperado**: uma linha reta do valor de partida até o alvo, do início ao prazo. No que soma no período, como o faturamento, a linha anda pelos **dias úteis** (segunda a sexta, sem contar feriado).
+- **No ritmo** (verde): no ritmo ou acima.
+- **Atenção** (amarelo): até 10% abaixo do ritmo.
+- **Abaixo do ritmo** (vermelho): mais de 10% abaixo, ou o prazo venceu sem atingir.
+- **Atingida:** chegou ao alvo. Em meta de teto (quanto menor, melhor, somando no período), só depois do prazo.
+- **Sem meta:** o KPI ainda não tem meta.
+
+A **projeção** diz onde o número chega no prazo, mantida a média do que já passou. No primeiro dia da meta ela ainda não aparece.`,
+      },
+      {
+        titulo: 'Criar um KPI',
+        gestao: true,
+        texto: `Em **+ Novo › Novo KPI**, escolha:
+- **Do catálogo (automático):** o sistema calcula sozinho a partir do que a equipe já registra. Busque no catálogo, escolha o indicador e ajuste o nome de exibição, a frequência (semanal ou mensal) e o responsável. O que a clínica já acompanha aparece como "já acompanhado".
+- **Criar indicador (manual):** para o que o sistema não calcula. Informe nome, pilar, unidade (R$, %, quantidade, dias ou nota de 0 a 10), direção ("Quanto maior, melhor" ou "Quanto menor, melhor"), frequência e dia do lançamento, o responsável pelo lançamento e **Como medir** (o texto curto que aparece para quem lança).
+
+Nos dois, dá para ligar o KPI a um OKR e marcar **Definir meta agora**. **Arquivar indicador**, no detalhe, tira o KPI da tela sem apagar o histórico.`,
+      },
+      {
+        titulo: 'Lançar o valor de um KPI manual',
+        texto: `O KPI manual é o número que alguém da equipe lança. Quem lança é a **responsável pelo lançamento**; quem gerencia os indicadores também pode, para corrigir.
+
+No dia escolhido no cadastro, a responsável recebe em Hoje a tarefa **Lançar [nome do indicador]**. Para lançar, toque em **Lançar valor** no cartão do indicador ou no detalhe dele, em Indicadores & Insights. A janela traz o "como medir", o **Valor**, a **Referência** (a segunda-feira da semana, ou o mês) e um **Comentário** opcional. Ao salvar, a tarefa daquela referência se conclui sozinha.
+- A tarefa não se conclui pelo círculo, não se cancela e não se exclui: ela pertence ao indicador. Para parar de pedi-la, quem gerencia arquiva o indicador.
+- No lançamento mensal, dia 29, 30 ou 31 cai no último dia do mês curto.
+- **O valor do período é o último lançamento, não a soma.** Para algo que se acumula (leads do mês), crie o KPI mensal e lance o total do mês.
+- Lançou errado? Lance de novo na mesma referência: o valor é corrigido, e a correção fica registrada em Atividades. No detalhe, a tabela de lançamentos tem o ícone para corrigir.`,
+      },
+      {
+        titulo: 'Metas com prazo',
+        gestao: true,
+        texto: `Em **+ Novo › Nova meta**, ou em **Definir meta** no cartão:
+- **Tipo:** **Do mês** (o mês inteiro) ou **Até uma data** (início e prazo).
+- **Valor-alvo**, na unidade do KPI.
+- **Valor de partida:** no que soma no período (faturamento, novos pacientes) começa sempre do zero; nos outros, vem com o valor de hoje e pode mudar.
+- **Responsável:** vem o do KPI.
+
+Abaixo dos campos, a prévia mostra o ritmo: "Para chegar a R$ 120.000,00 em 31/12, o ritmo esperado é de … por dia útil. Hoje a clínica está em … por dia útil."
+
+Cada KPI tem **uma meta por vez** no mesmo período. **A meta de faturamento da Visão do mês é esta mesma**: há um lugar só para ela, e a Visão do mês mostra o atalho **Acompanhar em Indicadores & Insights**.`,
+      },
+      {
+        titulo: 'Faturamento conferido e o caixa fechado',
+        gestao: true,
+        texto: `O KPI **Faturamento conferido** e a meta de faturamento contam **só os dias com o caixa fechado**. É o fechamento do caixa, conferido às cegas, que confirma o dinheiro do dia.
+- O que entrou num dia ainda sem caixa fechado aparece à parte, como **aguardando fechamento** ("R$ 6.300,00 aguardando fechamento do caixa em 2 dias, fora da meta até fechar"). Fica fora da meta, do ritmo e da projeção até o caixa daquele dia ser fechado.
+- **O dia de hoje só conta depois de fechar o caixa.** Durante o dia, o percentual da meta não sobe a cada pagamento.
+- No gráfico dia a dia, o dia que espera o fechamento aparece como **barra clara**, sem valor.
+- A regra vale a partir do **primeiro caixa fechado da clínica na ferramenta**. Os dias anteriores continuam contados como antes, por tudo o que foi recebido: nenhum mês passado muda.
+
+A linha **Recebido** da Visão do mês continua sendo o mês inteiro. Fechar o caixa todo dia é o que mantém a meta em dia.`,
+      },
+      {
+        titulo: 'Números parecidos que não se somam',
+        gestao: true,
+        texto: `- **Ticket médio e faturamento usam datas diferentes.** O ticket médio (o mesmo do Painel) conta cada pagamento pela data em que o atendimento foi concluído; o faturamento (o mesmo da Visão do mês), pela data do recebimento. Por isso ticket médio × número de pagamentos pode não dar o faturamento do mês. Os dois estão certos.
+- **Valor fechado em orçamentos** já está dentro da receita. Nunca some os dois.
+- **Despesas fixas sobre o recebido** divide as despesas fixas pelo recebido no mês, sem as outras entradas. A Visão do mês faz outra conta (fixas sobre o total de despesas): não confira um número pelo outro.
+- **Perda de estoque** é medida no período inteiro: as barras de cada mês não somam o total.`,
+      },
+      {
+        titulo: 'OKRs',
+        gestao: true,
+        texto: `Um OKR é um objetivo em linguagem de dono ("Ter uma agenda previsível") com **1 a 5 resultados-chave**; o recomendado é até 4. Em **+ Novo › Novo OKR**:
+- **Objetivo**, **Período** (o trimestre, já marcado, ou **Datas livres**) e **Responsável**.
+- **+ Adicionar resultado-chave:** escolha o KPI, o valor-alvo e o prazo (vem o fim do período). Falta o KPI? Crie ali mesmo, sem sair do formulário.
+- **Por que isso importa** (opcional): aparece no Modo reunião.
+
+O progresso do OKR é a **média** dos resultados-chave, e a cor é a do pior deles. O KPI ligado sai de Saúde da clínica e passa a aparecer dentro do OKR. O mesmo KPI pode estar em mais de um OKR, cada um com a sua meta.
+
+No cartão do OKR: **Editar OKR** e o menu com **Encerrar OKR**, **Duplicar para o próximo trimestre** (mesmos indicadores e alvos, com a partida medida de novo) e **Excluir** (os indicadores continuam e voltam para Saúde da clínica).`,
+      },
+      {
+        titulo: 'Detalhe do KPI',
+        gestao: true,
+        texto: `Toque no nome de um KPI para abrir o detalhe. No topo, pilar, frequência, responsável e fonte, e os botões **Lançar valor** (KPI manual), **Editar** e o menu com **Definir meta**, **Ligar a OKR** e **Arquivar indicador**.
+- **Quatro números:** Valor atual, Meta e prazo (com a situação), Onde deveria estar hoje e Projeção no prazo.
+- **Gráfico:** abre em **Período da meta**, com o valor real, o ritmo esperado, a projeção e o alvo. **3 meses** e **12 meses** mostram o histórico, com o mês atual marcado como em andamento. **Personalizado** abre De e Até (sem data futura), com os atalhos Este mês, Mês passado, Últimos 6 meses e Este ano.
+- **Mês, semana ou dia:** mais de um mês aparece mês a mês; dentro de um mês, o faturamento aparece dia a dia e os KPIs semanais, semana a semana. A etiqueta acima do gráfico diz qual. Toque num ponto para ver a data e o valor.
+- **De onde vem o número:** no automático, a composição do período (o faturamento por forma de pagamento e por tipo de atendimento) e o atalho **Ver recebimentos**, que abre o relatório já filtrado; no manual, a tabela de lançamentos. Sem a permissão daquele detalhe, aparece "Sem acesso ao detalhe".
+- No rodapé, os OKRs que usam o indicador e as metas anteriores, atingidas ou não.
+
+KPI sem meta mostra os últimos 3 meses, com o aviso "Este indicador ainda não tem meta".`,
+      },
+      {
+        titulo: 'Plano de ação',
+        gestao: true,
+        texto: `Meta em vermelho pede ação. No detalhe do KPI, em **Planos de ação**, toque em **+ Plano de ação** e informe descrição, responsável e prazo. Vira uma tarefa para a responsável, em Hoje, ligada ao indicador. A lista do detalhe mostra os planos abertos primeiro.
+
+No Modo reunião, o mesmo botão fica no slide de cada KPI: o plano nasce durante a reunião, sem sair dela.`,
+      },
+      {
+        titulo: 'Modo reunião',
+        gestao: true,
+        texto: `Para a reunião semanal. **Modo reunião**, no topo de Indicadores & Insights, mostra um slide por vez, em fundo claro, para levar à TV:
+- a capa, com a clínica, a semana e o resumo das metas (abaixo do ritmo, em atenção, no ritmo, atingidas);
+- um slide por OKR, com os resultados-chave;
+- um slide por KPI de Saúde da clínica em vermelho ou amarelo;
+- no fim, **Planos de ação da semana**.
+
+Passe com as setas do teclado ou com os botões dos cantos de baixo; o contador mostra "4 de 9". **Tela cheia** ocupa a tela toda; **Esc** ou o **✕** sai. Nenhum nome de paciente aparece na reunião.`,
+      },
+      {
+        titulo: 'Indicadores em Hoje, no menu e na Visão do mês',
+        gestao: true,
+        texto: `- **Menu:** ao lado de Indicadores & Insights, um número vermelho conta as metas abaixo do ritmo. Some quando é zero.
+- **Hoje:** quem tem acesso a Indicadores vê o bloco **Indicadores da semana**, com até 4 metas em vermelho ou amarelo e o atalho **Ver todos**. Toque num cartão para abrir o detalhe.
+- **Visão do mês:** a meta de faturamento mostra os dias aguardando fechamento e o atalho **Acompanhar em Indicadores & Insights**.
+- **Equipe › Metas do mês** continua igual; a média de atingimento é o KPI "Atingimento das metas individuais".`,
+      },
+      {
+        titulo: 'Relatórios',
+        gestao: true,
+        texto: `Na aba **Relatórios**, os 15 relatórios ficam em grupos, com busca no topo e os **Favoritos** antes de todos:
+- **Pacientes:** sem compra, sem atendimento, com maior LTV, que indicaram, por procedimento, por origem e campanha, aniversariantes.
+- **Financeiro:** recebimentos, saldos em aberto, contas a pagar.
+- **Estoque:** saídas e entradas.
+- **Comercial:** orçamentos, faltas e desmarcações.
+- **Equipe:** tarefas da equipe.
+
+Escolha o relatório, preencha os filtros e toque em **Gerar**. Aparecem o resumo (quantas linhas e os totais), a tabela (50 linhas por página, com ordenação por coluna) e os botões **Exportar**, **Salvar como favorito** e, nas listas de pacientes, **Criar campanha com esta lista**. Tocar no nome de uma paciente abre a ficha em outra aba. No celular, **Trocar de relatório** volta à lista.
+
+Cada relatório só aparece para quem tem a permissão da tela de onde vêm os dados: Recebimentos pede a Visão do mês, Orçamentos pede a Jornada do paciente. Em Recebimentos, o dinheiro dos dias com caixa ainda aberto fica num total à parte, aguardando fechamento.`,
+      },
+      {
+        titulo: 'Exportar um relatório',
+        gestao: true,
+        texto: `Em **Exportar**, escolha **Excel**, **CSV** ou **PDF**. O PDF abre em outra aba, pronto para imprimir ou "Salvar como PDF".
+- Todo arquivo sai com o nome da clínica, o relatório, os filtros, a data, quem exportou e um **código**, que também vai no nome do arquivo. A exportação fica registrada em **Atividades**.
+- Lista com dados de pacientes pede a confirmação do aviso. Lista com dado de saúde (pacientes por procedimento, orçamentos, sem compra filtrado por procedimento, saídas de estoque com a paciente) pede também **Para que é este arquivo?**: Acompanhamento do tratamento, Recall de lote ou Conferência interna.
+- **Incluir telefone** vem desligado. Marque só se o telefone precisar estar no arquivo. Para ligar ou mandar mensagem para a lista, o caminho é **Criar campanha com esta lista**, sem arquivo nenhum.
+- Quem não tem acesso a valores exporta sem as colunas em reais.
+- A sessão de suporte da Firmare vê o relatório, mas não exporta dado de paciente.
+
+Arquivo exportado tem dado de paciente: não encaminhe e apague quando terminar.`,
+      },
+      {
+        titulo: 'Relatório favorito',
+        gestao: true,
+        texto: `Gerou um relatório que a clínica usa sempre? Toque em **Salvar como favorito** e dê um nome (por exemplo, "Sem compra há 4 meses"). Ele aparece no topo da lista, em **Favoritos**, e roda de novo com um toque, com os mesmos filtros.
+- O favorito é da clínica: todos que podem abrir aquele relatório o veem. Por isso o nome não leva nome de paciente, telefone, valor nem dado de saúde.
+- O **✕** ao lado remove o favorito para toda a clínica; o relatório continua.
+- Se um filtro deixou de valer, o favorito aparece como "Filtros desatualizados" e não roda.`,
+      },
+      {
+        titulo: 'Criar campanha com esta lista',
+        gestao: true,
+        texto: `Nas listas de pacientes, **Criar campanha com esta lista** transforma o resultado em tarefas de contato, sem exportar nem importar planilha:
+- Escolha a campanha: uma que já existe ou **+ Nova campanha**.
+- Escolha o tipo da tarefa, o prazo e quem faz os contatos. A descrição fica em **+ Mais opções** (vazia, vira "Contato da campanha").
+- Toque em **Criar as tarefas**. Cada paciente da lista ganha uma tarefa; quem já tinha tarefa aberta na campanha fica de fora, e o aviso diz quantas.
+
+A lista é a dos filtros que estão na tela, até 2.000 pacientes: acima disso nada é criado, e é preciso estreitar o filtro. Paciente desativada não entra. Tocar de novo depois de uma falha de conexão não duplica nada. Em lista com dado de saúde, o procedimento não vai para a campanha nem para as tarefas. Exige a permissão **Criar, importar e excluir campanhas**.`,
+      },
+      {
+        titulo: 'O que os relatórios deixam de fora',
+        gestao: true,
+        texto: `Alguns dados ficam fora dos relatórios **de propósito**, pela lei de proteção de dados (LGPD), mesmo onde o pedido original previa:
+- **Pacientes que indicaram:** mostra quantas pessoas cada paciente indicou e quantas viraram pacientes, mas **não o nome das indicadas**.
+- **Aniversariantes:** mostra o dia, o mês e a idade, **nunca a data completa de nascimento**.
+- **Telefone** só sai quando alguém marca **Incluir telefone**. Recebimentos não traz telefone.
+- **Pacientes por procedimento** não traz dose nem lote. **Saídas de estoque** só mostra a paciente quando se marca **Mostrar a coluna de paciente**, e só para quem tem a Jornada do paciente.
+- **Nenhum relatório filtra por nome ou telefone** de paciente. Para achar uma pessoa, use a busca de Pacientes.
+- Paciente desativada não aparece em nenhum relatório.
+
+Não é defeito: é o mínimo de dado de paciente que cada lista precisa para o trabalho.`,
+      },
+      {
+        titulo: 'Textos livres: o que não escrever',
+        texto: `Nomes, objetivos, comentários e planos dos indicadores são lidos pela clínica inteira, vão para a TV no Modo reunião, e o nome do indicador pode chegar aos números que a Firmare acompanha. Por isso:
+- **Nome do KPI manual:** não use nome de pessoa nem de paciente.
+- **Como medir, comentário do lançamento, objetivo do OKR, "Por que isso importa" e plano de ação:** não escreva nome de paciente nem dado de saúde.
+- **Nome do favorito:** nem nome de paciente, telefone, valor nem dado de saúde.
+- **Não escreva valores em reais** nesses textos: quem não tem acesso a valores leria o número ali.
+
+Escreva o que se mede e o que se vai fazer ("Ligar para os orçamentos de outubro"), nunca de quem se trata.`,
+      },
+      {
+        titulo: 'Sem acesso a valores',
+        texto: `Quem não tem a permissão **Ver valores financeiros** usa os indicadores normalmente, sem ver reais:
+- No cartão, no lugar do valor em reais aparece o percentual da meta ("78% da meta"), e a meta "de R$…" não aparece. O minigráfico continua, sem valores.
+- No detalhe, "Meta e prazo" mostra "Meta definida", e o gráfico sai em percentual da meta.
+- **Despesas fixas sobre o recebido** não aparece. Os indicadores de equipe (banco de horas, metas individuais e conversas 1:1) só aparecem para quem tem a permissão de Equipe.
+- Meta, alvo ou KPI manual em reais só é criado por quem vê valores.
+- Nos relatórios, as colunas em reais somem da tela e do arquivo, e **Pacientes com maior LTV** não aparece.`,
+      },
+      {
+        titulo: 'Indicadores da clínica na carteira da Firmare',
+        gestao: true,
+        texto: 'Para a equipe da Firmare: na ficha do Cliente Firmare, o bloco **Indicadores da clínica** mostra os KPIs que a própria clínica acompanha aqui, como estavam na fotografia do dia (tirada uma vez por dia, enquanto a clínica está no grupo). Sem acesso a valores, aparece só o percentual da meta. Os indicadores de equipe (banco de horas, metas individuais e conversas 1:1) não chegam à carteira, e no pilar Pessoas chegam só a situação e o percentual. Em **Configurações › Grupos que recebem a clínica**, a clínica vê quem recebe esses números.',
       },
     ],
   },

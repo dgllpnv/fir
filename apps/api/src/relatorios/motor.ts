@@ -12,6 +12,7 @@ import {
   type FiltrosDoRelatorio,
   type FinalidadeDeExportacao,
   type FormatoDeExportacao,
+  podeAbrirRelatorio,
   type ResultadoDaExportacao,
   type ResultadoDoRelatorio,
   temFaixaDeValor,
@@ -44,6 +45,16 @@ import {
   saidasDeEstoque,
   tarefasDaEquipe,
 } from './consultas'
+import { contas, entradasDeEstoque, saldosEmAberto } from './consultas/financeiro-e-estoque'
+import { faltasEDesmarcacoes, orcamentos } from './consultas/jornada'
+import {
+  aniversariantes,
+  pacientesMaiorLtv,
+  pacientesPorOrigemECampanha,
+  pacientesPorProcedimento,
+  pacientesQueIndicaram,
+  pacientesSemAtendimento,
+} from './consultas/pacientes'
 import { LIMITES_DO_MOTOR, type LimitesDoMotor } from './limites'
 
 /** O que o motor precisa da requisição — tirado de `req.contexto` pelo controlador. */
@@ -57,6 +68,17 @@ export type ContextoDoMotor = {
   readonly quem: string
   /** Sessão de suporte (`ator_tipo = operador`): exportar `pessoal`/`saude` é 403 (L-IN-5). */
   readonly suporte: boolean
+}
+
+/** O que "Criar campanha" recebe da re-execução: ids e contagens, nunca linha. */
+export type ListaDoRelatorio = {
+  readonly chave: ChaveDeRelatorio
+  readonly filtros: Record<string, unknown>
+  readonly classe: ClasseDeRelatorio
+  readonly linhas: number
+  readonly truncado: boolean
+  /** Distintos, na ordem do relatório. */
+  readonly pacienteIds: readonly string[]
 }
 
 type Exportacao = {
@@ -181,7 +203,7 @@ export class MotorDeRelatorios {
     if (!lida.success) throw new NotFoundException('Relatório não encontrado.')
     const chave = lida.data
     const def = CATALOGO_DE_RELATORIOS[chave]
-    if (!ctx.pode(def.permissao)) throw new ForbiddenException('Sem permissão para este relatório.')
+    if (!podeAbrirRelatorio(chave, ctx.pode)) throw new ForbiddenException('Sem permissão para este relatório.')
     if (temFaixaDeValor(cru) && !ctx.pode('valores')) {
       throw new ForbiddenException('Filtrar por valor exige ver valores.')
     }
@@ -203,7 +225,9 @@ export class MotorDeRelatorios {
     exportacao: Exportacao | null,
   ): Promise<{ resultado: ResultadoDoRelatorio; codigo: string }> {
     const quem = atorEmColunas(ctx.ator)
-    const codigo = randomBytes(4).toString('hex')
+    // Sem ator identificado não há a quem contar o limite: falha fechado.
+    if (quem.id === null) throw new ForbiddenException('Relatório exige uma sessão identificada.')
+    await this.contarTentativa(ctx.clinicaId, ctx.ator, quem.id)
     const hoje = diaCivil(this.relogio.agora(), ctx.fuso)
     const consulta: ContextoDaConsulta = {
       clinicaId: ctx.clinicaId,
@@ -215,19 +239,9 @@ export class MotorDeRelatorios {
     }
     try {
       return await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+        // `statement_timeout` vale POR COMANDO (ADR do T8, "Limites"): o
+        // orçamento da execução é este valor vezes os comandos da consulta.
         await c.query('SELECT set_config($1, $2, true)', ['statement_timeout', String(this.limites.tempoMaximoMs)])
-
-        // C13: a própria trilha conta as gerações e exportações da última hora.
-        const n = await c.query<{ n: string }>(
-          `SELECT count(*)::text AS n FROM auditoria
-            WHERE clinica_id = $1 AND ator_id = $2
-              AND entidade IN ('relatorio', 'exportacao_de_relatorio')
-              AND em > now() - interval '1 hour'`,
-          [ctx.clinicaId, quem.id],
-        )
-        if (Number(n.rows[0]?.n ?? '0') >= this.limites.porHora) {
-          throw new HttpException('Muitos relatórios na última hora. Tente de novo mais tarde.', HttpStatus.TOO_MANY_REQUESTS)
-        }
 
         const saida = await consultar(c, consulta, p.chave, p.filtros)
         const resultado = montar(p.chave, p.classe, p.filtros, saida, ctx.pode)
@@ -247,20 +261,42 @@ export class MotorDeRelatorios {
                 finalidade: exportacao.finalidade ?? null,
               }),
         }
-        const linha = await c.query<{ id: string }>(
-          `INSERT INTO auditoria (clinica_id, ator_tipo, ator_id, acao, entidade, entidade_id, para)
-           VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-           RETURNING id::text AS id`,
-          [
-            ctx.clinicaId,
-            quem.tipo,
-            quem.id,
-            exportacao === null ? 'acessou' : 'exportou',
-            exportacao === null ? 'relatorio' : 'exportacao_de_relatorio',
-            exportacao === null ? p.chave : codigo,
-            JSON.stringify(registro),
-          ],
-        )
+        const gravar = (entidadeId: string) =>
+          c.query<{ id: string }>(
+            `INSERT INTO auditoria (clinica_id, ator_tipo, ator_id, acao, entidade, entidade_id, para)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+             RETURNING id::text AS id`,
+            [
+              ctx.clinicaId,
+              quem.tipo,
+              quem.id,
+              exportacao === null ? 'acessou' : 'exportou',
+              exportacao === null ? 'relatorio' : 'exportacao_de_relatorio',
+              entidadeId,
+              JSON.stringify(registro),
+            ],
+          )
+        let codigo = ''
+        let linha: pg.QueryResult<{ id: string }>
+        if (exportacao === null) {
+          linha = await gravar(p.chave)
+        } else {
+          // L-IN-10: o código é único na clínica (índice da 0108). Na colisão,
+          // outro código — com SAVEPOINT, para a recusa não derrubar a leitura.
+          for (let tentativa = 1; ; tentativa++) {
+            codigo = randomBytes(4).toString('hex')
+            await c.query('SAVEPOINT codigo_da_exportacao')
+            try {
+              linha = await gravar(codigo)
+              await c.query('RELEASE SAVEPOINT codigo_da_exportacao')
+              break
+            } catch (e) {
+              await c.query('ROLLBACK TO SAVEPOINT codigo_da_exportacao')
+              const colidiu = ehErroDoPg(e) && e.code === '23505' && (e as { constraint?: string }).constraint === 'auditoria_codigo_da_exportacao'
+              if (!colidiu || tentativa >= 5) throw e
+            }
+          }
+        }
         if (exportacao !== null && saida.pacienteIds.length > 0) {
           await c.query(
             `INSERT INTO pacientes_da_exportacao (clinica_id, exportacao_id, paciente_id)
@@ -275,6 +311,92 @@ export class MotorDeRelatorios {
       // transação caiu inteira: nenhuma linha sai, e nada foi registrado.
       if (ehErroDoPg(e) && (e.code === '57014' || e.code === '55P03')) {
         throw new ServiceUnavailableException('O relatório demorou demais. Estreite o período ou os filtros.')
+      }
+      throw e
+    }
+  }
+
+  /**
+   * **A LISTA PARA "CRIAR CAMPANHA"** (spec I-42; appsec C20, C22). Os mesmos
+   * passos 1 a 4 e o mesmo limite por hora; o relatório tem de ser de lista de
+   * pacientes. A consulta roda DE NOVO no servidor, com os filtros recebidos —
+   * os pacientes nunca vêm do cliente —, e `usar` recebe a transação aberta:
+   * a campanha nasce na mesma transação que leu a lista, ou não nasce.
+   */
+  async comALista<T>(
+    ctx: ContextoDoMotor,
+    chaveCrua: string,
+    cru: Record<string, unknown>,
+    usar: (c: pg.PoolClient, lista: ListaDoRelatorio) => Promise<T>,
+  ): Promise<T> {
+    const p = this.preparar(ctx, chaveCrua, cru)
+    if (!CATALOGO_DE_RELATORIOS[p.chave].listaDePacientes) {
+      throw new UnprocessableEntityException('Este relatório não é uma lista de pacientes.')
+    }
+    const quem = atorEmColunas(ctx.ator)
+    if (quem.id === null) throw new ForbiddenException('Relatório exige uma sessão identificada.')
+    await this.contarTentativa(ctx.clinicaId, ctx.ator, quem.id)
+    const consulta: ContextoDaConsulta = {
+      clinicaId: ctx.clinicaId,
+      fuso: ctx.fuso,
+      hoje: diaCivil(this.relogio.agora(), ctx.fuso),
+      pode: (k) => ctx.pode(k as ChaveDePermissao),
+      limite: this.limites.linhas,
+      incluirTelefone: false,
+    }
+    try {
+      return await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+        await c.query('SELECT set_config($1, $2, true)', ['statement_timeout', String(this.limites.tempoMaximoMs)])
+        const saida = await consultar(c, consulta, p.chave, p.filtros)
+        return usar(c, {
+          chave: p.chave,
+          filtros: p.filtros,
+          classe: p.classe,
+          linhas: saida.linhas.length,
+          truncado: saida.truncado,
+          pacienteIds: [...new Set(saida.pacienteIds)],
+        })
+      })
+    } catch (e) {
+      if (ehErroDoPg(e) && (e.code === '57014' || e.code === '55P03')) {
+        throw new ServiceUnavailableException('O relatório demorou demais. Estreite o período ou os filtros.')
+      }
+      throw e
+    }
+  }
+
+  /**
+   * **O LIMITE POR HORA, contado na TENTATIVA** (appsec C13, revisão B1).
+   *
+   * Transação curta e PRÓPRIA, com COMMIT antes da consulta: a tentativa conta
+   * mesmo quando a leitura estoura o tempo ou falha (a trilha, essa, continua
+   * gravando só o sucesso — L-IN-8). `pg_advisory_xact_lock` por (clínica,
+   * pessoa) serializa a contagem e a gravação: sem ela, pedidos em paralelo
+   * liam o mesmo número. Qualquer erro aqui sobe — falha fechado.
+   */
+  private async contarTentativa(clinicaId: ClinicaId, ator: Ator, atorId: string): Promise<void> {
+    try {
+      await this.banco.naClinica(clinicaId, ator, async (c) => {
+        await c.query('SELECT set_config($1, $2, true)', ['statement_timeout', String(this.limites.tempoMaximoMs)])
+        await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [`relatorios:${clinicaId}:${atorId}`])
+        await c.query(
+          `DELETE FROM tentativas_de_relatorio
+            WHERE clinica_id = $1 AND ator_id = $2 AND em <= now() - interval '1 hour'`,
+          [clinicaId, atorId],
+        )
+        const n = await c.query<{ n: string }>(
+          'SELECT count(*)::text AS n FROM tentativas_de_relatorio WHERE clinica_id = $1 AND ator_id = $2',
+          [clinicaId, atorId],
+        )
+        if (Number(n.rows[0]?.n ?? 'NaN') < this.limites.porHora) {
+          await c.query('INSERT INTO tentativas_de_relatorio (clinica_id, ator_id) VALUES ($1, $2)', [clinicaId, atorId])
+          return
+        }
+        throw new HttpException('Muitos relatórios na última hora. Tente de novo mais tarde.', HttpStatus.TOO_MANY_REQUESTS)
+      })
+    } catch (e) {
+      if (ehErroDoPg(e) && (e.code === '57014' || e.code === '55P03')) {
+        throw new ServiceUnavailableException('Muitos relatórios ao mesmo tempo. Tente de novo em instantes.')
       }
       throw e
     }
@@ -306,6 +428,28 @@ function consultar(
       return saidasDeEstoque(c, ctx, filtros as FiltrosDoRelatorio<'saidas-de-estoque'>)
     case 'tarefas-da-equipe':
       return tarefasDaEquipe(c, ctx, filtros as FiltrosDoRelatorio<'tarefas-da-equipe'>)
+    case 'pacientes-sem-atendimento':
+      return pacientesSemAtendimento(c, ctx, filtros as FiltrosDoRelatorio<'pacientes-sem-atendimento'>)
+    case 'pacientes-maior-ltv':
+      return pacientesMaiorLtv(c, ctx, filtros as FiltrosDoRelatorio<'pacientes-maior-ltv'>)
+    case 'pacientes-que-indicaram':
+      return pacientesQueIndicaram(c, ctx, filtros as FiltrosDoRelatorio<'pacientes-que-indicaram'>)
+    case 'pacientes-por-procedimento':
+      return pacientesPorProcedimento(c, ctx, filtros as FiltrosDoRelatorio<'pacientes-por-procedimento'>)
+    case 'pacientes-por-origem-e-campanha':
+      return pacientesPorOrigemECampanha(c, ctx, filtros as FiltrosDoRelatorio<'pacientes-por-origem-e-campanha'>)
+    case 'aniversariantes':
+      return aniversariantes(c, ctx, filtros as FiltrosDoRelatorio<'aniversariantes'>)
+    case 'saldos-em-aberto':
+      return saldosEmAberto(c, ctx, filtros as FiltrosDoRelatorio<'saldos-em-aberto'>)
+    case 'contas':
+      return contas(c, ctx, filtros as FiltrosDoRelatorio<'contas'>)
+    case 'entradas-de-estoque':
+      return entradasDeEstoque(c, ctx, filtros as FiltrosDoRelatorio<'entradas-de-estoque'>)
+    case 'orcamentos':
+      return orcamentos(c, ctx, filtros as FiltrosDoRelatorio<'orcamentos'>)
+    case 'faltas-e-desmarcacoes':
+      return faltasEDesmarcacoes(c, ctx, filtros as FiltrosDoRelatorio<'faltas-e-desmarcacoes'>)
   }
 }
 

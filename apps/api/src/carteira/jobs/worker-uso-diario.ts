@@ -9,6 +9,8 @@ import {
 } from './fila-uso-diario'
 import { executarUsoDiarioCliente } from './uso-diario-cliente'
 import { executarIndicadoresDoDia } from '../../indicadores/fotografias'
+import { executarRetencaoDoAcesso } from '../../acesso/retencao'
+import { rodarJobsIsolados } from '../../comum/jobs-isolados'
 
 /**
  * **O PROCESSO DO WORKER DA CARTEIRA** (G4) — entrypoint próprio, `tsx src/
@@ -35,21 +37,51 @@ async function main(): Promise<void> {
   const relogio = new RelogioDoSistema()
 
   const rodar = async (dia?: string): Promise<void> => {
-    const resumo = await executarUsoDiarioCliente(banco, relogio, dia)
-    if (resumo.falhas.length > 0) {
-      console.error(
-        `[carteira:uso-diario] ${resumo.processados} processados, ${resumo.falhas.length} falha(s):`,
-        resumo.falhas,
-      )
-    } else {
-      console.log(`[carteira:uso-diario] ${resumo.processados} processados, sem falhas.`)
-    }
-    // Indicadores & Insights (T2): o job `indicadores-do-dia` — as fotografias
-    // dos KPIs de posição, uma clínica por vez, como `fir_app`. Reentrante:
-    // a posição é a do INSTANTE, e o dia já gravado não muda. O log leva só
-    // contagens e ids, nunca um valor.
-    const ind = await executarIndicadoresDoDia(banco, relogio)
-    console.log(`[indicadores-do-dia] ${ind.processadas} clínicas, ${ind.gravadas} fotografias, ${ind.tarefas} tarefas de lançamento, ${ind.falhas.length} falha(s)`, ind.falhas)
+    // Cada job POR SI (revisão appsec M1): a falha de um não impede o seguinte,
+    // e a retenção do acesso não deixa de rodar porque outro job caiu. O log da
+    // falha leva o nome do job e o código do erro, nunca a mensagem.
+    await rodarJobsIsolados([
+      {
+        nome: 'carteira:uso-diario',
+        rodar: async () => {
+          const resumo = await executarUsoDiarioCliente(banco, relogio, dia)
+          if (resumo.falhas.length > 0) {
+            console.error(
+              `[carteira:uso-diario] ${resumo.processados} processados, ${resumo.falhas.length} falha(s):`,
+              resumo.falhas,
+            )
+          } else {
+            console.log(`[carteira:uso-diario] ${resumo.processados} processados, sem falhas.`)
+          }
+          // T10: só contagem e ids — nunca nome de KPI nem valor (appsec C29).
+          console.log(
+            `[carteira:kpis-na-carteira] ${resumo.kpisGravados} linhas, ${resumo.falhasDosKpis.length} falha(s)`,
+            resumo.falhasDosKpis,
+          )
+        },
+      },
+      {
+        nome: 'indicadores-do-dia',
+        rodar: async () => {
+          // Indicadores & Insights (T2): o job `indicadores-do-dia` — as fotografias
+          // dos KPIs de posição, uma clínica por vez, como `fir_app`. Reentrante:
+          // a posição é a do INSTANTE, e o dia já gravado não muda. O log leva só
+          // contagens e ids, nunca um valor.
+          const ind = await executarIndicadoresDoDia(banco, relogio)
+          console.log(`[indicadores-do-dia] ${ind.processadas} clínicas, ${ind.gravadas} fotografias, ${ind.tarefas} tarefas de lançamento, ${ind.falhas.length} falha(s)`, ind.falhas)
+        },
+      },
+      {
+        nome: 'retencao-do-acesso',
+        rodar: async () => {
+          // Retenção do acesso por e-mail (LGPD L5, L6; migration 0111): links
+          // vencidos há 30 dias e eventos com 1 ano. Reentrante — o que já saiu
+          // apaga zero — e o log leva só contagens e ids.
+          const ret = await executarRetencaoDoAcesso(banco, relogio)
+          console.log(`[retencao-do-acesso] ${ret.clinicas} clínicas, ${ret.links} links, ${ret.eventos} eventos apagados, ${ret.falhas.length} falha(s)`, ret.falhas)
+        },
+      },
+    ])
   }
 
   const worker = new Worker(

@@ -1,0 +1,232 @@
+/*
+ * MODO REUNIÃO (1.9 F) — tela cheia, fundo claro (o creme da casa), cartões
+ * brancos, um slide por vez.
+ *
+ * Cobre o casco inteiro (`position: fixed`) abaixo dos painéis e do toast
+ * (z 40), acima da lateral e do topo (z ≤ 30). A tipografia cresce com a
+ * largura (`clamp`): no celular é a tela da casa, na TV da sala lê-se do
+ * fundo. Só tokens de `tokens.css` e só pares já medidos em
+ * `packages/ui/src/contraste.test.ts` — nenhum par novo nasce aqui. Todo
+ * número é tabular; nada rola de lado em 390 px.
+ */
+.rn {
+  position: fixed;
+  inset: 0;
+  z-index: 36;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--bg);
+  color: var(--ink);
+  outline: none;
+}
+
+.rn-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) clamp(14px, 4vw, 56px) 10px;
+  border-bottom: 1px solid var(--line);
+}
+.rn-marca { display: grid; gap: 2px; min-width: 0; }
+.rn-marca .eyebrow { margin: 0; }
+.rn-clinica { font-weight: 600; font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rn-topo-acoes { display: flex; align-items: center; gap: 6px; flex: none; }
+.rn-tela-cheia { min-height: 44px; padding: 8px 12px; font-size: 13.5px; }
+@media (max-width: 479px) { .rn-tela-cheia { display: none; } }
+
+.rn-icone,
+.rn-seta {
+  display: inline-grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  flex: none;
+}
+.rn-icone svg, .rn-seta svg { width: 22px; height: 22px; }
+.rn-seta { width: 56px; height: 56px; }
+.rn-icone:hover, .rn-seta:hover:not(:disabled) { border-color: var(--gold); }
+.rn-icone:focus-visible, .rn-seta:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.rn-seta:disabled { opacity: 0.4; cursor: default; }
+
+.rn-palco {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: clamp(16px, 3vw, 40px) clamp(14px, 4vw, 56px);
+  min-width: 0;
+}
+.rn-slide {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: grid;
+  gap: clamp(14px, 2vw, 28px);
+  align-content: start;
+  min-width: 0;
+}
+.rn-slide[data-tipo='capa'] { min-height: 100%; align-content: center; }
+
+.rn h1 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: clamp(26px, 3.6vw, 60px);
+  line-height: 1.12;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  /* O objetivo é texto livre, como foi digitado: as quebras de linha dele ficam. */
+  white-space: pre-line;
+}
+.rn .eyebrow { font-size: clamp(11px, 0.9vw, 14px); }
+.rn .nota { font-size: clamp(13px, 1.1vw, 17px); }
+.rn .ii-selo { font-size: clamp(12.5px, 1vw, 16px); }
+
+/* ---------- capa ---------- */
+.rn-capa { display: grid; gap: clamp(10px, 1.6vw, 22px); justify-items: start; }
+.rn-capa h1 { font-size: clamp(32px, 5vw, 84px); }
+.rn-resumo {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(20px, 2.6vw, 40px);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.rn-contagens {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: clamp(6px, 1.4vw, 20px) 0 0;
+  width: min(100%, 880px);
+}
+@media (min-width: 720px) { .rn-contagens { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.rn-contagens > div {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: clamp(12px, 1.4vw, 20px);
+  display: grid;
+  gap: 4px;
+}
+.rn-contagens dt { color: var(--muted); font-size: clamp(12.5px, 1vw, 16px); font-weight: 600; }
+.rn-contagens dd {
+  margin: 0;
+  font-family: var(--display);
+  font-size: clamp(30px, 3.4vw, 56px);
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ---------- OKR e KPI ---------- */
+.rn-cabeca { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px 20px; flex-wrap: wrap; }
+.rn-cabeca > div:first-child { flex: 1 1 280px; }
+.rn-numero-grande { display: grid; justify-items: end; gap: 6px; flex: none; }
+.rn-numero-grande strong {
+  font-family: var(--display);
+  font-size: clamp(40px, 5vw, 88px);
+  line-height: 1;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.rn-barra { height: clamp(8px, 0.8vw, 14px); }
+
+.rn-krs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+@media (min-width: 900px) { .rn-krs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rn-kr {
+  display: grid;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: clamp(12px, 1.4vw, 22px);
+  min-width: 0;
+}
+.rn-kr-cabeca { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.rn-kr-nome { font-weight: 600; font-size: clamp(15px, 1.3vw, 21px); min-width: 0; overflow-wrap: anywhere; }
+.rn-kr-plano { justify-self: start; min-height: 44px; font-size: clamp(13px, 1vw, 16px); }
+
+.rn-valor { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; min-width: 0; }
+.rn-valor strong {
+  font-family: var(--display);
+  font-size: clamp(26px, 2.6vw, 44px);
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums lining-nums;
+  overflow-wrap: anywhere;
+}
+.rn-valor span { color: var(--muted); font-size: clamp(13px, 1.1vw, 18px); font-variant-numeric: tabular-nums; }
+.rn-valor-grande strong { font-size: clamp(40px, 6vw, 104px); }
+.rn-valor-grande span { font-size: clamp(14px, 1.7vw, 28px); }
+.rn-valor-grande strong.ii-so-percentual { font-size: clamp(34px, 4.6vw, 80px); }
+
+.rn-fatos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+@media (min-width: 900px) { .rn-fatos { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.rn-fatos > div {
+  display: grid;
+  gap: 2px;
+  border-top: 2px solid var(--gold);
+  padding-top: 8px;
+  min-width: 0;
+}
+.rn-fatos dt { color: var(--muted); font-size: clamp(12px, 0.95vw, 15px); font-weight: 600; }
+.rn-fatos dd { margin: 0; font-size: clamp(16px, 1.5vw, 24px); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* ---------- planos de ação ---------- */
+.rn-planos { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rn-plano {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r);
+  padding: clamp(12px, 1.2vw, 18px) clamp(12px, 1.4vw, 20px);
+  min-width: 0;
+}
+.rn-plano[data-status='concluida'] { border-left-color: var(--ok); }
+.rn-plano[data-status='cancelada'] { border-left-color: var(--line); }
+.rn-plano-texto { display: grid; gap: 4px; flex: 1 1 260px; min-width: 0; }
+/* A descrição é texto livre da equipe: aparece como foi digitada. */
+.rn-plano-texto b { font-size: clamp(15px, 1.4vw, 22px); font-weight: 600; overflow-wrap: anywhere; white-space: pre-line; }
+.rn-plano-texto small { color: var(--muted); font-size: clamp(12.5px, 1vw, 16px); overflow-wrap: anywhere; }
+.rn-plano-lado { display: grid; justify-items: end; gap: 4px; font-size: clamp(13px, 1.1vw, 17px); font-variant-numeric: tabular-nums; }
+.rn-status { color: var(--muted); font-weight: 600; }
+.rn-plano[data-status='concluida'] .rn-status { color: var(--ok); }
+.rn-vazio { max-width: 60ch; }
+
+/* ---------- rodapé ---------- */
+.rn-rodape {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px clamp(14px, 4vw, 56px) calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.rn-rodape-meio { flex: 1; min-width: 0; display: flex; }
+.rn-rodape-meio .btn { min-height: 48px; padding: 10px 14px; font-size: 14px; }
+.rn-contador {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: clamp(14px, 1.1vw, 18px);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

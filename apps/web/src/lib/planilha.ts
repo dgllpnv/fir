@@ -63,6 +63,92 @@ export async function baixarPlanilha(arquivo: string, abas: readonly Aba[]): Pro
   X.writeFile(livro, arquivo)
 }
 
+/* ===================================================================
+ * EXPORTAÇÃO DE RELATÓRIO (T8; appsec C17; LGPD L-IN-15)
+ * =================================================================== */
+
+/**
+ * Uma célula do arquivo exportado. `numero` é o que NÓS formatamos a partir de
+ * um campo tipado do servidor (dinheiro, quantidade, contagem); `texto` é todo
+ * o resto — nome, motivo, item, o cabeçalho — e é onde mora o risco: o motivo
+ * de uma saída de estoque é texto digitado pela equipe.
+ */
+export type CelulaDaPlanilha = { readonly tipo: 'texto' | 'numero'; readonly valor: string }
+
+export type TabelaDaPlanilha = {
+  readonly nomeDaAba: string
+  readonly linhas: readonly (readonly CelulaDaPlanilha[])[]
+}
+
+/**
+ * A célula de texto que a planilha leria como fórmula (appsec C17): começa —
+ * depois de espaço — com `=`, `+`, `-` ou `@`, ou começa com TAB, CR ou LF.
+ * `"=cmd()"` numa célula é o ataque clássico de injeção em CSV: o Excel o
+ * executa ao abrir, com o nome da clínica no cabeçalho dando credibilidade.
+ */
+export const textoPerigoso = (v: string): boolean => /^\s*[=+\-@]/.test(v) || /^[\t\r\n]/.test(v)
+
+/** O separador é `;`: o Excel em português usa a vírgula como decimal e abre `;` direto. */
+const SEPARADOR = ';'
+
+function celulaDoCsv(c: CelulaDaPlanilha): string {
+  const v = c.tipo === 'texto' && textoPerigoso(c.valor) ? `'${c.valor}` : c.valor
+  // RFC 4180: aspas em volta quando há separador, aspas, quebra de linha ou
+  // espaço nas pontas; aspas internas dobradas. Sem isto, `" ;=1` partiria a
+  // célula em duas, e a segunda começaria com `=`.
+  return /[;"\r\n]/.test(v) || /^\s|\s$/.test(v) ? `"${v.replaceAll('"', '""')}"` : v
+}
+
+/** CSV RFC 4180, com BOM (o Excel precisa dele para ler UTF-8) e CRLF. */
+export function montarCsv(tabela: TabelaDaPlanilha): string {
+  return `﻿${tabela.linhas.map((l) => l.map(celulaDoCsv).join(SEPARADOR)).join('\r\n')}\r\n`
+}
+
+/** O nome de aba que o Excel aceita: até 31 caracteres, sem `[]:*?/\`. */
+const nomeDeAba = (n: string): string => n.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31).trim() || 'Relatório'
+
+/**
+ * XLSX com TODA célula `t: 's'` (appsec C17): nenhuma `f`, nenhum hyperlink
+ * (`l`). A folha é montada célula a célula, e não por `aoa_to_sheet`, para que
+ * nenhuma heurística da biblioteca decida o tipo de um texto que começa com `=`.
+ */
+export async function montarXlsx(tabela: TabelaDaPlanilha): Promise<Uint8Array<ArrayBuffer>> {
+  const X = await carregar()
+  const folha: import('xlsx').WorkSheet = {}
+  let colunas = 1
+  const larguras: number[] = []
+  tabela.linhas.forEach((linha, r) => {
+    colunas = Math.max(colunas, linha.length)
+    linha.forEach((c, col) => {
+      folha[X.utils.encode_cell({ r, c: col })] = { t: 's', v: c.valor }
+      larguras[col] = Math.min(60, Math.max(larguras[col] ?? 8, c.valor.length + 2))
+    })
+  })
+  folha['!ref'] = X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(0, tabela.linhas.length - 1), c: colunas - 1 } })
+  folha['!cols'] = larguras.map((wch) => ({ wch }))
+  const livro = X.utils.book_new()
+  X.utils.book_append_sheet(livro, folha, nomeDeAba(tabela.nomeDaAba))
+  // `as`: com `type: 'array'` o SheetJS devolve um ArrayBuffer; a tipagem dele é `any`.
+  return new Uint8Array(X.write(livro, { type: 'array', bookType: 'xlsx', compression: true }) as ArrayBuffer)
+}
+
+/**
+ * Entrega o arquivo ao navegador, da MEMÓRIA (LGPD L-IN-15): um `Blob` e um
+ * link temporário, revogado logo depois. Nada vai para `localStorage`,
+ * `sessionStorage` nem IndexedDB.
+ */
+export function baixarArquivo(nome: string, conteudo: BlobPart, tipo: string): void {
+  const url = URL.createObjectURL(new Blob([conteudo], { type: tipo }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nome
+  a.rel = 'noopener'
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 /**
  * Lê a tabela de um arquivo `.xlsx`/`.xls`/`.csv` **ou** do texto colado.
  *

@@ -3,14 +3,12 @@ import {
   CHAVES_DE_RELATORIO,
   classeDoRelatorio,
   FILTROS_DOS_RELATORIOS,
-  LinhaPacientesSemCompra,
-  LinhaRecebimento,
-  LinhaSaidaDeEstoque,
-  LinhaTarefaDaEquipe,
+  LINHAS_DOS_RELATORIOS,
+  podeAbrirRelatorio,
 } from '@fir/contracts'
 import { CAMPOS_MONETARIOS, type ChaveDePermissao } from '@fir/domain'
 import { readdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -19,20 +17,26 @@ import type { SaidaDaConsulta } from './consultas'
 import { montar } from './motor'
 
 const AQUI = dirname(fileURLToPath(import.meta.url))
-const fontes = readdirSync(AQUI)
+// Recursiva: as consultas do T9 moram em `consultas/` e entram na varredura.
+// `as`: com `recursive` e sem `withFileTypes`, o Node devolve `string[]`.
+const fontes = (readdirSync(AQUI, { recursive: true }) as string[])
+  .map((n) => n.split(sep).join('/'))
   .filter((n) => n.endsWith('.ts') && !n.endsWith('.test.ts'))
   .map((n) => ({ nome: n, texto: readFileSync(join(AQUI, n), 'utf8') }))
 
-const LINHAS = {
-  'pacientes-sem-compra': LinhaPacientesSemCompra,
-  recebimentos: LinhaRecebimento,
-  'saidas-de-estoque': LinhaSaidaDeEstoque,
-  'tarefas-da-equipe': LinhaTarefaDaEquipe,
-} as const
+const LINHAS = LINHAS_DOS_RELATORIOS
 
 describe('relatorios-sem-sql-raw (appsec C12)', () => {
   it('a varredura ENXERGA o motor, as consultas e o controlador', () => {
-    expect(fontes.map((f) => f.nome)).toEqual(expect.arrayContaining(['motor.ts', 'consultas.ts', 'relatorios.controller.ts']))
+    expect(fontes.map((f) => f.nome)).toEqual(expect.arrayContaining([
+        'motor.ts',
+        'consultas.ts',
+        'relatorios.controller.ts',
+        'campanha.service.ts',
+        'consultas/pacientes.ts',
+        'consultas/financeiro-e-estoque.ts',
+        'consultas/jornada.ts',
+      ]))
   })
 
   it('nenhum sql.raw, sql.identifier, nem template com interpolação que leve SQL', () => {
@@ -146,7 +150,21 @@ describe('schema-de-linha-e-o-padrao (LGPD L-IN-6)', () => {
         if (c.chave === 'telefone') expect('optIn' in c && c.optIn === 'telefone').toBe(true)
       }
     }
-    expect(Object.keys(LinhaTarefaDaEquipe.shape).some((k) => k.startsWith('paciente'))).toBe(false)
+    expect(Object.keys(LINHAS['tarefas-da-equipe'].shape).some((k) => k.startsWith('paciente'))).toBe(false)
+  })
+
+  it('T9: o 7 nunca traz a data completa de nascimento, e o 4 nunca o nome da indicada (I-38)', () => {
+    const do7 = Object.keys(LINHAS.aniversariantes.shape)
+    expect(do7.some((k) => /aniversario|nascimento/i.test(k))).toBe(false)
+    expect(Object.keys(LINHAS['pacientes-que-indicaram'].shape).some((k) => /^indicada(s)?Nome|nomeDaIndicada/i.test(k))).toBe(false)
+  })
+
+  it('T9: o 3 exige valores e o 5 exige jornada, na tabela (c.11c; L-IN-2)', () => {
+    expect(CATALOGO_DE_RELATORIOS['pacientes-maior-ltv'].exigeTambem).toEqual(['valores'])
+    expect(CATALOGO_DE_RELATORIOS['pacientes-por-procedimento'].exigeTambem).toEqual(['jornada'])
+    expect(podeAbrirRelatorio('pacientes-maior-ltv', (k) => k === 'pacientes')).toBe(false)
+    expect(podeAbrirRelatorio('pacientes-maior-ltv', (k) => k === 'pacientes' || k === 'valores')).toBe(true)
+    expect(podeAbrirRelatorio('pacientes-por-procedimento', (k) => k === 'programas')).toBe(false)
   })
 })
 
@@ -208,5 +226,32 @@ describe('exportacao-redacao-mutacao (appsec C16): cada camada, SOZINHA, apaga o
     const r = montar('pacientes-sem-compra', 'pessoal', { semCompraHaMeses: 3 }, saida, comValores)
     expect(r.colunas.map((c) => c.chave)).toEqual(['nome', 'ultimaCompra', 'valorDaUltimaCompra', 'ltv'])
     expect(JSON.stringify(r)).toContain('987654')
+  })
+
+  // T9: a mesma prova num relatório novo, com dinheiro na linha E no resumo.
+  const do9: SaidaDaConsulta<unknown, unknown> = {
+    linhas: [
+      {
+        pacienteId: '00000000-0000-4000-8000-000000000001',
+        programaId: null,
+        nome: 'Ana',
+        adesao: 'Geral',
+        valorAberto: '313131',
+        desde: '2026-01-10',
+      },
+    ],
+    resumo: { pacientes: 1, grupos: 1, aReceber: '313131' },
+    truncado: false,
+    filtrosEmTexto: ['Saldo de agora'],
+    pacienteIds: [],
+    optIn: [],
+  }
+  it('relatório 9, cada camada SOZINHA apaga `valorAberto` e `aReceber`; com `valores`, saem', () => {
+    const motor = montar('saldos-em-aberto', 'pessoal', {}, do9, semValores)
+    expect(motor.colunas.some((c) => c.tipo === 'dinheiro')).toBe(false)
+    expect(JSON.stringify(motor)).not.toContain('313131')
+    const vazado = montar('saldos-em-aberto', 'pessoal', {}, do9, comValores)
+    expect(JSON.stringify(vazado)).toContain('313131')
+    expect(JSON.stringify(redigir(vazado, semValores))).not.toContain('313131')
   })
 })

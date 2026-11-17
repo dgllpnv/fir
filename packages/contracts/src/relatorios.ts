@@ -1,7 +1,9 @@
 import { type ChaveDePermissao, somarMeses } from '@fir/domain'
 import { z } from 'zod'
+import { MAX_LINHAS_DA_CAMPANHA, SalvarCampanha } from './campanhas'
 import { centavosNaSaida, DiaCivil, Uuid } from './comum'
 import { QuantidadeNaSaida } from './estoque'
+import { tipoQueNaoEhPagamento } from './tarefas'
 import { ValorNaTelaSchema } from './indicadores-api'
 import { CumprimentoDePrazos } from './painel'
 
@@ -31,10 +33,22 @@ import { CumprimentoDePrazos } from './painel'
  *    "filtros em texto" e os rótulos do resumo nunca levam um valor.
  */
 
+/** Na ordem do número do relatório (spec "Os 15 relatórios"). */
 export const CHAVES_DE_RELATORIO = [
   'pacientes-sem-compra',
+  'pacientes-sem-atendimento',
+  'pacientes-maior-ltv',
+  'pacientes-que-indicaram',
+  'pacientes-por-procedimento',
+  'pacientes-por-origem-e-campanha',
+  'aniversariantes',
   'recebimentos',
+  'saldos-em-aberto',
+  'contas',
   'saidas-de-estoque',
+  'entradas-de-estoque',
+  'orcamentos',
+  'faltas-e-desmarcacoes',
   'tarefas-da-equipe',
 ] as const
 export const ChaveDeRelatorio = z.enum(CHAVES_DE_RELATORIO)
@@ -126,10 +140,89 @@ export const CamposTarefasDaEquipe = z
   .strict()
 export const FiltrosTarefasDaEquipe = CamposTarefasDaEquipe.superRefine(comPeriodo)
 
+/* ---- T9 --------------------------------------------------------------- */
+
+/** Um período `[de, ate]` em dias civis da clínica, sem mais nada. */
+const CamposDoPeriodo = z.object({ de: DiaCivil, ate: DiaCivil }).strict()
+
+/**
+ * Relatório 2. "Atendimento" é o MOVIMENTO da lista de pacientes: o mais
+ * recente entre o último atendimento registrado e a última consulta do
+ * cadastro (o atalho "Sem retorno"). Quem nunca veio não entra.
+ */
+export const FiltrosPacientesSemAtendimento = z
+  .object({ semAtendimentoHaMeses: z.number().int().min(1).max(JANELA_MAXIMA_EM_MESES) })
+  .strict()
+
+/** Relatório 3 (top N por LTV). O relatório inteiro exige `valores` (números c.11c). */
+export const FiltrosPacientesMaiorLtv = z
+  .object({ quantos: z.number().int().min(1).max(500).default(50) })
+  .strict()
+
+/** Relatório 4. A janela é a do CADASTRO da indicada, como em "Quem mais indica" do Painel. */
+export const FiltrosPacientesQueIndicaram = CamposDoPeriodo.superRefine(comPeriodo)
+
+/** Relatório 5. Classe `saude`: exige `jornada` além de `programas` (LGPD L-IN-2). */
+export const FiltrosPacientesPorProcedimento = z
+  .object({ procedimentoId: Uuid.optional(), incluirEncerrados: z.boolean().default(false) })
+  .strict()
+
+/** Relatório 6. Os pacientes CADASTRADOS em `[de, ate]` — a janela de "Novos pacientes" do Painel. */
+export const FiltrosPacientesPorOrigemECampanha = z
+  .object({ de: DiaCivil, ate: DiaCivil, campanhaId: Uuid.optional() })
+  .strict()
+  .superRefine(comPeriodo)
+
+/** Relatório 7. O mês do aniversário; a idade é a de hoje, no fuso da clínica. */
+export const FiltrosAniversariantes = z.object({ mes: z.number().int().min(1).max(12) }).strict()
+
+/**
+ * Relatório 9. `ate` é o CORTE: o saldo no fim daquele dia (`saldosDe(…, { ate })`,
+ * números c.9). Ausente = agora. A faixa de valor é do valor em aberto do grupo,
+ * e exige `valores` (I-40).
+ */
+export const CamposSaldosEmAberto = z
+  .object({
+    ate: DiaCivil.optional(),
+    valorMinimo: CentavosDoFiltro.optional(),
+    valorMaximo: CentavosDoFiltro.optional(),
+  })
+  .strict()
+export const FiltrosSaldosEmAberto = CamposSaldosEmAberto.superRefine(comFaixa)
+
+/** Relatório 10. Contas com VENCIMENTO em `[de, ate]`. */
+export const FiltrosContas = z
+  .object({ de: DiaCivil, ate: DiaCivil, situacao: z.enum(['todas', 'abertas', 'pagas']).default('todas') })
+  .strict()
+  .superRefine(comPeriodo)
+
+/** Relatório 12. As entradas com dia em `[de, ate]`. */
+export const FiltrosEntradasDeEstoque = z
+  .object({ de: DiaCivil, ate: DiaCivil, itemId: Uuid.optional() })
+  .strict()
+  .superRefine(comPeriodo)
+
+/** Relatório 13. Os orçamentos REGISTRADOS em `[de, ate]` (evento vivo `registrarOrcamento`). */
+export const FiltrosOrcamentos = CamposDoPeriodo.superRefine(comPeriodo)
+
+/** Relatório 14. As faltas e desmarcações com dia em `[de, ate]`. */
+export const FiltrosFaltasEDesmarcacoes = CamposDoPeriodo.superRefine(comPeriodo)
+
 export const FILTROS_DOS_RELATORIOS = {
   'pacientes-sem-compra': FiltrosPacientesSemCompra,
+  'pacientes-sem-atendimento': FiltrosPacientesSemAtendimento,
+  'pacientes-maior-ltv': FiltrosPacientesMaiorLtv,
+  'pacientes-que-indicaram': FiltrosPacientesQueIndicaram,
+  'pacientes-por-procedimento': FiltrosPacientesPorProcedimento,
+  'pacientes-por-origem-e-campanha': FiltrosPacientesPorOrigemECampanha,
+  aniversariantes: FiltrosAniversariantes,
   recebimentos: FiltrosRecebimentos,
+  'saldos-em-aberto': FiltrosSaldosEmAberto,
+  contas: FiltrosContas,
   'saidas-de-estoque': FiltrosSaidasDeEstoque,
+  'entradas-de-estoque': FiltrosEntradasDeEstoque,
+  orcamentos: FiltrosOrcamentos,
+  'faltas-e-desmarcacoes': FiltrosFaltasEDesmarcacoes,
   'tarefas-da-equipe': FiltrosTarefasDaEquipe,
 } as const satisfies Record<ChaveDeRelatorio, z.ZodTypeAny>
 
@@ -157,6 +250,13 @@ export type DefinicaoDeRelatorio = {
   readonly numero: number
   readonly titulo: string
   readonly permissao: ChaveDePermissao
+  /**
+   * Permissões que o relatório exige ALÉM da dele (T9): o 3 é um ranking em
+   * reais e exige `valores` para existir (números c.11c); o 5 é de saúde e
+   * exige `jornada` (LGPD L-IN-2). Sem elas, o relatório não aparece na lista
+   * e rodá-lo é 403 — `podeAbrirRelatorio` é a conferência única.
+   */
+  readonly exigeTambem?: readonly ChaveDePermissao[]
   readonly classe: ClasseDeRelatorio
   readonly listaDePacientes: boolean
   readonly colunas: readonly ColunaDoCatalogo[]
@@ -178,6 +278,92 @@ export const CATALOGO_DE_RELATORIOS = {
       { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
     ],
   },
+  'pacientes-sem-atendimento': {
+    numero: 2,
+    titulo: 'Pacientes sem atendimento',
+    permissao: 'pacientes',
+    classe: 'pessoal',
+    listaDePacientes: true,
+    colunas: [
+      { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
+      { chave: 'ultimoAtendimento', rotulo: 'Último atendimento', tipo: 'data' },
+      { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
+    ],
+  },
+  'pacientes-maior-ltv': {
+    numero: 3,
+    titulo: 'Pacientes com maior LTV',
+    permissao: 'pacientes',
+    exigeTambem: ['valores'],
+    classe: 'pessoal',
+    listaDePacientes: true,
+    colunas: [
+      { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
+      { chave: 'ltv', rotulo: 'LTV', tipo: 'dinheiro' },
+      { chave: 'ticketMedio', rotulo: 'Ticket médio', tipo: 'dinheiro' },
+      { chave: 'compras', rotulo: 'Compras', tipo: 'numero' },
+      { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
+    ],
+  },
+  'pacientes-que-indicaram': {
+    numero: 4,
+    titulo: 'Pacientes que indicaram',
+    permissao: 'pacientes',
+    classe: 'pessoal',
+    listaDePacientes: true,
+    colunas: [
+      { chave: 'indicadora', rotulo: 'Indicadora', tipo: 'texto' },
+      { chave: 'indicadas', rotulo: 'Indicadas', tipo: 'numero' },
+      { chave: 'viraramPacientes', rotulo: 'Viraram pacientes', tipo: 'numero' },
+      { chave: 'receitaDasIndicadas', rotulo: 'Receita das indicadas', tipo: 'dinheiro' },
+      { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
+    ],
+  },
+  'pacientes-por-procedimento': {
+    numero: 5,
+    titulo: 'Pacientes por procedimento',
+    permissao: 'programas',
+    exigeTambem: ['jornada'],
+    classe: 'saude',
+    listaDePacientes: true,
+    colunas: [
+      { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
+      { chave: 'procedimento', rotulo: 'Procedimento', tipo: 'texto' },
+      { chave: 'sessoesFeitas', rotulo: 'Sessões feitas', tipo: 'numero' },
+      { chave: 'sessoesRestantes', rotulo: 'Sessões restantes', tipo: 'numero' },
+      { chave: 'valor', rotulo: 'Valor', tipo: 'dinheiro' },
+      { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
+    ],
+  },
+  'pacientes-por-origem-e-campanha': {
+    numero: 6,
+    titulo: 'Pacientes por origem e campanha',
+    permissao: 'pacientes',
+    classe: 'pessoal',
+    listaDePacientes: true,
+    colunas: [
+      { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
+      { chave: 'origem', rotulo: 'Origem', tipo: 'texto' },
+      { chave: 'campanha', rotulo: 'Campanha', tipo: 'texto' },
+      { chave: 'convertido', rotulo: 'Convertido?', tipo: 'situacao' },
+      { chave: 'receita', rotulo: 'Receita', tipo: 'dinheiro' },
+      { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
+    ],
+  },
+  aniversariantes: {
+    numero: 7,
+    titulo: 'Aniversariantes',
+    permissao: 'pacientes',
+    classe: 'pessoal',
+    listaDePacientes: true,
+    colunas: [
+      { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
+      { chave: 'diaEMes', rotulo: 'Aniversário', tipo: 'texto' },
+      { chave: 'idade', rotulo: 'Idade', tipo: 'numero' },
+      { chave: 'ultimoAtendimento', rotulo: 'Último atendimento', tipo: 'data' },
+      { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
+    ],
+  },
   recebimentos: {
     numero: 8,
     titulo: 'Recebimentos',
@@ -191,6 +377,36 @@ export const CATALOGO_DE_RELATORIOS = {
       { chave: 'valor', rotulo: 'Valor', tipo: 'dinheiro' },
       { chave: 'paciente', rotulo: 'Paciente', tipo: 'texto' },
       { chave: 'registradoPor', rotulo: 'Quem registrou', tipo: 'texto' },
+    ],
+  },
+  'saldos-em-aberto': {
+    numero: 9,
+    titulo: 'Saldos em aberto',
+    permissao: 'cobrancas',
+    classe: 'pessoal',
+    listaDePacientes: true,
+    colunas: [
+      { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
+      { chave: 'adesao', rotulo: 'Adesão', tipo: 'texto' },
+      { chave: 'valorAberto', rotulo: 'Valor em aberto', tipo: 'dinheiro' },
+      { chave: 'desde', rotulo: 'Em aberto desde', tipo: 'data' },
+      { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
+    ],
+  },
+  contas: {
+    numero: 10,
+    titulo: 'Contas a pagar',
+    permissao: 'contas.gerir',
+    classe: 'nenhuma',
+    listaDePacientes: false,
+    colunas: [
+      { chave: 'vencimento', rotulo: 'Vencimento', tipo: 'data' },
+      { chave: 'descricao', rotulo: 'Descrição', tipo: 'texto' },
+      { chave: 'categoria', rotulo: 'Categoria', tipo: 'texto' },
+      { chave: 'valor', rotulo: 'Valor', tipo: 'dinheiro' },
+      { chave: 'pagoEm', rotulo: 'Pago em', tipo: 'data' },
+      { chave: 'valorPago', rotulo: 'Valor pago', tipo: 'dinheiro' },
+      { chave: 'forma', rotulo: 'Forma', tipo: 'texto' },
     ],
   },
   'saidas-de-estoque': {
@@ -209,6 +425,51 @@ export const CATALOGO_DE_RELATORIOS = {
       { chave: 'registradoPor', rotulo: 'Quem registrou', tipo: 'texto' },
       { chave: 'custo', rotulo: 'Custo', tipo: 'dinheiro' },
       { chave: 'paciente', rotulo: 'Paciente', tipo: 'texto', optIn: 'paciente' },
+    ],
+  },
+  'entradas-de-estoque': {
+    numero: 12,
+    titulo: 'Entradas de estoque',
+    permissao: 'estoque.gerir',
+    classe: 'nenhuma',
+    listaDePacientes: false,
+    colunas: [
+      { chave: 'data', rotulo: 'Data', tipo: 'data' },
+      { chave: 'item', rotulo: 'Item', tipo: 'texto' },
+      { chave: 'quantidadeEmEstoque', rotulo: 'Quantidade', tipo: 'quantidade' },
+      { chave: 'unidade', rotulo: 'Unidade', tipo: 'texto' },
+      { chave: 'lote', rotulo: 'Lote (validade)', tipo: 'data' },
+      { chave: 'custo', rotulo: 'Custo', tipo: 'dinheiro' },
+    ],
+  },
+  orcamentos: {
+    numero: 13,
+    titulo: 'Orçamentos',
+    permissao: 'jornada',
+    classe: 'saude',
+    listaDePacientes: false,
+    colunas: [
+      { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
+      { chave: 'data', rotulo: 'Orçado em', tipo: 'data' },
+      { chave: 'etapa', rotulo: 'Etapa', tipo: 'situacao' },
+      { chave: 'motivo', rotulo: 'Motivo da perda', tipo: 'texto' },
+      { chave: 'valorOrcamento', rotulo: 'Valor orçado', tipo: 'dinheiro' },
+      { chave: 'valorFechado', rotulo: 'Valor fechado', tipo: 'dinheiro' },
+    ],
+  },
+  'faltas-e-desmarcacoes': {
+    numero: 14,
+    titulo: 'Faltas e desmarcações',
+    permissao: 'jornada',
+    classe: 'pessoal',
+    listaDePacientes: true,
+    colunas: [
+      { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
+      { chave: 'data', rotulo: 'Data', tipo: 'data' },
+      { chave: 'motivo', rotulo: 'Motivo', tipo: 'situacao' },
+      { chave: 'situacao', rotulo: 'Recontato', tipo: 'situacao' },
+      { chave: 'recontatadaEm', rotulo: 'Recontatada em', tipo: 'data' },
+      { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
     ],
   },
   'tarefas-da-equipe': {
@@ -242,6 +503,16 @@ export function classeDoRelatorio(chave: ChaveDeRelatorio, filtros: Readonly<Rec
 /** Filtro em reais (I-40): exige `valores`. */
 export const temFaixaDeValor = (filtros: Readonly<Record<string, unknown>>): boolean =>
   filtros['valorMinimo'] !== undefined || filtros['valorMaximo'] !== undefined
+
+/**
+ * **Quem abre o relatório** (appsec C19, C20): a permissão dele e as que ele
+ * exige também. Uma função só para o motor, os favoritos, a lista e "Criar
+ * campanha" — e para a tela, que esconde o que o servidor recusaria.
+ */
+export function podeAbrirRelatorio(chave: ChaveDeRelatorio, pode: (k: ChaveDePermissao) => boolean): boolean {
+  const def: DefinicaoDeRelatorio = CATALOGO_DE_RELATORIOS[chave]
+  return pode(def.permissao) && (def.exigeTambem ?? []).every(pode)
+}
 
 /* ------------------------------------------------------------------ linhas */
 
@@ -314,6 +585,171 @@ export const LinhaTarefaDaEquipe = z
   })
   .strict()
 
+/* ---- linhas do T9 (as colunas padrão da I-38, LGPD L-IN-6) ----------- */
+
+/** Relatório 2: nome e o último atendimento; telefone opt-in. Nunca aniversário nem observação. */
+export const LinhaPacientesSemAtendimento = z
+  .object({ pacienteId: Uuid, nome: z.string(), ultimoAtendimento: Dia, telefone: z.string().optional() })
+  .strict()
+
+/** Relatório 3: o ranking por LTV. `ticketMedio` = LTV ÷ compras, por `Dinheiro.media`. Nunca procedimento. */
+export const LinhaPacientesMaiorLtv = z
+  .object({
+    pacienteId: Uuid,
+    nome: z.string(),
+    ltv: centavosNaSaida,
+    ticketMedio: centavosNaSaida,
+    compras: z.number().int(),
+    telefone: z.string().optional(),
+  })
+  .strict()
+
+/**
+ * Relatório 4: a INDICADORA. Nunca o nome das indicadas — são terceiras (I-38).
+ * `viraramPacientes`: indicadas com ao menos uma compra. `receitaDasIndicadas`:
+ * o que elas pagaram NO PERÍODO, só nos dias de caixa fechado (números N-22).
+ */
+export const LinhaPacientesQueIndicaram = z
+  .object({
+    pacienteId: Uuid,
+    indicadora: z.string(),
+    indicadas: z.number().int(),
+    viraramPacientes: z.number().int(),
+    receitaDasIndicadas: centavosNaSaida,
+    telefone: z.string().optional(),
+  })
+  .strict()
+
+/** Relatório 5: um item de programa por linha. Nunca dose nem lote. */
+export const LinhaPacientesPorProcedimento = z
+  .object({
+    pacienteId: Uuid,
+    programaId: Uuid,
+    procedimentoId: Uuid,
+    nome: z.string(),
+    procedimento: z.string(),
+    sessoesFeitas: z.number().int(),
+    sessoesRestantes: z.number().int(),
+    valor: centavosNaSaida,
+    telefone: z.string().optional(),
+  })
+  .strict()
+
+/**
+ * Relatório 6: nunca procedimento. "Convertido" = já atendida, como "já atendidos" do Painel.
+ * `receita` = o LTV do Painel SEM os dias do mês corrente que ainda não contam
+ * (sem caixa fechado, e hoje): por paciente, o dia aberto seria o esperado da gaveta (regra 6).
+ */
+export const LinhaPacientesPorOrigemECampanha = z
+  .object({
+    pacienteId: Uuid,
+    campanhaId: Uuid.nullable(),
+    nome: z.string(),
+    origem: z.string(),
+    campanha: z.string().nullable(),
+    convertido: z.enum(['sim', 'nao']),
+    receita: centavosNaSaida,
+    telefone: z.string().optional(),
+  })
+  .strict()
+
+/** Relatório 7: dia/mês e idade — NUNCA a data completa de nascimento (I-38, divergência por lei). */
+export const LinhaAniversariante = z
+  .object({
+    pacienteId: Uuid,
+    nome: z.string(),
+    diaEMes: z.string().regex(/^\d{2}\/\d{2}$/),
+    idade: z.number().int().nullable(),
+    ultimoAtendimento: Dia.nullable(),
+    telefone: z.string().optional(),
+  })
+  .strict()
+
+/**
+ * Relatório 9: UMA LINHA POR GRUPO DE SALDO (regra 5) — a adesão, ou o grupo
+ * geral. A adesão leva o nome do programa (os procedimentos dele), e nada além.
+ */
+export const LinhaSaldoEmAberto = z
+  .object({
+    pacienteId: Uuid,
+    programaId: Uuid.nullable(),
+    nome: z.string(),
+    adesao: z.string(),
+    valorAberto: centavosNaSaida,
+    desde: Dia.nullable(),
+    telefone: z.string().optional(),
+  })
+  .strict()
+
+/** Relatório 10. `forma` é a usada na conta paga e a prevista na aberta, como no filtro da tela. */
+export const LinhaConta = z
+  .object({
+    contaId: Uuid,
+    vencimento: Dia,
+    descricao: z.string(),
+    categoria: z.string(),
+    valor: centavosNaSaida,
+    pagoEm: Dia.nullable(),
+    valorPago: centavosNaSaida,
+    forma: z.string(),
+  })
+  .strict()
+
+/** Relatório 12. Custo da linha = quantidade × custo da entrada, meio-para-cima (`custoDaQuantidade`). */
+export const LinhaEntradaDeEstoque = z
+  .object({
+    movimentoId: Uuid,
+    itemId: Uuid,
+    data: Dia,
+    item: z.string(),
+    quantidadeEmEstoque: QuantidadeNaSaida,
+    unidade: z.string(),
+    lote: Dia.nullable(),
+    custo: centavosNaSaida,
+  })
+  .strict()
+
+/**
+ * Relatório 13. "Valor fechado" é o `orc_valor` do protótipo e do Painel, por
+ * cartão: os "Pagamento de orçamento" dele concluídos no período, SÓ nos dias
+ * que contam (regra 6). Σ da coluna = `resumo.valorFechado`. Sem pagamento que
+ * conte, `null`. `valorOrcamento` é o orçado: coluna à parte, nunca somada
+ * (regra 4). O pagamento sem cartão é linha própria. Nunca a nota do histórico.
+ */
+export const LinhaOrcamento = z
+  .object({
+    /** Paciente desativada: `null` nos ids e no nome; a linha fica, porque o Painel a conta (appsec M2). */
+    tarefaId: Uuid.nullable(),
+    pacienteId: Uuid.nullable(),
+    nome: z.string().nullable(),
+    data: Dia,
+    etapa: z.string(),
+    motivo: z.string().nullable(),
+    valorOrcamento: centavosNaSaida,
+    valorFechado: centavosNaSaida,
+  })
+  .strict()
+
+/**
+ * Relatório 14 (I-11). `recontatada`: até o dia da falta + 2; `recontatada-depois`:
+ * depois disso; `aguardando-prazo`: sem recontato e o prazo ainda corre;
+ * `sem-recontato`: o prazo passou.
+ */
+export const SituacaoDoRecontato = z.enum(['recontatada', 'recontatada-depois', 'aguardando-prazo', 'sem-recontato'])
+export const LinhaFaltaOuDesmarcacao = z
+  .object({
+    /** Paciente desativada ou anonimizada: `null` nos TRÊS ids e no nome, e a linha fica — o KPI a conta. */
+    tarefaId: Uuid.nullable(),
+    pacienteId: Uuid.nullable(),
+    nome: z.string().nullable(),
+    data: Dia,
+    motivo: z.enum(['falta', 'desmarcacao']),
+    situacao: SituacaoDoRecontato,
+    recontatadaEm: Dia.nullable(),
+    telefone: z.string().optional(),
+  })
+  .strict()
+
 /* ----------------------------------------------------------------- resumos */
 
 export const ResumoPacientesSemCompra = z.object({ pacientes: z.number().int() }).strict()
@@ -342,6 +778,59 @@ export const ResumoSaidasDeEstoque = z.object({ linhas: z.number().int(), custo:
 /** Relatório 15: o MESMO `prazos` de `GET /v1/painel` para o período. */
 export const ResumoTarefasDaEquipe = z.object({ prazos: CumprimentoDePrazos }).strict()
 
+/* ---- resumos do T9 (contagens; o dinheiro só em campo monetário tipado) */
+
+/** Relatórios 2, 3, 7: quantos pacientes. */
+export const ResumoDePacientes = z.object({ pacientes: z.number().int() }).strict()
+
+export const ResumoPacientesQueIndicaram = z.object({ indicadoras: z.number().int(), indicadas: z.number().int() }).strict()
+
+export const ResumoPacientesPorProcedimento = z.object({ pacientes: z.number().int(), programas: z.number().int() }).strict()
+
+/** Relatório 6: por origem, as contagens de "Novos pacientes" do Painel para o mesmo período. */
+export const ResumoPacientesPorOrigemECampanha = z
+  .object({
+    pacientes: z.number().int(),
+    convertidos: z.number().int(),
+    porOrigem: z.array(z.object({ origem: z.string(), novos: z.number().int(), jaAtendidos: z.number().int() }).strict()),
+  })
+  .strict()
+
+/** Relatório 9: `aReceber` = Σ das linhas. Com o corte em hoje, é o `aReceber` de Cobranças. */
+export const ResumoSaldosEmAberto = z
+  .object({ pacientes: z.number().int(), grupos: z.number().int(), aReceber: centavosNaSaida })
+  .strict()
+
+export const ResumoContas = z.object({ contas: z.number().int(), valor: centavosNaSaida, valorPago: centavosNaSaida }).strict()
+
+export const ResumoEntradasDeEstoque = z.object({ linhas: z.number().int(), custo: centavosNaSaida }).strict()
+
+/**
+ * Relatório 13. `enviados` e `fechados` são os passos do funil do Painel no
+ * mesmo período (`contarConversaoDeOrcamentos`: eventos, não cartões — o
+ * cartão reorçado conta duas vezes lá, e aqui é uma linha). `valorFechado` é
+ * o `orc_valor` do Painel e do KPI no período, só nos dias que contam
+ * (números c.3), e é exatamente a Σ da coluna `valorFechado`.
+ */
+export const ResumoOrcamentos = z
+  .object({
+    orcamentos: z.number().int(),
+    enviados: z.number().int(),
+    fechados: z.number().int(),
+    valorFechado: centavosNaSaida,
+  })
+  .strict()
+
+/** Relatório 14: o KPI `faltas_recontatadas` é `recontatadasEmAteDoisDias ÷ maduras` (I-11). */
+export const ResumoFaltasEDesmarcacoes = z
+  .object({
+    faltas: z.number().int(),
+    maduras: z.number().int(),
+    recontatadasEmAteDoisDias: z.number().int(),
+    aguardandoPrazo: z.number().int(),
+  })
+  .strict()
+
 /* --------------------------------------------------------------- respostas */
 
 export const ColunaNaSaida = z.object({ chave: z.string(), rotulo: z.string(), tipo: TipoDeColuna }).strict()
@@ -367,14 +856,108 @@ export const ResultadoPacientesSemCompra = resultado('pacientes-sem-compra', Lin
 export const ResultadoRecebimentos = resultado('recebimentos', LinhaRecebimento, ResumoRecebimentos)
 export const ResultadoSaidasDeEstoque = resultado('saidas-de-estoque', LinhaSaidaDeEstoque, ResumoSaidasDeEstoque)
 export const ResultadoTarefasDaEquipe = resultado('tarefas-da-equipe', LinhaTarefaDaEquipe, ResumoTarefasDaEquipe)
+export const ResultadoPacientesSemAtendimento = resultado('pacientes-sem-atendimento', LinhaPacientesSemAtendimento, ResumoDePacientes)
+export const ResultadoPacientesMaiorLtv = resultado('pacientes-maior-ltv', LinhaPacientesMaiorLtv, ResumoDePacientes)
+export const ResultadoPacientesQueIndicaram = resultado('pacientes-que-indicaram', LinhaPacientesQueIndicaram, ResumoPacientesQueIndicaram)
+export const ResultadoPacientesPorProcedimento = resultado(
+  'pacientes-por-procedimento',
+  LinhaPacientesPorProcedimento,
+  ResumoPacientesPorProcedimento,
+)
+export const ResultadoPacientesPorOrigemECampanha = resultado(
+  'pacientes-por-origem-e-campanha',
+  LinhaPacientesPorOrigemECampanha,
+  ResumoPacientesPorOrigemECampanha,
+)
+export const ResultadoAniversariantes = resultado('aniversariantes', LinhaAniversariante, ResumoDePacientes)
+export const ResultadoSaldosEmAberto = resultado('saldos-em-aberto', LinhaSaldoEmAberto, ResumoSaldosEmAberto)
+export const ResultadoContas = resultado('contas', LinhaConta, ResumoContas)
+export const ResultadoEntradasDeEstoque = resultado('entradas-de-estoque', LinhaEntradaDeEstoque, ResumoEntradasDeEstoque)
+export const ResultadoOrcamentos = resultado('orcamentos', LinhaOrcamento, ResumoOrcamentos)
+export const ResultadoFaltasEDesmarcacoes = resultado('faltas-e-desmarcacoes', LinhaFaltaOuDesmarcacao, ResumoFaltasEDesmarcacoes)
 
 export const ResultadoDoRelatorio = z.discriminatedUnion('relatorio', [
   ResultadoPacientesSemCompra,
+  ResultadoPacientesSemAtendimento,
+  ResultadoPacientesMaiorLtv,
+  ResultadoPacientesQueIndicaram,
+  ResultadoPacientesPorProcedimento,
+  ResultadoPacientesPorOrigemECampanha,
+  ResultadoAniversariantes,
   ResultadoRecebimentos,
+  ResultadoSaldosEmAberto,
+  ResultadoContas,
   ResultadoSaidasDeEstoque,
+  ResultadoEntradasDeEstoque,
+  ResultadoOrcamentos,
+  ResultadoFaltasEDesmarcacoes,
   ResultadoTarefasDaEquipe,
 ])
 export type ResultadoDoRelatorio = z.infer<typeof ResultadoDoRelatorio>
+
+/** As linhas de cada relatório, pela chave: o teste `schema-de-linha-e-o-padrao` e a tela leem daqui. */
+export const LINHAS_DOS_RELATORIOS = {
+  'pacientes-sem-compra': LinhaPacientesSemCompra,
+  'pacientes-sem-atendimento': LinhaPacientesSemAtendimento,
+  'pacientes-maior-ltv': LinhaPacientesMaiorLtv,
+  'pacientes-que-indicaram': LinhaPacientesQueIndicaram,
+  'pacientes-por-procedimento': LinhaPacientesPorProcedimento,
+  'pacientes-por-origem-e-campanha': LinhaPacientesPorOrigemECampanha,
+  aniversariantes: LinhaAniversariante,
+  recebimentos: LinhaRecebimento,
+  'saldos-em-aberto': LinhaSaldoEmAberto,
+  contas: LinhaConta,
+  'saidas-de-estoque': LinhaSaidaDeEstoque,
+  'entradas-de-estoque': LinhaEntradaDeEstoque,
+  orcamentos: LinhaOrcamento,
+  'faltas-e-desmarcacoes': LinhaFaltaOuDesmarcacao,
+  'tarefas-da-equipe': LinhaTarefaDaEquipe,
+} as const satisfies Record<ChaveDeRelatorio, z.AnyZodObject>
+
+/* ------------------------------------------------ "Criar campanha com esta lista" */
+
+/** C22: acima disto, ou com o motor `truncado`, a campanha não nasce (o mesmo teto da importação). */
+export const MAX_PACIENTES_DA_CAMPANHA_DA_LISTA = MAX_LINHAS_DA_CAMPANHA
+
+/** A tarefa que cada paciente da lista ganha. `tipo` de lista fechada, e pagamento não é tarefa (C23). */
+export const TarefaDaCampanhaDaLista = z
+  .object({
+    tipo: tipoQueNaoEhPagamento,
+    /** Vazio = "Contato da campanha: <nome>", montado pelo servidor. */
+    descricao: z.string().trim().max(400).default(''),
+    prazo: DiaCivil,
+    responsavelId: Uuid,
+  })
+  .strict()
+
+/**
+ * `POST /v1/relatorios/:chave/campanha` (spec I-42; appsec C20–C23), com o
+ * cabeçalho `Idempotency-Key: <uuid>` gerado pela tela ao abrir o formulário.
+ *
+ * **Sem `pacienteIds`** (`.strict()`, C20): os pacientes saem SÓ da
+ * re-execução do relatório no servidor, com os mesmos filtros.
+ */
+export const CriarCampanhaDaLista = z
+  .object({
+    filtros: z.record(z.unknown()),
+    destino: z.union([z.object({ campanhaId: Uuid }).strict(), z.object({ nova: SalvarCampanha }).strict()]),
+    tarefa: TarefaDaCampanhaDaLista,
+  })
+  .strict()
+export type CriarCampanhaDaLista = z.input<typeof CriarCampanhaDaLista>
+
+export const CampanhaDaListaCriada = z
+  .object({
+    campanhaId: Uuid,
+    /** Os pacientes da lista (já sem desativados e anonimizados). */
+    pacientes: z.number().int(),
+    /** Tarefas novas. Repetir o pedido dá `0` (H.2). */
+    criadas: z.number().int(),
+    /** Pacientes que já tinham a tarefa aberta nesta campanha. */
+    ignoradas: z.number().int(),
+  })
+  .strict()
+export type CampanhaDaListaCriada = z.infer<typeof CampanhaDaListaCriada>
 
 /** `POST /v1/relatorios/:chave/execucoes`. Os filtros são validados pelo schema do relatório. */
 export const ExecutarRelatorio = z.object({ filtros: z.record(z.unknown()) }).strict()
@@ -423,7 +1006,14 @@ export type ResultadoDaExportacao = z.infer<typeof ResultadoDaExportacao>
 
 /* --------------------------------------------------------------- favoritos */
 
-/** LGPD L-IN-17: a tela avisa "não use nome de paciente". */
+/**
+ * LGPD L-IN-17 (revisão appsec do T8, L4): o nome do favorito é TEXTO LIVRE
+ * que a clínica inteira vê. A tela mostra este aviso junto do campo; o
+ * servidor nunca o escreve em log nem em mensagem de erro.
+ */
+export const AVISO_NOME_DO_FAVORITO =
+  'A clínica inteira vê este nome. Não use nome de paciente, telefone, valor nem dado de saúde.'
+
 const NomeDoFavorito = z.string().trim().min(1, 'Dê um nome ao favorito.').max(80, 'No máximo 80 caracteres.')
 
 export const SalvarFavorito = z
