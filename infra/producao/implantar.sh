@@ -592,12 +592,17 @@ fi
 #
 # `node` e não `getent`/`nc`, para não depender de utilitário da imagem: se a
 # ferramenta faltar, a asserção não pode passar por engano.
-if [ "$ENVIO_EMAIL" = ligado ]; then
-  redes_esperadas="fir_dados fir_saida-email "
-else
-  redes_esperadas="fir_dados "
-fi
 api_id=$(docker compose ps -q api || true)
+# O prefixo das redes é o NOME DO PROJETO, não "fir" escrito à mão: na VPS o
+# checkout renomeia o projeto (`name: firmaregestao`), e as redes de lá são
+# `firmaregestao_dados`. Com o nome fixo, a asserção recusaria todo deploy.
+projeto=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$api_id" 2>/dev/null || true)
+projeto=${projeto:-fir}
+if [ "$ENVIO_EMAIL" = ligado ]; then
+  redes_esperadas="${projeto}_dados ${projeto}_saida-email "
+else
+  redes_esperadas="${projeto}_dados "
+fi
 redes_api=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$api_id" 2>/dev/null \
             | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ' || true)
 if [ "$redes_api" = "$redes_esperadas" ]; then
