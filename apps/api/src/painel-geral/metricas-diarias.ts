@@ -63,6 +63,103 @@ export function cumprimento(l: LinhaDePrazo): CumprimentoDePrazos {
 }
 
 /**
+ * **O RECORTE E AS QUATRO SITUAÇÕES, escritos uma vez** — o total do Painel
+ * (`consultarPrazos`) e as linhas do relatório 15 (`tarefasDoCumprimento`) leem
+ * o mesmo `WHERE` e classificam pelas mesmas expressões, e por isso o resumo do
+ * relatório É o bloco de prazos do Painel.
+ *
+ * `$1` clínica · `$2`/`$3` o período do prazo · `$4` hoje · `$5` fuso · `$6`
+ * os tipos de sessão.
+ */
+const TAREFAS_DO_CUMPRIMENTO = `t.clinica_id = $1
+        AND t.excluida_em IS NULL
+        AND t.status <> 'cancelada'
+        AND ${FORA_DE_PACIENTE_DESATIVADO}
+        AND t.tipo <> ALL($6::text[])
+        AND t.prazo >= $2::date
+        AND t.prazo <= $3::date`
+
+const SITUACAO_DO_PRAZO = {
+  ok: `t.status = 'concluida' AND (t.concluida_em AT TIME ZONE $5)::date <= t.prazo`,
+  tarde: `t.status = 'concluida' AND (t.concluida_em AT TIME ZONE $5)::date > t.prazo`,
+  atrasada: `t.status = 'aberta' AND t.prazo <  $4::date`,
+  a_vencer: `t.status = 'aberta' AND t.prazo >= $4::date`,
+} as const
+
+export type SituacaoDoPrazo = keyof typeof SITUACAO_DO_PRAZO
+
+export type TarefaDoCumprimento = {
+  readonly tarefaId: string
+  /**
+   * O que a tarefa É, sem paciente (I-38: o 15 "nunca" traz paciente). Na
+   * tarefa de paciente a descrição é texto livre e pode levar o nome dela ou o
+   * procedimento ("Aplicação 3/4 · Tirzepatida") — sai o TIPO. Na tarefa
+   * interna sai a descrição.
+   */
+  readonly tarefa: string
+  readonly responsavelId: string | null
+  readonly responsavel: string | null
+  readonly prazo: string
+  readonly concluidaEm: string | null
+  readonly situacao: SituacaoDoPrazo
+}
+
+/**
+ * **AS TAREFAS do cumprimento de prazos, uma a uma** — o relatório 15. O
+ * recorte e a classificação são os de `consultarPrazos` (as constantes acima),
+ * e `responsavelId` estreita a lista como o recorte por pessoa do Painel.
+ * Ordenadas por prazo (a tela ordena e pagina o resto).
+ */
+export async function tarefasDoCumprimento(
+  c: pg.PoolClient,
+  clinicaId: string,
+  periodo: { de: string; ate: string },
+  hoje: string,
+  fuso: string,
+  responsavelId: string | null,
+  limite: number,
+): Promise<TarefaDoCumprimento[]> {
+  const r = await c.query<{
+    id: string
+    descricao: string
+    tipo: string | null
+    de_paciente: boolean
+    responsavel_id: string | null
+    responsavel: string | null
+    prazo: string
+    concluida_em: string | null
+    situacao: SituacaoDoPrazo | null
+  }>(
+    `SELECT t.id, t.descricao, t.tipo, (t.paciente_id IS NOT NULL) AS de_paciente,
+            t.responsavel_id, p.nome AS responsavel, t.prazo::text AS prazo,
+            CASE WHEN t.status = 'concluida' THEN ((t.concluida_em AT TIME ZONE $5)::date)::text END AS concluida_em,
+            CASE WHEN ${SITUACAO_DO_PRAZO.ok} THEN 'ok'
+                 WHEN ${SITUACAO_DO_PRAZO.tarde} THEN 'tarde'
+                 WHEN ${SITUACAO_DO_PRAZO.atrasada} THEN 'atrasada'
+                 WHEN ${SITUACAO_DO_PRAZO.a_vencer} THEN 'a_vencer'
+            END AS situacao
+       FROM tarefas t
+       LEFT JOIN pessoas p ON p.id = t.responsavel_id
+      WHERE ${TAREFAS_DO_CUMPRIMENTO}
+        AND ($7::uuid IS NULL OR t.responsavel_id = $7::uuid)
+      ORDER BY t.prazo, t.id
+      LIMIT $8`,
+    [clinicaId, periodo.de, periodo.ate, hoje, fuso, TIPOS_DE_SESSAO, responsavelId, limite],
+  )
+  return r.rows
+    .filter((l): l is typeof l & { situacao: SituacaoDoPrazo } => l.situacao !== null)
+    .map((l) => ({
+      tarefaId: l.id,
+      tarefa: l.de_paciente ? (l.tipo ?? 'Tarefa de paciente') : l.descricao,
+      responsavelId: l.responsavel_id,
+      responsavel: l.responsavel,
+      prazo: l.prazo,
+      concluidaEm: l.concluida_em,
+      situacao: l.situacao,
+    }))
+}
+
+/**
  * O CUMPRIMENTO DE PRAZOS, no total e por responsável — **uma consulta**.
  *
  * `GROUPING SETS` dá o total e o recorte por pessoa de uma vez: duas
@@ -95,27 +192,13 @@ export async function consultarPrazos(
             max(p.nome)   AS nome,
             max(p.funcao) AS funcao,
             count(*)::text AS total,
-            count(*) FILTER (
-              WHERE t.status = 'concluida'
-                AND (t.concluida_em AT TIME ZONE $5)::date <= t.prazo
-            )::text AS no_prazo,
-            count(*) FILTER (
-              WHERE t.status = 'concluida'
-                AND (t.concluida_em AT TIME ZONE $5)::date > t.prazo
-            )::text AS com_atraso,
-            count(*) FILTER (WHERE t.status = 'aberta' AND t.prazo <  $4::date)::text
-              AS atrasadas,
-            count(*) FILTER (WHERE t.status = 'aberta' AND t.prazo >= $4::date)::text
-              AS a_vencer
+            count(*) FILTER (WHERE ${SITUACAO_DO_PRAZO.ok})::text AS no_prazo,
+            count(*) FILTER (WHERE ${SITUACAO_DO_PRAZO.tarde})::text AS com_atraso,
+            count(*) FILTER (WHERE ${SITUACAO_DO_PRAZO.atrasada})::text AS atrasadas,
+            count(*) FILTER (WHERE ${SITUACAO_DO_PRAZO.a_vencer})::text AS a_vencer
        FROM tarefas t
        LEFT JOIN pessoas p ON p.id = t.responsavel_id
-      WHERE t.clinica_id = $1
-        AND t.excluida_em IS NULL
-        AND t.status <> 'cancelada'
-        AND ${FORA_DE_PACIENTE_DESATIVADO}
-        AND t.tipo <> ALL($6::text[])
-        AND t.prazo >= $2::date
-        AND t.prazo <= $3::date
+      WHERE ${TAREFAS_DO_CUMPRIMENTO}
       GROUP BY GROUPING SETS ((t.responsavel_id), ())
       ORDER BY count(*) DESC`,
     [clinicaId, periodo.de, periodo.ate, hoje, fuso, TIPOS_DE_SESSAO],

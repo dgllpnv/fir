@@ -743,6 +743,21 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'PUT', caminho: '/v1/indicadores/okrs/:id', camposDeDinheiro: ['emDinheiro'] },
   { metodo: 'POST', caminho: '/v1/indicadores/okrs/:id/encerrar', camposDeDinheiro: ['emDinheiro'] },
   { metodo: 'POST', caminho: '/v1/indicadores/okrs/:id/duplicar', camposDeDinheiro: ['emDinheiro'] },
+  /**
+   * Relatórios (T8, I-36 a I-41). As linhas levam `valorDaUltimaCompra` e `ltv`
+   * (1), `valor` (8) e `custo` (11); o resumo, `emDinheiro` (`ValorNaTela`) e
+   * `aguardandoFechamento` (8). Sem `valores`, o MOTOR tira as colunas
+   * `dinheiro` e o interceptor é a segunda camada (appsec C16). A faixa de
+   * valor dos filtros (`valorMinimo`/`valorMaximo`) volta em todo favorito.
+   */
+  ...(['execucoes', 'exportacoes'] as const).map((rota) => ({
+    metodo: 'POST' as const,
+    caminho: `/v1/relatorios/:chave/${rota}`,
+    camposDeDinheiro: ['valorDaUltimaCompra', 'ltv', 'valor', 'custo', 'emDinheiro', 'aguardandoFechamento'],
+  })),
+  { metodo: 'GET', caminho: '/v1/relatorios', camposDeDinheiro: ['valorMinimo', 'valorMaximo'] },
+  { metodo: 'POST', caminho: '/v1/relatorios/favoritos', camposDeDinheiro: ['valorMinimo', 'valorMaximo'] },
+  { metodo: 'PUT', caminho: '/v1/relatorios/favoritos/:id', camposDeDinheiro: ['valorMinimo', 'valorMaximo'] },
 ]
 
 /**
@@ -860,6 +875,10 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'series_de_meta',
   'metas_de_kpi',
   'fotografias_de_kpi',
+  // Relatórios (0104, T8): o favorito é da clínica, sem DELETE para `fir_app`;
+  // `pacientes_da_exportacao` é APPEND-ONLY (só INSERT) e sem trilha por decisão.
+  'relatorios_favoritos',
+  'pacientes_da_exportacao',
   'movimentos_de_estoque',
   'motivos_de_perda',
   'notas_de_entrada',
@@ -895,7 +914,13 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
  * ser um. `auditoria-inescapavel.test.ts` cobra o inverso para elas: que o
  * trigger NÃO exista.
  */
-export const ENTIDADES_SEM_TRILHA_POR_DECISAO: readonly string[] = ['eventos_de_acesso']
+export const ENTIDADES_SEM_TRILHA_POR_DECISAO: readonly string[] = [
+  'eventos_de_acesso',
+  // 0104 (T8, LGPD L-IN-9): ela JÁ É trilha — append-only, gravada na mesma
+  // transação da linha `exportou` a que aponta. Copiá-la para a `auditoria`
+  // transformaria cada exportação de N pacientes em N linhas de trilha.
+  'pacientes_da_exportacao',
+]
 
 /**
  * Tabelas com `clinica_id` cuja RLS é por `grupo_id`, não por `clinica_id`

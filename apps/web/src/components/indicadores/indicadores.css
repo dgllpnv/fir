@@ -1,0 +1,269 @@
+/*
+ * INDICADORES & INSIGHTS — a tela principal (1.9 A–D).
+ *
+ * Papel e dourado, sem card como papel de parede: o OKR e o KPI são cartões
+ * porque cada um é um agrupamento (nome, valor, barra, gráfico, rodapé); os
+ * títulos das faixas e dos pilares são tipografia solta. Só tokens de
+ * `tokens.css`, e só pares de cor que `packages/ui/src/contraste.test.ts` já
+ * mede nos dois temas — nenhum par novo nasce aqui.
+ *
+ * Toda coluna de número é tabular. 390 px é o caso principal: tudo empilha,
+ * nada rola de lado; o computador é a mesma tela com a grade aberta.
+ */
+
+/* ---------- B. topo ---------- */
+.ii-topo { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.ii-topo h2 { font-size: 24px; min-width: 0; overflow-wrap: anywhere; }
+.ii-acoes { display: flex; gap: 8px; flex-wrap: wrap; position: relative; }
+.ii-acoes .btn { min-height: 44px; padding: 10px 14px; font-size: 14px; }
+.ii-acoes .btn[aria-disabled='true'] { opacity: 0.55; cursor: default; }
+
+.ii-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  display: grid;
+  min-width: 200px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r);
+  padding: 4px;
+}
+.ii-menu button {
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.ii-menu button:hover { background: var(--gold-soft); color: var(--ink); }
+.ii-menu button:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: -2px; }
+.ii-menu button.perigo { color: var(--bad); }
+.ii-menu button.perigo:hover { background: var(--bad-soft); color: var(--bad); }
+
+/* As abas QUEBRAM em vez de rolar de lado. Aba é rota (I-43). */
+.ii-abas { display: flex; flex-wrap: wrap; gap: 4px 20px; border-bottom: 1px solid var(--line); margin: 0 0 12px; }
+.ii-abas a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 2px;
+  color: var(--muted);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.ii-abas a[aria-current='page'] { color: var(--ink); border-bottom-color: var(--gold); }
+.ii-abas a:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+
+/* ---------- linha 3: filtros ---------- */
+.ii-filtros { margin-bottom: 16px; }
+.ii-filtros-botao { display: none; }
+.ii-filtros-campos { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.ii-filtros-campos .campo { flex: 1 1 180px; max-width: 260px; }
+@media (max-width: 719px) {
+  .ii-filtros-botao { display: inline-flex; }
+  .ii-filtros-campos { display: none; margin-top: 10px; }
+  .ii-filtros[data-aberto='true'] .ii-filtros-campos { display: grid; grid-template-columns: 1fr; }
+  .ii-filtros-campos .campo { max-width: none; }
+}
+
+/* ---------- C. faixas ---------- */
+.ii-faixa { display: grid; gap: 12px; margin-bottom: 26px; min-width: 0; }
+.ii-faixa-cabeca { display: flex; align-items: baseline; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; }
+.ii-faixa-cabeca h3 { font-family: var(--display); font-size: 20px; font-weight: 600; margin: 0; }
+.ii-resumo { color: var(--muted); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.ii-pilar { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; color: var(--gold-ink); margin: 6px 0 0; }
+
+.ii-grade { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+@media (min-width: 640px) { .ii-grade { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1100px) { .ii-grade { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* ---------- OKR ---------- */
+.ii-okr {
+  display: grid;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 14px;
+  min-width: 0;
+}
+.ii-okr-cabeca { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.ii-okr-cabeca h4 { font-family: var(--display); font-size: 18px; font-weight: 600; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.ii-okr-numero { display: grid; justify-items: end; gap: 4px; flex: none; }
+.ii-okr-numero strong { font-family: var(--display); font-size: 28px; line-height: 1; font-variant-numeric: tabular-nums lining-nums; }
+.ii-okr-meta { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ii-okr-krs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+@media (min-width: 900px) { .ii-okr-krs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ii-okr-rodape { display: flex; justify-content: flex-end; align-items: center; gap: 6px; position: relative; }
+.ii-okr-rodape .link { min-height: 44px; padding: 0 6px; }
+.ii-tres-pontos {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.ii-tres-pontos:hover { border-color: var(--line); }
+.ii-tres-pontos:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 1px; }
+.ii-tres-pontos svg { width: 20px; height: 20px; }
+.ii-okr-rodape .ii-menu { top: auto; bottom: calc(100% + 4px); }
+.ii-aviso-krs { font-size: 12.5px; color: var(--warn-ink); margin: 0; }
+
+/* ---------- barra de progresso ---------- */
+.ii-barra { position: relative; height: 8px; border-radius: 999px; background: var(--gold-soft); overflow: visible; }
+.ii-barra > span { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--gold); }
+/* O traço do ritmo esperado: onde a barra deveria estar hoje. */
+.ii-barra > i { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--ink); border-radius: 1px; }
+
+/* ---------- C.1 cartão do KPI ---------- */
+.ii-kpi {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  min-width: 0;
+}
+.ii-okr .ii-kpi { background: var(--bg); }
+.ii-kpi:hover { border-color: var(--gold); }
+.ii-kpi:focus-within { border-color: var(--gold-ink); }
+.ii-kpi-cabeca { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.ii-kpi-nome { font-weight: 600; font-size: 14.5px; color: var(--ink); text-decoration: none; min-width: 0; overflow-wrap: anywhere; }
+/* O cartão inteiro abre o detalhe (1.9 C.1): o link do nome se estende por
+   cima do cartão; os botões e a dica ficam acima dele. */
+.ii-kpi-nome::after { content: ''; position: absolute; inset: 0; border-radius: var(--r); }
+.ii-kpi-nome:focus-visible { outline: none; }
+.ii-kpi-nome:focus-visible::after { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+/* Sem `position` no `.dica` nem no cabeçalho: o `::after` do nome precisa
+   medir o cartão inteiro, e um ancestral posicionado o prenderia ali. */
+.ii-kpi .dica-texto, .ii-kpi button, .ii-kpi .ii-acima { position: relative; z-index: 1; }
+.ii-kpi .dica { margin: 0; }
+.ii-kpi .dica-cabeca { align-items: flex-start; }
+.ii-kpi-valor { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; min-width: 0; }
+.ii-kpi-valor strong { font-family: var(--display); font-size: 26px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums lining-nums; overflow-wrap: anywhere; }
+.ii-kpi-valor strong.ii-so-percentual { font-size: 22px; }
+.ii-kpi-valor span { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.ii-kpi-rodape { display: flex; justify-content: space-between; align-items: center; gap: 6px 10px; flex-wrap: wrap; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ii-kpi-rodape .ii-fonte { color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+.ii-kpi-acoes { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.ii-kpi-acoes .link { min-height: 36px; font-size: 13px; }
+.ii-faisca-vazia { height: 44px; display: grid; align-items: center; color: var(--muted); font-size: 12px; }
+
+.ii-tom-ok { color: var(--ok); }
+.ii-tom-mau { color: var(--bad); }
+.ii-tom-atencao { color: var(--warn-ink); }
+.ii-tom-neutro { color: var(--muted); }
+
+/* Selo de situação: bolinha (gráfico) + texto na cor medida pelo teste de contraste. */
+.ii-selo { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; white-space: nowrap; flex: none; }
+.ii-selo::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+/* ---------- D. painel lateral (direita no computador, tela cheia no celular) ---------- */
+.ii-veu {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: flex-end;
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+.ii-painel {
+  width: min(540px, 100%);
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--surface);
+  color: var(--ink);
+  border-left: 3px solid var(--gold);
+}
+.ii-painel-cabeca { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.ii-painel-cabeca h2 { font-size: 20px; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.ii-painel-corpo { overflow-y: auto; overscroll-behavior: contain; padding: 16px; display: grid; gap: 14px; align-content: start; }
+.ii-painel-rodape {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.ii-painel-rodape .link { min-height: 44px; }
+.ii-painel-rodape .btn { min-width: 120px; }
+.ii-fechar { display: inline-grid; place-items: center; width: 44px; height: 44px; background: none; border: 0; color: var(--ink); cursor: pointer; border-radius: 8px; }
+.ii-fechar:focus-visible { outline: 2px solid var(--gold-ink); }
+.ii-fechar svg { width: 20px; height: 20px; }
+
+.ii-escolha { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 420px) { .ii-escolha { grid-template-columns: minmax(0, 1fr); } }
+.ii-escolha button {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 14px;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  min-height: 44px;
+}
+.ii-escolha button:hover { border-color: var(--gold); }
+.ii-escolha button:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+.ii-escolha b { font-family: var(--display); font-size: 16px; }
+.ii-escolha span { color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+.ii-catalogo { display: grid; gap: 4px; }
+.ii-catalogo h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600; color: var(--gold-ink); margin: 10px 0 2px; }
+.ii-catalogo button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 2px;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  min-height: 44px;
+}
+.ii-catalogo button:hover b { color: var(--gold-ink); }
+.ii-catalogo button:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: -2px; }
+.ii-catalogo button span { grid-column: 1 / -1; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.ii-catalogo button em { font-style: normal; font-size: 12px; font-weight: 600; color: var(--on-gold-soft); background: var(--gold-soft); border-radius: 999px; padding: 2px 8px; align-self: center; }
+
+.ii-opcoes { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.ii-opcoes label { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; font-weight: 500; font-size: 14px; }
+.ii-opcoes input { width: 18px; height: 18px; accent-color: var(--gold-ink); }
+fieldset.ii-grupo { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; min-width: 0; }
+fieldset.ii-grupo legend { font-size: 13px; font-weight: 600; padding: 0; margin-bottom: 4px; }
+.ii-marcar { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 600; font-size: 14px; }
+.ii-marcar input { width: 20px; height: 20px; accent-color: var(--gold-ink); }
+.ii-bloco { display: grid; gap: 12px; border-left: 2px solid var(--gold); padding-left: 12px; }
+.ii-kr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+@media (min-width: 480px) { .ii-kr { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; align-items: end; } }
+.ii-kr .link { min-height: 44px; }
+.ii-previa { margin: 0; padding: 10px 12px; background: var(--gold-soft); color: var(--ink); border-radius: var(--r); font-size: 13.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.ii-aviso-texto { font-size: 12px; font-weight: 400; color: var(--muted); }
+.ii-painel .campo input, .ii-painel .campo select, .ii-filtros .campo select { font-variant-numeric: tabular-nums; }
+.ii-painel .campo .erro { display: block; }
+.ii-veu[hidden] { display: none; }

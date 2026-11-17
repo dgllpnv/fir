@@ -41,6 +41,20 @@ export function valorDaFalta(diferenca: Quantidade, custoPorMedida: Dinheiro): D
   return Dinheiro.deCentavos(dividirMeioParaCima(falta * custoPorMedida.centavos, MEDIDA_INTEIRA))
 }
 
+/**
+ * **O custo de uma quantidade, ASSINADO** — a linha do relatório de saídas de
+ * estoque (números B8).
+ *
+ * A mesma conta de `valorDaFalta` (milésimos × centavos por medida,
+ * meio-para-cima por linha), sem zerar o sinal: a compensação de uma sessão
+ * reaberta é uma linha NEGATIVA, e o custo dela tem de anular o da baixa que
+ * ela desfaz — `custo(q) + custo(−q) = 0`, porque o arredondamento é simétrico.
+ * O total do relatório é a soma das linhas, como a coluna da Análise.
+ */
+export function custoDaQuantidade(quantidade: Quantidade, custoPorMedida: Dinheiro): Dinheiro {
+  return Dinheiro.deCentavos(dividirMeioParaCima(quantidade.milesimos * custoPorMedida.centavos, MEDIDA_INTEIRA))
+}
+
 /** O total da falta: a soma, pelo value object, dos valores por item. */
 export function valorTotalDaFalta(
   linhas: readonly { readonly diferenca: Quantidade; readonly custoPorMedida: Dinheiro }[],

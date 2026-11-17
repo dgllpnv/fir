@@ -138,6 +138,7 @@ Contas rodadas sobre o domínio atual com vitest no scratchpad:
     - O relatório 8 tem `forma: null` em dia aberto, também nos totais.
     - `aguardandoFechamento` sai como um total só, nunca por dia nem por forma.
     - Teste de transporte: com o caixa de hoje aberto, nenhuma resposta de `/v1/indicadores*` nem de `/v1/relatorios*` permite reconstruir o esperado por forma de hoje.
+    - **Emenda (2026-11-17, [ADR chaves-em-reais-e-os-dias-de-caixa](../adr/2026-11-17-chaves-em-reais-e-os-dias-de-caixa.md)).** A condição vale para todo dia sem caixa do **mês corrente**. No **mês passado**, o KPI que espelha uma tela mostra o valor do dia sem caixa, como a tela mostra (fonte única, c.1). O buraco já existe em `/v1/painel`, e o KPI não amplia a exposição. Ele está registrado como dívida D-I3.
 11. **Redação.**
     - **(a)** `percentualDaMeta` é inteiro (`percentualInteiro`), como na rota `/percentual`. Com a meta de R$ 120.000 conhecida, 78% já situa o medido em [93.000, 94.200).
     - **(b)** Percentual cujo numerador ou denominador é dinheiro (despesas fixas ÷ recebido) é **monetário para a redação**. Medido: meta conhecida × 78% × fixas 40% dá as fixas, que incluem a categoria "Pessoal" (salários), em [R$ 36.735, R$ 38.151). E o alvo desse KPI fica visível, então `percentualDaMeta × alvo` devolve o atual exato. Sem `valores`, esse KPI não atravessa, ou só atravessa a situação.

@@ -14,6 +14,7 @@ import {
 } from '@fir/contracts'
 import {
   type Agregacao,
+  type Agrupamento,
   agrupamentoPara,
   arredondar,
   baldes,
@@ -35,10 +36,12 @@ import {
   NumeroDoKpi,
   type PilarDeKpi,
   permissaoDoValor,
+  prazoDoLancamento,
   progresso,
   projecao,
   recombinaBaldes,
   referenciaDoPeriodo,
+  referenciaPendente,
   ritmoEsperado,
   situacao,
   somarDias,
@@ -67,6 +70,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { VisaoDoMesService } from '../financeiro/visao-do-mes.service'
 import { trechosContinuos } from '../financeiro/faturamento-conferido'
+import { materializarSeries } from './series-de-meta'
 import { type ContextoDoKpi, FontesDosKpis, type KpiParaMedir, type MedidaDoKpi } from './fontes'
 import { cancelarTarefasDeLancamento, gerarTarefasDeLancamento, reatribuirTarefasDeLancamento } from './lancamentos-tarefas'
 
@@ -106,6 +110,8 @@ export type LinhaDeMeta = {
   partida_numero: string | null
   medida_por: MedidaDaMeta
   responsavel_id: string | null
+  /** Só na meta `recorrente`: a série que a materializou (I-24). */
+  serie_id?: string | null
 }
 
 export type Definicao = {
@@ -131,7 +137,7 @@ export const SELECT_META = `
   SELECT id, kpi_id, tipo, inicio::text AS inicio, prazo::text AS prazo,
          alvo_centavos::text AS alvo_centavos, alvo_numero::text AS alvo_numero,
          partida_centavos::text AS partida_centavos, partida_numero::text AS partida_numero,
-         medida_por, responsavel_id
+         medida_por, responsavel_id, serie_id
     FROM metas_de_kpi`
 
 export function definicaoDe(k: LinhaDeKpi): Definicao {
@@ -280,32 +286,48 @@ export class IndicadoresService {
     })
   }
 
-  async serie(ctx: ContextoDeIndicadores, id: string, consulta: { de?: string | undefined; ate?: string | undefined }): Promise<SerieDoKpi> {
+  async serie(
+    ctx: ContextoDeIndicadores,
+    id: string,
+    consulta: { de?: string | undefined; ate?: string | undefined; agrupamento?: Agrupamento | undefined },
+  ): Promise<SerieDoKpi> {
     const hoje = this.hoje(ctx)
     const ate = consulta.ate ?? hoje
-    const de = consulta.de ?? `${somarMeses(`${hoje.slice(0, 7)}-01`, -2).slice(0, 7)}-01`
-    const v = validarJanela(de, ate, hoje)
-    if (v.tipo === 'erro') throw new UnprocessableEntityException(v.erro.mensagem)
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const k = await this.kpiVisivel(c, ctx, id)
       const d = definicaoDe(k)
       // Chave só de mês civil agrupa por MÊS (validação T2, W2): a fonte é do mês
-      // inteiro, e uma barra por dia repetiria o mês em cada uma.
-      const agrupamento = d.somenteMesCivil ? 'mes' : agrupamentoPara(de, ate, k.frequencia)
-      const pontos = []
+      // inteiro, e uma barra por dia repetiria o mês em cada uma. Fora dela, o
+      // agrupamento pedido vale (o minigráfico do KPI semanal pede `semana`,
+      // I-29: 8 semanas); sem pedido, `agrupamentoPara`.
+      const pedido = consulta.agrupamento
+      const de = consulta.de ?? inicioPadraoDaSerie(d.somenteMesCivil ? 'mes' : pedido, hoje)
+      const v = validarJanela(de, ate, hoje)
+      if (v.tipo === 'erro') throw new UnprocessableEntityException(v.erro.mensagem)
+      if (pedido === 'dia' && de.slice(0, 7) !== ate.slice(0, 7)) {
+        throw new UnprocessableEntityException('A série por dia é de um mês só.')
+      }
+      const agrupamento: Agrupamento = d.somenteMesCivil ? 'mes' : (pedido ?? agrupamentoPara(de, ate, k.frequencia))
+      // A mesma régua do cartão: a série do faturamento medido pelo MedX é do MedX.
+      const { medidaPor } = await this.reguaDoCartao(c, ctx, k, d, hoje)
+      const medidos = []
       for (const b of baldes(de, ate, agrupamento, hoje)) {
         // `fim` do balde é EXCLUSIVO; a fonte mede dias civis inclusivos.
-        const m = await this.medir(c, ctx, k, d, b.inicio, somarDias(b.fim, -1), hoje)
+        const m = await this.medir(c, ctx, k, d, b.inicio, somarDias(b.fim, -1), hoje, medidaPor)
         // Regra 6 em toda série de dinheiro (c.10): dia aguardando vai SEM valor e sem escala.
-        const aberto = agrupamento === 'dia' && m.diasAguardando > 0
-        pontos.push({
-          inicio: b.inicio,
-          fim: somarDias(b.fim, -1),
-          parcial: b.parcial,
-          diaAguardando: aberto,
-          numero: aberto ? valorAguardando(d.unidade) : valorNaTela(d.unidade, m.numero),
-        })
+        medidos.push({ b, m, aberto: agrupamento === 'dia' && m.diasAguardando > 0 })
       }
+      // A escala de cada ponto é relativa à série do PRÓPRIO KPI (ADR
+      // kpi-escala-e-valor-na-tela): sem `valores`, o minigráfico em reais
+      // desenha a forma sem um centavo. O ponto aguardando fica fora da régua.
+      const regua = medidos.filter((x) => !x.aberto).map((x) => x.m.numero)
+      const pontos = medidos.map(({ b, m, aberto }) => ({
+        inicio: b.inicio,
+        fim: somarDias(b.fim, -1),
+        parcial: b.parcial,
+        diaAguardando: aberto,
+        numero: aberto ? valorAguardando(d.unidade) : valorNaTela(d.unidade, m.numero, null, regua),
+      }))
       return { kpiId: k.id, agrupamento, barrasSomamOTotal: recombinaBaldes(d.agregacao), pontos }
     })
   }
@@ -326,7 +348,8 @@ export class IndicadoresService {
       const fim = hoje < q.prazo ? hoje : q.prazo
       let atual: NumeroDoKpi | null = null
       if (fim >= q.inicio) {
-        const m = await this.medir(c, ctx, k, d, q.inicio, fim, hoje)
+        const { medidaPor } = await this.reguaDoCartao(c, ctx, k, d, hoje)
+        const m = await this.medir(c, ctx, k, d, q.inicio, fim, hoje, medidaPor)
         const dias = typeof m.corte === 'string' ? diasDe(q.inicio, m.corte) : m.corte.dias
         const u = BigInt(diasUteisDoConjunto(dias, q.inicio, q.prazo))
         atual = m.numero === null || u === 0n ? null : NumeroDoKpi.de(d.unidade, arredondar({ numerador: m.numero.emMenorUnidade, denominador: u }))
@@ -390,6 +413,10 @@ export class IndicadoresService {
 
   async editarKpi(ctx: ContextoDeIndicadores, id: string, dados: EditarKpi): Promise<DetalheDoKpi> {
     await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      // A mesma trava do `lancar` (X1): sem ela, um lançamento entra entre a
+      // checagem de "não há lançamento" e o UPDATE da unidade, e o número fica
+      // na coluna da unidade antiga. A leitura vem depois, já com a linha presa.
+      await c.query('SELECT 1 FROM kpis WHERE clinica_id = $1 AND id = $2 FOR UPDATE', [ctx.clinicaId, id])
       const k = await this.kpiVisivel(c, ctx, id)
       if (dados.unidade !== undefined && dados.unidade !== k.unidade) await this.exigirTrocaDeUnidade(c, ctx, k, dados.unidade)
       try {
@@ -435,22 +462,42 @@ export class IndicadoresService {
       const alvo = NumeroDoKpi.de(d.unidade, BigInt(dados.alvo))
       const v = validarMeta(d, { tipo: dados.tipo, inicio: dados.inicio, prazo: dados.prazo, partida, alvo })
       if (v.tipo === 'erro') throw new UnprocessableEntityException(v.erro.mensagem)
+      // A série não tem partida (`series_de_meta` não tem a coluna): cada mês parte do zero.
+      if (dados.tipo === 'recorrente' && partida.emMenorUnidade !== 0n) {
+        throw new UnprocessableEntityException('A meta recorrente começa do zero todo mês: deixe a partida em branco.')
+      }
       const medidaPor = d.chave === 'faturamento_conferido' ? await this.visao.medidaPadrao(c, ctx) : 'fir'
       const emReais = d.unidade === 'reais'
       try {
+        // Recorrente (I-24): a série primeiro, e o mês pedido é a primeira meta dela.
+        const serieId =
+          dados.tipo !== 'recorrente'
+            ? null
+            : (
+                await c.query<{ id: string }>(
+                  `INSERT INTO series_de_meta (clinica_id, kpi_id, alvo_centavos, alvo_numero, responsavel_id,
+                                               medida_por, desde, criada_por)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8) RETURNING id`,
+                  [ctx.clinicaId, k.id, emReais ? dados.alvo : null, emReais ? null : dados.alvo,
+                    dados.responsavelId ?? null, medidaPor, dados.inicio, pessoaDoAtor(ctx.ator)],
+                )
+              ).rows[0]!.id
         const r = await c.query<LinhaDeMeta>(
           `INSERT INTO metas_de_kpi (clinica_id, kpi_id, tipo, inicio, prazo, alvo_centavos, alvo_numero,
-                                     partida_centavos, partida_numero, responsavel_id, medida_por, definida_por)
-           VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12)
+                                     partida_centavos, partida_numero, responsavel_id, medida_por, definida_por, serie_id)
+           VALUES ($1, $2, $3, $4::date, $5::date, $6, $7, $8, $9, $10, $11, $12, $13)
            RETURNING id, kpi_id, tipo, inicio::text AS inicio, prazo::text AS prazo,
                      alvo_centavos::text AS alvo_centavos, alvo_numero::text AS alvo_numero,
                      partida_centavos::text AS partida_centavos, partida_numero::text AS partida_numero,
-                     medida_por, responsavel_id`,
+                     medida_por, responsavel_id, serie_id`,
           [ctx.clinicaId, k.id, dados.tipo, dados.inicio, dados.prazo,
             emReais ? dados.alvo : null, emReais ? null : dados.alvo,
-            emReais ? partida.emMenorUnidade.toString() : null, emReais ? null : partida.emMenorUnidade.toString(),
-            dados.responsavelId ?? null, medidaPor, pessoaDoAtor(ctx.ator)],
+            serieId === null && emReais ? partida.emMenorUnidade.toString() : null,
+            serieId === null && !emReais ? partida.emMenorUnidade.toString() : null,
+            dados.responsavelId ?? null, medidaPor, pessoaDoAtor(ctx.ator), serieId],
         )
+        // O mês corrente e o próximo já nascem; os seguintes, o job do dia.
+        if (serieId !== null) await materializarSeries(c, ctx.clinicaId, hoje, serieId)
         return await this.metaNaSaida(c, ctx, k, d, r.rows[0]!, hoje)
       } catch (e) {
         throw traduzirErroDoBanco(e, 'Já existe uma meta viva deste indicador nesse período; edite-a.')
@@ -497,6 +544,19 @@ export class IndicadoresService {
       const m = await this.metaDaClinica(c, ctx, id)
       await this.kpiVisivel(c, ctx, m.kpi_id)
       await c.query('UPDATE metas_de_kpi SET arquivada_em = now() WHERE clinica_id = $1 AND id = $2 AND arquivada_em IS NULL', [ctx.clinicaId, id])
+      // Meta recorrente: arquivar encerra a série dali em diante — ela e os meses
+      // seguintes já materializados. Os meses de antes ficam como estão.
+      if (m.serie_id != null) {
+        await c.query('UPDATE series_de_meta SET arquivada_em = now() WHERE clinica_id = $1 AND id = $2 AND arquivada_em IS NULL', [
+          ctx.clinicaId,
+          m.serie_id,
+        ])
+        await c.query(
+          `UPDATE metas_de_kpi SET arquivada_em = now()
+            WHERE clinica_id = $1 AND serie_id = $2 AND inicio > $3::date AND arquivada_em IS NULL`,
+          [ctx.clinicaId, m.serie_id, m.inicio],
+        )
+      }
     })
     return { arquivada: true }
   }
@@ -590,6 +650,69 @@ export class IndicadoresService {
     return m
   }
 
+  /**
+   * A meta vigente e a RÉGUA do cartão — a mesma para o cartão e para a prévia
+   * D.3 (I-23). Sem meta, o faturamento é medido pelo padrão da clínica, como
+   * na Visão do mês (`medidaPadrao`), e não pela FIR fixa: numa clínica medida
+   * pelo MedX, a prévia dava R$ 0 por dia útil com o cartão em R$ 204,50.
+   */
+  private async reguaDoCartao(
+    c: pg.PoolClient,
+    ctx: ContextoDeIndicadores,
+    k: LinhaDeKpi,
+    d: Definicao,
+    hoje: string,
+  ): Promise<{ vigente: LinhaDeMeta | null; medidaPor: MedidaDaMeta }> {
+    const metas = await c.query<LinhaDeMeta>(
+      `${SELECT_META} WHERE clinica_id = $1 AND kpi_id = $2 AND resultado_chave_id IS NULL AND arquivada_em IS NULL
+          AND inicio <= $3::date AND prazo >= $3::date LIMIT 1`,
+      [ctx.clinicaId, k.id, hoje],
+    )
+    const vigente = metas.rows[0] ?? null
+    const medidaPor =
+      vigente?.medida_por ?? (d.chave === 'faturamento_conferido' ? await this.visao.medidaPadrao(c, ctx) : 'fir')
+    return { vigente, medidaPor }
+  }
+
+  /**
+   * KPI manual (spec 1.9 C.1): a faixa "lançamento pendente" e o selo da fonte.
+   * Pendente = o período corrente ainda não tem lançamento e o dia de lançar
+   * dele já chegou (`prazoDoLancamento`, o mesmo prazo da tarefa "Lançar").
+   * O autor é o NOME da pessoa da equipe, nunca dado de paciente; o valor
+   * lançado não sai aqui (ele já é o `atual`).
+   */
+  private async situacaoDoLancamento(
+    c: pg.PoolClient,
+    ctx: ContextoDeIndicadores,
+    k: LinhaDeKpi,
+    d: Definicao,
+    hoje: string,
+  ): Promise<Pick<KpiNaLista, 'lancamentoPendente' | 'ultimoLancamento'>> {
+    if (d.chave !== null) return { lancamentoPendente: false, ultimoLancamento: null }
+    const r = await c.query<{ referencia: string; lancado_em: Date; autor: string | null }>(
+      `SELECT l.referencia::text AS referencia, l.lancado_em, p.nome AS autor
+         FROM lancamentos_de_kpi l
+         LEFT JOIN pessoas p ON p.clinica_id = l.clinica_id AND p.id = l.lancado_por
+        WHERE l.clinica_id = $1 AND l.kpi_id = $2
+        ORDER BY l.lancado_em DESC, l.id DESC LIMIT 1`,
+      [ctx.clinicaId, k.id],
+    )
+    const ultimo = r.rows[0]
+    const referencia = referenciaPendente(k.frequencia, hoje)
+    const prazo = k.dia_de_lancamento === null ? null : prazoDoLancamento(k.frequencia, referencia, k.dia_de_lancamento)
+    const lancada = await c.query(
+      'SELECT 1 FROM lancamentos_de_kpi WHERE clinica_id = $1 AND kpi_id = $2 AND referencia = $3::date LIMIT 1',
+      [ctx.clinicaId, k.id, referencia],
+    )
+    return {
+      lancamentoPendente: prazo !== null && prazo.tipo === 'ok' && prazo.valor <= hoje && lancada.rowCount === 0,
+      ultimoLancamento:
+        ultimo === undefined
+          ? null
+          : { referencia: ultimo.referencia, lancadoEm: ultimo.lancado_em.toISOString(), autor: ultimo.autor },
+    }
+  }
+
   private async cartao(
     c: pg.PoolClient,
     ctx: ContextoDeIndicadores,
@@ -601,13 +724,7 @@ export class IndicadoresService {
     const d = definicaoDe(k)
     const ate = ateConsulta ?? hoje
     const de = deConsulta ?? referenciaDoPeriodo(d.somenteMesCivil ? 'mensal' : k.frequencia, ate)
-    const metas = await c.query<LinhaDeMeta>(
-      `${SELECT_META} WHERE clinica_id = $1 AND kpi_id = $2 AND resultado_chave_id IS NULL AND arquivada_em IS NULL
-          AND inicio <= $3::date AND prazo >= $3::date LIMIT 1`,
-      [ctx.clinicaId, k.id, hoje],
-    )
-    const vigente = metas.rows[0] ?? null
-    const medidaPor = vigente?.medida_por ?? 'fir'
+    const { vigente, medidaPor } = await this.reguaDoCartao(c, ctx, k, d, hoje)
     const m = await this.medir(c, ctx, k, d, de, ate, hoje, medidaPor)
     const meta = vigente === null ? null : await this.metaNaSaida(c, ctx, k, d, vigente, hoje)
     const alvo = vigente === null ? null : numeroDe(d.unidade, vigente.alvo_centavos, vigente.alvo_numero)
@@ -675,6 +792,7 @@ export class IndicadoresService {
       diasAguardando: m.diasAguardando,
       motivoSemValor: m.motivo ?? null,
       metaVigente: meta,
+      ...(await this.situacaoDoLancamento(c, ctx, k, d, hoje)),
     }
   }
 
@@ -720,8 +838,11 @@ export class IndicadoresService {
       partida: valorNaTela(d.unidade, partida),
       medidaPor: l.medida_por,
       responsavelId: l.responsavel_id,
+      serieId: l.serie_id ?? null,
       atual: valorNaTela(d.unidade, m.numero, alvo),
-      ritmo: valorNaTela(d.unidade, NumeroDoKpi.de(d.unidade, arredondar(ritmo))),
+      // Com o alvo: `percentualDaMeta` do ritmo é a posição do tique "ritmo
+      // esperado" na barra. Sem ele saía sempre `null`, e o tique nunca aparecia.
+      ritmo: valorNaTela(d.unidade, NumeroDoKpi.de(d.unidade, arredondar(ritmo)), alvo),
       situacao: situacao(meta, m.numero, corte, hoje),
       progresso: progresso(meta, m.numero, corte),
       projecao: p.valor === null ? null : valorNaTela(d.unidade, p.valor, alvo),
@@ -744,6 +865,17 @@ function diasDoAnterior(d: Definicao, frequencia: FrequenciaDeKpi, de: string, a
   }
   const dias = typeof corte === 'string' ? (corte < de ? [] : diasDe(de, corte)) : corte.dias
   return janelaComparavel(dias, frequencia)
+}
+
+/**
+ * O início padrão da série (I-29): o minigráfico é de 8 semanas (`semana`) ou
+ * de 6 meses (`mes`); sem agrupamento pedido, os últimos 3 meses.
+ */
+function inicioPadraoDaSerie(agrupamento: Agrupamento | undefined, hoje: string): string {
+  if (agrupamento === 'semana') return somarDias(referenciaDoPeriodo('semanal', hoje), -7 * 7)
+  if (agrupamento === 'dia') return `${hoje.slice(0, 7)}-01`
+  const meses = agrupamento === 'mes' ? 5 : 2
+  return `${somarMeses(`${hoje.slice(0, 7)}-01`, -meses).slice(0, 7)}-01`
 }
 
 /** Erros do banco que são do USUÁRIO viram 4xx; o resto sobe. */

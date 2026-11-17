@@ -44,6 +44,7 @@ import { IndicadoresModule } from './indicadores/indicadores.module'
 import { PainelGeralModule } from './painel-geral/painel.module'
 import { PessoasModule } from './pessoas/pessoas.module'
 import { ProgramasModule } from './programas/programas.module'
+import { RelatoriosModule } from './relatorios/relatorios.module'
 import { SaudeController } from './saude/saude.controller'
 import { TarefasModule } from './tarefas/tarefas.module'
 
@@ -78,6 +79,8 @@ import { TarefasModule } from './tarefas/tarefas.module'
     PainelGeralModule,
     // Indicadores & Insights (T2): KPIs, metas e a calculadora.
     IndicadoresModule,
+    // Indicadores & Insights (T8): o motor de relatórios e os favoritos.
+    RelatoriosModule,
     TarefasModule,
     JornadaModule,
     ClinicaModule,

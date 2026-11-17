@@ -204,6 +204,25 @@ estão comentadas no `docker-compose.yml`, linha a linha; o resumo:
 > allowlist **falha aberta, sem mudar de cor**. Item obrigatório de
 > conferência no dia em que o domínio próprio entrar (pendência P-8).
 
+## Relatórios fora do log (T8 — appsec C15, LGPD L-IN-16)
+
+`/api/v1/relatorios*` devolve **lista de pacientes** (nome, telefone opt-in,
+procedimento, dose por paciente no relatório 11). Nada disso pode cair em log:
+
+- **A API não tem log de requisição.** O `FastifyAdapter` de `main.ts` sobe sem
+  `logger`, e o teste `log-sem-conteudo-relatorios` reprova quem ligar um. O
+  filtro de erro dos relatórios grava só `relatorio falhou (codigo <pg>)`.
+- **Os filtros vão no CORPO de um `POST`**, nunca na URL: o access log do
+  Traefik (que é do EasyPanel e grava método, caminho e status) vê
+  `/api/v1/relatorios/<chave>/execucoes` e mais nada. O corpo e a resposta
+  nunca entram no access log do Traefik.
+- **O que NÃO se faz aqui:** ligar `accesslog.fields.headers` em modo `keep`,
+  ligar captura de corpo num middleware, ou pôr um `?filtro=` numa rota de
+  relatório. Se algum dia o access log passar a guardar query string com
+  conteúdo, `/api/v1/relatorios` entra numa regra de `accesslog.filters` que o
+  descarta — e isso é item de conferência do próximo deploy que mexer no
+  Traefik.
+
 ## Esqueci a senha — a cadeia inteira (D-10)
 
 | Quem esquece | Quem resolve |

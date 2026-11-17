@@ -150,6 +150,24 @@ export async function apagarFotografiasDeKpiDeTeste(cliente: pg.Client, clinicaI
 }
 
 /**
+ * Apaga `pacientes_da_exportacao` de uma clínica de teste (0104). Mesma forma
+ * das duas acima: append-only nas duas camadas. Antes de `pacientes` e da
+ * trilha, para as quais a linha aponta.
+ */
+export async function apagarPacientesDaExportacaoDeTeste(cliente: pg.Client, clinicaId: string): Promise<void> {
+  await cliente.query('BEGIN')
+  try {
+    await cliente.query('ALTER TABLE pacientes_da_exportacao DISABLE TRIGGER pacientes_da_exportacao_sem_update')
+    await cliente.query('DELETE FROM pacientes_da_exportacao WHERE clinica_id = $1', [clinicaId])
+    await cliente.query('ALTER TABLE pacientes_da_exportacao ENABLE TRIGGER pacientes_da_exportacao_sem_update')
+    await cliente.query('COMMIT')
+  } catch (e) {
+    await cliente.query('ROLLBACK')
+    throw e
+  }
+}
+
+/**
  * Desfaz um OPERADOR de teste, trilha do painel inclusive.
  *
  * `auditoria_do_painel` é append-only nas duas camadas, como a `auditoria`, e
@@ -366,6 +384,8 @@ const EM_ORDEM_DE_APAGAR = [
   // trilha pelo trigger; o evento não tem (LGPD L6).
   'links_de_acesso',
   'eventos_de_acesso',
+  // Os favoritos de relatório (0104) apontam para `pessoas` (`criado_por`).
+  'relatorios_favoritos',
   'pessoas',
   'perfis',
 ] as const
@@ -389,6 +409,8 @@ export async function apagarClinicaDeTeste(cliente: pg.Client, clinicaId: string
   await apagarPagamentosDesfeitosDeTeste(cliente, clinicaId)
   // ANTES do laço: aponta para `kpis`.
   await apagarFotografiasDeKpiDeTeste(cliente, clinicaId)
+  // ANTES do laço: aponta para `pacientes` e para a linha da trilha.
+  await apagarPacientesDaExportacaoDeTeste(cliente, clinicaId)
   for (const tabela of EM_ORDEM_DE_APAGAR) {
     await cliente.query(`DELETE FROM ${tabela} WHERE clinica_id = $1`, [clinicaId])
   }

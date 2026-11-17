@@ -8,7 +8,7 @@ const href = (u: { admin: boolean; perfilId: string | null }) =>
 
 describe('menu por permissão', () => {
   it('administrador vê tudo', () => {
-    expect(href({ admin: true, perfilId: null })).toHaveLength(25)
+    expect(href({ admin: true, perfilId: null })).toHaveLength(26)
   })
 
   it('enfermagem vê programas e estoque, não vê financeiro', () => {
@@ -21,6 +21,13 @@ describe('menu por permissão', () => {
 
   it('financeiro vê visão do mês porque tem valores junto', () => {
     expect(href({ admin: false, perfilId: 'pf_fin' })).toContain('/visao-do-mes')
+  })
+
+  it('Indicadores & Insights só com `indicadores` (1.9 A), logo acima do Painel geral', () => {
+    expect(href({ admin: false, perfilId: 'pf_sup' })).toContain('/indicadores')
+    expect(href({ admin: false, perfilId: 'pf_rec' })).not.toContain('/indicadores')
+    const h = href({ admin: true, perfilId: null })
+    expect(h.indexOf('/indicadores')).toBe(h.indexOf('/painel') - 1)
   })
 
   it('recepção não vê visão do mês — não tem valores', () => {
@@ -57,6 +64,7 @@ describe('seções do menu', () => {
       '/estoque',
       '[Pessoas]',
       '---',
+      '/indicadores',
       '/painel',
       '[Configurações]',
       '/ajuda',
@@ -76,10 +84,10 @@ describe('seções do menu', () => {
     ])
   })
 
-  it('o administrador continua com os 25 itens, só reorganizados', () => {
+  it('o administrador continua com os 26 itens, só reorganizados', () => {
     const todos = blocosDe(ADMIN).flatMap(hrefsDoBloco)
-    expect(todos).toHaveLength(25)
-    expect(new Set(todos).size).toBe(25)
+    expect(todos).toHaveLength(26)
+    expect(new Set(todos).size).toBe(26)
   })
 
   it('grupo sem item não vira título órfão', () => {

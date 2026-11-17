@@ -849,4 +849,11 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'de clínica nenhuma, nenhuma forma de pagamento, nenhum esperado de conferência.',
   },
   { caminho: '/v1/carteira/eu/contadores', razao: 'Os badges do menu (G8 3B, T4): duas contagens (tarefas vencidas, contatos "agora"). Sem valor, sem caixa.' },
+  {
+    caminho: '/v1/relatorios',
+    razao:
+      'O catálogo de relatórios e os favoritos da clínica (T8): títulos, colunas e filtros salvos. ' +
+      'Nenhuma linha, nenhum total, nenhuma forma de pagamento. As linhas saem só por POST ' +
+      '(execucoes/exportacoes), e o relatório 8 apaga valor e forma do dia sem caixa (c.10).',
+  },
 ]

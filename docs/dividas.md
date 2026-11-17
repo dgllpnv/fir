@@ -745,6 +745,35 @@ O HMAC dos ids do MedX e a referência selada derivam de `FIR_INTEGRACOES_CHAVE_
 Medido: `GET /v1/visao-do-mes` devolve `recebido` com os pagamentos de hoje, caixa aberto ou não, e `quantidadeDeRecebimentos` junto. Quem tem `finmes` (e por isso `valores`) e vai contar a gaveta subtrai o `recebido` de ontem e lê o total do dia — o esperado do caixa, por outra porta (regra 6). O `porForma` já corta no caixa fechado; o total não. O T2 **não amplia** a exposição: a meta passou a medir só dias que contam, `aguardandoFechamento` é um total só e some sem `valores`, e `/v1/indicadores*` não muda nenhum byte com um recebimento de hoje (`regra-6-nenhum-byte-de-hoje`).
 **Gatilho:** a primeira clínica em que quem tem `finmes` também conta o caixa às cegas — ou a próxima mudança na tela da Visão do mês. Caminho: `recebido` com o mesmo corte de `porForma`, e a linha "aguardando fechamento" para o resto.
 
+### D-I3 · O Painel mostra o dinheiro de um dia PASSADO sem caixa fechado, que nunca foi conferido às cegas
+
+`/v1/painel`, com receita, ticket médio e valor fechado, soma todo dia do período, tenha caixa ou não. Um dia passado sem caixa ainda pode ser fechado (`caixa.service` aceita dia passado). Quem vai fechá-lo lê no Painel o total daquele dia, que é o esperado da gaveta por outra porta (regra 6).
+
+Os KPIs do mês passado espelham a tela e herdam o buraco: é a emenda da c.10, na [ADR chaves-em-reais-e-os-dias-de-caixa](adr/2026-11-17-chaves-em-reais-e-os-dias-de-caixa.md). No mês corrente o KPI já corta.
+
+**Gatilho:** a primeira clínica que fecha caixa de dia passado, ou a próxima mudança no Painel. Caminho: o Painel passa pelo `recorteDeCaixa`, e o dia sem caixa fica aguardando a partir de `conferencia_desde`. Depois disso, o KPI do mês passado deixa de ter exceção.
+
+### D-I4 · O resultado de campanha é cortado pela conclusão da tarefa, não pelo dia do recebimento
+
+O Painel (`totaisDePacientes`) e `resultado_de_campanha` (`CampanhasService.naJanela`) põem o dinheiro na janela pelo `concluida_em` da tarefa. O caixa e a regra 6 olham o `recebido_em`. Se uma tarefa é concluída num dia e o pagamento é registrado em outro, o dinheiro cai num dia na série e em outro no caixa. Os dois ainda concordam entre si (fonte única).
+
+**Gatilho:** o primeiro recebimento registrado em dia diferente da conclusão da tarefa dele, ou a primeira divergência entre a série e o caixa de um dia. Caminho: cortar a janela por `r.recebido_em` nas duas fontes, juntas.
+
+### D-I5 · O PUT do lançamento responde 422/409 antes do 403, e isso revela o estado do KPI (appsec T3/T4, M1)
+
+`podeLancar` decide "KPI de catálogo" (422) e "arquivado" (409) **antes** de conferir a pessoa. Qualquer pessoa autenticada da clínica, sem `indicadores`, descobre se um uuid é KPI de catálogo ou arquivado. Não sai valor, e o id só vaza por `tarefa.kpi` ([revisão](specs/indicadores-e-insights-t3-t4-appsec.md)).
+
+**Gatilho:** o próximo trabalho em `podeLancar` ou nas rotas de lançamento, ou um id de KPI exposto fora de `tarefa.kpi`. Caminho: 403 primeiro quando a pessoa não é a responsável nem tem `indicadores.gerir`.
+
+### D-I6 · Os KRs invisíveis deixam rastro e mudam sem validação (appsec T3/T4, M2 e M3)
+
+- **M2.** Para quem não vê KPI de RH, o 422 "de 1 a 5 resultados-chave" ou o 409 do `EXCLUDE` ao editar revela que existe um KR oculto. Não sai valor.
+- **M3.** Editar o OKR move o período e a responsável dos KRs invisíveis (`okrs.service.ts`) sem passar por `validarMeta`. Um KR oculto pode ficar com período que a validação recusaria.
+
+**Gatilho:** o primeiro OKR que mistura KR de RH com KR visível à equipe, ou a próxima mudança na edição de OKR. Caminho:
+- M3: `validarMeta` em todo KR movido, visível ou não;
+- M2: uma mensagem que não distingue o KR oculto.
+
 ## Pendências de produto, não de código
 
 Essas dependem do dono e estão em [`decisoes.md`](decisoes.md), não aqui: P-1 (UX de sessão no balcão), P-2 (hospedagem para dado de saúde), P-3 (DPA com cada clínica), P-4 (modelo comercial), P-5 (janela de migração), P-6 (perfil Consultoria), P-7 (integração com agenda), P-8 (domínio e certificado), ~~P-9 (SMTP — encerrada)~~, P-10 (concessão de acesso do operador a dado clínico).

@@ -44,11 +44,36 @@ export type AnaliseDaContagem = {
 
 const SAIDAS = new Set(['consumo', 'descarte', 'interno'])
 
+/**
+ * O que a análise conta como SAÍDA. Exportado para o modo "calendário" do
+ * relatório de saídas, que precisa do mesmo conjunto sem o recorte por contagem.
+ */
+export const ehSaidaDeEstoque = (tipo: string): boolean => SAIDAS.has(tipo)
+
 /** Os índices das linhas de um grupo de contagem, na ordem canônica. */
 const indicesDoGrupo = (ordenados: readonly MovimentoDeEstoque[], chave: string): number[] =>
   ordenados.flatMap((m, i) =>
     m.tipo === 'contagem' && chaveDaContagem(m) === chave ? [i] : [],
   )
+
+/**
+ * Os movimentos ENTRE o fim do grupo inicial e o começo do final, por ÍNDICE na
+ * ordem canônica. `tipo !== 'contagem'` porque uma contagem do meio não é
+ * entrada nem saída — ela é outra medição, e somá-la como delta trocaria o
+ * ponto de partida por um número.
+ *
+ * Um recorte só para a conta da Análise e para as linhas do relatório de saídas
+ * (números B8): duas cópias dele seriam duas respostas para "o que saiu entre
+ * as duas contagens".
+ */
+function movimentosEntre(
+  ordenados: readonly MovimentoDeEstoque[],
+  doInicial: readonly number[],
+  comecaOFinal: number,
+): MovimentoDeEstoque[] {
+  const terminaOInicial = doInicial[doInicial.length - 1]!
+  return ordenados.slice(terminaOInicial + 1, comecaOFinal).filter((m) => m.tipo !== 'contagem')
+}
 
 /**
  * O NÚCLEO DA ARITMÉTICA — entre dois grupos de contagem.
@@ -93,15 +118,8 @@ function entreGrupos(
     }
   }
 
-  const terminaOInicial = doInicial[doInicial.length - 1]!
   const anterior = doInicial.reduce((s, i) => s + ordenados[i]!.milesimos, 0n)
-
-  // ENTRE as duas contagens. `tipo !== 'contagem'` porque uma contagem do meio
-  // não é entrada nem saída — ela é outra medição, e somá-la como delta
-  // trocaria o ponto de partida por um número.
-  const entre = ordenados
-    .slice(terminaOInicial + 1, comecaOFinal)
-    .filter((m) => m.tipo !== 'contagem')
+  const entre = movimentosEntre(ordenados, doInicial, comecaOFinal)
 
   const soma = (p: (m: MovimentoDeEstoque) => boolean) =>
     entre.filter(p).reduce((s, m) => s + m.milesimos, 0n)
@@ -201,6 +219,47 @@ export function analiseDoPeriodo(
   medida: string,
 ): AnaliseDoPeriodo | null {
   const ordenados = [...movs].sort(ordemDeMovimento)
+  const r = recorteDoPeriodo(ordenados, de, ate)
+  if (r === null) return null
+  const a = entreGrupos(ordenados, r.inicial.chave, r.final.chave, medida)
+  if (a === null) return null
+  return { ...a, deDia: r.inicial.dia, ateDia: r.final.dia }
+}
+
+/**
+ * **AS SAÍDAS QUE A ANÁLISE SOMOU, linha a linha** — o modo "período da
+ * análise" do relatório de saídas de estoque (números B8).
+ *
+ * O MESMO recorte de `analiseDoPeriodo` (as duas contagens escolhidas por
+ * índice) e o MESMO "entre" de `entreGrupos`, filtrados pelos tipos de saída.
+ * Por isso, por item, `Σ −milesimos` destas linhas é exatamente
+ * `analiseDoPeriodo(...).saidas` — inclusive a compensação de uma sessão
+ * reaberta, que entra como linha de sinal oposto e anula a baixa que desfaz.
+ *
+ * `null` quando a análise do período também é `null` (sem duas contagens).
+ */
+export function saidasDoPeriodoDaAnalise(
+  movs: readonly MovimentoDeEstoque[],
+  de: string,
+  ate: string,
+): readonly MovimentoDeEstoque[] | null {
+  const ordenados = [...movs].sort(ordemDeMovimento)
+  const r = recorteDoPeriodo(ordenados, de, ate)
+  if (r === null) return null
+  const doFinal = indicesDoGrupo(ordenados, r.final.chave)
+  const doInicial = indicesDoGrupo(ordenados, r.inicial.chave)
+  if (doFinal.length === 0 || doInicial.length === 0) return null
+  return movimentosEntre(ordenados, doInicial, doFinal[0]!).filter((m) => SAIDAS.has(m.tipo))
+}
+
+type GrupoDeContagem = { readonly chave: string; readonly dia: string }
+
+/** As duas contagens que delimitam o período — ver `analiseDoPeriodo`. */
+function recorteDoPeriodo(
+  ordenados: readonly MovimentoDeEstoque[],
+  de: string,
+  ate: string,
+): { readonly inicial: GrupoDeContagem; readonly final: GrupoDeContagem } | null {
   const grupos = gruposDeContagem(ordenados)
 
   /**
@@ -237,10 +296,7 @@ export function analiseDoPeriodo(
   }
   const final = finalEm === -1 ? undefined : grupos[finalEm]
   if (final === undefined) return null
-
-  const a = entreGrupos(ordenados, inicial.chave, final.chave, medida)
-  if (a === null) return null
-  return { ...a, deDia: inicial.dia, ateDia: final.dia }
+  return { inicial, final }
 }
 
 /* ======================================================================

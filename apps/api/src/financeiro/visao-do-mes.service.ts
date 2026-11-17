@@ -31,7 +31,7 @@ import { definirMetaDoMes, metaDoMes } from '../metas/metas.repositorio'
 import { PARTES_VIVAS } from './dinheiro-que-entrou'
 import { caixasDoPeriodo, type FaturamentoConferido, medirFaturamentoConferido } from './faturamento-conferido'
 import { outrasEntradasDaJanela } from './outras-entradas.repositorio'
-import { recebidosDaJanela } from './recebido-por-dia'
+import { RECEBIDOS_DA_JANELA, recebidosDaJanela } from './recebido-por-dia'
 import { pacientesQuePodemTerSaldo, saldosDe } from './saldo.repositorio'
 
 /** O rótulo que liga a tarefa à rotina que a criou. `CONTEXT.md`: Marcador de rotina. */
@@ -411,6 +411,70 @@ export class VisaoDoMesService {
     return new Set(r.rows.map((x) => x.dia))
   }
 
+}
+
+/** Uma PARTE de um recebimento da janela — a linha do relatório 8 (spec I-38). */
+export type ParteDaJanela = {
+  readonly recebimentoId: string
+  readonly pacienteId: string
+  /** `null` quando o paciente foi desativado ou anonimizado: a linha fica, o nome não. */
+  readonly paciente: string | null
+  readonly dia: string
+  readonly tipo: string
+  readonly forma: string
+  readonly valor: Dinheiro
+  readonly registradoPor: string | null
+}
+
+/**
+ * **AS PARTES dos mesmos recebimentos de `recebidosDaJanela`** (o `recebido`
+ * desta tela), uma linha por forma — o relatório 8. O conjunto é o MESMO
+ * `RECEBIDOS_DA_JANELA`, e `Σ partes = r.valor` é garantido pelo banco (0086):
+ * a soma destas linhas é o `recebido`, centavo a centavo, inclusive a nota
+ * promissória, que é receita fora da gaveta.
+ *
+ * Mora aqui, e não em `recebido-por-dia.ts`, porque esta é uma das telas que
+ * leem por forma (`arquitetura-de-partes`): a forma é da parte.
+ */
+export async function partesDosRecebidosDaJanela(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  j: { readonly de: Date; readonly ate: Date },
+  fuso: string,
+): Promise<ParteDaJanela[]> {
+  const r = await c.query<{
+    recebimento_id: string
+    paciente_id: string
+    paciente: string | null
+    dia: string
+    tipo: string
+    forma: string
+    valor: string
+    registrado_por: string | null
+  }>(
+    `SELECT r.id AS recebimento_id, r.paciente_id,
+            CASE WHEN p.ativo THEN p.nome END AS paciente,
+            ((r.recebido_em AT TIME ZONE $4)::date)::text AS dia,
+            r.tipo, pt.forma, pt.valor::text AS valor, pe.nome AS registrado_por
+       FROM recebimentos r
+       JOIN recebimento_partes pt ON pt.recebimento_id = r.id AND pt.clinica_id = r.clinica_id
+       LEFT JOIN tarefas t ON t.id = r.tarefa_id
+       LEFT JOIN pacientes p ON p.id = r.paciente_id
+       LEFT JOIN pessoas pe ON pe.id = r.registrado_por
+      WHERE ${RECEBIDOS_DA_JANELA}
+      ORDER BY r.recebido_em, r.id, pt.valor DESC, pt.ordem`,
+    [clinicaId, j.de, j.ate, fuso],
+  )
+  return r.rows.map((x) => ({
+    recebimentoId: x.recebimento_id,
+    pacienteId: x.paciente_id,
+    paciente: x.paciente,
+    dia: x.dia,
+    tipo: x.tipo,
+    forma: x.forma,
+    valor: dinheiro(x.valor),
+    registradoPor: x.registrado_por,
+  }))
 }
 
 /** O último dia conferido, em ordem de calendário. `null` quando não há nenhum. */

@@ -470,4 +470,30 @@ export const CAMPOS_MONETARIOS = [
    * dinheiro.
    */
   'aguardandoFechamento',
+  /**
+   * T8 (I-35; appsec C9): o valor da última compra no relatório 1, e a FAIXA DE
+   * VALOR dos filtros. A faixa é dinheiro que a pessoa digitou e que fica
+   * gravado no favorito: a lista de favoritos devolvida a quem não tem
+   * `valores` sai com os dois `null`, e rodar o favorito dá 403 (I-40).
+   */
+  'valorDaUltimaCompra',
+  'valorMinimo',
+  'valorMaximo',
 ] as const
+
+const NOMES_MONETARIOS = new Set<string>(CAMPOS_MONETARIOS)
+
+/**
+ * Se o campo (em camelCase) é dinheiro para a redação (regra 17).
+ *
+ * Além da lista, **todo nome terminado em `Centavos`**: é a convenção das
+ * colunas de dinheiro no banco (`valor_centavos`, `alvo_centavos`,
+ * `partida_centavos`…), e a trilha (`GET /v1/auditoria`) entrega NOME DE
+ * COLUNA. Sem o sufixo, cada tabela nova com dinheiro precisava lembrar de
+ * entrar na lista — e o T3/T4 esqueceu: o valor lançado num KPI e o alvo dos
+ * KRs saíam inteiros na trilha para quem tem `config` sem `valores`
+ * (revisão appsec T3/T4, B1, 2026-11-17).
+ */
+export function ehCampoMonetario(nomeEmCamelCase: string): boolean {
+  return NOMES_MONETARIOS.has(nomeEmCamelCase) || nomeEmCamelCase.endsWith('Centavos')
+}

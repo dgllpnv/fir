@@ -123,6 +123,16 @@ const paraSaida = (l: LinhaDePaciente, s: SaldoDoPaciente): PacienteNaLista => (
 })
 
 /**
+ * **UMA COMPRA da paciente `p`**: o recebimento que entra no LTV. A ficha (o
+ * `ltv` de `SELECT_BASE`) e o relatório 1 (`comprasDosPacientes`: a última
+ * compra e o LTV) leem o MESMO conjunto — senão o LTV do relatório
+ * discordaria do da ficha no primeiro filtro que só um dos dois recebesse.
+ * Pressupõe `pacientes p` e `recebimentos r`.
+ */
+const COMPRA_DO_PACIENTE = `r.paciente_id = p.id AND r.estornado_em IS NULL
+             AND ${DINHEIRO_QUE_ENTROU}`
+
+/**
  * O SELECT que todas as leituras de paciente compartilham.
  *
  * `ltv` é DERIVADO aqui, nunca coluna — e é uma soma simples, sem regra
@@ -171,11 +181,85 @@ const SELECT_BASE = `
          -- protótipo filtra o mesmo (pagos = rec.filter(valor > 0)), que é o
          -- que mantém o ticket médio dele honesto.
          (SELECT coalesce(sum(r.valor), 0)::bigint FROM recebimentos r
-           WHERE r.paciente_id = p.id AND r.estornado_em IS NULL
-             AND ${DINHEIRO_QUE_ENTROU}
+           WHERE ${COMPRA_DO_PACIENTE}
          )::text AS ltv
     FROM pacientes p
    WHERE p.clinica_id = $1`
+
+/** A paciente ATIVA com ao menos uma compra, o LTV dela e a última compra (relatório 1). */
+export type CompraDoPaciente = {
+  readonly pacienteId: string
+  readonly nome: string
+  readonly telefone: string
+  readonly ltv: bigint
+  readonly ultimaCompra: string
+  readonly valorDaUltimaCompra: bigint
+  /** O procedimento do filtro, quando houver — pelo nome do catálogo. */
+  readonly procedimento: string | null
+}
+
+/**
+ * **AS COMPRAS DAS PACIENTES** — a fonte do relatório 1 (spec "Os 15
+ * relatórios": "último recebimento; LTV da ficha").
+ *
+ * Só paciente ATIVA (desativada e anonimizada ficam fora de todo relatório) e
+ * com ao menos uma compra. A última compra é o recebimento mais recente do
+ * conjunto do LTV, no dia civil da clínica.
+ *
+ * Com `procedimentoId`: só quem JÁ COMPROU aquele procedimento — um
+ * recebimento da tarefa com o procedimento, ou de um programa que o contém
+ * (pela adesão ou por uma sessão dele).
+ */
+export async function comprasDosPacientes(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  fuso: string,
+  procedimentoId: string | null,
+): Promise<CompraDoPaciente[]> {
+  const r = await c.query<{
+    id: string
+    nome: string
+    telefone: string
+    ltv: string
+    ultima_compra: string
+    valor_da_ultima: string
+    procedimento: string | null
+  }>(
+    `SELECT p.id, p.nome, p.telefone,
+            (SELECT coalesce(sum(r.valor), 0)::bigint FROM recebimentos r WHERE ${COMPRA_DO_PACIENTE})::text AS ltv,
+            u.dia AS ultima_compra, u.centavos AS valor_da_ultima,
+            (SELECT pr.nome FROM procedimentos pr WHERE pr.id = $3::uuid AND pr.clinica_id = p.clinica_id) AS procedimento
+       FROM pacientes p
+       JOIN LATERAL (
+         SELECT ((r.recebido_em AT TIME ZONE $2)::date)::text AS dia, r.valor::bigint::text AS centavos
+           FROM recebimentos r
+          WHERE ${COMPRA_DO_PACIENTE}
+          ORDER BY r.recebido_em DESC, r.id DESC
+          LIMIT 1
+       ) u ON true
+      WHERE p.clinica_id = $1 AND p.ativo
+        AND ($3::uuid IS NULL OR EXISTS (
+              SELECT 1 FROM recebimentos r
+                LEFT JOIN tarefas t ON t.id = r.tarefa_id
+               WHERE ${COMPRA_DO_PACIENTE}
+                 AND (t.procedimento_id = $3::uuid
+                      OR EXISTS (SELECT 1 FROM itens_do_programa ip
+                                  WHERE ip.clinica_id = r.clinica_id
+                                    AND ip.programa_id = coalesce(r.programa_id, t.programa_id)
+                                    AND ip.procedimento_id = $3::uuid))))
+      ORDER BY p.nome, p.id`,
+    [clinicaId, fuso, procedimentoId],
+  )
+  return r.rows.map((l) => ({
+    pacienteId: l.id,
+    nome: l.nome,
+    telefone: l.telefone,
+    ltv: BigInt(l.ltv),
+    ultimaCompra: l.ultima_compra,
+    valorDaUltimaCompra: BigInt(l.valor_da_ultima),
+    procedimento: l.procedimento,
+  }))
+}
 
 /** `23505` = unique_violation. */
 const ehNomeRepetido = (e: unknown): boolean =>

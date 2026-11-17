@@ -4,6 +4,21 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { DINHEIRO_QUE_ENTROU } from './dinheiro-que-entrou'
 
 /**
+ * O `WHERE` de "quanto entrou na janela", escrito UMA vez: o total por
+ * recebimento (`recebidosDaJanela`) e as linhas por parte do relatório 8
+ * (`partesDosRecebidosDaJanela`, na Visão do mês, que é quem lê partes) leem o
+ * MESMO conjunto de recebimentos — senão as linhas do relatório deixariam de
+ * somar o `recebido` da Visão do mês.
+ *
+ * Pressupõe `recebimentos r` e `LEFT JOIN tarefas t ON t.id = r.tarefa_id`;
+ * `$1` clínica, `$2`/`$3` a janela.
+ */
+export const RECEBIDOS_DA_JANELA = `r.clinica_id = $1 AND r.estornado_em IS NULL
+        AND ${DINHEIRO_QUE_ENTROU}
+        AND r.recebido_em >= $2 AND r.recebido_em < $3
+        AND (t.id IS NULL OR t.excluida_em IS NULL)`
+
+/**
  * **QUANTO ENTROU NA FIR, recebimento a recebimento, com o dia civil da
  * clínica.** A Visão do mês (o `recebido` e a meta) e a Conferência MedX × FIR
  * do Painel leem daqui (parecer de números A8): uma segunda consulta de
@@ -26,10 +41,7 @@ export async function recebidosDaJanela(
             ((r.recebido_em AT TIME ZONE $4)::date)::text AS dia
        FROM recebimentos r
        LEFT JOIN tarefas t ON t.id = r.tarefa_id
-      WHERE r.clinica_id = $1 AND r.estornado_em IS NULL
-        AND ${DINHEIRO_QUE_ENTROU}
-        AND r.recebido_em >= $2 AND r.recebido_em < $3
-        AND (t.id IS NULL OR t.excluida_em IS NULL)`,
+      WHERE ${RECEBIDOS_DA_JANELA}`,
     [clinicaId, janela.de, janela.ate, fuso],
   )
   return r.rows.map((x) => ({ valor: Dinheiro.deCentavos(BigInt(x.valor)), dia: x.dia }))

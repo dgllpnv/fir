@@ -43,7 +43,7 @@ type Contexto = {
   readonly fuso: string
 }
 
-type LinhaDeItem = {
+export type LinhaDeItem = {
   id: string
   nome: string
   categoria: string
@@ -52,6 +52,23 @@ type LinhaDeItem = {
   custo: string | null
   local_id: string | null
   local: string | null
+}
+
+/**
+ * **OS ITENS QUE A ANÁLISE OLHA** — vivos e ativos, por nome. O relatório 11
+ * no modo "período da análise" lê daqui, para que o conjunto de itens seja o
+ * da aba Análise e o total por item bata com ela (números B8).
+ */
+export async function itensDaAnalise(c: pg.PoolClient): Promise<LinhaDeItem[]> {
+  const r = await c.query<LinhaDeItem>(
+    `SELECT i.id, i.nome, i.categoria, i.medida, i.controla_validade,
+            i.custo::text AS custo, i.local_id, l.nome AS local
+       FROM itens_de_estoque i
+       LEFT JOIN locais_de_estoque l ON l.id = i.local_id
+      WHERE i.excluido_em IS NULL AND i.ativo
+      ORDER BY i.nome`,
+  )
+  return r.rows
 }
 
 @Injectable()
@@ -83,14 +100,7 @@ export class AnaliseService {
  * mês). Movida do `doPeriodo`, sem mudar a conta.
  */
 export async function analiseNaConexao(c: pg.PoolClient, de: string, ate: string): Promise<AnaliseDoEstoque> {
-    const r = await c.query<LinhaDeItem>(
-      `SELECT i.id, i.nome, i.categoria, i.medida, i.controla_validade,
-              i.custo::text AS custo, i.local_id, l.nome AS local
-         FROM itens_de_estoque i
-         LEFT JOIN locais_de_estoque l ON l.id = i.local_id
-        WHERE i.excluido_em IS NULL AND i.ativo
-        ORDER BY i.nome`,
-    )
+    const r = { rows: await itensDaAnalise(c) }
     const movs = await movimentosDosItens(
       c,
       r.rows.map((l) => l.id),

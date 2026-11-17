@@ -4,6 +4,7 @@ import { type Ator, atorEmColunas } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { EntidadeSensivel } from './acesso.decorator'
+import { comDinheiroNomeado, indicadoresDasMetas } from './unidade-na-trilha'
 
 type LinhaDaTrilha = {
   id: string
@@ -83,7 +84,7 @@ export class AuditoriaService {
   ): Promise<TrilhaSaida> {
     const cursor = consulta.antesDe === undefined ? null : partirCursor(consulta.antesDe)
 
-    const linhas = await this.banco.naClinica(clinicaId, ator, async (c) => {
+    const { linhas, indicadores } = await this.banco.naClinica(clinicaId, ator, async (c) => {
       const r = await c.query<LinhaDaTrilha>(
         `SELECT id::text AS id, clinica_id, em, ator_tipo, ator_id, acao,
                 entidade, entidade_id, de, para, motivo
@@ -111,7 +112,8 @@ export class AuditoriaService {
           consulta.limite + 1,
         ],
       )
-      return r.rows
+      const metas = r.rows.filter((l) => l.entidade === 'metas_de_pessoa').map((l) => l.entidade_id)
+      return { linhas: r.rows, indicadores: await indicadoresDasMetas(c, clinicaId, [...new Set(metas)]) }
     })
 
     const temMais = linhas.length > consulta.limite
@@ -133,8 +135,10 @@ export class AuditoriaService {
         // `de`/`para` saem como vieram do banco e atravessam o
         // `RedacaoInterceptor` como qualquer outro campo da resposta — é
         // justamente aqui que um `if` por endpoint entregaria o salário.
-        de: l.de,
-        para: l.para,
+        // A meta de pessoa em reais sai com o alvo sob um nome de dinheiro
+        // (`unidade-na-trilha.ts`, D-I7); quem apaga é o interceptor.
+        de: comDinheiroNomeado(l.entidade, l.de, indicadores.get(l.entidade_id) ?? null),
+        para: comDinheiroNomeado(l.entidade, l.para, indicadores.get(l.entidade_id) ?? null),
         motivo: l.motivo,
       })),
       proxima: temMais && ultima !== undefined ? cursorDe(ultima) : null,

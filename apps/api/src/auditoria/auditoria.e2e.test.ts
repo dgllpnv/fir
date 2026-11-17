@@ -370,6 +370,91 @@ describe('GET /v1/auditoria', () => {
     expect(item.para.nome).toBe('Juliana')
   })
 
+  describe('meta de pessoa em reais na trilha (D-I7, regra 17)', () => {
+    // Alvos que não aparecem em nenhum outro lugar da fixture.
+    const EM_REAIS = 1_234_567
+    const EM_REAIS_DEPOIS = 1_234_589
+    const EM_QUANTIDADE = 37
+    let metaEmReais = ''
+    let metaEmQuantidade = ''
+
+    beforeAll(async () => {
+      await declararAtorSistema(migrate)
+      const ficha = (
+        await migrate.query<{ id: string }>(
+          `INSERT INTO fichas_de_pessoa (clinica_id, nome, cargo, contrato, ativo) VALUES ($1, 'Ficha da trilha', 'Recepção', 'CLT', true) RETURNING id`,
+          [clinica],
+        )
+      ).rows[0]!.id
+      const meta = async (indicador: string, alvo: number) =>
+        (
+          await migrate.query<{ id: string }>(
+            `INSERT INTO metas_de_pessoa (clinica_id, ficha_id, mes, indicador, nome, alvo) VALUES ($1, $2, '2026-10', $3, '', $4) RETURNING id`,
+            [clinica, ficha, indicador, alvo],
+          )
+        ).rows[0]!.id
+      metaEmReais = await meta('orc_valor', EM_REAIS)
+      metaEmQuantidade = await meta('orc_qtd', EM_QUANTIDADE)
+      // Um UPDATE, para haver `de` E `para`.
+      await migrate.query('UPDATE metas_de_pessoa SET alvo = $2 WHERE id = $1', [metaEmReais, EM_REAIS_DEPOIS])
+    })
+
+    const daMeta = async (quem: string, id: string) =>
+      (await trilha(await cookieDe(quem), `?entidade=metas_de_pessoa&entidadeId=${id}`).expect(200)).body.itens as {
+        acao: string
+        de: Record<string, unknown> | null
+        para: Record<string, unknown> | null
+      }[]
+
+    it('a fixture vaza sem o conserto: a linha CRUA da trilha guarda o alvo em reais em `alvo`', async () => {
+      // A prova por mutação: é este `alvo` que sairia em claro se a leitura
+      // devolvesse `de`/`para` como vieram do banco.
+      const r = await migrate.query<{ para: { alvo: number } }>(
+        `SELECT para FROM auditoria WHERE clinica_id = $1 AND entidade = 'metas_de_pessoa' AND entidade_id = $2 AND acao = 'alterou'`,
+        [clinica, metaEmReais],
+      )
+      expect(r.rows[0]!.para.alvo).toBe(EM_REAIS_DEPOIS)
+    })
+
+    it('sem `valores`: o alvo da meta em reais sai null, em `de` e em `para`, e nenhum byte do número atravessa', async () => {
+      const r = await trilha(await cookieDe('sandra'), `?entidade=metas_de_pessoa&entidadeId=${metaEmReais}`).expect(200)
+      const itens = r.body.itens as { acao: string; de: Record<string, unknown> | null; para: Record<string, unknown> | null }[]
+      expect(itens.length).toBe(2)
+      for (const i of itens) {
+        for (const lado of [i.de, i.para]) {
+          if (lado === null) continue
+          expect(lado).not.toHaveProperty('alvo')
+          expect(lado['metaEmDinheiro']).toBeNull()
+        }
+      }
+      // O `UPDATE` grava só o que mudou (o `alvo`, sem o indicador): é a linha
+      // que exige achar o indicador na criação da mesma meta.
+      const alterou = itens.find((i) => i.acao === 'alterou')!
+      expect(alterou.para).not.toHaveProperty('indicador')
+      expect(itens.find((i) => i.acao !== 'alterou')!.para!['indicador']).toBe('orc_valor')
+      expect(r.text).not.toContain(String(EM_REAIS))
+      expect(r.text).not.toContain(String(EM_REAIS_DEPOIS))
+    })
+
+    it('sem `valores`: a meta de QUANTIDADE continua com o número em `alvo`, também no UPDATE', async () => {
+      await declararAtorSistema(migrate)
+      await migrate.query('UPDATE metas_de_pessoa SET alvo = $2 WHERE id = $1', [metaEmQuantidade, EM_QUANTIDADE + 1])
+      const itens = await daMeta('sandra', metaEmQuantidade)
+      expect(itens).toHaveLength(2)
+      expect(itens.find((i) => i.acao === 'alterou')!.para!['alvo']).toBe(EM_QUANTIDADE + 1)
+      expect(itens.find((i) => i.acao !== 'alterou')!.para!['alvo']).toBe(EM_QUANTIDADE)
+    })
+
+    it('com `valores`: as duas mostram o número', async () => {
+      const reais = await daMeta('helena', metaEmReais)
+      const alterou = reais.find((i) => i.acao === 'alterou')!
+      expect(alterou.de!['metaEmDinheiro']).toBe(EM_REAIS)
+      expect(alterou.para!['metaEmDinheiro']).toBe(EM_REAIS_DEPOIS)
+      const qtd = await daMeta('helena', metaEmQuantidade)
+      expect(qtd.find((i) => i.acao !== 'alterou')!.para!['alvo']).toBe(EM_QUANTIDADE)
+    })
+  })
+
   it('com "pessoas.gerir", o mesmo registro entrega o salário', async () => {
     const cookie = await cookieDe('helena')
     const r = await trilha(cookie, `?entidade=pessoas&entidadeId=${SINTETICO}`).expect(200)

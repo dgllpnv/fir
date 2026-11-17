@@ -419,7 +419,7 @@ export async function registrarNoPainel(
     // e vai para esta mesma trilha.
     atorTipo: 'operador' | 'vps' | 'sistema' | 'usuario_gestao' | 'usuario_portal'
     atorId: string | null
-    acao: 'criou' | 'alterou' | 'removeu' | 'acessou' | 'entrou'
+    acao: 'criou' | 'alterou' | 'removeu' | 'acessou' | 'exportou' | 'entrou'
     entidade: string
     entidadeId: string
     de?: unknown

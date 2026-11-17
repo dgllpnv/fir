@@ -1,7 +1,12 @@
 import { z } from 'zod'
 import { Uuid } from './comum'
 
-export const AcaoDaTrilha = z.enum(['criou', 'alterou', 'removeu', 'acessou'])
+/**
+ * `exportou` (0104, ADR do T8; LGPD R-a): a exportação de relatório tem ação
+ * PRÓPRIA, e não `acessou` — a purga (5 anos × 1 ano) e o filtro
+ * "Exportações" de Atividades leem a ação, sem depender do nome da entidade.
+ */
+export const AcaoDaTrilha = z.enum(['criou', 'alterou', 'removeu', 'acessou', 'exportou'])
 export type AcaoDaTrilha = z.infer<typeof AcaoDaTrilha>
 
 /** `'operador'` é o superadmin do épico 12, que não é uma `pessoa` (D-5). */

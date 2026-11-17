@@ -46,6 +46,27 @@ describe('redacao', () => {
     expect(r['nome']).toBe('Ana')
   })
 
+  it('toda coluna `*_centavos` é dinheiro, sem precisar estar na lista (appsec T3/T4 B1)', () => {
+    // A trilha do lançamento de KPI e da meta de KR: as colunas não estavam em
+    // CAMPOS_MONETARIOS e saíam inteiras para quem tem `config` sem `valores`.
+    const r = redigir(
+      {
+        lancamento: { valor_centavos: '150043', valor_numero: null, referencia: '2026-11' },
+        metaDoKr: { alvo_centavos: '990077', partida_centavos: '0', tipo: 'ate_data' },
+        valorCentavos: '1',
+      },
+      semValores,
+    ) as any
+    expect(r.lancamento.valor_centavos).toBe(null)
+    expect(r.lancamento.referencia).toBe('2026-11')
+    expect(r.metaDoKr.alvo_centavos).toBe(null)
+    expect(r.metaDoKr.partida_centavos).toBe(null)
+    expect(r.metaDoKr.tipo).toBe('ate_data')
+    expect(r.valorCentavos).toBe(null)
+    const comValores = redigir({ alvo_centavos: '990077' }, comTudo) as Record<string, unknown>
+    expect(comValores['alvo_centavos']).toBe('990077')
+  })
+
   it('o faturamento lido do MedX na trilha: total, exato e contagem de pagamentos somem; a quantidade de estoque, não', () => {
     // A linha de `leituras_de_faturamento_externo` e a do histórico, como a trilha as entrega (spec C.11).
     const r = redigir(

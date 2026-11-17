@@ -306,7 +306,7 @@ export const FiltroDeAtividades = z
     clinicaId: Uuid.optional(),
     pessoaId: Uuid.optional(),
     quem: z.enum(['equipe', 'superadmin', 'carteira', 'portal', 'sistema']).optional(),
-    acao: z.enum(['criou', 'alterou', 'removeu', 'acessou']).optional(),
+    acao: z.enum(['criou', 'alterou', 'removeu', 'acessou', 'exportou']).optional(),
     assunto: z.string().regex(/^[a-z_]{1,63}$/).optional(),
     /** Dia civil, no fuso de cada clínica. Janela `[de, ate + 1 dia)`. */
     de: DiaCivil.optional(),
@@ -328,7 +328,7 @@ export const AtividadeDoPainel = z.object({
     /** Nome da pessoa/operador; `null` quando o cadastro já não existe. */
     nome: z.string().nullable(),
   }),
-  acao: z.enum(['criou', 'alterou', 'removeu', 'acessou']),
+  acao: z.enum(['criou', 'alterou', 'removeu', 'acessou', 'exportou']),
   /** O nome da tabela, como o banco a chama. A tela traduz. */
   assunto: z.string(),
   /** Nomes dos campos que mudaram (só em `alterou`). Nunca valores. */

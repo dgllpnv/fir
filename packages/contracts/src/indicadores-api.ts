@@ -53,6 +53,8 @@ export const MetaDeKpiNaSaida = z
     partida: ValorNaTelaSchema,
     medidaPor: z.enum(['fir', 'medx']),
     responsavelId: Uuid.nullable(),
+    /** A série da meta `recorrente` (I-24); `null` nas outras. Opcional para a web que monta o tipo à mão. */
+    serieId: Uuid.nullable().optional(),
     /** O medido pela meta em `[início, corte]` (I-18), com `percentualDaMeta`. */
     atual: ValorNaTelaSchema,
     /** O ritmo esperado no corte; arredondado só aqui, na exibição (I-19). */
@@ -95,6 +97,18 @@ export const KpiNaLista = z
     /** `fonte_fora_do_dominio` (números c.16): o valor vem `null` e o incidente foi registrado. */
     motivoSemValor: z.string().nullable(),
     metaVigente: MetaDeKpiNaSaida.nullable(),
+    /**
+     * KPI manual (1.9 C.1): o período corrente sem lançamento, com o dia de
+     * lançar já chegado. `false` no KPI de catálogo. Opcional só para a web
+     * que ainda monta o tipo à mão; o servidor sempre manda.
+     */
+    lancamentoPendente: z.boolean().optional(),
+    /** O selo da fonte do KPI manual: o último lançamento, sem o valor. `null` sem lançamento ou no catálogo. */
+    ultimoLancamento: z
+      .object({ referencia: DiaDoKpi, lancadoEm: z.string().datetime(), autor: z.string().nullable() })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict()
 export type KpiNaLista = z.infer<typeof KpiNaLista>
@@ -132,7 +146,14 @@ export const SerieDoKpi = z
   .strict()
 export type SerieDoKpi = z.infer<typeof SerieDoKpi>
 
-export const ConsultaDaSerie = z.object({ de: DiaDoKpi.optional(), ate: DiaDoKpi.optional() }).strict()
+/**
+ * `agrupamento` opcional (I-29): o minigráfico do KPI semanal pede `semana` (8
+ * semanas a partir de hoje, sem `de`), o mensal pede `mes` (6 meses). A chave só
+ * de mês civil é sempre `mes`. `dia` só dentro de um mês.
+ */
+export const ConsultaDaSerie = z
+  .object({ de: DiaDoKpi.optional(), ate: DiaDoKpi.optional(), agrupamento: z.enum(['mes', 'semana', 'dia']).optional() })
+  .strict()
 
 export const ConsultaDeKpis = z
   .object({
@@ -206,7 +227,8 @@ export type EditarKpi = z.infer<typeof EditarKpi>
 export const CriarMetaDeKpi = z
   .object({
     kpiId: Uuid,
-    tipo: z.enum(['mes', 'ate_data']),
+    /** `recorrente` (I-24): um mês civil inteiro, o primeiro da série; os seguintes nascem sozinhos. */
+    tipo: z.enum(['mes', 'ate_data', 'recorrente']),
     inicio: DiaDoKpi,
     prazo: DiaDoKpi,
     alvo: InteiroDoKpi,

@@ -25,6 +25,13 @@ São duas regras, e cada chave segue uma delas em todo período.
      - para o mês corrente, com `soDiasQueContam`, que é a mesma regra por dia.
 3. **`saldo_a_receber` e `perda_de_estoque` não dependem do caixa.** São posição e análise, e dão sempre o número da tela.
 
+**Esta ADR EMENDA a condição c.10 do [gate de números](../specs/indicadores-e-insights-gate-numeros.md).** A c.10 manda que todo ponto diário em dia sem caixa saia aguardando, sem exceção. Pela emenda, isso vale para o mês corrente. No mês passado, o dia sem caixa mostra o valor, por dois motivos:
+
+- o KPI tem de ser igual à tela (c.1);
+- o mesmo buraco já existe hoje em `/v1/painel`, que mostra o dinheiro de um dia passado sem caixa e que nunca foi conferido às cegas.
+
+O KPI não abre uma porta nova. O buraco é a dívida [D-I3](../dividas.md), a ser paga na tela e no KPI juntos.
+
 **Por que a fronteira é o mês corrente.** O mês passado já foi fechado na Visão do mês, e o número dele é o que a gestora viu. Mostrar outro no KPI seria a segunda régua que o c.1 proíbe. O dia aberto do mês corrente é o que ainda vai à gaveta às cegas. É nele que o total do dia pode atravessar.
 
 ## Consequências

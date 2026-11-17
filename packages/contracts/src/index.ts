@@ -74,3 +74,5 @@ export * from './indicadores-api'
 export * from './indicadores-lancamentos'
 // Indicadores & Insights (T4: OKRs e resultados-chave).
 export * from './okrs'
+// Indicadores & Insights (T8: o motor de relatórios, a exportação e os favoritos).
+export * from './relatorios'

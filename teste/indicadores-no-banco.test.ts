@@ -127,14 +127,29 @@ describe('0098 — FK composta (appsec C24)', () => {
 
   it('kpi_id da clínica B gravado sob a clínica A dá erro de FK, mesmo invisível pela RLS', async () => {
     const kpiB = await kpiManual(B)
+    const lancarNaA = `INSERT INTO lancamentos_de_kpi (clinica_id, kpi_id, referencia, valor_numero, lancado_por) VALUES ($1, $2, '2026-11-01', 1, $3)`
+    // Pelo app, a escrita é recusada. Desde a 0105 quem recusa PRIMEIRO é o
+    // trigger `lancamento_na_coluna_da_unidade` (BEFORE): ele procura o KPI por
+    // (kpi_id, clinica_id) e não acha o da B sob a A.
     await naClinica(A, async () => {
-      await expect(
-        app.query(
-          `INSERT INTO lancamentos_de_kpi (clinica_id, kpi_id, referencia, valor_numero, lancado_por) VALUES ($1, $2, '2026-11-01', 1, $3)`,
-          [A, kpiB, pessoaA],
-        ),
-      ).rejects.toThrow(/foreign key|chave estrangeira/i)
+      await expect(app.query(lancarNaA, [A, kpiB, pessoaA])).rejects.toThrow(
+        /foreign key|chave estrangeira|lancamento_na_coluna_da_unidade/i,
+      )
     })
+    // A FK continua provada SOZINHA: o dono do esquema desliga só o trigger da
+    // 0105 numa transação que é desfeita, e o banco ainda recusa — agora pela FK.
+    // O trigger não é enfraquecido: o `ROLLBACK` o devolve, e nada mais o toca.
+    await m.query('BEGIN')
+    try {
+      await m.query('ALTER TABLE lancamentos_de_kpi DISABLE TRIGGER lancamento_na_coluna_da_unidade')
+      await expect(m.query(lancarNaA, [A, kpiB, pessoaA])).rejects.toThrow(/foreign key|chave estrangeira/i)
+    } finally {
+      await m.query('ROLLBACK')
+    }
+    const ligado = await m.query<{ tgenabled: string }>(
+      `SELECT tgenabled FROM pg_trigger WHERE tgname = 'lancamento_na_coluna_da_unidade'`,
+    )
+    expect(ligado.rows[0]?.tgenabled).toBe('O')
     // E o dono do esquema, que atravessa a RLS, também é recusado: é a FK, não a policy.
     await expect(
       m.query(`INSERT INTO metas_de_kpi (clinica_id, kpi_id, tipo, inicio, prazo, alvo_numero) VALUES ($1, $2, 'ate_data', '2026-11-01', '2026-11-30', 10)`, [A, kpiB]),

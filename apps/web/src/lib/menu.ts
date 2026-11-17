@@ -140,6 +140,16 @@ export const MENU: readonly ItemDeMenu[] = [
     promessa:
       'Suas metas do mês e o realizado, atualizado pelas tarefas concluídas.',
   },
+  {
+    href: '/indicadores',
+    rotulo: 'Indicadores & Insights',
+    grupo: 'Gestão',
+    /** Backlog 1.9 A: no grupo Gestão, logo acima do Painel geral, só com `indicadores`. */
+    perm: 'indicadores',
+    epico: null,
+    promessa:
+      'Os OKRs do trimestre e os indicadores da clínica contra a meta, com o ritmo esperado para hoje.',
+  },
   { href: '/painel', rotulo: 'Painel geral', grupo: 'Gestão', perm: 'painel',
     epico: null,
     /**
@@ -289,6 +299,7 @@ export const LAYOUT_DO_MENU: readonly EntradaDoLayout[] = [
   { tipo: 'grupo', titulo: 'Processos', hrefs: ['/estoque'] },
   { tipo: 'grupo', titulo: 'Pessoas', hrefs: ['/equipe', '/minhas-metas'] },
   { tipo: 'separador' },
+  { tipo: 'link', href: '/indicadores' },
   { tipo: 'link', href: '/painel' },
   {
     tipo: 'grupo',

@@ -1,3 +1,4 @@
+import { materializarSeries } from './series-de-meta'
 import { diaCivil, inicioDoDia, type Relogio, somarDias } from '@fir/domain'
 import type pg from 'pg'
 import { SISTEMA } from '../banco/ator'
@@ -91,12 +92,13 @@ export async function fotografarClinica(c: pg.PoolClient, clinicaId: ClinicaId, 
 export async function executarIndicadoresDoDia(
   banco: BancoService,
   relogio: Relogio,
-): Promise<{ processadas: number; gravadas: number; tarefas: number; falhas: string[] }> {
+): Promise<{ processadas: number; gravadas: number; tarefas: number; metas: number; falhas: string[] }> {
   const clinicas = await banco.semIsolamentoDeClinica<{ id: string; fuso: string }>(
     'SELECT id, fuso FROM clinicas WHERE ativa',
   )
   let gravadas = 0
   let tarefas = 0
+  let metas = 0
   const falhas: string[] = []
   for (const cl of clinicas.rows) {
     const id = clinicaIdDeFonteConfiavel(cl.id)
@@ -114,6 +116,13 @@ export async function executarIndicadoresDoDia(
     } catch {
       if (!falhas.includes(cl.id)) falhas.push(cl.id)
     }
+    // I-24: a meta recorrente do mês corrente e do próximo. Idempotente, e na
+    // própria transação pela mesma razão das duas de cima.
+    try {
+      metas += await banco.naClinica(id, SISTEMA, (c) => materializarSeries(c, id, hoje))
+    } catch {
+      if (!falhas.includes(cl.id)) falhas.push(cl.id)
+    }
   }
-  return { processadas: clinicas.rows.length, gravadas, tarefas, falhas }
+  return { processadas: clinicas.rows.length, gravadas, tarefas, metas, falhas }
 }

@@ -322,6 +322,23 @@ describe('tarefas e unidade (appsec C27, C3)', () => {
     expect((await lancar(kpi, SEGUNDA, { valor: '100' }, 'camila')).statusCode).toBe(200)
     expect((await botar(c, `/v1/indicadores/kpis/${kpi}`, { unidade: 'quantidade' }, 'beatriz')).statusCode).toBe(409)
   })
+
+  it('a trigger 0105 recusa o número na coluna que não é a da unidade do KPI (validação X1, segunda camada)', async () => {
+    const emQuantidade = await kpiManual()
+    const emReais = await kpiManual({ unidade: 'reais', nome: 'Faturamento do convênio' })
+    const gravar = (kpi: string, coluna: 'valor_centavos' | 'valor_numero') =>
+      c.migrate.query(
+        `INSERT INTO lancamentos_de_kpi (clinica_id, kpi_id, referencia, ${coluna}, lancado_por) VALUES ($1, $2, $3, 1200, $4)`,
+        [c.clinica, kpi, SEGUNDA, c.pessoas['beatriz']],
+      )
+    await expect(gravar(emQuantidade, 'valor_centavos')).rejects.toMatchObject({ constraint: 'lancamento_na_coluna_da_unidade' })
+    await expect(gravar(emReais, 'valor_numero')).rejects.toMatchObject({ constraint: 'lancamento_na_coluna_da_unidade' })
+    await gravar(emQuantidade, 'valor_numero')
+    await gravar(emReais, 'valor_centavos')
+    await expect(
+      c.migrate.query('UPDATE lancamentos_de_kpi SET valor_numero = 1200, valor_centavos = NULL WHERE kpi_id = $1', [emReais]),
+    ).rejects.toMatchObject({ constraint: 'lancamento_na_coluna_da_unidade' })
+  })
 })
 
 describe('log (appsec C29, LGPD R-e)', () => {

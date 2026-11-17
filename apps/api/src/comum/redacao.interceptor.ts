@@ -1,4 +1,4 @@
-import { CAMPOS_MONETARIOS, type ChaveDePermissao, temPermCarteira } from '@fir/domain'
+import { type ChaveDePermissao, ehCampoMonetario, temPermCarteira } from '@fir/domain'
 import { type CallHandler, type ExecutionContext, Inject, Injectable, type NestInterceptor, Optional } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import type { Observable } from 'rxjs'
@@ -21,7 +21,6 @@ import type { RequisicaoComContexto } from './contexto'
  * `salario` é o único que depende de `pessoas.gerir` em vez de `valores` —
  * dado de RH não se libera junto com receita.
  */
-const CAMPOS = new Set<string>(CAMPOS_MONETARIOS)
 const CHAVE_DO_CAMPO: Readonly<Record<string, ChaveDePermissao>> = { salario: 'pessoas.gerir' }
 
 /**
@@ -66,7 +65,7 @@ export function redigir(dado: unknown, pode: (chave: ChaveDePermissao) => boolea
   const saida: Record<string, unknown> = {}
   for (const [chave, valor] of Object.entries(dado as Record<string, unknown>)) {
     const normalizada = emCamelCase(chave)
-    if (CAMPOS.has(normalizada)) {
+    if (ehCampoMonetario(normalizada)) {
       // Vira null, não some: a forma da resposta não muda com a permissão, e o
       // cliente distingue "sem acesso" de "sem valor" sem um `if` extra.
       saida[chave] = pode(CHAVE_DO_CAMPO[normalizada] ?? 'valores') ? valor : null

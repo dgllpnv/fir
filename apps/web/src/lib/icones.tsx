@@ -88,6 +88,8 @@ const ICONES: Readonly<Record<string, ReactElement>> = {
     <path key="c" d="M12 12 19 5" />,
   ),
   '/painel': svg(<path key="a" d="M4 20V10M10 20V4M16 20v-7M22 20H2" />),
+  /* Gráfico de linha (1.9 A): o painel é barra; o indicador é a tendência. */
+  '/indicadores': svg(<path key="a" d="M3 20h18" />, <path key="b" d="m4 15 5-5 4 3 7-7" />, <path key="c" d="M16 6h4v4" />),
   /* Cédula com seta entrando: recebeu. A mesma cédula sem seta é "Recebimentos",
      que é a lista — o ícone precisa separar registrar de consultar. */
   '/recebimento': svg(
