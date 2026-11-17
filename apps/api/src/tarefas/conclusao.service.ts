@@ -41,6 +41,7 @@ import { TETO_DO_HISTORICO } from './transferencia.service'
 import { type AutorDaRequisicao, lerTarefas, TIPOS_DE_AGENDA, TIPOS_REALIZADOS } from './leitura'
 import { confirmacoesDe } from '../financeiro/recebimentos.avisos'
 import { exigirDominio, registrarPagamento } from './tarefas.service'
+import { exigirConclusaoDeLancamento, recusarSeForDeLancamento } from './tarefa-de-lancamento'
 
 /**
  * Concluir, cancelar e reabrir são TRÊS ROTAS porque são três coisas.
@@ -158,6 +159,8 @@ export class ConclusaoService {
       // Tarefa de grupo: só membro (ou `tarefas.equipe`) conclui. `grupoIds` vem do
       // banco, nesta transação — nunca do cliente.
       exigirAutorizacao(podeConcluir(t, quem))
+      // A tarefa "Lançar [KPI]" se conclui pelo lançamento (T3, appsec C27).
+      await exigirConclusaoDeLancamento(c, clinicaId, id)
 
       /**
        * **A ROTA GENÉRICA RECUSA UMA SESSÃO** (decisão P-5 do épico 5).
@@ -280,6 +283,8 @@ export class ConclusaoService {
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const t = await carregar(c, id)
       exigirAutorizacao(podeCancelar(t, autor))
+      // A tarefa "Lançar [KPI]" só sai arquivando o KPI (T3).
+      await recusarSeForDeLancamento(c, clinicaId, id)
 
       /**
        * CANCELAR UM CARTÃO DA JORNADA O ENCERRA — a outra porta do `encerrar`.

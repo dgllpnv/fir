@@ -81,5 +81,18 @@ export async function totaisDePacientes(
 }
 
 /** O ticket médio do Painel: receita ÷ pagamentos, pelo value object. Sem pagamento, `null`. */
-export const ticketMedio = (t: TotaisDePacientes): Dinheiro | null =>
+export const ticketMedio = (t: Pick<TotaisDePacientes, 'receita' | 'pagamentos'>): Dinheiro | null =>
   t.pagamentos === 0 ? null : t.receita.media(t.pagamentos)
+
+/** Os totais ADITIVOS de janelas disjuntas. `atendidos` é distinto por paciente e não soma — fica de fora. */
+export type TotaisAditivos = Pick<TotaisDePacientes, 'receita' | 'pagamentos' | 'valorDosOrcamentosPagos'>
+
+export const somarTotais = (partes: readonly TotaisDePacientes[]): TotaisAditivos =>
+  partes.reduce<TotaisAditivos>(
+    (s, t) => ({
+      receita: s.receita.mais(t.receita),
+      pagamentos: s.pagamentos + t.pagamentos,
+      valorDosOrcamentosPagos: s.valorDosOrcamentosPagos.mais(t.valorDosOrcamentosPagos),
+    }),
+    { receita: Dinheiro.zero(), pagamentos: 0, valorDosOrcamentosPagos: Dinheiro.zero() },
+  )

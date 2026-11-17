@@ -165,6 +165,63 @@ export async function medirFaturamentoConferido(
   }
 }
 
+export type DiasQueContam = {
+  /** `D`/`L`: os dias de `[de, min(ate, hoje)]` que contam. */
+  readonly corte: CorteDosDias
+  /** O contador de `/v1/indicadores*`, com a mesma regra de `diasAguardandoSemHoje`. */
+  readonly diasAguardando: number
+}
+
+/**
+ * **OS DIAS QUE CONTAM NAS CHAVES EM REAIS QUE ESPELHAM UMA TELA** (ADR
+ * 2026-11-17-chaves-em-reais-e-os-dias-de-caixa). Uma regra por dia, e por
+ * isso aditiva — a série, o cartão e a meta dão o mesmo número:
+ *
+ * - **Dia de mês PASSADO conta sempre:** é o número que a tela daquele mês
+ *   mostra (fonte única, c.1).
+ * - **Dia do mês CORRENTE segue a I-9** (`regimeDoDia` + caixa): a partir de
+ *   `conferencia_desde`, o dia sem caixa ainda pode ser fechado às cegas e
+ *   fica aguardando (c.10); hoje sem caixa nunca conta (regra 6).
+ *
+ * O `faturamento_conferido` e a meta dele NÃO passam por aqui: eles são a I-9
+ * em todo período (`medirFaturamentoConferido`).
+ */
+export async function diasQueContamNasTelas(
+  c: pg.PoolClient,
+  clinicaId: ClinicaId,
+  de: string,
+  ate: string,
+  fuso: string,
+  hoje: string,
+): Promise<DiasQueContam> {
+  const [recorte, desde] = await Promise.all([
+    recorteDeCaixa(c, clinicaId, de, ate, fuso, hoje),
+    conferenciaDesde(c, clinicaId),
+  ])
+  const inicioDoMesCorrente = `${hoje.slice(0, 7)}-01`
+  const marcados = recorte.dias.map((dia) => ({
+    dia,
+    conta: dia < inicioDoMesCorrente || diaConta(regimeDoDia(dia, desde, hoje), recorte.fechados.has(dia)),
+  }))
+  const contam = new Set(marcados.filter((d) => d.conta).map((d) => d.dia))
+  const hojeAberto = recorte.dias.includes(hoje) && !recorte.fechados.has(hoje)
+  return {
+    corte: corteDosDiasQueContam(marcados),
+    diasAguardando: recorte.semCaixa.filter((d) => d !== hoje && !contam.has(d)).length + (hojeAberto ? 1 : 0),
+  }
+}
+
+/** Os trechos contínuos de um conjunto de dias: a fonte de janela mede cada um. */
+export function trechosContinuos(dias: readonly string[]): { de: string; ate: string }[] {
+  const r: { de: string; ate: string }[] = []
+  for (const d of [...dias].sort()) {
+    const ultimo = r.at(-1)
+    if (ultimo !== undefined && somarDias(ultimo.ate, 1) === d) ultimo.ate = d
+    else r.push({ de: d, ate: d })
+  }
+  return r
+}
+
 /**
  * **OS CAIXAS DO PERÍODO, linha a linha** — a consulta única de "caixas sem
  * diferença" (I-15), que a Visão do mês e o KPI leem. A regra (o conjunto de

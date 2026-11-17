@@ -5,6 +5,7 @@ import type { BancoService } from '../banco/banco.service'
 import { type ClinicaId, clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
 import { pacientesQuePodemTerSaldo, saldosDe } from '../financeiro/saldo.repositorio'
 import { bancoDeHorasPositivo, contarAbaixoDoMinimo } from './fontes'
+import { gerarTarefasDeLancamento } from './lancamentos-tarefas'
 
 /** Quantos dias para trás o job recompõe uma fotografia perdida (servidor parado). */
 export const DIAS_DE_RECOMPOSICAO = 35
@@ -90,11 +91,12 @@ export async function fotografarClinica(c: pg.PoolClient, clinicaId: ClinicaId, 
 export async function executarIndicadoresDoDia(
   banco: BancoService,
   relogio: Relogio,
-): Promise<{ processadas: number; gravadas: number; falhas: string[] }> {
+): Promise<{ processadas: number; gravadas: number; tarefas: number; falhas: string[] }> {
   const clinicas = await banco.semIsolamentoDeClinica<{ id: string; fuso: string }>(
     'SELECT id, fuso FROM clinicas WHERE ativa',
   )
   let gravadas = 0
+  let tarefas = 0
   const falhas: string[] = []
   for (const cl of clinicas.rows) {
     const id = clinicaIdDeFonteConfiavel(cl.id)
@@ -104,6 +106,14 @@ export async function executarIndicadoresDoDia(
     } catch {
       falhas.push(cl.id)
     }
+    // T3 (I-30): as tarefas "Lançar [KPI]", para a frente a partir do cursor.
+    // Transação e `try` próprios: uma fotografia que falha não segura a
+    // tarefa, nem o contrário. O log segue só com o id da clínica.
+    try {
+      tarefas += await banco.naClinica(id, SISTEMA, (c) => gerarTarefasDeLancamento(c, id, hoje))
+    } catch {
+      if (!falhas.includes(cl.id)) falhas.push(cl.id)
+    }
   }
-  return { processadas: clinicas.rows.length, gravadas, falhas }
+  return { processadas: clinicas.rows.length, gravadas, tarefas, falhas }
 }

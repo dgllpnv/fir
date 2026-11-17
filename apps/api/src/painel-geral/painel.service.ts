@@ -41,6 +41,7 @@ import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 import { outrasEntradasDaJanela } from '../financeiro/outras-entradas.repositorio'
 import { somaDoMedx } from '../integracoes/faturamento-lido'
 import { ticketMedio, totaisDePacientes } from './totais-de-pacientes'
+import { ORIGEM_DO_PACIENTE, PACIENTE_NOVO_NA_JANELA } from './novos-pacientes'
 import { FORA_DE_PACIENTE_DESATIVADO } from '../tarefas/leitura'
 import {
   TIPOS_DE_SESSAO,
@@ -865,7 +866,7 @@ export class PainelService {
       atendidos: string
       ltv: string
     }>(
-      `SELECT CASE WHEN pa.origem = '' THEN 'Não informada' ELSE pa.origem END AS origem,
+      `SELECT ${ORIGEM_DO_PACIENTE} AS origem,
               count(*)::text AS novos,
               count(*) FILTER (
                 WHERE EXISTS (SELECT 1 FROM tarefas t
@@ -880,8 +881,7 @@ export class PainelService {
             WHERE r.paciente_id = pa.id AND r.estornado_em IS NULL
               AND ${DINHEIRO_QUE_ENTROU}
          ) ltv
-        WHERE pa.clinica_id = $1 AND pa.ativo
-          AND pa.criado_em >= $2 AND pa.criado_em < $3
+        WHERE ${PACIENTE_NOVO_NA_JANELA}
         GROUP BY 1
         ORDER BY count(*) DESC, 1 ASC`,
       [ctx.clinicaId, j.de, j.ate, [...TIPOS_QUE_ATENDEM]],

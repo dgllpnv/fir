@@ -70,3 +70,7 @@ export * from './integracoes'
 // Indicadores & Insights (T1: enums e parâmetros do catálogo).
 export * from './indicadores'
 export * from './indicadores-api'
+// Indicadores & Insights (T3: lançamento de KPI manual e a tarefa que o pede).
+export * from './indicadores-lancamentos'
+// Indicadores & Insights (T4: OKRs e resultados-chave).
+export * from './okrs'

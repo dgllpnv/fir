@@ -32,6 +32,7 @@ import { SESSAO_NAO_SE_EXCLUI } from '../programas/mensagens'
 import { comGrupos } from './grupos-do-autor'
 import { type AutorDaRequisicao, lerTarefas, type LeitorDaRequisicao } from './leitura'
 import { exigirDominio } from './tarefas.service'
+import { exigirEdicaoDeLancamento, recusarSeForDeLancamento } from './tarefa-de-lancamento'
 
 /**
  * Editar e excluir moram no mesmo arquivo porque são o mesmo lugar na tela —
@@ -162,6 +163,8 @@ export class EdicaoDeTarefasService {
     return this.banco.naClinica(clinicaId, ator, async (c) => {
       const t = await carregar(c, clinicaId, id)
       exigirAutorizacao(podeEditar(t, await comGrupos(c, clinicaId, autor)))
+      // A tarefa "Lançar [KPI]": prazo e descrição são do KPI, e o responsável passa por `podeLancar` (T3).
+      await exigirEdicaoDeLancamento(c, clinicaId, id, dados)
 
       const campos: string[] = []
       const params: unknown[] = [id]
@@ -402,6 +405,8 @@ export class EdicaoDeTarefasService {
       // O responsável NÃO exclui: ele conserta o que vai executar, e não apaga
       // o que outra pessoa pediu.
       exigirAutorizacao(podeExcluir(t, autor))
+      // A tarefa "Lançar [KPI]" só sai arquivando o KPI (T3).
+      await recusarSeForDeLancamento(c, clinicaId, id)
 
       /**
        * **EXCLUIR UMA SESSÃO É RECUSADO** (decisão P-6 do épico 5).

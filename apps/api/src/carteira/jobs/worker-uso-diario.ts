@@ -49,7 +49,7 @@ async function main(): Promise<void> {
     // a posição é a do INSTANTE, e o dia já gravado não muda. O log leva só
     // contagens e ids, nunca um valor.
     const ind = await executarIndicadoresDoDia(banco, relogio)
-    console.log(`[indicadores-do-dia] ${ind.processadas} clínicas, ${ind.gravadas} fotografias, ${ind.falhas.length} falha(s)`, ind.falhas)
+    console.log(`[indicadores-do-dia] ${ind.processadas} clínicas, ${ind.gravadas} fotografias, ${ind.tarefas} tarefas de lançamento, ${ind.falhas.length} falha(s)`, ind.falhas)
   }
 
   const worker = new Worker(

@@ -15,6 +15,7 @@ import {
   type TarefasAfetadas,
   TransferirTarefa,
 } from '@fir/contracts'
+import { ehMarcadorDeLancamento } from '@fir/domain'
 import {
   BadRequestException,
   Body,
@@ -30,6 +31,7 @@ import {
   Post,
   Query,
   Req,
+  UnprocessableEntityException,
   UseGuards,
 } from '@nestjs/common'
 import { DadoSensivel } from '../auditoria/acesso.decorator'
@@ -57,6 +59,21 @@ import { TransferenciaService } from './transferencia.service'
  * justamente por ele ser global que esquecer um decorador significa rota
  * protegida.
  */
+/**
+ * **O marcador `lancamento-kpi:` é só do servidor** (appsec C27, spec I-30).
+ *
+ * A tarefa com esse marcador é a que `PUT /v1/indicadores/kpis/:id/
+ * lancamentos/:referencia` conclui — a exceção nomeada da matriz de acesso.
+ * O `.strict()` de `CriarTarefa` já recusaria qualquer `marcador` com 400; o
+ * 422 próprio, ANTES do parse, diz que esta tentativa não é um engano de
+ * formulário, e não depende de o contrato nunca ganhar o campo.
+ */
+function recusarMarcadorDeLancamento(corpo: unknown): void {
+  if (typeof corpo === 'object' && corpo !== null && 'marcador' in corpo && ehMarcadorDeLancamento(corpo.marcador)) {
+    throw new UnprocessableEntityException('Este marcador é reservado ao sistema.')
+  }
+}
+
 @Controller('v1/tarefas')
 export class TarefasController {
   // `@Inject` explícito: o esbuild não emite `design:paramtypes`.
@@ -106,6 +123,7 @@ export class TarefasController {
     @Req() req: RequisicaoComContexto,
     @Body() corpo: unknown,
   ): Promise<TarefasAfetadas> {
+    recusarMarcadorDeLancamento(corpo)
     const dados = CriarTarefa.safeParse(corpo)
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     // `!` seguro: `SessaoGuard` é global e esta rota não é `@Publico()`.

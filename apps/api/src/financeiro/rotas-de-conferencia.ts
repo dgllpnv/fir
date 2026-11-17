@@ -685,6 +685,16 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
       'Indicadores (T2): o recebido só entra pelos dias que CONTAM (I-9) — com o caixa de hoje aberto, o período em reais termina ontem, e o contador de dias aguardando não depende de haver pagamento hoje. Nenhum recorte por forma. Provado byte a byte em `indicadores.e2e.test.ts` (`regra-6-nenhum-byte-de-hoje`).',
   },
   {
+    caminho: '/v1/indicadores/okrs',
+    razao:
+      'OKRs (T4): a meta de cada KR sai pela MESMA conta da meta de KPI (`IndicadoresService.metaNaSaida`), que só mede os dias que CONTAM (I-9). Nenhum recorte por forma, nenhum total de hoje.',
+  },
+  {
+    caminho: '/v1/indicadores/okrs/:id',
+    razao:
+      'OKRs (T4): a meta de cada KR sai pela MESMA conta da meta de KPI (`IndicadoresService.metaNaSaida`), que só mede os dias que CONTAM (I-9). Nenhum recorte por forma, nenhum total de hoje.',
+  },
+  {
     caminho: '/v1/metas/:mes/percentual',
     razao: 'Meta e recebido do MÊS, mais o percentual. Nenhum recorte por dia nem por forma.',
   },

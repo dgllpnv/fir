@@ -6,6 +6,10 @@ import { MetasService } from '../pessoas/metas.service'
 import { FontesDosKpis } from './fontes'
 import { IndicadoresController } from './indicadores.controller'
 import { IndicadoresService } from './indicadores.service'
+import { LancamentosDeKpiController } from './lancamentos.controller'
+import { LancamentosDeKpiService } from './lancamentos.service'
+import { OkrsController } from './okrs.controller'
+import { OkrsService } from './okrs.service'
 
 /**
  * Indicadores & Insights (T2): a calculadora, as fontes, as rotas.
@@ -16,7 +20,7 @@ import { IndicadoresService } from './indicadores.service'
  * outra frente de trabalho, que não se edita daqui.
  */
 @Module({
-  controllers: [IndicadoresController],
-  providers: [IndicadoresService, FontesDosKpis, VisaoDoMesService, MetasService, CampanhasService, provedorDeRelogio],
+  controllers: [IndicadoresController, LancamentosDeKpiController, OkrsController],
+  providers: [IndicadoresService, LancamentosDeKpiService, OkrsService, FontesDosKpis, VisaoDoMesService, MetasService, CampanhasService, provedorDeRelogio],
 })
 export class IndicadoresModule {}

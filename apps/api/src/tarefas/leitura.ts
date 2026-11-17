@@ -11,6 +11,7 @@ import {
   type EventoDeJornada,
   itensDoOrcamentoDe,
   situacaoDoFechamento,
+  type UnidadeDeKpi,
 } from '@fir/domain'
 import { ForbiddenException } from '@nestjs/common'
 import type pg from 'pg'
@@ -194,6 +195,10 @@ export const SELECT_TAREFA = `
          t.programa_orcado, t.itens_orcamento,
          t.motivo_perda_id, t.proximo_passo_em::text AS proximo_passo_em,
          t.confirmacao_enviada_em,
+         -- O KPI do plano de ação ou do lançamento (T3): só id, nome e, na tarefa
+         -- "Lançar [KPI]", o que a janela D.4 precisa (appsec C2, C27).
+         t.kpi_id, kt.nome AS kpi_nome, kt.unidade AS kpi_unidade, kt.como_medir AS kpi_como_medir,
+         t.kpi_referencia::text AS kpi_referencia,
          -- ATRASADA é contra o HOJE DO SERVIDOR ($2), nunca contra o dia que
          -- a tela está navegando: ir para a semana passada não atrasa nada,
          -- e ir para a próxima não desatrasa nada.
@@ -215,6 +220,7 @@ export const SELECT_TAREFA = `
     LEFT JOIN pessoas pc ON pc.id = t.contato_id
     LEFT JOIN pacientes pa ON pa.id = t.paciente_id
     LEFT JOIN recebimentos r ON r.tarefa_id = t.id AND r.estornado_em IS NULL
+    LEFT JOIN kpis kt ON kt.clinica_id = t.clinica_id AND kt.id = t.kpi_id
    WHERE t.clinica_id = $1 AND t.excluida_em IS NULL`
 
 export type LinhaDeTarefa = {
@@ -261,6 +267,13 @@ export type LinhaDeTarefa = {
   item_chave: string | null
   sessao_indice: number | null
   sessao_total: number | null
+  kpi_id: string | null
+  kpi_nome: string | null
+  /** `null` no KPI de catálogo (a unidade é do catálogo) e na tarefa sem KPI. */
+  kpi_unidade: UnidadeDeKpi | null
+  kpi_como_medir: string | null
+  /** Só na tarefa "Lançar [KPI]", escrita só pelo servidor (0101). */
+  kpi_referencia: string | null
   atrasada: boolean
   rec_id: string | null
   rec_valor: string | null
@@ -342,6 +355,18 @@ export const paraSaida = (l: LinhaDeTarefa): TarefaNaLista => ({
   recorrencia: l.recorrencia,
   unidadeId: l.unidade_id,
   campanhaId: l.campanha_id,
+  kpi: l.kpi_id === null ? null : { id: l.kpi_id, nome: l.kpi_nome ?? '' },
+  lancamentoDeKpi:
+    l.kpi_id === null || l.kpi_referencia === null || l.kpi_unidade === null
+      ? null
+      : {
+          kpiId: l.kpi_id,
+          nome: l.kpi_nome ?? '',
+          unidade: l.kpi_unidade,
+          comoMedir: l.kpi_como_medir ?? '',
+          referencia: l.kpi_referencia,
+          prazo: l.prazo,
+        },
   atrasada: l.atrasada,
   /**
    * Os quatro andam juntos ou nenhum, e isso é o banco falando: o

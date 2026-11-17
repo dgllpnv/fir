@@ -10,6 +10,7 @@ import {
 } from '@fir/domain'
 import { z } from 'zod'
 import { centavosNaSaida, DiaCivil, dinheiroEmTexto, Hora, Uuid } from './comum'
+import { KpiDaTarefa, LancamentoDeKpiNaTarefa } from './indicadores-lancamentos'
 
 /**
  * O tipo de contato precisa ser um dos NOMES CONHECIDOS.
@@ -647,6 +648,17 @@ export const TarefaNaLista = z.object({
   unidadeId: Uuid.nullable(),
   /** A campanha desta ação (A3), ou `null`. Só o id: o nome vem da lista vinculável. */
   campanhaId: Uuid.nullable(),
+  /**
+   * O KPI desta tarefa (plano de ação ou lançamento), ou `null`. Só id e nome
+   * (appsec C27): meta, valor e situação ficam atrás de `indicadores`.
+   */
+  kpi: KpiDaTarefa.nullable(),
+  /**
+   * Só na tarefa "Lançar [KPI]" (marcador `lancamento-kpi:`, escrito só pelo
+   * servidor): tudo o que a janela D.4 precisa para abrir, para a responsável
+   * que NÃO tem `indicadores` (appsec C2) — nunca por `GET /v1/indicadores*`.
+   */
+  lancamentoDeKpi: LancamentoDeKpiNaTarefa.nullable(),
   atrasada: z.boolean(),
   pagamento: PagamentoNaSaida.nullable(),
   /**

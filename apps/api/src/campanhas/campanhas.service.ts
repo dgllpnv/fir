@@ -875,10 +875,26 @@ export class CampanhasService {
     }
   }
 
+  /**
+   * O resultado das campanhas com as tarefas CONCLUÍDAS em `[j.de, j.ate)` —
+   * a mesma consulta e a mesma regra da tela, só com a janela (KPI
+   * `resultado_de_campanha`, I-7). Na conexão de quem chama: a calculadora
+   * dos indicadores mede tudo numa transação só.
+   */
+  async naJanela(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    hoje: string,
+    j: { readonly de: Date; readonly ate: Date },
+  ): Promise<CampanhaNaLista[]> {
+    return this.montarCampanhas(c, ctx, hoje, j)
+  }
+
   private async montarCampanhas(
     c: pg.PoolClient,
     ctx: Contexto,
     hoje: string,
+    j: { readonly de: Date; readonly ate: Date } | null = null,
   ): Promise<CampanhaNaLista[]> {
     const linhas = (
       await c.query<LinhaDeCampanha>(
@@ -904,6 +920,8 @@ export class CampanhasService {
               -- Tarefa ABERTA de paciente desativado não conta como pendente;
               -- concluída continua contando para o resultado.
               AND ${FORA_DE_PACIENTE_DESATIVADO}
+              -- Sem janela (\`null\`), a tela de sempre; com ela, só o concluído nela.
+              AND ($4::timestamptz IS NULL OR (t.concluida_em >= $4 AND t.concluida_em < $5))
          )
          SELECT cp.id::text AS id, cp.categoria, cp.foco, cp.nome, cp.objetivo,
                 cp.inicio::text AS inicio, cp.fim::text AS fim,
@@ -937,6 +955,8 @@ export class CampanhasService {
           ctx.clinicaId,
           [...TIPOS_DE_CONTATO],
           [...TIPOS_QUE_ATENDEM],
+          j?.de ?? null,
+          j?.ate ?? null,
         ],
       )
     ).rows

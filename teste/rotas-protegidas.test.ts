@@ -9,7 +9,7 @@ import { MetadataScanner, ModulesContainer, NestFactory } from '@nestjs/core'
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { ROTAS_COM_DINHEIRO, ROTAS_PUBLICAS } from './registro'
+import { EXCECOES_DE_ACESSO, ROTAS_COM_DINHEIRO, ROTAS_PUBLICAS } from './registro'
 
 /**
  * O teste que fecha a CLASSE "rota sem autenticação", do mesmo jeito que
@@ -47,10 +47,15 @@ type RotaDescoberta = {
   readonly soOperador: boolean
   readonly soCarteira: boolean
   readonly soPortal: boolean
+  /** A permissão do `@Exige` (handler vence a classe), ou `undefined`. */
+  readonly exige: string | undefined
 }
 
 /** Mesma chave de `apps/api/src/autorizacao/publico.decorator.ts`. */
 const PUBLICO = 'fir:publico'
+
+/** Mesma chave de `apps/api/src/autorizacao/autorizacao.guard.ts`. */
+const EXIGE = 'fir:exige'
 
 /** Mesma chave de `apps/api/src/painel/so-operador.decorator.ts`. */
 const SO_OPERADOR = 'fir:so-operador'
@@ -156,6 +161,7 @@ beforeAll(async () => {
           soOperador: painelNaClasse || Reflect.getMetadata(SO_OPERADOR, handler) === true,
           soCarteira: carteiraNaClasse || Reflect.getMetadata(SO_USUARIO_DE_GESTAO, handler) === true,
           soPortal: portalNaClasse || Reflect.getMetadata(SO_USUARIO_DO_PORTAL, handler) === true,
+          exige: (Reflect.getMetadata(EXIGE, handler) ?? Reflect.getMetadata(EXIGE, classe)) as string | undefined,
         })
       }
     }
@@ -817,5 +823,33 @@ describe('toda rota é exatamente um de cinco: pública, de clínica, de painel,
         ).toBe(404)
       }
     })
+  })
+})
+
+/**
+ * **A MATRIZ DE ACESSO DE INDICADORES** (appsec C4): toda rota de
+ * `/v1/indicadores*` declara a permissão mínima com `@Exige`, e a única que
+ * não declara é exceção NOMEADA em `EXCECOES_DE_ACESSO`, com a função do
+ * domínio que decide. Os dois sentidos, como em `ROTAS_PUBLICAS`.
+ */
+describe('matriz de acesso de /v1/indicadores (appsec C4)', () => {
+  const deIndicadores = () => rotas.filter((r) => r.caminho === '/v1/indicadores' || r.caminho.startsWith('/v1/indicadores/'))
+
+  it('toda rota tem @Exige, ou é exceção nomeada', () => {
+    expect(deIndicadores().length, 'nenhuma rota de indicadores encontrada').toBeGreaterThan(5)
+    const excecoes = new Set(EXCECOES_DE_ACESSO.map(chave))
+    const semExige = deIndicadores()
+      .filter((r) => r.exige === undefined && !excecoes.has(chave(r)))
+      .map(chave)
+    expect(semExige, `rota(s) de indicadores sem @Exige e fora de EXCECOES_DE_ACESSO: ${semExige.join(', ')}`).toEqual([])
+  })
+
+  it('toda exceção nomeada existe e NÃO tem @Exige', () => {
+    const porChave = new Map(rotas.map((r) => [chave(r), r]))
+    for (const e of EXCECOES_DE_ACESSO) {
+      const r = porChave.get(chave(e))
+      expect(r, `EXCECOES_DE_ACESSO descreve rota que não existe: ${chave(e)}`).toBeDefined()
+      expect(r!.exige, `${chave(e)} tem @Exige — então não é exceção; tire-a da lista`).toBeUndefined()
+    }
   })
 })

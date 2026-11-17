@@ -65,6 +65,16 @@ describe('catálogo (I-7)', () => {
     expect(kpiDoCatalogo('resultado_de_campanha').parametrosObrigatorios).toEqual(['campanhaId'])
   })
 
+  it('só mês civil: toda chave cuja fonte é do mês inteiro (validação T2, W2)', () => {
+    expect(CATALOGO_DE_KPIS.filter((k) => k.somenteMesCivil).map((k) => k.chave)).toEqual([
+      'resultado_do_mes',
+      'despesas_fixas_sobre_recebido',
+      'atingimento_metas_individuais',
+      'saldo_banco_de_horas',
+      'conversas_1a1_em_dia',
+    ])
+  })
+
   it('a composição com linha de paciente de comparecimento, faltas e recaptados exige jornada (LGPD L-IN-3)', () => {
     for (const c of ['comparecimento', 'faltas_recontatadas', 'pacientes_recaptados'] as const) {
       expect(kpiDoCatalogo(c).permissaoDaComposicao).toBe('jornada')

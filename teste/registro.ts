@@ -733,6 +733,37 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
   { metodo: 'PUT', caminho: '/v1/indicadores/kpis/:id', camposDeDinheiro: ['emDinheiro'] },
   { metodo: 'POST', caminho: '/v1/indicadores/metas', camposDeDinheiro: ['emDinheiro'] },
   { metodo: 'PUT', caminho: '/v1/indicadores/metas/:id', camposDeDinheiro: ['emDinheiro'] },
+  // Lançamento de KPI manual (T3): o valor e o anterior em `ValorDoLancamento.emDinheiro`.
+  // É também a EXCEÇÃO de acesso — ver `EXCECOES_DE_ACESSO`.
+  { metodo: 'PUT', caminho: '/v1/indicadores/kpis/:id/lancamentos/:referencia', camposDeDinheiro: ['emDinheiro'] },
+  // OKRs (T4): a meta de cada KR é um `MetaDeKpiNaSaida` — o dinheiro só em `emDinheiro`.
+  { metodo: 'GET', caminho: '/v1/indicadores/okrs', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'GET', caminho: '/v1/indicadores/okrs/:id', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'POST', caminho: '/v1/indicadores/okrs', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'PUT', caminho: '/v1/indicadores/okrs/:id', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'POST', caminho: '/v1/indicadores/okrs/:id/encerrar', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'POST', caminho: '/v1/indicadores/okrs/:id/duplicar', camposDeDinheiro: ['emDinheiro'] },
+]
+
+/**
+ * **AS EXCEÇÕES NOMEADAS DA MATRIZ DE ACESSO** (appsec C4).
+ *
+ * Toda rota de `/v1/indicadores*` tem `@Exige` com a permissão mínima — menos
+ * as daqui, que decidem o acesso no serviço, por uma função do domínio, e
+ * dizem qual. `teste/rotas-protegidas.test.ts` cobra os dois sentidos: rota
+ * sem `@Exige` fora desta lista reprova, e rota desta lista COM `@Exige`
+ * também (a exceção que não existe mais é a próxima a ser copiada sem motivo).
+ */
+export type ExcecaoDeAcesso = {
+  readonly metodo: RotaRegistrada['metodo']
+  readonly caminho: string
+  /** A função do domínio que decide, dentro da transação que grava. */
+  readonly decididaPor: string
+}
+
+export const EXCECOES_DE_ACESSO: readonly ExcecaoDeAcesso[] = [
+  // A responsável pelo KPI manual lança sem ter `indicadores` (I-31, appsec C1/C2).
+  { metodo: 'PUT', caminho: '/v1/indicadores/kpis/:id/lancamentos/:referencia', decididaPor: 'podeLancar' },
 ]
 
 /**

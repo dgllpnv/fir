@@ -20,9 +20,9 @@ import {
  * dinheiro (appsec C8: a frase é montada na tela, com o formatador central).
  */
 
-const DiaDoKpi = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use o formato aaaa-mm-dd')
+export const DiaDoKpi = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use o formato aaaa-mm-dd')
 /** Inteiro na MENOR unidade da unidade do KPI (centavos, centésimos, minutos). */
-const InteiroDoKpi = z.string().regex(/^-?\d{1,15}$/, 'um inteiro na menor unidade')
+export const InteiroDoKpi = z.string().regex(/^-?\d{1,15}$/, 'um inteiro na menor unidade')
 
 export const ValorNaTelaSchema = z
   .object({
@@ -68,6 +68,8 @@ export type MetaDeKpiNaSaida = z.infer<typeof MetaDeKpiNaSaida>
 export const KpiNaLista = z
   .object({
     id: Uuid,
+    /** Os OKRs ATIVOS que usam este KPI (spec E.3): com algum, o KPI sai da faixa "Saúde da clínica". */
+    okrIds: z.array(Uuid),
     origem: z.enum(['catalogo', 'manual']),
     chave: ChaveDoCatalogoSchema.nullable(),
     nome: z.string(),
@@ -191,6 +193,12 @@ export const EditarKpi = z
     nome: z.string().trim().min(1).max(80).optional(),
     comoMedir: z.string().max(140).optional(),
     responsavelId: Uuid.nullable().optional(),
+    /**
+     * Só KPI manual (T3). Mudar para `reais` exige `valores` (appsec C3); com
+     * lançamento ou meta já gravados, a troca é 409 — o valor está na coluna
+     * da unidade antiga.
+     */
+    unidade: UnidadeDeKpiSchema.optional(),
   })
   .strict()
 export type EditarKpi = z.infer<typeof EditarKpi>

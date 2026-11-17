@@ -66,7 +66,9 @@ import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { VisaoDoMesService } from '../financeiro/visao-do-mes.service'
+import { trechosContinuos } from '../financeiro/faturamento-conferido'
 import { type ContextoDoKpi, FontesDosKpis, type KpiParaMedir, type MedidaDoKpi } from './fontes'
+import { cancelarTarefasDeLancamento, gerarTarefasDeLancamento, reatribuirTarefasDeLancamento } from './lancamentos-tarefas'
 
 /** O contexto da requisição que a calculadora precisa: `pode` é o `temPerm` do guard. */
 export type ContextoDeIndicadores = {
@@ -76,7 +78,7 @@ export type ContextoDeIndicadores = {
   readonly pode: (chave: ChaveDePermissao) => boolean
 }
 
-type LinhaDeKpi = {
+export type LinhaDeKpi = {
   id: string
   origem: 'catalogo' | 'manual'
   chave_catalogo: ChaveDoCatalogo | null
@@ -92,7 +94,7 @@ type LinhaDeKpi = {
   metrica: string | null
 }
 
-type LinhaDeMeta = {
+export type LinhaDeMeta = {
   id: string
   kpi_id: string
   tipo: TipoDeMetaDeKpi
@@ -106,7 +108,7 @@ type LinhaDeMeta = {
   responsavel_id: string | null
 }
 
-type Definicao = {
+export type Definicao = {
   readonly chave: ChaveDoCatalogo | null
   readonly pilar: PilarDeKpi
   readonly unidade: UnidadeDeKpi
@@ -125,14 +127,14 @@ const SELECT_KPI = `
            WHERE cp.clinica_id = k.clinica_id AND cp.id::text = k.parametros->>'campanhaId') AS metrica
     FROM kpis k`
 
-const SELECT_META = `
+export const SELECT_META = `
   SELECT id, kpi_id, tipo, inicio::text AS inicio, prazo::text AS prazo,
          alvo_centavos::text AS alvo_centavos, alvo_numero::text AS alvo_numero,
          partida_centavos::text AS partida_centavos, partida_numero::text AS partida_numero,
          medida_por, responsavel_id
     FROM metas_de_kpi`
 
-function definicaoDe(k: LinhaDeKpi): Definicao {
+export function definicaoDe(k: LinhaDeKpi): Definicao {
   if (k.origem === 'manual' || k.chave_catalogo === null) {
     // I-5: KPI manual é sempre `posicao` (o último lançamento do período).
     return {
@@ -161,7 +163,7 @@ function definicaoDe(k: LinhaDeKpi): Definicao {
   }
 }
 
-const numeroDe = (u: UnidadeDeKpi, centavos: string | null, numero: string | null): NumeroDoKpi | null => {
+export const numeroDe = (u: UnidadeDeKpi, centavos: string | null, numero: string | null): NumeroDoKpi | null => {
   const t = u === 'reais' ? centavos : numero
   return t === null ? null : NumeroDoKpi.de(u, BigInt(t))
 }
@@ -287,7 +289,9 @@ export class IndicadoresService {
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const k = await this.kpiVisivel(c, ctx, id)
       const d = definicaoDe(k)
-      const agrupamento = agrupamentoPara(de, ate, k.frequencia)
+      // Chave só de mês civil agrupa por MÊS (validação T2, W2): a fonte é do mês
+      // inteiro, e uma barra por dia repetiria o mês em cada uma.
+      const agrupamento = d.somenteMesCivil ? 'mes' : agrupamentoPara(de, ate, k.frequencia)
       const pontos = []
       for (const b of baldes(de, ate, agrupamento, hoje)) {
         // `fim` do balde é EXCLUSIVO; a fonte mede dias civis inclusivos.
@@ -353,6 +357,8 @@ export class IndicadoresService {
             [ctx.clinicaId, dados.nome, dados.pilar, dados.unidade, dados.direcao, dados.frequencia,
               dados.diaDeLancamento, dados.comoMedir, dados.responsavelId ?? null, pessoa],
           )
+          // T3 (I-30): a tarefa "Lançar" nasce junto, sem esperar o job da madrugada.
+          await gerarTarefasDeLancamento(c, ctx.clinicaId, this.hoje(ctx), r.rows[0]!.id)
           return r.rows[0]!.id
         }
         const k = kpiDoCatalogo(dados.chave)
@@ -385,17 +391,25 @@ export class IndicadoresService {
   async editarKpi(ctx: ContextoDeIndicadores, id: string, dados: EditarKpi): Promise<DetalheDoKpi> {
     await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const k = await this.kpiVisivel(c, ctx, id)
+      if (dados.unidade !== undefined && dados.unidade !== k.unidade) await this.exigirTrocaDeUnidade(c, ctx, k, dados.unidade)
       try {
         await c.query(
           `UPDATE kpis SET nome = CASE WHEN origem = 'manual' THEN coalesce($3, nome) ELSE nome END,
                            como_medir = coalesce($4, como_medir),
-                           responsavel_id = CASE WHEN $5::boolean THEN $6::uuid ELSE responsavel_id END
+                           responsavel_id = CASE WHEN $5::boolean THEN $6::uuid ELSE responsavel_id END,
+                           unidade = CASE WHEN origem = 'manual' THEN coalesce($7, unidade) ELSE unidade END
             WHERE clinica_id = $1 AND id = $2`,
-          [ctx.clinicaId, k.id, dados.nome ?? null, dados.comoMedir ?? null, dados.responsavelId !== undefined, dados.responsavelId ?? null],
+          [ctx.clinicaId, k.id, dados.nome ?? null, dados.comoMedir ?? null, dados.responsavelId !== undefined, dados.responsavelId ?? null,
+            dados.unidade ?? null],
         )
       } catch (e) {
         throw traduzirErroDoBanco(e, 'Conflito ao editar o indicador.')
       }
+      // T3 (I-30): a troca de responsável leva as tarefas de lançamento abertas junto.
+      if (dados.responsavelId !== undefined && dados.responsavelId !== k.responsavel_id) {
+        await reatribuirTarefasDeLancamento(c, ctx.clinicaId, k.id, dados.responsavelId)
+      }
+      await gerarTarefasDeLancamento(c, ctx.clinicaId, this.hoje(ctx), k.id)
     })
     return this.detalhe(ctx, id)
   }
@@ -405,6 +419,8 @@ export class IndicadoresService {
       const k = await this.kpiVisivel(c, ctx, id)
       await c.query('UPDATE metas_de_kpi SET arquivada_em = now() WHERE clinica_id = $1 AND kpi_id = $2 AND arquivada_em IS NULL', [ctx.clinicaId, k.id])
       await c.query('UPDATE kpis SET arquivado_em = now() WHERE clinica_id = $1 AND id = $2 AND arquivado_em IS NULL', [ctx.clinicaId, k.id])
+      // T3 (I-30): lançar num KPI arquivado é 409; a tarefa aberta é cancelada.
+      await cancelarTarefasDeLancamento(c, ctx.clinicaId, k.id)
     })
     return { arquivado: true }
   }
@@ -494,8 +510,32 @@ export class IndicadoresService {
     }
   }
 
-  /** A ÚNICA porta de saída de KPI (appsec C5): sem a permissão do valor, o KPI não existe. */
-  private async kpisVisiveis(c: pg.PoolClient, ctx: ContextoDeIndicadores, id: string | null): Promise<LinhaDeKpi[]> {
+  /**
+   * T3: a unidade só muda no KPI manual (422 no de catálogo), mudar para reais
+   * exige `valores` (appsec C3, 403), e com lançamento ou meta gravados é 409 —
+   * o valor já está na coluna da unidade antiga, e reinterpretá-lo seria
+   * trocar 12 pacientes por R$ 0,12.
+   */
+  private async exigirTrocaDeUnidade(c: pg.PoolClient, ctx: ContextoDeIndicadores, k: LinhaDeKpi, unidade: UnidadeDeKpi): Promise<void> {
+    if (k.origem !== 'manual') throw new UnprocessableEntityException('A unidade de um indicador do catálogo é a do catálogo.')
+    this.exigirEscritaNaUnidade(ctx, unidade)
+    const usados = await c.query(
+      `SELECT 1 FROM lancamentos_de_kpi WHERE clinica_id = $1 AND kpi_id = $2
+       UNION ALL
+       SELECT 1 FROM metas_de_kpi WHERE clinica_id = $1 AND kpi_id = $2 AND arquivada_em IS NULL
+       LIMIT 1`,
+      [ctx.clinicaId, k.id],
+    )
+    if ((usados.rowCount ?? 0) > 0) {
+      throw new ConflictException('Este indicador já tem lançamento ou meta; arquive-o e crie outro com a unidade nova.')
+    }
+  }
+
+  /**
+   * A ÚNICA porta de saída de KPI (appsec C5): sem a permissão do valor, o KPI não existe.
+   * Pública para os OKRs (`okrs.service.ts`), que passam por ela e não repetem o filtro.
+   */
+  async kpisVisiveis(c: pg.PoolClient, ctx: ContextoDeIndicadores, id: string | null): Promise<LinhaDeKpi[]> {
     const r = await c.query<LinhaDeKpi>(
       `${SELECT_KPI} WHERE k.clinica_id = $1 AND k.arquivado_em IS NULL AND ($2::uuid IS NULL OR k.id = $2::uuid)
         ORDER BY k.criado_em, k.id`,
@@ -504,7 +544,7 @@ export class IndicadoresService {
     return r.rows.filter((k) => this.podeVer(ctx, k.chave_catalogo))
   }
 
-  private async kpiVisivel(c: pg.PoolClient, ctx: ContextoDeIndicadores, id: string): Promise<LinhaDeKpi> {
+  async kpiVisivel(c: pg.PoolClient, ctx: ContextoDeIndicadores, id: string): Promise<LinhaDeKpi> {
     const k = (await this.kpisVisiveis(c, ctx, id))[0]
     if (k === undefined) throw new NotFoundException('Indicador não encontrado.')
     return k
@@ -545,7 +585,7 @@ export class IndicadoresService {
       // c.16: valor de fonte fora do domínio NÃO é escondido por um `max`. Incidente
       // no log (só o id do KPI e a chave, nunca o valor) e `null` com motivo.
       console.warn(`[indicadores] fonte_fora_do_dominio kpi=${k.id} chave=${d.chave}`)
-      return { ...m, numero: null }
+      return { ...m, numero: null, motivo: 'fonte_fora_do_dominio' }
     }
     return m
   }
@@ -573,7 +613,7 @@ export class IndicadoresService {
     const alvo = vigente === null ? null : numeroDe(d.unidade, vigente.alvo_centavos, vigente.alvo_numero)
 
     let anterior: NumeroDoKpi | null = null
-    const comparavel = janelaComparavel(diasDe(de, ate < hoje ? ate : hoje), k.frequencia)
+    const comparavel = diasDoAnterior(d, k.frequencia, de, ate, m.corte)
     // `resultado_do_mes` só compara mês FECHADO com mês fechado (números c.4).
     const comparaResultado = d.chave !== 'resultado_do_mes' || ate.slice(0, 7) < hoje.slice(0, 7)
     if (comparavel.length > 0 && comparaResultado) {
@@ -586,13 +626,31 @@ export class IndicadoresService {
         )
         const l = f.rows[0]
         anterior = l === undefined ? null : numeroDe(d.unidade, l.c, l.n)
+      } else if (d.agregacao === 'soma' && !d.somenteMesCivil) {
+        // `D` pode ter buraco (o dia aguardando no meio): soma, trecho a trecho,
+        // só os dias comparáveis — nunca o prefixo até o corte (B1, W1).
+        anterior = NumeroDoKpi.zero(d.unidade)
+        for (const t of trechosContinuos(comparavel)) {
+          const parte = (await this.medir(c, ctx, k, d, t.de, t.ate, hoje, medidaPor)).numero
+          anterior = parte === null || anterior === null ? null : anterior.mais(parte)
+        }
       } else {
         anterior = (await this.medir(c, ctx, k, d, comparavel[0]!, fimAnt, hoje, medidaPor)).numero
       }
     }
     const v = variacao(m.numero, anterior)
+    // Spec E.3: o KPI ligado a um OKR ativo sai da faixa "Saúde da clínica".
+    const okrs = await c.query<{ id: string }>(
+      `SELECT DISTINCT o.id FROM resultados_chave kr
+         JOIN okrs o ON o.clinica_id = kr.clinica_id AND o.id = kr.okr_id
+        WHERE kr.clinica_id = $1 AND kr.kpi_id = $2 AND kr.arquivado_em IS NULL
+          AND o.arquivado_em IS NULL AND o.estado = 'ativo'
+        ORDER BY o.id`,
+      [ctx.clinicaId, k.id],
+    )
     return {
       id: k.id,
+      okrIds: okrs.rows.map((o) => o.id),
       origem: k.origem,
       chave: d.chave,
       nome: k.nome,
@@ -615,12 +673,23 @@ export class IndicadoresService {
               ? { tipo: 'relativa', percentual: v.percentual }
               : { tipo: 'novo' },
       diasAguardando: m.diasAguardando,
-      motivoSemValor: null,
+      motivoSemValor: m.motivo ?? null,
       metaVigente: meta,
     }
   }
 
-  private async metaNaSaida(
+  /**
+   * OKRs (T4): o valor do período corrente, o MESMO do cartão. É a partida
+   * recalculada ao duplicar um OKR (spec E.1).
+   */
+  async valorDoPeriodoCorrente(c: pg.PoolClient, ctx: ContextoDeIndicadores, k: LinhaDeKpi, hoje: string): Promise<NumeroDoKpi | null> {
+    const d = definicaoDe(k)
+    const de = referenciaDoPeriodo(d.somenteMesCivil ? 'mensal' : k.frequencia, hoje)
+    return (await this.medir(c, ctx, k, d, de, hoje, hoje)).numero
+  }
+
+  /** Pública para os OKRs: a meta do KR sai pelas MESMAS contas da meta de saúde. */
+  async metaNaSaida(
     c: pg.PoolClient,
     ctx: ContextoDeIndicadores,
     k: LinhaDeKpi,
@@ -661,8 +730,24 @@ export class IndicadoresService {
   }
 }
 
+/**
+ * Os dias do período anterior comparável (I-28). Dos dias que CONTARAM (`D`
+ * do corte, nunca o prefixo até hoje — B1, validação T2 W1), os mesmos dias do
+ * mês (ou da semana) anterior. Na chave só de mês civil, os meses inteiros
+ * imediatamente antes da janela.
+ */
+function diasDoAnterior(d: Definicao, frequencia: FrequenciaDeKpi, de: string, ate: string, corte: CorteDaMeta): string[] {
+  if (d.somenteMesCivil) {
+    const primeiro = `${de.slice(0, 7)}-01`
+    const meses = (Number(ate.slice(0, 4)) - Number(de.slice(0, 4))) * 12 + Number(ate.slice(5, 7)) - Number(de.slice(5, 7)) + 1
+    return diasDe(somarMeses(primeiro, -meses), somarDias(primeiro, -1))
+  }
+  const dias = typeof corte === 'string' ? (corte < de ? [] : diasDe(de, corte)) : corte.dias
+  return janelaComparavel(dias, frequencia)
+}
+
 /** Erros do banco que são do USUÁRIO viram 4xx; o resto sobe. */
-function traduzirErroDoBanco(e: unknown, mensagemDeConflito: string): unknown {
+export function traduzirErroDoBanco(e: unknown, mensagemDeConflito: string): unknown {
   const codigo = codigoPg(e)
   if (codigo === '23505' || codigo === '23P01') return new ConflictException(mensagemDeConflito)
   if (codigo === '23503') return new UnprocessableEntityException('Responsável ou referência que não é desta clínica.')

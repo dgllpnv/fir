@@ -257,8 +257,12 @@ describe('0098 — unicidade e EXCLUDE', () => {
 
   it('uma meta viva por KPI e contexto: o EXCLUDE recusa a sobreposição; outro KR, arquivada e vizinha passam', async () => {
     const kpi = await kpiManual(A)
-    const okr = await umId(`INSERT INTO okrs (clinica_id, objetivo, inicio, fim) VALUES ($1, 'Agenda previsível', '2026-10-01', '2026-12-31') RETURNING id`, [A])
-    const kr = await umId(`INSERT INTO resultados_chave (clinica_id, okr_id, kpi_id, ordem) VALUES ($1, $2, $3, 1) RETURNING id`, [A, okr, kpi])
+    // OKR e KR no MESMO comando: a 0102 recusa, no fim da transação, OKR vivo sem KR (de 1 a 5).
+    const kr = await umId(
+      `WITH o AS (INSERT INTO okrs (clinica_id, objetivo, inicio, fim) VALUES ($1, 'Agenda previsível', '2026-10-01', '2026-12-31') RETURNING id)
+       INSERT INTO resultados_chave (clinica_id, okr_id, kpi_id, ordem) SELECT $1, o.id, $2, 1 FROM o RETURNING id`,
+      [A, kpi],
+    )
     const meta = (inicio: string, prazo: string, krId: string | null = null) =>
       umId(
         `INSERT INTO metas_de_kpi (clinica_id, kpi_id, resultado_chave_id, tipo, inicio, prazo, alvo_numero, partida_numero)

@@ -83,6 +83,8 @@ const tarefa: TarefaNaLista = {
   recorrencia: '',
   unidadeId: null,
   campanhaId: null,
+  kpi: null,
+  lancamentoDeKpi: null,
   atrasada: false,
   sessao: null,
   pagamento: null,

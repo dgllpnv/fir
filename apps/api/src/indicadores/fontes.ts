@@ -6,16 +6,20 @@ import {
   conversaoDeOrcamentos,
   type CorteDaMeta,
   Dinheiro,
+  diasDe,
   ESCALA_DA_UNIDADE,
   ehRecaptacao,
   faltaMadura,
+  fimDoMes,
   inicioDoDia,
   janela,
+  kpiDoCatalogo,
   type MedidaDaMeta,
   NumeroDoKpi,
   recontatoEmAteDoisDias,
   saldoEmMedida,
   somarDias,
+  somarMeses,
   TIPOS_QUE_ATENDEM,
   umAUmEmDia,
   type UnidadeDeKpi,
@@ -29,11 +33,18 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { CampanhasService } from '../campanhas/campanhas.service'
 import { analiseNaConexao } from '../estoque/analise.service'
 import { movimentosDosItens } from '../estoque/movimentos.repositorio'
-import { caixasDoPeriodo, medirFaturamentoConferido } from '../financeiro/faturamento-conferido'
+import {
+  caixasDoPeriodo,
+  conferenciaDesde,
+  diasQueContamNasTelas,
+  medirFaturamentoConferido,
+  trechosContinuos,
+} from '../financeiro/faturamento-conferido'
 import { pacientesQuePodemTerSaldo, saldosDe } from '../financeiro/saldo.repositorio'
 import { VisaoDoMesService } from '../financeiro/visao-do-mes.service'
 import { consultarPrazos, contarConversaoDeOrcamentos, TIPOS_DE_SESSAO } from '../painel-geral/metricas-diarias'
-import { ticketMedio, totaisDePacientes } from '../painel-geral/totais-de-pacientes'
+import { ORIGEM_DO_PACIENTE, PACIENTE_NOVO_NA_JANELA } from '../painel-geral/novos-pacientes'
+import { somarTotais, type TotaisDePacientes, ticketMedio, totaisDePacientes } from '../painel-geral/totais-de-pacientes'
 import { MetasService } from '../pessoas/metas.service'
 
 export type ContextoDoKpi = {
@@ -53,6 +64,8 @@ export type MedidaDoKpi = {
   readonly diasAguardando: number
   /** O corte para ritmo e projeção: `D`/`L` no faturamento conferido, o fim do período nas outras. */
   readonly corte: CorteDaMeta
+  /** Por que `numero` é `null` quando não é "nada aconteceu" (vira `motivoSemValor`). */
+  readonly motivo?: string
 }
 
 export type KpiParaMedir = {
@@ -75,10 +88,11 @@ const reais = (d: Dinheiro | null) => (d === null ? null : NumeroDoKpi.deDinheir
  * tela de origem já usa** (spec I-7: mover, nunca copiar). Esta classe não
  * calcula regra nenhuma: chama a fonte e embrulha o número na unidade.
  *
- * **Regra 6.** As chaves em reais (e as que dependem do recebido) só contam
- * os dias que contam pela I-9: com o caixa de hoje aberto, o período termina
- * ontem (`ateQueConta`), e nenhum byte de `/v1/indicadores*` muda com um
- * recebimento de hoje (appsec C11).
+ * **Regra 6 e as chaves em reais** (ADR 2026-11-17-chaves-em-reais-e-os-dias-de-caixa):
+ * `faturamento_conferido` é a I-9 em todo período; as outras, que espelham
+ * uma tela, dão o número da tela no mês passado e só os dias que contam no
+ * mês corrente (`diasQueContamNasTelas`). Nenhum byte de `/v1/indicadores*`
+ * muda com um recebimento de hoje (appsec C11).
  */
 @Injectable()
 export class FontesDosKpis {
@@ -90,13 +104,13 @@ export class FontesDosKpis {
   ) {}
 
   async medir(c: pg.PoolClient, ctx: ContextoDoKpi, kpi: KpiParaMedir, p: PeriodoDoKpi): Promise<MedidaDoKpi> {
+    if (kpiDoCatalogo(kpi.chave).somenteMesCivil) return this.medirPorMes(c, ctx, kpi, p)
     const fim = p.ate < p.hoje ? p.ate : p.hoje
     const simples = (numero: NumeroDoKpi | null, diasAguardando = 0): MedidaDoKpi => ({
       numero,
       diasAguardando,
       corte: fim,
     })
-    const mes = fim.slice(0, 7)
     const j = (de: string, ate: string) => janela(de, ate, ctx.fuso)
 
     switch (kpi.chave) {
@@ -105,26 +119,16 @@ export class FontesDosKpis {
         const numero = kpi.medidaPor === 'medx' ? reais(f.medido) : reais(f.recebidoQueConta)
         return { numero, diasAguardando: f.diasAguardandoSemHoje, corte: f.corte }
       }
-      case 'resultado_do_mes': {
-        const v = await this.visao.visaoNaConexao(c, ctx, mes, p.hoje, true)
-        return simples(reais(v.visao.resultadoDoMes), v.medida.diasAguardandoSemHoje)
-      }
-      case 'despesas_fixas_sobre_recebido': {
-        // Fixas ÷ RECEBIDO, sem outras entradas (números c.5) — não é a razão
-        // fixas ÷ despesas da Visão do mês. O recebido é o dos dias que contam.
-        const v = await this.visao.visaoNaConexao(c, ctx, mes, p.hoje, true)
-        return simples(valorDaTaxa('percentual', v.visao.fixas.centavos, v.visao.recebido.centavos), v.medida.diasAguardandoSemHoje)
-      }
-      case 'ticket_medio': {
-        const { ate, aguardando } = await this.ateQueConta(c, ctx, fim, p.hoje)
-        if (ate < p.de) return simples(null, aguardando)
-        return simples(reais(ticketMedio(await totaisDePacientes(c, ctx.clinicaId, j(p.de, ate)))), aguardando)
-      }
+      case 'ticket_medio':
       case 'valor_fechado_em_orcamentos': {
-        const { ate, aguardando } = await this.ateQueConta(c, ctx, fim, p.hoje)
-        if (ate < p.de) return simples(NumeroDoKpi.zero('reais'), aguardando)
-        const t = await totaisDePacientes(c, ctx.clinicaId, j(p.de, ate))
-        return simples(reais(t.valorDosOrcamentosPagos), aguardando)
+        // A fonte do Painel, medida em cada trecho contínuo de `D` (ADR
+        // chaves-em-reais-e-os-dias-de-caixa): o dia aguardando fica fora.
+        const d = await diasQueContamNasTelas(c, ctx.clinicaId, p.de, fim, ctx.fuso, p.hoje)
+        const partes: TotaisDePacientes[] = []
+        for (const t of trechosContinuos(d.corte.dias)) partes.push(await totaisDePacientes(c, ctx.clinicaId, j(t.de, t.ate)))
+        const totais = somarTotais(partes)
+        const numero = kpi.chave === 'ticket_medio' ? reais(ticketMedio(totais)) : reais(totais.valorDosOrcamentosPagos)
+        return { numero, diasAguardando: d.diasAguardando, corte: d.corte }
       }
       case 'saldo_a_receber': {
         // A posição no INSTANTE `início(fim + 1)` (I-6, c.9); o período em curso
@@ -135,6 +139,10 @@ export class FontesDosKpis {
         return simples(reais([...saldos.values()].reduce((s, x) => s.mais(x.saldo), Dinheiro.zero())))
       }
       case 'caixas_sem_diferenca': {
+        // Antes do primeiro caixa fechado não há conferência a medir: "sem
+        // dado", nunca 0% (B6). O mês da adoção segue a tela (c.1).
+        const desde = await conferenciaDesde(c, ctx.clinicaId)
+        if (desde === null || fim < desde) return { ...simples(null), motivo: MOTIVO_ANTES_DO_PRIMEIRO_CAIXA }
         const r = caixasSemDiferenca(p.de, p.ate, p.hoje, await caixasDoPeriodo(c, ctx.clinicaId, p.de, p.ate))
         return simples(percentual(r.percentual))
       }
@@ -172,16 +180,8 @@ export class FontesDosKpis {
       }
       case 'pacientes_recaptados':
         return simples(contagem(await contarRecaptados(c, ctx.clinicaId, p.de, fim, ctx.fuso)))
-      case 'resultado_de_campanha': {
-        const id = kpi.parametros['campanhaId']
-        const lista = await this.campanhas.noPeriodo({ ...ctx }, p.de, fim)
-        const camp = lista.find((x) => x.id === id)
-        if (camp === undefined) return simples(null)
-        if (kpi.unidade === 'reais') {
-          return simples(camp.resultadoEmDinheiro === null ? null : NumeroDoKpi.de('reais', BigInt(camp.resultadoEmDinheiro)))
-        }
-        return simples(camp.resultadoEmNumero === null ? null : contagem(camp.resultadoEmNumero))
-      }
+      case 'resultado_de_campanha':
+        return this.medirCampanha(c, ctx, kpi, p.de, fim, p.hoje)
       case 'tarefas_no_prazo': {
         const { total } = await consultarPrazos(c, ctx.clinicaId, { de: p.de, ate: fim }, p.hoje, ctx.fuso)
         const base = total.noPrazo + total.comAtraso + total.atrasadas
@@ -202,31 +202,119 @@ export class FontesDosKpis {
         const instante = p.ate < p.hoje ? inicioDoDia(somarDias(p.ate, 1), ctx.fuso) : null
         return simples(contagem(await contarAbaixoDoMinimo(c, ctx.clinicaId, instante)))
       }
-      case 'atingimento_metas_individuais': {
-        const m = await this.metasDePessoa.metasDoMes(ctx, mes)
-        const r = valorDaMediaMensal([{ mes, percentuais: m.pessoas.map((x) => x.mediaDeAtingimento) }])
-        return simples(r.tipo === 'ok' ? r.valor : null)
-      }
+      case 'resultado_do_mes':
+      case 'despesas_fixas_sobre_recebido':
+      case 'atingimento_metas_individuais':
       case 'saldo_banco_de_horas':
-        return simples(NumeroDoKpi.de('horas', await bancoDeHorasPositivo(c, ctx.clinicaId, mes)))
-      case 'conversas_1a1_em_dia': {
-        const r = await umAUmDoMes(c, ctx.clinicaId, mes)
-        return simples(percentual(umAUmEmDia(r.ativas, r.comConversa)))
-      }
+      case 'conversas_1a1_em_dia':
+        // `somenteMesCivil` no catálogo: medidas em `medirPorMes`, acima.
+        throw new Error(`fontes: ${kpi.chave} é só por mês civil`)
     }
   }
 
-  /** Com o caixa de hoje aberto, o período em reais termina ontem (regra 6). */
-  private async ateQueConta(
+  /**
+   * **AS CHAVES SÓ DE MÊS CIVIL** (validação T2, W2). A fonte é do mês inteiro
+   * (a Visão do mês, as metas da equipe, o banco de horas, o 1:1): uma janela
+   * que não é uma sequência de meses civis inteiros — o corrente pode ir só
+   * até hoje — não tem número, nunca o do mês inteiro repetido em cada barra.
+   * Vários meses combinam pela agregação: soma, razão das somas, a última
+   * posição; a média mensal e o 1:1 são de um mês por vez.
+   */
+  private async medirPorMes(c: pg.PoolClient, ctx: ContextoDoKpi, kpi: KpiParaMedir, p: PeriodoDoKpi): Promise<MedidaDoKpi> {
+    const fim = p.ate < p.hoje ? p.ate : p.hoje
+    const comNumero = (numero: NumeroDoKpi | null): MedidaDoKpi => ({ numero, diasAguardando: 0, corte: fim })
+    const semDado = (motivo: string): MedidaDoKpi => ({ ...comNumero(null), motivo })
+    const meses = mesesCivisInteiros(p.de, p.ate, p.hoje)
+    if (meses === null) return semDado(MOTIVO_SO_MES_CIVIL)
+    const ultimo = meses.at(-1)!
+    switch (kpi.chave) {
+      case 'resultado_do_mes':
+      case 'despesas_fixas_sobre_recebido': {
+        // O número da Visão do mês, pela MESMA função (c.1). Mês passado é a
+        // tela; o mês corrente corta nos dias que contam (regra 6, c.10).
+        const corrente = p.hoje.slice(0, 7)
+        let resultado = Dinheiro.zero()
+        let fixas = Dinheiro.zero()
+        let recebido = Dinheiro.zero()
+        let diasAguardando = 0
+        let corte: CorteDaMeta = fim
+        for (const mes of meses) {
+          const v = await this.visao.visaoNaConexao(c, ctx, mes, p.hoje, mes === corrente)
+          resultado = resultado.mais(v.visao.resultadoDoMes)
+          fixas = fixas.mais(v.visao.fixas)
+          recebido = recebido.mais(v.visao.recebido)
+          if (mes === corrente) {
+            diasAguardando = v.medida.diasAguardandoSemHoje
+            const antes = p.de < `${corrente}-01` ? diasDe(p.de, somarDias(`${corrente}-01`, -1)) : []
+            const dias = [...antes, ...v.medida.corte.dias]
+            corte = { ultimo: dias.at(-1) ?? null, dias }
+          }
+        }
+        const numero =
+          kpi.chave === 'resultado_do_mes' ? reais(resultado) : valorDaTaxa('percentual', fixas.centavos, recebido.centavos)
+        return { numero, diasAguardando, corte }
+      }
+      case 'saldo_banco_de_horas':
+        // `posicao`: a do último mês da janela.
+        return comNumero(NumeroDoKpi.de('horas', await bancoDeHorasPositivo(c, ctx.clinicaId, ultimo)))
+      case 'atingimento_metas_individuais': {
+        if (meses.length !== 1) return semDado(MOTIVO_UM_MES_POR_VEZ)
+        const m = await this.metasDePessoa.metasDoMes(ctx, ultimo)
+        const r = valorDaMediaMensal([{ mes: ultimo, percentuais: m.pessoas.map((x) => x.mediaDeAtingimento) }])
+        return comNumero(r.tipo === 'ok' ? r.valor : null)
+      }
+      case 'conversas_1a1_em_dia': {
+        if (meses.length !== 1) return semDado(MOTIVO_UM_MES_POR_VEZ)
+        const r = await umAUmDoMes(c, ctx.clinicaId, ultimo)
+        return comNumero(percentual(umAUmEmDia(r.ativas, r.comConversa)))
+      }
+      default:
+        throw new Error(`fontes: ${kpi.chave} não é só de mês civil`)
+    }
+  }
+
+  /**
+   * `resultado_de_campanha` (I-7): a regra da tela de Campanhas sobre as
+   * tarefas concluídas NA JANELA (validação T2, W3). Em reais, só os dias que
+   * contam (regra 6): o pagamento de hoje com o caixa aberto não muda nenhum
+   * byte. A campanha que não cruza a janela é "sem dado".
+   */
+  private async medirCampanha(
     c: pg.PoolClient,
     ctx: ContextoDoKpi,
+    kpi: KpiParaMedir,
+    de: string,
     fim: string,
     hoje: string,
-  ): Promise<{ ate: string; aguardando: number }> {
-    if (fim < hoje) return { ate: fim, aguardando: 0 }
-    const r = await c.query('SELECT 1 FROM caixas_do_dia WHERE clinica_id = $1 AND dia = $2::date', [ctx.clinicaId, hoje])
-    return r.rowCount === 0 ? { ate: somarDias(hoje, -1), aguardando: 1 } : { ate: fim, aguardando: 0 }
+  ): Promise<MedidaDoKpi> {
+    const id = kpi.parametros['campanhaId']
+    const naJanela = async (a: string, b: string) =>
+      (await this.campanhas.naJanela(c, ctx, hoje, janela(a, b, ctx.fuso))).find((x) => x.id === id)
+    const camp = await naJanela(de, fim)
+    if (camp === undefined || camp.inicio > fim || camp.fim < de) return { numero: null, diasAguardando: 0, corte: fim }
+    if (kpi.unidade !== 'reais') {
+      return { numero: camp.resultadoEmNumero === null ? null : contagem(camp.resultadoEmNumero), diasAguardando: 0, corte: fim }
+    }
+    const d = await diasQueContamNasTelas(c, ctx.clinicaId, de, fim, ctx.fuso, hoje)
+    let total = 0n
+    for (const t of trechosContinuos(d.corte.dias)) total += BigInt((await naJanela(t.de, t.ate))?.resultadoEmDinheiro ?? '0')
+    return { numero: NumeroDoKpi.de('reais', total), diasAguardando: d.diasAguardando, corte: d.corte }
   }
+}
+
+export const MOTIVO_SO_MES_CIVIL = 'so_mes_civil_inteiro'
+export const MOTIVO_UM_MES_POR_VEZ = 'um_mes_por_vez'
+export const MOTIVO_ANTES_DO_PRIMEIRO_CAIXA = 'antes_do_primeiro_caixa'
+
+/** `[de, ate]` é uma sequência de meses civis inteiros (o corrente pode ir só até hoje)? */
+export function mesesCivisInteiros(de: string, ate: string, hoje: string): string[] | null {
+  if (de > ate || de.slice(8, 10) !== '01') return null
+  const mesFinal = ate.slice(0, 7)
+  const inteiro = ate === fimDoMes(mesFinal) || (mesFinal === hoje.slice(0, 7) && ate >= hoje)
+  if (!inteiro) return null
+  const meses: string[] = []
+  for (let m = de.slice(0, 7); m <= mesFinal; m = somarMeses(`${m}-01`, 1).slice(0, 7)) meses.push(m)
+  return meses
 }
 
 type EventoDoHistorico = Parameters<typeof classificarDesfecho>[0][number]
@@ -247,10 +335,7 @@ async function historicosDaJanela(
   return r.rows.map((x) => x.historico)
 }
 
-/**
- * Pacientes novos na janela — o MESMO `WHERE` de `novosPacientes` do Painel
- * (cadastro na janela, paciente ativo), com a origem opcional pelo mesmo rótulo.
- */
+/** Pacientes novos na janela — o `WHERE` e o rótulo de origem do Painel (`novos-pacientes.ts`). */
 export async function contarNovosPacientes(
   c: pg.PoolClient,
   clinicaId: ClinicaId,
@@ -259,8 +344,8 @@ export async function contarNovosPacientes(
 ): Promise<number> {
   const r = await c.query<{ n: string }>(
     `SELECT count(*)::text AS n FROM pacientes pa
-      WHERE pa.clinica_id = $1 AND pa.ativo AND pa.criado_em >= $2 AND pa.criado_em < $3
-        AND ($4::text IS NULL OR (CASE WHEN pa.origem = '' THEN 'Não informada' ELSE pa.origem END) = $4)`,
+      WHERE ${PACIENTE_NOVO_NA_JANELA}
+        AND ($4::text IS NULL OR (${ORIGEM_DO_PACIENTE}) = $4)`,
     [clinicaId, j.de, j.ate, origem ?? null],
   )
   return Number(r.rows[0]!.n)

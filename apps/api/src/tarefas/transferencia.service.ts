@@ -29,6 +29,7 @@ import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO } from '../comum/relogio'
 import { comGrupos } from './grupos-do-autor'
 import { type AutorDaRequisicao, lerTarefas } from './leitura'
+import { exigirDestinoDeLancamento } from './tarefa-de-lancamento'
 
 /**
  * Teto do `historico` de uma tarefa (E2). Cada transferência acrescenta um
@@ -176,6 +177,9 @@ export class TransferenciaService {
       if (de.tipo === dados.para.tipo && de.id === dados.para.id) {
         return umaSo(await lerTarefas(c, clinicaId, hoje, [id], autor.podeJornada))
       }
+
+      // A tarefa "Lançar [KPI]" só vai para quem `podeLancar` aceita, nunca para grupo (T3).
+      await exigirDestinoDeLancamento(c, clinicaId, id, dados.para)
 
       if (dados.para.tipo === 'grupo' && ehSessao({ tipo: t.tipo })) {
         // A baixa de estoque assina a dose na pessoa que a aplica (`aplicado_por`);
