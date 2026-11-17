@@ -537,19 +537,57 @@ else
   echo "  ok  o Postgres não tem rota de saída"
 fi
 
-# 7.6b · a API também NÃO tem rota de saída.
-# Desde o `worker-agenda` existe uma rede com saída neste compose (`saida`). O
-# risco é alguém "resolver" um problema acrescentando-a à `api` — e aí o
-# processo que serve o balcão passa a alcançar a internet. `node` e não
-# `getent`, para não depender de utilitário da imagem: se a ferramenta faltar,
-# a asserção não pode passar por engano.
-if docker compose exec -T api node -e \
-  "require('node:dns').promises.lookup('github.com').then(()=>process.exit(0),()=>process.exit(1))" \
-  2>/dev/null; then
-  echo "  ERRO: a API resolve nome externo — ela ganhou rota de saída." >&2
-  falhou=1
+# 7.6b · a API só sai pela porta do SMTP (ADR 2026-11-17-saida-de-email-da-api).
+#
+# Até o acesso por e-mail, a medida era "a API não resolve nome externo". Com a
+# `saida-email` ela resolve — a rede não é `internal`, e o DNS precisa passar
+# para achar `smtp.resend.com`. A invariante passou a ter duas metades, e as
+# duas são medidas:
+#
+# (a) ESTRUTURA — as redes da `api` são exatamente `dados` e `saida-email`. O
+#     risco de sempre continua: alguém "resolver" um problema acrescentando
+#     `saida` ou `easypanel` à `api`. Isso é ERRO, ligado ou não o envio.
+#
+# (b) EGRESS — fora da 465, a API não alcança a internet. Mede-se com uma
+#     conexão TCP a github.com:443: com a regra do README aplicada, ela morre
+#     no DROP. Se conecta, a regra não está lá, e:
+#       - com `SMTP_HOST` preenchido, é ERRO: o envio só liga com a regra;
+#       - com `SMTP_HOST` vazio, é ATENÇÃO: a rede existe, o envio não, e o
+#         deploy de outra coisa não pode ficar refém de uma mudança de firewall
+#         que depende do dono. O aviso fica até a regra ser aplicada.
+#
+# `node` e não `getent`/`nc`, para não depender de utilitário da imagem: se a
+# ferramenta faltar, a asserção não pode passar por engano.
+api_id=$(docker compose ps -q api || true)
+redes_api=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$api_id" 2>/dev/null \
+            | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ' || true)
+if [ "$redes_api" = "fir_dados fir_saida-email " ]; then
+  echo "  ok  a API está só em 'dados' e 'saida-email'"
 else
-  echo "  ok  a API não tem rota de saída"
+  echo "  ERRO: as redes da API são '${redes_api}'; esperado 'fir_dados fir_saida-email'." >&2
+  echo "  Uma rede a mais na API é rota para a internet ou para serviço alheio." >&2
+  falhou=1
+fi
+
+if docker compose exec -T api node -e "
+  const s = require('node:net').connect({ host: 'github.com', port: 443 });
+  const fim = (c) => { s.destroy(); process.exit(c) };
+  s.setTimeout(6000, () => fim(1));
+  s.on('connect', () => fim(0));
+  s.on('error', () => fim(1));" 2>/dev/null; then
+  if [ -n "${SMTP_HOST:-}" ]; then
+    echo "  ERRO: a API alcança github.com:443 com o envio de e-mail LIGADO." >&2
+    echo "  A regra de egress da 'saida-email' não está aplicada. Aplique-a" >&2
+    echo "  (README, 'Ligar o envio de e-mail') ou esvazie SMTP_HOST." >&2
+    falhou=1
+  else
+    echo "  ATENÇÃO: a API alcança a internet fora da porta 465." >&2
+    echo "  A regra de egress da 'saida-email' ainda não foi aplicada (README," >&2
+    echo "  'Ligar o envio de e-mail'). O envio está desligado; aplique a regra" >&2
+    echo "  antes de preencher SMTP_HOST — o deploy recusa sem ela." >&2
+  fi
+else
+  echo "  ok  a API não alcança a internet fora da porta do SMTP"
 fi
 
 # 7.6c · os workers (agenda e os três da carteira) estão de pé, e não em laço de reinício.
@@ -602,6 +640,33 @@ if docker compose exec -T worker-planilhas node -e \
 else
   echo "  ATENÇÃO: o worker-planilhas não resolve sheets.googleapis.com." >&2
   echo "  A leitura das planilhas vai falhar. Confira a rede 'fir_saida-planilhas'." >&2
+fi
+
+# 7.6f · com o envio ligado, a API alcança o SMTP do provedor.
+# ATENÇÃO, não erro, pela razão do 7.6d: depende de fora da VPS, e um envio que
+# falha não muda nada que o cliente veja (a rota responde igual; spec, appsec
+# 13) — o que torna ESTA linha o único lugar em que a falha aparece no deploy.
+# Só abre a conexão TCP: não autentica e não manda nada. Host e porta vêm do
+# ambiente do próprio container, então nada do `.env` passa pela linha de
+# comando.
+if [ -z "${SMTP_HOST:-}" ]; then
+  echo "  --  envio de e-mail desligado (SMTP_HOST vazio): criação de pessoa usa senha provisória"
+else
+  if [ "${SMTP_PORTA:-465}" != "465" ]; then
+    echo "  ATENÇÃO: SMTP_PORTA=${SMTP_PORTA}, mas a regra de egress só libera a 465." >&2
+  fi
+  if docker compose exec -T api node -e "
+    const s = require('node:net').connect({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORTA) });
+    const fim = (c) => { s.destroy(); process.exit(c) };
+    s.setTimeout(8000, () => fim(1));
+    s.on('connect', () => fim(0));
+    s.on('error', () => fim(1));" 2>/dev/null; then
+    echo "  ok  a API alcança o SMTP do provedor (porta ${SMTP_PORTA:-465})"
+  else
+    echo "  ATENÇÃO: a API não alcança ${SMTP_HOST}:${SMTP_PORTA:-465}." >&2
+    echo "  Convites e links de redefinição NÃO vão sair. Confira a rede" >&2
+    echo "  'fir_saida-email' e a regra de egress (README)." >&2
+  fi
 fi
 
 # 7.7 · o Traefik serve a página de entrada.

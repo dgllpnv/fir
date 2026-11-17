@@ -99,10 +99,11 @@ API só enfileira em `agenda:sincronizacao`). Mesma imagem `fir/api`, outro
 `command` (`node worker-agenda.js`). Não serve HTTP, não publica porta, não tem
 label do Traefik.
 
-**É o único serviço com saída para a internet**, pela rede `saida` (bridge
-comum). Ele fica também na `dados`, para falar com Postgres e Redis — como
-`fir_app`, sob RLS, nunca como `fir_migrate`. A API e o banco continuam sem
-rota de saída, e o deploy mede as duas coisas (asserções 7.6 e 7.6b), além de
+Ele sai para a internet pela rede `saida` (bridge comum), que é só dele. Ele
+fica também na `dados`, para falar com Postgres e Redis — como
+`fir_app`, sob RLS, nunca como `fir_migrate`. O banco continua sem rota de
+saída e a API só tem a `saida-email`, restrita à porta do SMTP (ver "Ligar o
+envio de e-mail"); o deploy mede as duas coisas (asserções 7.6 e 7.6b), além de
 medir que o worker não está em laço de reinício (7.6c) e que ele resolve nome
 externo (7.6d, aviso).
 
@@ -162,6 +163,114 @@ mudança de infraestrutura e ficam para o dono decidir.
 O passo 7.6e do `implantar.sh` avisa se o worker não resolve
 `sheets.googleapis.com`.
 
+## Ligar o envio de e-mail (acesso por e-mail)
+
+Convite, "esqueci minha senha" e confirmação de e-mail saem **de dentro do
+processo da API** (spec `docs/specs/acesso-por-email.md`, seção 10, item 8): o
+link leva um token que é, sozinho, a senha nova de alguém, e ele nunca sai do
+processo — nem para o Redis, nem para um worker. Por isso a `api`, que não
+tinha rota nenhuma, ganhou a rede `saida-email` (sub-rede fixa
+`172.31.247.0/24`), e só ela está nessa rede. Decisão em
+`docs/adr/2026-11-17-saida-de-email-da-api.md`.
+
+**Desligado por padrão.** As seis variáveis entram no compose com padrão vazio
+(`SMTP_PORTA` com 465); sem `SMTP_HOST`, a criação de pessoa cai na senha
+provisória e as rotas que dependem de envio respondem 503, como hoje.
+
+### Antes de qualquer coisa: LGPD L10
+
+**O envio só liga com os itens da seção 7 da spec feitos** — conta Resend no
+nome da Firmare, SPF e DKIM em `firmaregestao.com.br`, DPA do Resend aceito,
+garantia de transferência internacional registrada, Resend listado como
+suboperador, retenção mínima no provedor e **rastreamento de clique e de
+abertura desligados no painel do Resend** (o de clique reescreveria o link e
+passaria a ver o token). O acompanhamento mora em
+`docs/o-que-depende-de-voce.md`. Preencher `SMTP_HOST` antes disso é mandar
+e-mail da equipe das clínicas a um suboperador sem contrato.
+
+### 1 · a regra de egress da `saida-email`
+
+Docker sozinho não filtra destino: sem a regra, a `saida-email` é uma bridge
+comum e a API alcança a internet inteira. A regra deixa sair da sub-rede só
+DNS e TCP 465 (SMTPS, TLS implícito). **Por porta, não por endereço**:
+`smtp.resend.com` é um balanceador da AWS (ELB, us-east-1) cujos IPs mudam sem
+aviso, e uma regra por IP derrubaria o envio no dia da troca.
+
+O Resend aceita 25, 587 e 2587 (STARTTLS) e 465 e 2465 (TLS implícito) —
+conferido em <https://resend.com/docs/send-with-smtp> em 2026-11-17. Ficamos
+com **465 e só ela**: TLS desde o primeiro byte, e uma porta só na regra.
+
+```bash
+# DOCKER-USER é a cadeia que o Docker reserva para o operador e não reescreve.
+# -I insere no TOPO: a ordem abaixo deixa o DROP por último na cadeia.
+SUB=172.31.247.0/24
+iptables -I DOCKER-USER -s $SUB -j DROP
+iptables -I DOCKER-USER -s $SUB -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -I DOCKER-USER -s $SUB -p udp --dport 53 -j ACCEPT
+iptables -I DOCKER-USER -s $SUB -p tcp --dport 53 -j ACCEPT
+iptables -I DOCKER-USER -s $SUB -p tcp --dport 465 -j ACCEPT
+```
+
+As regras só tocam a sub-rede `172.31.247.0/24`, que é só da `api` do FIR:
+nenhum container de outro negócio passa por elas. Mesmo assim, é mudança no
+firewall de uma máquina compartilhada — **aplicar é decisão do dono**. E elas
+não sobrevivem a um reboot sem persistência (`iptables-save` /
+`netfilter-persistent`): conferir depois de todo reinício da VPS, que é para
+isso que o deploy mede (abaixo).
+
+Se o `docker compose up` recusar a rede com `Pool overlaps with other one on
+this address space`, outra rede da VPS já usa a faixa: escolha outra `/24`
+livre (`docker network inspect $(docker network ls -q) -f '{{.Name}}
+{{range .IPAM.Config}}{{.Subnet}}{{end}}'`) e troque no compose **e** na regra.
+
+### 2 · as variáveis no `.env`
+
+Editadas à mão no `.env` da VPS (modo 600), **nunca** no repositório nem em
+conversa. `SMTP_SENHA` é a chave de API do Resend: crie uma chave só de envio
+(`sending access`), restrita ao domínio, e guarde-a com as outras senhas.
+
+```
+SMTP_HOST=smtp.resend.com
+SMTP_PORTA=465
+SMTP_USUARIO=resend
+SMTP_SENHA=<chave de API do Resend, só envio>
+EMAIL_REMETENTE=FIR Clinic <nao-responda@firmaregestao.com.br>
+URL_PUBLICA=https://<o mesmo DOMINIO do .env>
+```
+
+`URL_PUBLICA` precisa ser `https://` — com `http://` a API **não sobe** em
+produção (o link levaria o token em claro). Sem ela, o envio conta como
+desligado.
+
+### 3 · subir e conferir
+
+```bash
+cd /opt/fir/repo/infra/producao && bash implantar.sh
+```
+
+O deploy mede:
+
+- **7.6b** (erro): as redes da `api` são exatamente `dados` e `saida-email`; e,
+  com `SMTP_HOST` preenchido, a API **não** alcança `github.com:443` — se
+  alcança, a regra não está aplicada e o deploy é recusado. Com o envio
+  desligado, a mesma falta da regra é só aviso.
+- **7.6** (erro): o Postgres continua sem rota de saída.
+- **7.6f** (aviso): com o envio ligado, a API abre TCP com
+  `SMTP_HOST:SMTP_PORTA`. Uma falha aqui é o único lugar em que o problema
+  aparece: a rota de "esqueci a senha" responde igual com ou sem envio, de
+  propósito.
+
+Por fim, à mão: "Esqueci minha senha" para um endereço seu, confirmado, numa
+clínica de teste. Tem de chegar **na caixa de entrada, não no spam**, com o
+link sem reescrita do provedor (passe o mouse: o domínio é o do FIR, não um
+`click.resend…`). No log da API, `docker compose logs api | grep correio`
+mostra só a finalidade, o resultado e o endereço mascarado.
+
+### Desligar
+
+Esvazie `SMTP_HOST` no `.env` e rode `implantar.sh`. A regra de egress pode
+ficar: com o envio desligado ela só impede o que já não devia acontecer.
+
 ## Variáveis do `.env`
 
 | Chave | Quem define | Para quê |
@@ -176,6 +285,7 @@ O passo 7.6e do `implantar.sh` avisa se o worker não resolve
 | `VERSAO` | o deploy | a tag das imagens |
 | `GOOGLE_SA_JSON` | você (opcional) | a chave JSON da conta de serviço do Google, numa linha, entre aspas simples — só o `worker-planilhas` a recebe |
 | `GOOGLE_SA_EMAIL` | você (opcional) | o `client_email` dessa conta, para a tela dizer com quem compartilhar a planilha |
+| `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA`, `EMAIL_REMETENTE`, `URL_PUBLICA` | você (opcional) | o envio de e-mail da API. Vazias = envio desligado. **Só com a LGPD L10 feita e a regra de egress aplicada** — ver "Ligar o envio de e-mail" |
 | `FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA` | `implantar.sh` | cifra o segredo TOTP de cada Usuário de Gestão e é o pepper dos códigos de recuperação. **Nunca troque**: trocar exige resetar o segundo fator de todos |
 
 `.env` **não é versionado** — está no `.gitignore`, e
