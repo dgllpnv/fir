@@ -245,9 +245,13 @@ SMTP_HOST=smtp.resend.com
 SMTP_PORTA=465
 SMTP_USUARIO=resend
 SMTP_SENHA=<chave de API do Resend, só envio>
-EMAIL_REMETENTE=FIR Clinic <nao-responda@firmaregestao.com.br>
 URL_PUBLICA=https://<o mesmo DOMINIO do .env>
 ```
+
+`EMAIL_REMETENTE` é opcional: sem ela vale `FIR Clinic
+<nao-responda@firmaregestao.com.br>`. Se for definir, **entre aspas**
+(`EMAIL_REMETENTE="Nome <endereco@dominio>"`): `implantar.sh` lê o `.env`
+como shell, e sem aspas o espaço quebra a linha e o `<` vira redirecionamento.
 
 `URL_PUBLICA` precisa ser `https://` — com `http://` a API **não sobe** em
 produção (o link levaria o token em claro). Sem ela, o envio conta como
