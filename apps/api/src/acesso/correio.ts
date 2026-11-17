@@ -74,7 +74,10 @@ export class CorreioSmtp implements Correio {
     try {
       await this.transporte.sendMail({
         from: this.remetente,
-        to: m.para,
+        // OBJETO, nunca a string (revisão appsec C1): uma string o nodemailer
+        // lê como LISTA de endereços, e `a<x@mal.example>` iria para x. Com
+        // `address`, o endereço é um só, o que o regex e o CHECK aceitaram.
+        to: { name: '', address: m.para },
         subject: m.assunto,
         text: m.texto,
         html: m.html,
@@ -100,23 +103,39 @@ export class CorreioCapturador implements Correio {
   }
 }
 
-function urlPublicaDe(bruta: string | undefined): string | null {
+/** A `URL_PUBLICA` em produção não é `https:` (revisão appsec C2). Não sobe. */
+export class UrlPublicaInsegura extends Error {
+  constructor() {
+    super(
+      'URL_PUBLICA precisa ser https:// em produção: o link de acesso leva o token. ' +
+        'Corrija a variável ou desligue o envio (SMTP_HOST vazio).',
+    )
+  }
+}
+
+function urlPublicaDe(bruta: string | undefined, producao: boolean): string | null {
   const v = bruta?.trim() ?? ''
   if (v === '') return null
+  let u: URL
   try {
-    const u = new URL(v)
-    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null
-    return `${u.origin}${u.pathname}`.replace(/\/+$/, '')
+    u = new URL(v)
   } catch {
     return null
   }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null
+  // `http:` só fora de produção (Mailpit local). Em produção, o link com o
+  // token iria em claro — e recusar a subida é mais honesto que desligar o
+  // envio em silêncio.
+  if (producao && u.protocol !== 'https:') throw new UrlPublicaInsegura()
+  return `${u.origin}${u.pathname}`.replace(/\/+$/, '')
 }
 
 /** O envio de produção, das variáveis de ambiente (spec 7). */
 export function envioDoAmbiente(ambiente: NodeJS.ProcessEnv = process.env): ConfiguracaoDoEnvio {
   const host = ambiente['SMTP_HOST']?.trim() ?? ''
-  const urlPublica = urlPublicaDe(ambiente['URL_PUBLICA'])
-  if (host === '' || urlPublica === null) return { urlPublica: null, correio: null }
+  if (host === '') return { urlPublica: null, correio: null }
+  const urlPublica = urlPublicaDe(ambiente['URL_PUBLICA'], ambiente['NODE_ENV'] === 'production')
+  if (urlPublica === null) return { urlPublica: null, correio: null }
 
   const porta = Number(ambiente['SMTP_PORTA'] ?? '587')
   const usuario = ambiente['SMTP_USUARIO'] ?? ''

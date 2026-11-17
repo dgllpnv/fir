@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common'
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core'
 import { AcessoInterceptor } from './auditoria/acesso.interceptor'
 import { AcessoPorEmailModule } from './acesso/acesso-por-email.module'
+import { UuidCanonicoPipe } from './comum/uuid-canonico.pipe'
 import { AuditoriaModule } from './auditoria/auditoria.module'
 import { AutenticacaoModule } from './autenticacao/autenticacao.module'
 import { SenhaProvisoriaGuard } from './autenticacao/senha-provisoria.guard'
@@ -102,6 +103,9 @@ import { TarefasModule } from './tarefas/tarefas.module'
     // (`@UseGuards`) fazem do ESQUECIMENTO uma rota aberta. Com guard global,
     // esquecer significa rota protegida, e abrir exige `@Publico()` —
     // deliberado, e conferido por teste/rotas-protegidas.test.ts.
+    // O `:id` da rota na forma canônica do banco, antes de qualquer pipe da
+    // rota (revisão appsec B1, `comum/uuid-canonico.pipe.ts`).
+    { provide: APP_PIPE, useClass: UuidCanonicoPipe },
     { provide: APP_GUARD, useClass: SessaoGuard },
     // LOGO DEPOIS de `SessaoGuard`, e antes dos dois de clínica: as rotas do
     // painel não têm `req.contexto`, e os guards de provisória e de

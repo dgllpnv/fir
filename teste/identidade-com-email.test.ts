@@ -82,6 +82,14 @@ describe('o e-mail voltou como segundo identificador (ADR 2026-11-16)', () => {
       'ana souza@clinica.com',
       'ana@@clinica.com',
       'a@b.c',
+      // Revisão appsec C1: o que o transporte leria como lista ou nome.
+      'juliana.sol.com<x@mal.example>',
+      'a"b@evil.com',
+      'joana.silva(attacker@evil.com)@clinica.com.br',
+      'a,b@x.com',
+      'a;b@x.com',
+      'a@x_y.com',
+      "ana.o'neil+x@clinica.com.br",
       `${'a'.repeat(250)}@b.com`,
     ]
     let i = 0

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ChaveDeEmail } from './chave-de-email'
-import { CorreioSmtp, envioDoAmbiente, envioLigado, FalhaDeEnvio } from './correio'
+import { CorreioSmtp, envioDoAmbiente, envioLigado, FalhaDeEnvio, UrlPublicaInsegura } from './correio'
 import { ASSUNTOS, linkDoToken, montarMensagem, numaLinha, prazoEmTexto, type TipoDeMensagem } from './mensagens'
 
 const TOKEN = 'A'.repeat(43)
@@ -101,7 +101,10 @@ describe('CorreioSmtp — o log nunca leva endereço, token nem erro cru (L3)', 
       (l) => linhas.push(l),
     )
     await c.enviar(mensagem)
-    expect(enviados[0]).toMatchObject({ to: 'juliana.souza@gmail.com', from: 'FIR <x@y.com>' })
+    // O destinatário vai como OBJETO (revisão appsec C1): a string seria lida
+    // como lista de endereços pelo nodemailer.
+    expect(enviados[0]!['to']).toEqual({ name: '', address: 'juliana.souza@gmail.com' })
+    expect(enviados[0]!['from']).toBe('FIR <x@y.com>')
     expect(linhas).toEqual(['[correio] redefinicao: enviado para j***@g***.com'])
   })
 
@@ -131,6 +134,19 @@ describe('envioDoAmbiente — ligado só com SMTP_HOST e URL_PUBLICA', () => {
     expect(envioLigado(envioDoAmbiente({ SMTP_HOST: 'smtp.x.com', URL_PUBLICA: 'não é url' }))).toBe(
       false,
     )
+  })
+
+  it('produção: URL_PUBLICA http: não sobe; https: sobe (revisão appsec C2)', () => {
+    expect(() =>
+      envioDoAmbiente({ NODE_ENV: 'production', SMTP_HOST: 'smtp.x.com', URL_PUBLICA: 'http://fir.x' }),
+    ).toThrow(UrlPublicaInsegura)
+    expect(
+      envioLigado(envioDoAmbiente({ NODE_ENV: 'production', SMTP_HOST: 'smtp.x.com', URL_PUBLICA: 'https://fir.x' })),
+    ).toBe(true)
+    // Fora de produção o Mailpit local segue em http:.
+    expect(envioLigado(envioDoAmbiente({ SMTP_HOST: '127.0.0.1', URL_PUBLICA: 'http://127.0.0.1:4810' }))).toBe(true)
+    // Envio desligado em produção não exige nada da URL.
+    expect(envioLigado(envioDoAmbiente({ NODE_ENV: 'production', URL_PUBLICA: 'http://fir.x' }))).toBe(false)
   })
 
   it('os dois: ligado, e a URL sem barra final', () => {

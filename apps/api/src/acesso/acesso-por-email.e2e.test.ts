@@ -10,7 +10,7 @@ import { LimitePorOrigem } from '../autenticacao/limite-por-origem'
 import { hashDeSenha } from '../autenticacao/senha'
 import { operadorIdDeFonteConfiavel, pessoaIdDeFonteConfiavel } from '../banco/ator'
 import { clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
-import { apagarClinicaDeTeste, declararAtorSistema } from '../banco/limpeza-de-teste'
+import { apagarClinicaDeTeste, apagarOperadorDeTeste, declararAtorSistema } from '../banco/limpeza-de-teste'
 import { RELOGIO } from '../comum/relogio'
 import { registrarCookie } from '../main'
 import { AcessoService } from '../pessoas/acesso.service'
@@ -45,6 +45,7 @@ let perfilCfg: string
 const codigoA = `acesso-a-${Date.now()}`
 const codigoB = `acesso-b-${Date.now()}`
 const ids: Record<string, string> = {}
+const operadoresDeTeste: { id: string; usuario: string }[] = []
 
 const SENHA = 'senha-de-teste-longa'
 
@@ -149,6 +150,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await apagarClinicaDeTeste(migrate, clinicaA)
   await apagarClinicaDeTeste(migrate, clinicaB)
+  for (const o of operadoresDeTeste) {
+    await migrate.query('DELETE FROM tentativas_de_operador WHERE identificador = $1', [o.usuario])
+    await apagarOperadorDeTeste(migrate, o.id)
+  }
   await migrate.end()
   await app.close()
   await appDesligado.close()
@@ -814,37 +819,73 @@ describe('log (LGPD L3; appsec 13)', () => {
   })
 })
 
-describe('revisão: o próprio e-mail não muda pelo PATCH (appsec 1, P1)', () => {
-  it('a admin sobre si mesma: 403, nenhum link e nenhum e-mail', async () => {
-    const admin = await sessao('helena')
+describe('revisão: o próprio e-mail não muda pelo PATCH (appsec 1, P1; appsec B1)', () => {
+  const nadaMudou = async (pessoaId: string, fazer: () => Promise<void>) => {
     const antes = correio.mensagens.length
-    const links0 = await migrate.query('SELECT count(*)::int AS n FROM links_de_acesso WHERE pessoa_id = $1', [
-      ids['helena'],
-    ])
-    const r = await srv()
-      .patch(`/v1/pessoas/${ids['helena']}`)
-      .set('Cookie', admin)
-      .send({ email: 'atacante@mal.example' })
-      .expect(403)
-    expect(r.body.message).toBe('Troque o seu e-mail em Trocar senha › E-mail.')
-    const links1 = await migrate.query('SELECT count(*)::int AS n FROM links_de_acesso WHERE pessoa_id = $1', [
-      ids['helena'],
-    ])
-    expect(links1.rows[0].n).toBe(links0.rows[0].n)
+    const contar = async () =>
+      (await migrate.query('SELECT count(*)::int AS n FROM links_de_acesso WHERE pessoa_id = $1', [pessoaId])).rows[0]
+        .n as number
+    const links0 = await contar()
+    await fazer()
+    expect(await contar()).toBe(links0)
     await assentar()
     expect(correio.mensagens.length).toBe(antes)
-    const linha = await migrate.query('SELECT email_pendente FROM pessoas WHERE id = $1', [ids['helena']])
-    expect(linha.rows[0].email_pendente).toBeNull()
+    const linha = await migrate.query('SELECT email, email_pendente FROM pessoas WHERE id = $1', [pessoaId])
+    expect(linha.rows[0]).toEqual({ email: 'helena@sol.com', email_pendente: null })
+  }
+
+  for (const caixa of ['minúsculas', 'MAIÚSCULAS'] as const) {
+    it(`a admin sobre si mesma, id em ${caixa}: 403, nenhum link e nenhum e-mail`, async () => {
+      const admin = await sessao('helena')
+      const id = caixa === 'MAIÚSCULAS' ? ids['helena']!.toUpperCase() : ids['helena']!
+      await nadaMudou(ids['helena']!, async () => {
+        const r = await srv()
+          .patch(`/v1/pessoas/${id}`)
+          .set('Cookie', admin)
+          .send({ email: 'atacante@mal.example' })
+          .expect(403)
+        expect(r.body.message).toBe('Troque o seu e-mail em Trocar senha › E-mail.')
+      })
+    })
+  }
+
+  it('o operador de suporte sobre a administradora em cujo nome assina, pela rota, id em MAIÚSCULAS: 403', async () => {
+    const usuarioOp = `sup.acesso.${Date.now()}`
+    const senhaOp = 'quatro-pedras-no-caminho-do-suporte'
+    const operador = (
+      await migrate.query<{ id: string }>(
+        `INSERT INTO operadores (usuario, nome, senha_hash) VALUES ($1, 'Suporte', $2) RETURNING id`,
+        [usuarioOp, await hashDeSenha(senhaOp)],
+      )
+    ).rows[0]!.id
+    try {
+      const pares = (r: { headers: Record<string, string> }) => cookies(r).map((c) => c.split(';')[0]!).join('; ')
+      const painel = pares(await srv().post('/v1/superadmin/entrar').send({ usuario: usuarioOp, senha: senhaOp }).expect(200))
+      const suporte = pares(
+        await srv().post(`/v1/superadmin/clinicas/${clinicaA}/sessao-de-suporte`).set('Cookie', painel).expect(201),
+      )
+      await nadaMudou(ids['helena']!, async () => {
+        const r = await srv()
+          .patch(`/v1/pessoas/${ids['helena']!.toUpperCase()}`)
+          .set('Cookie', suporte)
+          .send({ email: 'atacante@mal.example' })
+          .expect(403)
+        expect(r.body.message).toBe('O e-mail da administradora em cujo nome o suporte age só muda por ela.')
+      })
+    } finally {
+      // As sessões do operador moram na clínica e saem com ela, no afterAll.
+      operadoresDeTeste.push({ id: operador, usuario: usuarioOp })
+    }
   })
 
-  it('o operador de suporte sobre a administradora em cujo nome assina (comoPessoa): 403', async () => {
+  it('o serviço também recusa, com o id em MAIÚSCULAS e o operador com comoPessoa', async () => {
     const servico = app.get(AcessoService)
     const ator = {
       ...operadorIdDeFonteConfiavel('00000000-0000-4000-8000-0000000000aa'),
       comoPessoa: pessoaIdDeFonteConfiavel(ids['helena']!),
     }
     await expect(
-      servico.editar({ clinicaId: clinicaIdDeFonteConfiavel(clinicaA), ator }, ids['helena']!, {
+      servico.editar({ clinicaId: clinicaIdDeFonteConfiavel(clinicaA), ator }, ids['helena']!.toUpperCase(), {
         email: 'atacante@mal.example',
       }),
     ).rejects.toMatchObject({ status: 403 })
@@ -853,6 +894,44 @@ describe('revisão: o próprio e-mail não muda pelo PATCH (appsec 1, P1)', () =
   it('o resto da própria ficha continua editável pelo PATCH', async () => {
     const admin = await sessao('helena')
     await srv().patch(`/v1/pessoas/${ids['helena']}`).set('Cookie', admin).send({ funcao: 'Direção' }).expect(200)
+  })
+})
+
+describe('revisão appsec B1: o id da rota em MAIÚSCULAS é o mesmo recurso, com a mesma recusa', () => {
+  it('a mesma pessoa, a mesma resposta; e o 403/404 de quem não alcança, igual', async () => {
+    const admin = await sessao('helena')
+    const min = await srv().patch(`/v1/pessoas/${ids['juliana']}`).set('Cookie', admin).send({ funcao: 'Recepção' }).expect(200)
+    const mai = await srv()
+      .patch(`/v1/pessoas/${ids['juliana']!.toUpperCase()}`)
+      .set('Cookie', admin)
+      .send({ funcao: 'Recepção' })
+      .expect(200)
+    // O id que volta é o canônico, nos dois casos.
+    expect(mai.body.id).toBe(ids['juliana'])
+    expect(mai.body.id).toBe(min.body.id)
+
+    const gerente = await sessao('gerente')
+    for (const id of [ids['helena']!, ids['helena']!.toUpperCase()]) {
+      await srv().post(`/v1/pessoas/${id}/redefinicao`).set('Cookie', gerente).expect(403)
+    }
+    const outra = await sessao('helenab', codigoB)
+    for (const id of [ids['juliana']!, ids['juliana']!.toUpperCase()]) {
+      await srv().post(`/v1/pessoas/${id}/redefinicao`).set('Cookie', outra).expect(404)
+    }
+  })
+})
+
+describe('revisão appsec C1: o e-mail com caractere de lista não entra', () => {
+  it('/v1/eu/email e o PATCH recusam `a<x@mal.example>` (400), e nada é enviado', async () => {
+    const antes = correio.mensagens.length
+    const s = await sessao('pendente')
+    for (const hostil of ['juliana.sol.com<x@mal.example>', 'a"b@evil.com', 'j(x@evil.com)@sol.com']) {
+      await srv().post('/v1/eu/email').set('Cookie', s).send({ email: hostil, senha: SENHA }).expect(400)
+      const admin = await sessao('helena')
+      await srv().patch(`/v1/pessoas/${ids['juliana']}`).set('Cookie', admin).send({ email: hostil }).expect(400)
+    }
+    await assentar()
+    expect(correio.mensagens.length).toBe(antes)
   })
 })
 

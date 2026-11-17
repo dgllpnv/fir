@@ -10,6 +10,7 @@ import {
   situacaoDoLink,
   validarEmail,
 } from './acesso-por-email'
+import { ehOk } from './resultado'
 import { ehErro } from './resultado'
 
 describe('canonizarEmail e validarEmail', () => {
@@ -129,5 +130,31 @@ describe('situacaoDoAcesso', () => {
     )
     expect(situacaoDoAcesso(aguardando, { expiraEm: agora }, agora)).toBe('convite_vencido')
     expect(situacaoDoAcesso(aguardando, null, agora)).toBe('convite_vencido')
+  })
+})
+
+describe('REGEX_EMAIL fecha os caracteres de lista de endereços (revisão appsec C1)', () => {
+  it('recusa o que o transporte leria como lista, comentário ou nome', () => {
+    for (const hostil of [
+      'juliana.sol.com<x@mal.example>',
+      'a"b@evil.com',
+      'joana.silva(attacker@evil.com)@clinica.com.br',
+      'a,b@x.com',
+      'a;b@x.com',
+      'a:b@x.com',
+      'a@x.com,b@y.com',
+      'a@[127.0.0.1]',
+      'a\b@x.com',
+      'a@x_y.com',
+      'a@x..com',
+    ]) {
+      expect(ehOk(validarEmail(hostil)), hostil).toBe(false)
+    }
+  })
+
+  it('aceita o que um provedor entrega de verdade', () => {
+    for (const bom of ["ana.o'neil+clinica@gmail.com", 'a@b.co', 'recepcao-2@clinica-sol.com.br', 'x_y@z.io']) {
+      expect(ehOk(validarEmail(bom)), bom).toBe(true)
+    }
   })
 })

@@ -4,7 +4,7 @@ import { erro, ok, type ErroDeDominio, type Result } from './resultado'
  * Acesso por e-mail (ADR 2026-11-16): a forma canônica do e-mail, os prazos dos
  * links de uso único e a máscara que o log e a tela usam.
  *
- * O banco é a autoridade sobre a forma (CHECK da migration 0097); esta função é
+ * O banco é a autoridade sobre a forma (CHECK da migration 0103, que substituiu o da 0097); esta função é
  * a mesma regra para a tela avisar antes do envio e para o contrato canonizar o
  * que o teclado entrega. A comparação das duas está em
  * `teste/identidade-com-email.test.ts`.
@@ -12,12 +12,18 @@ import { erro, ok, type ErroDeDominio, type Result } from './resultado'
 export const canonizarEmail = (bruto: string): string => bruto.trim().toLowerCase()
 
 /**
- * Deliberadamente simples: um `@`, algo antes, um domínio com ponto, sem espaço.
- * A validação completa da RFC 5322 aceita endereços que nenhum provedor entrega
- * e recusa nada que importe aqui; quem prova que o e-mail é da pessoa é o link
- * de confirmação, não o regex.
+ * Deliberadamente simples — e FECHADA nos caracteres (revisão appsec C1): a
+ * parte local só com os caracteres "atext" da RFC 5322 e o ponto, o domínio
+ * só com letras, dígitos e hífen em rótulos separados por ponto. Nada de
+ * `<>()[]",;:\` nem espaço: o transporte de e-mail lê esses caracteres como
+ * lista de endereços e nome de exibição, e `juliana.sol.com<x@mal.example>`
+ * era aceito aqui e entregue a `x@mal.example`.
+ *
+ * Minúsculas, porque a forma que chega aqui é a canônica. A mesma regra do
+ * CHECK da migration 0103. Quem prova que o e-mail é da pessoa continua sendo
+ * o link de confirmação, não o regex.
  */
-export const REGEX_EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+export const REGEX_EMAIL = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/
 
 export const EMAIL_MAX = 254
 

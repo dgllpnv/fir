@@ -146,23 +146,6 @@ export class AcessoService {
    * responsável".
    */
   async editar(ctx: Contexto, pessoaId: string, dados: EditarPessoa): Promise<PessoaEditada> {
-    /**
-     * **O PRÓPRIO e-mail não muda por aqui** (appsec 1, revisão P1). Esta rota
-     * não pede a senha atual; `/v1/eu/email` pede. Sem esta recusa, quem acha
-     * aberta a sessão de uma admin poria o e-mail dele na ficha dela,
-     * confirmaria e tomaria a conta pelo esqueci-senha.
-     *
-     * Vale também para o OPERADOR na sessão de suporte sobre a administradora
-     * em cujo nome ele assina (`comoPessoa`): a conta dela não é dele para
-     * redirecionar, e ele também não provou a senha dela.
-     */
-    if (dados.email !== undefined && pessoaId === quemAssina(ctx.ator)) {
-      throw new ForbiddenException(
-        typeof ctx.ator === 'string'
-          ? 'Troque o seu e-mail em Trocar senha › E-mail.'
-          : 'O e-mail da administradora em cujo nome o suporte age só muda por ela.',
-      )
-    }
     const depois: MensagemDeEmail[] = []
     const avisos: MensagemDeEmail[] = []
     const saida = await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
@@ -178,6 +161,27 @@ export class AcessoService {
       const perfisDaClinica = await lerPerfisDoDominio(c)
       const alvo = await umaPessoa(c, pessoaId)
       const equipe = await equipeDaClinica(c)
+
+      /**
+       * **O PRÓPRIO e-mail não muda por aqui** (appsec 1, revisão P1). Esta rota
+       * não pede a senha atual; `/v1/eu/email` pede. Sem esta recusa, quem acha
+       * aberta a sessão de uma admin poria o e-mail dele na ficha dela,
+       * confirmaria e tomaria a conta pelo esqueci-senha. Vale também para o
+       * OPERADOR sobre a administradora em cujo nome assina (`comoPessoa`).
+       *
+       * Decidido AQUI, sobre `alvo.id` LIDO DO BANCO, e não sobre o `:id` da
+       * rota (revisão appsec B1): o Postgres casa `uuid` sem caixa, e o id em
+       * maiúsculas chegava ao mesmo registro passando ao largo de uma
+       * comparação de strings. Os dois lados são a forma canônica do banco.
+       */
+      const assina = quemAssina(ctx.ator)
+      if (dados.email !== undefined && assina !== null && alvo.id === assina.toLowerCase()) {
+        throw new ForbiddenException(
+          typeof ctx.ator === 'string'
+            ? 'Troque o seu e-mail em Trocar senha › E-mail.'
+            : 'O e-mail da administradora em cujo nome o suporte age só muda por ela.',
+        )
+      }
 
       // PRIVILÉGIO primeiro (403), ESTADO depois (422): quem não pode agir
       // sobre o alvo não descobre, pela mensagem, o estado da clínica.
