@@ -20,7 +20,7 @@ let clinica: ClinicaId
 let outra: ClinicaId
 const selo = SeloDeIntegracoes.doAmbiente()
 
-let medx: { escopos: string; usuario: unknown; unidades: unknown[]; falha?: ErroDoMedx }
+let medx: { escopos: string; usuario: unknown; unidades: unknown[]; catalogo: unknown; falha?: ErroDoMedx }
 const pedidos: Pedido[] = []
 const transporte: Transporte = async (p) => {
   pedidos.push(p)
@@ -28,6 +28,10 @@ const transporte: Transporte = async (p) => {
   if (p.caminho === '/token') return JSON.stringify({ accessToken: 'jwt', expiresInSeconds: 900, scope: medx.escopos })
   if (p.caminho === '/agenda/usuario-atual') return JSON.stringify(medx.usuario)
   if (p.caminho === '/financas/unidades') return JSON.stringify({ unidades: medx.unidades, page: { hasMore: false } })
+  if (p.caminho === '/agenda/catalogos') {
+    if (medx.catalogo instanceof ErroDoMedx) throw medx.catalogo
+    return JSON.stringify(medx.catalogo)
+  }
   throw new Error(`rota inesperada ${p.caminho}`)
 }
 const executor = () => new TesteDeConexao(banco, AberturaDeIntegracoes.doAmbiente(), new LeitorDoMedx(transporte))
@@ -49,7 +53,7 @@ const linha = async (clinicaId: ClinicaId) =>
   (
     await c.migrate.query(
       `SELECT verificacao, conta_externa_id, usuario_externo_nome, escopos, unidades_externas, ultimo_erro,
-              agenda_ligada, verificada_em IS NOT NULL AND verificada_em >= verificacao_pedida_em AS respondida
+              agenda_ligada, catalogo_de_status, verificada_em IS NOT NULL AND verificada_em >= verificacao_pedida_em AS respondida
          FROM integracoes_da_clinica WHERE clinica_id = $1`,
       [clinicaId],
     )
@@ -72,6 +76,14 @@ beforeEach(async () => {
     escopos: 'agenda:read contatos:details:read financas:read',
     usuario: { id: 42, nome: 'Integração FIR', conselho: 'CRM 1/BA' },
     unidades: [{ id: 1, nome: 'Matriz', documento: '00.000.000/0001-00' }],
+    catalogo: {
+      status: [
+        { id: 0, nome: 'Agendado' },
+        { id: 4, nome: 'Desmarcado\u202e pelo paciente' },
+      ],
+      tipos: [{ id: 1, nome: 'Consulta' }],
+      profissionais: [{ id: 9, nome: 'Dra. Fulana' }],
+    },
   }
   pedidos.length = 0
 })
@@ -89,8 +101,40 @@ describe('Testar conexão, no worker', () => {
       ultimo_erro: '',
       respondida: true,
     })
-    expect(pedidos.map((p) => p.caminho)).toEqual(['/token', '/agenda/usuario-atual', '/financas/unidades'])
+    expect(pedidos.map((p) => p.caminho)).toEqual([
+      '/token',
+      '/agenda/usuario-atual',
+      '/financas/unidades',
+      '/agenda/catalogos',
+    ])
     expect(pedidos[0]?.corpo).toEqual({ integrationToken: CHAVE })
+  })
+
+  it('verde: guarda só os nomes dos status do catálogo, limpos (B.8); tipos e profissionais ficam de fora', async () => {
+    await gravarChave(clinica)
+    expect(await executor().executar(clinica)).toBe('ok')
+    expect((await linha(clinica)).catalogo_de_status).toEqual([
+      { id: 0, nome: 'Agendado' },
+      { id: 4, nome: 'Desmarcado pelo paciente' },
+    ])
+  })
+
+  it('o catálogo falhou: a conexão segue verde e o catálogo anterior fica', async () => {
+    await gravarChave(clinica)
+    await c.migrate.query(
+      `UPDATE integracoes_da_clinica SET catalogo_de_status = '[{"id":3,"nome":"Cancelado"}]' WHERE clinica_id = $1`,
+      [clinica],
+    )
+    medx.catalogo = new ErroDoMedx('indisponivel')
+    expect(await executor().executar(clinica)).toBe('ok')
+    expect((await linha(clinica)).catalogo_de_status).toEqual([{ id: 3, nome: 'Cancelado' }])
+  })
+
+  it('recusada não chama o catálogo', async () => {
+    await gravarChave(clinica)
+    medx.escopos = 'agenda:read'
+    expect(await executor().executar(clinica)).toBe('recusada')
+    expect(pedidos.map((p) => p.caminho)).not.toContain('/agenda/catalogos')
   })
 
   it('escopo a mais (escrita, prontuário) recusa e diz qual sobra', async () => {

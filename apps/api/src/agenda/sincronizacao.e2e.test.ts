@@ -372,7 +372,12 @@ describe('rotas de configuração', () => {
     const g = await pedir('GET', '/v1/agenda-externa', 'beatriz')
     expect(g.statusCode).toBe(200)
     expect(g.body).not.toContain('TOKEN-SECRETO')
-    expect(JSON.parse(g.body)).toMatchObject({ configurada: true, urlMascarada: 'https://calendar.google.com/….ics' })
+    expect(JSON.parse(g.body)).toMatchObject({
+      configurada: true,
+      provedor: 'ical',
+      urlMascarada: 'https://calendar.google.com/….ics',
+      ciclos: [],
+    })
 
     const p = await pedir('PUT', '/v1/agenda-externa', 'beatriz', { responsavelId: c.pessoas['beatriz'], ativa: true })
     expect(p.statusCode, p.body).toBe(200)

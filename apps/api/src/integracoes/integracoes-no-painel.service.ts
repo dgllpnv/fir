@@ -1,13 +1,17 @@
 import type {
+  AgendaDoMedxNoPainel,
   IntegracaoNoPainel,
   LigacoesDaIntegracaoEntrada,
+  ResumoDaSincronizacao,
   StatusDeCanceladoEntrada,
+  StatusDoMedx,
   TermoDeIntegracaoEntrada,
 } from '@fir/contracts'
 import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common'
 import type { Queue } from 'bullmq'
 import { randomUUID } from 'node:crypto'
 import type pg from 'pg'
+import { ATIVA, DA_AGENDA, ultimosCiclos } from '../agenda/estado-da-agenda'
 import { novaFilaDaAgenda } from '../agenda/fila-agenda'
 import { LimitePorOrigem } from '../autenticacao/limite-por-origem'
 import type { OperadorId } from '../banco/ator'
@@ -90,13 +94,14 @@ type Linha = {
   agenda_ligada: boolean
   faturamento_ligado: boolean
   status_de_cancelado: number[]
+  catalogo_de_status: StatusDoMedx[]
 }
 
 // Nunca `segredo_cifrado` (o painel nem tem SELECT nele) nem a impressão.
 const COLUNAS = `id, final_da_chave, termo_assinado_em::text AS termo_assinado_em, termo_assinado_por,
   termo_versao, verificacao, verificacao_pedida_em, verificada_em, usuario_externo_nome,
   conta_externa_id, escopos, unidades_externas, ultimo_erro, agenda_ligada, faturamento_ligado,
-  status_de_cancelado`
+  status_de_cancelado, catalogo_de_status`
 
 const UNICIDADE_VIOLADA = '23505'
 
@@ -112,11 +117,13 @@ const SO_FIR: IntegracaoNoPainel = {
   ligadoAgenda: false,
   ligadoFaturamento: false,
   statusDeCancelado: [],
+  catalogoDeStatus: [],
+  agenda: null,
   termo: null,
   ultimoErro: '',
 }
 
-function paraOPainel(l: Linha | undefined): IntegracaoNoPainel {
+function paraOPainel(l: Linha | undefined, agenda: AgendaDoMedxNoPainel | null): IntegracaoNoPainel {
   if (l === undefined) return SO_FIR
   const pedida =
     l.verificacao !== 'sem_chave' &&
@@ -134,11 +141,40 @@ function paraOPainel(l: Linha | undefined): IntegracaoNoPainel {
     ligadoAgenda: l.agenda_ligada,
     ligadoFaturamento: l.faturamento_ligado,
     statusDeCancelado: l.status_de_cancelado,
+    catalogoDeStatus: l.catalogo_de_status,
+    agenda,
     termo:
       l.termo_assinado_em === null
         ? null
         : { assinadoEm: l.termo_assinado_em, assinadoPor: l.termo_assinado_por!, versao: l.termo_versao! },
     ultimoErro: l.ultimo_erro,
+  }
+}
+
+/**
+ * O estado técnico da agenda do MedX (spec D.2): o mesmo que a clínica vê,
+ * mais nada. Só existe depois que o painel ligou a agenda do MedX uma vez.
+ */
+async function agendaNoPainel(c: pg.PoolClient): Promise<AgendaDoMedxNoPainel | null> {
+  const r = await c.query<{
+    ativa: boolean
+    ultima_leitura_em: Date | null
+    ultimo_sucesso_em: Date | null
+    ultimo_erro: string
+    ultimo_resumo: ResumoDaSincronizacao | null
+  }>(
+    `SELECT ${ATIVA} AS ativa, a.ultima_leitura_em, a.ultimo_sucesso_em, a.ultimo_erro, a.ultimo_resumo
+       ${DA_AGENDA} WHERE a.provedor = 'medx'`,
+  )
+  const l = r.rows[0]
+  if (l === undefined) return null
+  return {
+    ativa: l.ativa,
+    ultimaLeituraEm: l.ultima_leitura_em?.toISOString() ?? null,
+    ultimoSucessoEm: l.ultimo_sucesso_em?.toISOString() ?? null,
+    ultimoErro: l.ultimo_erro,
+    ultimoResumo: l.ultimo_resumo,
+    ciclos: await ultimosCiclos(c),
   }
 }
 
@@ -164,7 +200,9 @@ export class IntegracoesNoPainelService {
   ) {}
 
   async ler(clinicaId: ClinicaId, ator: OperadorId): Promise<IntegracaoNoPainel> {
-    return this.banco.comoPainel(clinicaId, ator, async (c) => paraOPainel(await this.linha(c)))
+    return this.banco.comoPainel(clinicaId, ator, async (c) =>
+      paraOPainel(await this.linha(c), await agendaNoPainel(c)),
+    )
   }
 
   /**
@@ -205,7 +243,7 @@ export class IntegracoesNoPainelService {
       await desligarAgendaDoMedx(c)
       await this.trilha(c, ator, antes === undefined ? 'criou' : 'alterou', depois.id, antes, depois,
         antes?.final_da_chave ? 'chave trocada' : 'chave cadastrada')
-      return paraOPainel(depois)
+      return paraOPainel(depois, await agendaNoPainel(c))
     })
   }
 
@@ -229,7 +267,7 @@ export class IntegracoesNoPainelService {
       const depois = r.rows[0]!
       await desligarAgendaDoMedx(c)
       await this.trilha(c, ator, 'removeu', depois.id, antes, depois, 'chave removida')
-      return paraOPainel(depois)
+      return paraOPainel(depois, await agendaNoPainel(c))
     })
   }
 
@@ -251,7 +289,7 @@ export class IntegracoesNoPainelService {
       const depois = r.rows[0]!
       await this.trilha(c, ator, antes === undefined ? 'criou' : 'alterou', depois.id, antes, depois,
         `termo ${termo.versao} assinado em ${termo.assinadoEm}`)
-      return paraOPainel(depois)
+      return paraOPainel(depois, await agendaNoPainel(c))
     })
   }
 
@@ -283,7 +321,7 @@ export class IntegracoesNoPainelService {
       )
       const depois = r.rows[0]!
       await this.trilha(c, ator, 'alterou', depois.id, antes, depois)
-      return paraOPainel(depois)
+      return paraOPainel(depois, await agendaNoPainel(c))
     })
   }
 
@@ -304,7 +342,7 @@ export class IntegracoesNoPainelService {
       )
       const depois = r.rows[0]!
       await this.trilha(c, ator, 'alterou', depois.id, antes, depois, `status de cancelado: ${codigos.join(', ') || 'nenhum'}`)
-      return paraOPainel(depois)
+      return paraOPainel(depois, await agendaNoPainel(c))
     })
   }
 
@@ -326,7 +364,7 @@ export class IntegracoesNoPainelService {
           WHERE clinica_id = $1 RETURNING ${COLUNAS}`,
         [clinicaId],
       )
-      return paraOPainel(r.rows[0]!)
+      return paraOPainel(r.rows[0]!, await agendaNoPainel(c))
     })
     await this.pedido.pedir(clinicaId, pedidoId)
     return saida

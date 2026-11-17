@@ -1,14 +1,17 @@
+import { z } from 'zod'
 import type { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import type { AberturaDeIntegracoes } from './cofre-de-integracoes'
 import { ErroDoMedx, MENSAGENS_DO_MEDX } from './medx/erros'
-import { type LeitorDoMedx, avaliarEscopos } from './medx/leitor-do-medx'
+import { nomeSeguro } from './medx/borda-do-medx'
+import { type LeitorDoMedx, type Sessao, avaliarEscopos } from './medx/leitor-do-medx'
 
 /**
  * O "TESTAR CONEXÃO", executado no worker (spec A.3–A.5; gate S-1, S-6, LGPD A4, B5).
  *
  * Abre a chave (só o worker tem a privada), troca por um token e chama
- * **só** `usuario-atual` e `financas/unidades` — nunca agendamento nem
+ * **só** `usuario-atual`, `financas/unidades` e, com tudo verde,
+ * `agenda/catalogos` (os nomes dos status, B.8) — nunca agendamento nem
  * contato, nem como amostra. Grava o resultado no banco; a tela lê de lá.
  *
  * A rede fica FORA da transação: ler o segredo, soltar o banco, falar com o
@@ -22,9 +25,24 @@ const PROVEDOR = 'medx'
 const UNICIDADE_VIOLADA = '23505'
 const ESCOPO_SEGURO = /^[a-z][a-z:._]{0,39}$/
 
+type StatusDoCatalogo = { id: number; nome: string }
 type Verificacao =
-  | { tipo: 'ok'; contaId: string; nome: string; escopos: string[]; unidades: number }
+  | {
+      tipo: 'ok'
+      contaId: string
+      nome: string
+      escopos: string[]
+      unidades: number
+      /** `null`: o catálogo não veio; fica o que já estava guardado. */
+      catalogo: StatusDoCatalogo[] | null
+    }
   | { tipo: 'recusada'; erro: string; escopos: string[]; unidades: number; nome: string | null }
+
+// Lista branca: só `status`, e de cada um só id e nome. Tipos, setores e
+// profissionais do catálogo não entram (minimização, B.0).
+const Catalogo = z.object({
+  status: z.array(z.object({ id: z.number().int().min(0).max(32767), nome: z.string().nullable() })).max(500),
+})
 
 /** Nome de escopo vem do MedX: só o formato conhecido entra na mensagem, e no máximo seis. */
 const listar = (xs: readonly string[]): string =>
@@ -99,13 +117,32 @@ export class TesteDeConexao {
           nome: u.nome,
         }
       }
-      return { tipo: 'ok', contaId: u.id, nome: u.nome, escopos, unidades }
+      return { tipo: 'ok', contaId: u.id, nome: u.nome, escopos, unidades, catalogo: await this.catalogo(clinicaId, s) }
     } catch (e) {
       this.leitor.esquecer(clinicaId)
       // Só o código do catálogo atravessa; qualquer outra coisa vira "contrato".
       const codigo = e instanceof ErroDoMedx ? e.codigo : 'contrato'
       if (codigo === 'recusada') console.warn(`[integracoes] ALERTA clínica ${clinicaId}: o MedX recusou a chave`)
       return { tipo: 'recusada', erro: MENSAGENS_DO_MEDX[codigo], escopos: [], unidades: 0, nome: null }
+    }
+  }
+
+  /** Não derruba o teste: sem catálogo, a escolha de status continua com o que havia. */
+  private async catalogo(clinicaId: string, s: Sessao): Promise<StatusDoCatalogo[] | null> {
+    try {
+      const c = await this.leitor.obter(s, '/agenda/catalogos', Catalogo)
+      const vistos = new Set<number>()
+      const status: StatusDoCatalogo[] = []
+      for (const x of c.status) {
+        if (vistos.has(x.id)) continue
+        vistos.add(x.id)
+        status.push({ id: x.id, nome: nomeSeguro(x.nome).slice(0, 60) || `Status ${x.id}` })
+      }
+      return status.sort((a, b) => a.id - b.id).slice(0, 50)
+    } catch (e) {
+      const codigo = e instanceof ErroDoMedx ? e.codigo : 'contrato'
+      console.warn(`[integracoes] clínica ${clinicaId}: o catálogo de status não veio (${codigo})`)
+      return null
     }
   }
 
@@ -146,6 +183,7 @@ export class TesteDeConexao {
            escopos = $5, unidades_externas = $6, ultimo_erro = $7,
            agenda_ligada = CASE WHEN $2 = 'ok' THEN agenda_ligada ELSE false END,
            faturamento_ligado = CASE WHEN $2 = 'ok' THEN faturamento_ligado ELSE false END,
+           catalogo_de_status = coalesce($8::jsonb, catalogo_de_status),
            atualizada_em = now()
          WHERE impressao_da_chave = $1`,
         [
@@ -156,6 +194,7 @@ export class TesteDeConexao {
           v.escopos.filter((x) => ESCOPO_SEGURO.test(x)).slice(0, 30),
           v.unidades,
           v.tipo === 'ok' ? '' : v.erro.slice(0, 300),
+          v.tipo === 'ok' && v.catalogo !== null ? JSON.stringify(v.catalogo) : null,
         ],
       )
     })

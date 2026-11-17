@@ -21,6 +21,23 @@ export const ResumoDaSincronizacao = z.object({
 })
 export type ResumoDaSincronizacao = z.infer<typeof ResumoDaSincronizacao>
 
+/**
+ * Um ciclo de leitura da agenda do MedX (spec integracao-medx B.12, D.1): o
+ * que a integração leu, em contagens. Sem id e sem nome de ninguém.
+ */
+export const CicloDaAgenda = z.object({
+  /** ISO 8601 UTC. */
+  em: z.string(),
+  janelaDe: z.string(),
+  janelaAte: z.string(),
+  agendamentosLidos: z.number().int(),
+  paginas: z.number().int(),
+  chamadasDeContato: z.number().int(),
+  confirmacoesPorId: z.number().int(),
+  resultado: z.enum(['ok', 'falhou']),
+})
+export type CicloDaAgenda = z.infer<typeof CicloDaAgenda>
+
 export const AgendaExterna = z.discriminatedUnion('configurada', [
   z.object({ configurada: z.literal(false) }),
   z.object({
@@ -39,6 +56,8 @@ export const AgendaExterna = z.discriminatedUnion('configurada', [
     /** Mensagem para a tela. Vazio quando a última leitura deu certo. */
     ultimoErro: z.string(),
     ultimoResumo: ResumoDaSincronizacao.nullable(),
+    /** Os últimos ciclos do MedX, o mais recente primeiro. Vazio no iCal. */
+    ciclos: z.array(CicloDaAgenda),
   }),
 ])
 export type AgendaExterna = z.infer<typeof AgendaExterna>

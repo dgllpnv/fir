@@ -419,6 +419,32 @@ describe('a tela da clínica com o MedX (B.9, B.10, D.1)', () => {
     expect(ag.rows[0]).toEqual({ provedor: 'medx', url_secreta: null })
   })
 
+  it('a clínica vê os ciclos do MedX, o mais recente primeiro, só em contagens (D.1)', async () => {
+    await c.migrate.query('DELETE FROM ciclos_da_agenda_externa WHERE clinica_id = $1', [c.clinica])
+    for (let h = 0; h < 12; h++) {
+      await c.migrate.query(
+        `INSERT INTO ciclos_da_agenda_externa
+           (clinica_id, provedor, janela_de, janela_ate, agendamentos_lidos, paginas, chamadas_de_contato,
+            confirmacoes_por_id, resultado, em)
+         VALUES ($1, 'medx', '2026-11-16T03:00:00Z', '2027-01-15T03:00:00Z', $2, 1, 0, 0, 'ok',
+                 '2026-11-16T00:00:00Z'::timestamptz + make_interval(hours => $2))`,
+        [c.clinica, h],
+      )
+    }
+    const r = await pegar(c, '/v1/agenda-externa', {}, 'beatriz')
+    expect(r.body.ciclos).toHaveLength(10)
+    expect(r.body.ciclos[0]).toEqual({
+      em: '2026-11-16T11:00:00.000Z',
+      janelaDe: '2026-11-16T03:00:00.000Z',
+      janelaAte: '2027-01-15T03:00:00.000Z',
+      agendamentosLidos: 11,
+      paginas: 1,
+      chamadasDeContato: 0,
+      confirmacoesPorId: 0,
+      resultado: 'ok',
+    })
+  })
+
   it('"Sincronizar agora" do MedX: 1 a cada 2 minutos por clínica, no servidor (S-12)', async () => {
     expect((await postar(c, '/v1/agenda-externa/sincronizar', {}, 'beatriz')).status).toBe(202)
     const segundo = await postar(c, '/v1/agenda-externa/sincronizar', {}, 'beatriz')

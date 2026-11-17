@@ -14,6 +14,7 @@ import type pg from 'pg'
 import type { Ator } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
+import { ATIVA, DA_AGENDA, ultimosCiclos } from './estado-da-agenda'
 import { novaFilaDaAgenda, pedirSincronizacao } from './fila-agenda'
 
 /** O seam do "Sincronizar agora": em produção, a fila; no teste, um registro. */
@@ -137,13 +138,6 @@ export class AgendaExternaService {
   }
 }
 
-/**
- * "Ativa" do ponto de vista da clínica: o MedX só está ativo com a integração
- * ligada no painel E o último teste verde — é o mesmo critério da leitura.
- */
-const ATIVA = `(a.ativa AND (a.provedor = 'ical' OR coalesce(i.agenda_ligada AND i.verificacao = 'ok', false)))`
-const DA_AGENDA = `FROM agendas_externas a LEFT JOIN integracoes_da_clinica i ON i.clinica_id = a.clinica_id`
-
 async function lerAgenda(c: pg.PoolClient): Promise<AgendaExterna> {
   const r = await c.query<Linha>(
     `SELECT a.provedor, ${ATIVA} AS ativa, a.url_secreta, a.responsavel_id, p.nome AS responsavel_nome,
@@ -165,5 +159,7 @@ async function lerAgenda(c: pg.PoolClient): Promise<AgendaExterna> {
     ultimoSucessoEm: l.ultimo_sucesso_em?.toISOString() ?? null,
     ultimoErro: l.ultimo_erro,
     ultimoResumo: l.ultimo_resumo,
+    // O que o MedX leu, em contagens (D.1, LGPD A1). O iCal não registra ciclo.
+    ciclos: l.provedor === 'medx' ? await ultimosCiclos(c) : [],
   }
 }

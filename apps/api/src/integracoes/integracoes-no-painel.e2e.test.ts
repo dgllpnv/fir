@@ -127,6 +127,8 @@ describe('a chave (A.2, A.7, A.8)', () => {
       ligadoAgenda: false,
       ligadoFaturamento: false,
       statusDeCancelado: [],
+      catalogoDeStatus: [],
+      agenda: null,
       termo: null,
       ultimoErro: '',
     })
@@ -309,6 +311,52 @@ describe('a agenda do MedX pelo painel (B.8, B.9; T3)', () => {
     await http().put(rota(id, '/status-de-cancelado')).set('Cookie', painel).send({ codigos: [13] }).expect(400)
     const g = await http().get(rota(id)).set('Cookie', painel).expect(200)
     expect(g.body.statusDeCancelado).toEqual([6, 7])
+  })
+
+  it('o painel vê o catálogo de status e o estado técnico da agenda, com os ciclos (D.2)', async () => {
+    const id = await prontaParaLigar()
+    await declararAtorSistema(migrate)
+    await migrate.query(
+      `UPDATE integracoes_da_clinica SET catalogo_de_status = '[{"id":0,"nome":"Agendado"},{"id":6,"nome":"Desmarcado"}]'
+        WHERE clinica_id = $1`,
+      [id],
+    )
+    const antes = await http().get(rota(id)).set('Cookie', painel).expect(200)
+    expect(antes.body.catalogoDeStatus).toEqual([
+      { id: 0, nome: 'Agendado' },
+      { id: 6, nome: 'Desmarcado' },
+    ])
+    expect(antes.body.agenda).toBeNull()
+
+    await http().put(rota(id, '/ligacoes')).set('Cookie', painel).send({ agenda: true, faturamento: false }).expect(200)
+    await declararAtorSistema(migrate)
+    for (const [em, resultado] of [
+      ['2026-11-16T10:00:00Z', 'ok'],
+      ['2026-11-16T11:00:00Z', 'falhou'],
+    ] as const) {
+      await migrate.query(
+        `INSERT INTO ciclos_da_agenda_externa
+           (clinica_id, provedor, janela_de, janela_ate, agendamentos_lidos, paginas, chamadas_de_contato,
+            confirmacoes_por_id, resultado, em)
+         VALUES ($1, 'medx', '2026-11-16T03:00:00Z', '2027-01-15T03:00:00Z', 12, 1, 2, 0, $2, $3)`,
+        [id, resultado, em],
+      )
+    }
+    const r = await http().get(rota(id)).set('Cookie', painel).expect(200)
+    expect(r.body.agenda).toMatchObject({ ativa: true, ultimaLeituraEm: null, ultimoErro: '', ultimoResumo: null })
+    expect(r.body.agenda.ciclos).toEqual([
+      {
+        em: '2026-11-16T11:00:00.000Z',
+        janelaDe: '2026-11-16T03:00:00.000Z',
+        janelaAte: '2027-01-15T03:00:00.000Z',
+        agendamentosLidos: 12,
+        paginas: 1,
+        chamadasDeContato: 2,
+        confirmacoesPorId: 0,
+        resultado: 'falhou',
+      },
+      expect.objectContaining({ em: '2026-11-16T10:00:00.000Z', resultado: 'ok' }),
+    ])
   })
 })
 

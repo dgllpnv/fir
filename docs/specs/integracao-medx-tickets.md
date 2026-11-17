@@ -56,8 +56,11 @@ Cliente só de leitura, host fixo por ambiente, sem redirect, `lookupSoPublico`,
 ## T5 — Leitura de faturamento (C.0–C.7)
 `Dinheiro.deDecimalExterno` + 16 propriedades; tabela + histórico; jobs horário e noturno. Só liga depois da calibração C.0.
 
-## T6 — Telas (A e D)
-Gestão → Clínicas → Integrações; bloco só leitura em Configurações → Agenda do sistema.
+## T6 — Telas (A e D) — **feito** (16/11)
+- [x] Migration 0094: `catalogo_de_status` (`[{id, nome}]`), gravado pelo worker no teste verde a partir de `GET /agenda/catalogos` (só `status`, nome limpo por `nomeSeguro`); falha do catálogo não derruba o teste e mantém o anterior. Spec A.4 atualizada.
+- [x] `GET` do painel ganha `catalogoDeStatus` e `agenda` (estado técnico: ativa, última leitura, último sucesso, erro, resumo e os 10 últimos ciclos). `GET /v1/agenda-externa` ganha `ciclos` (vazio no iCal). Leitura comum em `agenda/estado-da-agenda.ts`.
+- [x] Gestão → Clínicas → [clínica] → **Integrações** (`gestao/clinicas/[id]/integracoes`): Só FIR ou MedX; 1. termo; 2. chave (campo de senha, só o final, trocar e remover com o aviso de revogar no MedX); 3. testar conexão (pergunta de novo a cada 3 s enquanto "testando"); 4. o que liga; 5. status de cancelado pelo nome; leituras da agenda com os ciclos. Dossiê e navegação Pessoas | Integrações em `clinicas/[id]/dossie.tsx`.
+- [x] Configurações → Agenda do sistema: com o MedX ligado, bloco só leitura ("Ligada ao MedX", leituras, erro, resumo com paciente desativado, as últimas leituras, Sincronizar agora com o 429 do servidor); sem formulário de link. MedX desligado: o formulário do iCal como na primeira vez.
 
 ## T7 — Indicadores MedX (C.8–C.11)
 Com a Entrega 1.

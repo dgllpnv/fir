@@ -16,6 +16,7 @@ import { SenhaProvisoria } from '@/components/senha-provisoria'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { usePainel } from '../../../contexto'
 import { ErroDoPainel } from '../../../pecas'
+import { Dossie, NavDaClinica } from '../dossie'
 
 type Provisoria = { nome: string; usuario: string; senha: string; expiraEm: string }
 
@@ -134,6 +135,7 @@ export default function PessoasDaClinica() {
       </p>
 
       <Dossie clinica={clinica} carregando={sessao.tag === 'carregando'} />
+      <NavDaClinica id={id} atual="pessoas" />
 
       <div className="titulo">
         <h2>Pessoas</h2>
@@ -355,57 +357,6 @@ export default function PessoasDaClinica() {
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
-  )
-}
-
-/**
- * O DOSSIÊ — a clínica nomeada no corpo da tela, não só na faixa.
- *
- * Enquanto ela não foi resolvida, isto diz que não foi. **Nunca o nome da
- * clínica anterior**: a afirmação errada com cara de certa é pior que a
- * ausência dela.
- */
-function Dossie({
-  clinica,
-  carregando,
-}: {
-  clinica: ClinicaNaLista | null
-  carregando: boolean
-}) {
-  return (
-    <div className="superadmin-dossie">
-      <div className="eyebrow">Você está agindo na clínica</div>
-      {clinica === null ? (
-        <div className="dossie-linha">
-          <b className="codigo">{carregando ? 'identificando…' : 'não identificada'}</b>
-        </div>
-      ) : (
-        <>
-          <div className="dossie-linha">
-            <b className="codigo">{clinica.codigo}</b>
-            <span className="nome">{clinica.nome}</span>
-          </div>
-          <div className="dossie-linha">
-            <span className="pills">
-              <span className="pill">{clinica.fuso}</span>
-              {clinica.ativa ? (
-                <span className="pill bom">ativa</span>
-              ) : (
-                <span className="pill mau">desativada</span>
-              )}
-            </span>
-            <a
-              className="link"
-              href={`/entrar?clinica=${encodeURIComponent(clinica.codigo)}`}
-              target="_blank"
-              rel="noopener"
-            >
-              abrir o sistema dela
-            </a>
-          </div>
-        </>
-      )}
-    </div>
   )
 }
 

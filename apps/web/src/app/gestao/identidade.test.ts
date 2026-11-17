@@ -74,7 +74,7 @@ describe('a varredura olhou o painel inteiro', () => {
     expect(nomes).toContain('pecas.tsx')
     // As sete telas: entrar, trocar-senha, clínicas, pessoas, grupos,
     // usuários de gestão e atividades (mais a porta `/gestao`, que é a oitava).
-    expect(PAINEL.filter((f) => f.nome === 'page.tsx').length).toBe(8)
+    expect(PAINEL.filter((f) => f.nome === 'page.tsx').length).toBe(9)
   })
 })
 
@@ -300,7 +300,18 @@ describe('quem não sabe em qual clínica está, não age', () => {
   })
 
   it('o dossiê nunca mostra a clínica anterior', () => {
-    expect(pessoas.texto).toMatch(/não identificada/)
+    const dossie = PAINEL.find((f) => f.nome === 'dossie.tsx')!
+    expect(dossie.texto).toMatch(/não identificada/)
+  })
+
+  it('toda tela que age DENTRO de uma clínica mostra o dossiê', () => {
+    // Pessoas e Integrações: as duas agem na clínica do endereço, e as duas
+    // precisam nomeá-la no corpo (a segunda das três afirmações).
+    const dentro = PAINEL.filter(
+      (f) => f.nome === 'page.tsx' && /useParams<\{ id: string \}>/.test(f.texto),
+    )
+    expect(dentro.length).toBeGreaterThanOrEqual(2)
+    for (const f of dentro) expect(f.texto).toMatch(/<Dossie clinica=\{clinica\}/)
   })
 })
 

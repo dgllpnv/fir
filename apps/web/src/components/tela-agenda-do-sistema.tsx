@@ -1,6 +1,6 @@
 'use client'
 
-import type { AgendaExterna, ListaDaEquipe, ResumoDaSincronizacao } from '@fir/contracts'
+import type { AgendaExterna, CicloDaAgenda, ListaDaEquipe, ResumoDaSincronizacao } from '@fir/contracts'
 import { SalvarAgendaExterna } from '@fir/contracts'
 import { useEffect, useState } from 'react'
 import { chamar } from '@/lib/api'
@@ -25,6 +25,11 @@ type Configurada = Extract<AgendaExterna, { configurada: true }>
  * o resumo é o worker; aqui só se mostra o que o `GET` trouxe. "Sincronizar
  * agora" apenas enfileira o pedido, e o resultado chega na próxima leitura —
  * daí o botão "Atualizar" ao lado.
+ *
+ * **Com o MedX ligado, a tela é só leitura** (spec integracao-medx D.1): quem
+ * liga, desliga e escolhe o provedor é a Firmare, pelo painel. A clínica vê a
+ * situação, as leituras e o último erro, e pode pedir uma leitura. Desligado o
+ * MedX, a tela volta a oferecer o link iCal, como na primeira vez.
  */
 export function TelaAgendaDoSistema({ fuso, hoje }: { fuso: string; hoje: string }) {
   const agenda = useDados<AgendaExterna>('v1/agenda-externa')
@@ -90,7 +95,25 @@ export function TelaAgendaDoSistema({ fuso, hoje }: { fuso: string; hoje: string
         <Erro mensagem={agenda.erro} recarregar={agenda.recarregar} />
       ) : d === null ? null : (
         <>
-          {d.configurada ? (
+          {d.configurada && d.provedor === 'medx' && d.ativa ? (
+            <SituacaoDoMedx
+              a={d}
+              fuso={fuso}
+              hoje={hoje}
+              atualizando={atualizando}
+              pedindo={pedindo}
+              aoAtualizar={atualizar}
+              aoSincronizar={() => void sincronizarAgora()}
+            />
+          ) : d.configurada && d.provedor === 'medx' ? (
+            <Vazio>
+              <p style={{ margin: 0, color: 'var(--ink)' }}>A agenda do MedX está desligada.</p>
+              <p className="nota" style={{ margin: 0 }}>
+                Nenhum cartão novo vem dela. Para usar um link iCal no lugar, cole-o abaixo. Para
+                religar o MedX, fale com o suporte da Firmare.
+              </p>
+            </Vazio>
+          ) : d.configurada ? (
             <Situacao
               a={d}
               fuso={fuso}
@@ -110,16 +133,19 @@ export function TelaAgendaDoSistema({ fuso, hoje }: { fuso: string; hoje: string
             </Vazio>
           )}
 
-          <Formulario
-            key={d.configurada ? 'configurada' : 'nova'}
-            agenda={d.configurada ? d : null}
-            equipe={equipe.dados?.equipe ?? null}
-            erroDaEquipe={equipe.erro}
-            aoSalvar={(nova, aviso) => {
-              agenda.trocar(() => nova)
-              setRecado(aviso)
-            }}
-          />
+          {d.configurada && d.provedor === 'medx' && d.ativa ? null : (
+            <Formulario
+              key={d.configurada && d.provedor === 'ical' ? 'configurada' : 'nova'}
+              // O MedX desligado não tem link: para a tela, é a primeira vez do iCal.
+              agenda={d.configurada && d.provedor === 'ical' ? d : null}
+              equipe={equipe.dados?.equipe ?? null}
+              erroDaEquipe={equipe.erro}
+              aoSalvar={(nova, aviso) => {
+                agenda.trocar(() => nova)
+                setRecado(aviso)
+              }}
+            />
+          )}
         </>
       )}
 
@@ -197,6 +223,100 @@ function Situacao({
 }
 
 /**
+ * A agenda que vem do MedX, só leitura (D.1). Sem chave, sem permissões, sem o
+ * usuário do MedX: isso é do painel da Firmare. O que a clínica vê é se está
+ * lendo, quando leu, o que leu e o que deu errado.
+ */
+function SituacaoDoMedx({
+  a,
+  fuso,
+  hoje,
+  atualizando,
+  pedindo,
+  aoAtualizar,
+  aoSincronizar,
+}: {
+  a: Configurada
+  fuso: string
+  hoje: string
+  atualizando: boolean
+  pedindo: boolean
+  aoAtualizar: () => void
+  aoSincronizar: () => void
+}) {
+  const quando = (iso: string | null): string =>
+    iso === null ? 'ainda não houve' : (instanteEmTexto(iso, fuso, hoje) ?? '—')
+
+  return (
+    <div className="agenda-situacao">
+      <div className="agenda-estado">
+        <span className="pill bom">Ligada ao MedX</span>
+        <span>
+          Cartões para <b>{a.responsavelNome}</b>
+        </span>
+      </div>
+
+      {a.ultimoErro === '' ? null : (
+        <div className="agenda-falha" role="alert">
+          <b>A última leitura falhou.</b>
+          <span>{a.ultimoErro}</span>
+          <small>Nenhum cartão foi mexido por ela.</small>
+        </div>
+      )}
+
+      <dl className="agenda-datas">
+        <dt>Última leitura</dt>
+        <dd>{quando(a.ultimaLeituraEm)}</dd>
+        <dt>Último sucesso</dt>
+        <dd>{quando(a.ultimoSucessoEm)}</dd>
+      </dl>
+
+      {a.ultimoResumo === null ? (
+        <p className="nota">Ainda não houve leitura com sucesso. A próxima acontece em até 15 minutos.</p>
+      ) : (
+        <Resumo r={a.ultimoResumo} />
+      )}
+
+      {a.ciclos.length === 0 ? null : <Ciclos ciclos={a.ciclos} fuso={fuso} hoje={hoje} />}
+
+      <p className="nota">
+        A agenda é lida do MedX a cada 15 minutos, e nada é escrito nele. Para ligar, desligar ou
+        mudar a integração, fale com o suporte da Firmare.
+      </p>
+
+      <div className="botoes">
+        <button type="button" className="btn" onClick={aoSincronizar} disabled={pedindo}>
+          {pedindo ? 'Pedindo…' : 'Sincronizar agora'}
+        </button>
+        <button type="button" className="btn ghost" onClick={aoAtualizar} disabled={atualizando}>
+          {atualizando ? 'Atualizando…' : 'Atualizar'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** O registro das leituras (B.12): quando, quantos agendamentos, e se deu certo. Sem nome de ninguém. */
+function Ciclos({ ciclos, fuso, hoje }: { ciclos: CicloDaAgenda[]; fuso: string; hoje: string }) {
+  return (
+    <div>
+      <p className="nota" style={{ marginBottom: 6 }}>
+        As últimas leituras
+      </p>
+      <ul className="agenda-ciclos">
+        {ciclos.map((c) => (
+          <li key={c.em}>
+            <span>{instanteEmTexto(c.em, fuso, hoje) ?? '—'}</span>
+            <span className="num">{plural(c.agendamentosLidos, 'agendamento lido', 'agendamentos lidos')}</span>
+            {c.resultado === 'ok' ? <span className="pill bom">ok</span> : <span className="pill mau">falhou</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/**
  * Os números da última leitura com sucesso, como o servidor os contou.
  * Nenhuma soma aqui: cada número é um campo do resumo, e nada mais.
  */
@@ -208,6 +328,10 @@ function Resumo({ r }: { r: ResumoDaSincronizacao }) {
     [r.desmarcados, 'desmarcados'],
     [r.ignorados, 'ignorados'],
     [r.pacientesNovos, 'pacientes novos'],
+    // B.7: quem foi desativado não volta pela agenda. Resumos antigos não têm o campo.
+    ...(r.pacienteDesativado === undefined || r.pacienteDesativado === 0
+      ? []
+      : [[r.pacienteDesativado, 'de paciente desativado'] satisfies [number, string]]),
   ]
   return (
     <div>

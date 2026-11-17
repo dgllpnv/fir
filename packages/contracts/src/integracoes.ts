@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CicloDaAgenda, ResumoDaSincronizacao } from './agenda'
 import { DiaCivil } from './comum'
 
 /**
@@ -50,6 +51,26 @@ export const StatusDeCanceladoEntrada = z
   .strict()
 export type StatusDeCanceladoEntrada = z.infer<typeof StatusDeCanceladoEntrada>
 
+/** Um status do catálogo do MedX (`GET /agenda/catalogos`), gravado no último teste verde. */
+export const StatusDoMedx = z.object({ id: z.number().int(), nome: z.string() }).strict()
+export type StatusDoMedx = z.infer<typeof StatusDoMedx>
+
+/**
+ * O estado técnico da agenda do MedX, para o superadmin (spec D.2). `null`
+ * enquanto a clínica não tiver a agenda ligada ao MedX alguma vez.
+ */
+export const AgendaDoMedxNoPainel = z
+  .object({
+    ativa: z.boolean(),
+    ultimaLeituraEm: z.string().nullable(),
+    ultimoSucessoEm: z.string().nullable(),
+    ultimoErro: z.string(),
+    ultimoResumo: ResumoDaSincronizacao.nullable(),
+    ciclos: z.array(CicloDaAgenda),
+  })
+  .strict()
+export type AgendaDoMedxNoPainel = z.infer<typeof AgendaDoMedxNoPainel>
+
 export const EstadoDaVerificacao = z.enum(['sem_chave', 'nao_verificada', 'pedida', 'ok', 'recusada'])
 export type EstadoDaVerificacao = z.infer<typeof EstadoDaVerificacao>
 
@@ -67,6 +88,8 @@ export const IntegracaoNoPainel = z
     ligadoAgenda: z.boolean(),
     ligadoFaturamento: z.boolean(),
     statusDeCancelado: z.array(z.number().int()),
+    catalogoDeStatus: z.array(StatusDoMedx),
+    agenda: AgendaDoMedxNoPainel.nullable(),
     termo: z
       .object({ assinadoEm: DiaCivil, assinadoPor: z.string(), versao: z.string() })
       .nullable(),
