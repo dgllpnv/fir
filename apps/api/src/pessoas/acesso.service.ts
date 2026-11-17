@@ -27,7 +27,6 @@ import {
 } from '@nestjs/common'
 import type pg from 'pg'
 import { AcessoPorEmailService } from '../acesso/acesso-por-email.service'
-import { emitirLink, gravarEvento, invalidarLinksDaPessoa } from '../acesso/links'
 import type { MensagemDeEmail } from '../acesso/mensagens'
 import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
@@ -268,95 +267,23 @@ export class AcessoService {
   }
 
   /**
-   * O e-mail pelo `PATCH` (spec 10, fluxos 4 e 17): corrigir ou RETIRAR.
-   *
-   *  - `null` apaga o confirmado e o pendente (LGPD L8): a pessoa fica no
-   *    caminho do usuário com senha. O endereço antigo confirmado é avisado
-   *    (L11).
-   *  - Um endereço novo entra PENDENTE; o confirmado anterior continua valendo
-   *    até a confirmação (appsec 2). Com o envio ligado, o link sai para o
-   *    novo: o convite, para quem ainda não criou a senha; a confirmação, para
-   *    quem já entra.
-   *
-   * Toda mudança invalida os links abertos da pessoa (appsec 7): o link
-   * antigo apontava para o endereço antigo.
+   * O e-mail pelo `PATCH` (spec 10, fluxos 4 e 17): corrigir ou RETIRAR. A
+   * regra mora em `AcessoPorEmailService.trocarEmailNaTransacao`, com a do
+   * painel: aqui só se diz quem é a clínica e quem assina.
    */
-  private async trocarEmail(
+  private trocarEmail(
     c: pg.PoolClient,
     ctx: Contexto,
     pessoaId: string,
     email: string | null,
   ): Promise<{ enviar: MensagemDeEmail | null; avisar: MensagemDeEmail | null }> {
-    const atual = (
-      await c.query<{
-        nome: string
-        ativo: boolean
-        email: string | null
-        email_pendente: string | null
-        aguardando_primeira_senha: boolean
-      }>(
-        `SELECT nome, ativo, email, email_pendente, aguardando_primeira_senha
-           FROM pessoas WHERE id = $1 FOR UPDATE`,
-        [pessoaId],
-      )
-    ).rows[0]
-    if (atual === undefined) throw new NotFoundException('Pessoa não encontrada.')
-    const clinicaNome = ctx.clinicaNome ?? ''
-    const nada = { enviar: null, avisar: null }
-
-    if (email === null) {
-      if (atual.email === null && atual.email_pendente === null) return nada
-      await c.query(
-        'UPDATE pessoas SET email = NULL, email_pendente = NULL, email_confirmado_em = NULL WHERE id = $1',
-        [pessoaId],
-      )
-      await invalidarLinksDaPessoa(c, pessoaId)
-      return {
-        enviar: null,
-        avisar:
-          atual.email !== null && this.acessoPorEmail.ligado
-            ? this.acessoPorEmail.aviso('email_trocado', {
-                para: atual.email,
-                clinicaNome,
-                nomeDaPessoa: atual.nome,
-              })
-            : null,
-      }
-    }
-    if (email === atual.email) {
-      if (atual.email_pendente === null) return nada
-      await c.query('UPDATE pessoas SET email_pendente = NULL WHERE id = $1', [pessoaId])
-      await invalidarLinksDaPessoa(c, pessoaId)
-      return nada
-    }
-    if (email === atual.email_pendente) return nada
-
-    await c.query('UPDATE pessoas SET email_pendente = $2 WHERE id = $1', [pessoaId, email])
-    await invalidarLinksDaPessoa(c, pessoaId)
-    if (!this.acessoPorEmail.ligado || !atual.ativo) return nada
-
-    const finalidade = atual.aguardando_primeira_senha ? 'convite' : 'confirmacao_de_email'
-    const token = await emitirLink(c, {
+    return this.acessoPorEmail.trocarEmailNaTransacao(c, {
       clinicaId: ctx.clinicaId,
+      clinicaNome: ctx.clinicaNome ?? '',
       pessoaId,
-      finalidade,
-      emailHmac: this.acessoPorEmail.hmacDoEmail(email),
-      agora: this.relogio.agora(),
-    })
-    await gravarEvento(c, {
-      clinicaId: ctx.clinicaId,
-      pessoaId,
-      evento: finalidade === 'convite' ? 'convite_reenviado' : 'email_cadastrado',
+      email,
       porPessoaId: pessoaDoAtor(ctx.ator),
     })
-    return {
-      enviar: this.acessoPorEmail.mensagemComLink(finalidade, token, {
-        para: email,
-        clinicaNome,
-        nomeDaPessoa: atual.nome,
-      }),
-      avisar: null,
-    }
   }
 
   /**

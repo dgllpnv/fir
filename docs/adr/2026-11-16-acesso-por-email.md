@@ -46,3 +46,12 @@ A ADR 0007 tirou o e-mail do produto porque ele puxava SMTP (P-9) e domínio (P-
 
 - Os testes que proibiam o e-mail (`teste/identidade-sem-email.test.ts`, `conteudo.test.ts`, `autenticacao.test.ts`) passam a cobrar a forma nova: a coluna existe com CHECK canônico, o login aceita e-mail confirmado, e a ajuda pode falar de e-mail.
 - **Depende do dono, para o envio real:** conta no provedor no nome da Firmare, e SPF e DKIM em `firmaregestao.com.br` (`docs/o-que-depende-de-voce.md`).
+
+## Adendo 2026-11-17: o e-mail da administradora pela sessão de suporte e pelo painel (revisão appsec da 0111, M2)
+
+São duas regras diferentes, e a diferença é de propósito:
+
+- **Na sessão de suporte (`comoPessoa`)**, o operador age *em nome* da administradora, e a trilha fica no nome dela. Por isso ele não muda o e-mail dela (`pessoas/acesso.service.ts`, recusa 403): a escrita pareceria dela.
+- **Pelo painel** (`PATCH /v1/superadmin/clinicas/:id/pessoas/:id`), o operador age *como operador*: a trilha registra `ator_tipo = 'operador'`. Ele pode cadastrar ou trocar o e-mail de qualquer pessoa, a administradora inclusive. O caso de uso é corrigir o erro de digitação da primeira administradora de uma clínica trancada. Há duas condições:
+  1. O endereço novo fica **pendente** até alguém usar o link que chega na caixa nova. O operador não confirma por ninguém.
+  2. O endereço confirmado atual recebe **no momento do pedido** o aviso `troca_de_email_pedida`, sem link, e depois da confirmação recebe `email_trocado`. O aviso no pedido vale para **todo** caminho que troca e-mail: o PATCH da clínica, o do painel e `/v1/eu/email`.

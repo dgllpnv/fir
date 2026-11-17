@@ -187,7 +187,7 @@ export class AcessoPorEmailService {
   }
 
   aviso(
-    tipo: Extract<TipoDeMensagem, 'senha_alterada' | 'email_trocado'>,
+    tipo: Extract<TipoDeMensagem, 'senha_alterada' | 'email_trocado' | 'troca_de_email_pedida'>,
     dados: { para: string; clinicaNome: string; nomeDaPessoa: string },
   ): MensagemDeEmail {
     return montarMensagem(tipo, dados)
@@ -565,7 +565,8 @@ export class AcessoPorEmailService {
         }
         return { tipo: 'nada' as const }
       }
-      if (email !== p.email_pendente) {
+      const pedidoNovo = email !== p.email_pendente
+      if (pedidoNovo) {
         await c.query('UPDATE pessoas SET email_pendente = $2 WHERE id = $1', [eu.id, email])
         // O e-mail mudou: os links abertos morrem (appsec 7).
         await invalidarLinksDaPessoa(c, eu.id)
@@ -583,7 +584,8 @@ export class AcessoPorEmailService {
         evento: 'email_cadastrado',
         porPessoaId: eu.id,
       })
-      return { tipo: 'enviar' as const, token, nome: p.nome }
+      // O confirmado atual é avisado do PEDIDO, uma vez por endereço novo (M2).
+      return { tipo: 'enviar' as const, token, nome: p.nome, avisarAntigo: pedidoNovo ? p.email : null }
     })
 
     if (r.tipo === 'nada') return { enviadoPara: null }
@@ -603,7 +605,124 @@ export class AcessoPorEmailService {
       }),
     )
     if (!saiu) throw falhaDeEnvio()
+    if (r.avisarAntigo !== null) {
+      this.entregarDepois(
+        this.aviso('troca_de_email_pedida', {
+          para: r.avisarAntigo,
+          clinicaNome: contexto.clinicaNome,
+          nomeDaPessoa: r.nome,
+        }),
+      )
+    }
     return { enviadoPara: mascararEmail(email ?? '') }
+  }
+
+  // ---------------------------------------------------------------------------
+  // O e-mail de OUTRA pessoa: o PATCH da clínica e o do painel
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Corrigir ou RETIRAR o e-mail de uma pessoa, DENTRO da transação de quem
+   * chama (spec 10, fluxos 4 e 17). Uma regra só para os dois chamadores — a
+   * administradora pelo `PATCH /v1/pessoas/:id` e o operador pelo painel —;
+   * o que muda entre eles é o pool e o ator, nunca a regra.
+   *
+   *  - `null` apaga o confirmado e o pendente (LGPD L8): a pessoa fica no
+   *    caminho do usuário com senha. O endereço antigo confirmado é avisado
+   *    (L11).
+   *  - Um endereço novo entra PENDENTE; o confirmado anterior continua valendo
+   *    até a confirmação (appsec 2). Com o envio ligado, o link sai para o
+   *    novo: o convite, para quem ainda não criou a senha; a confirmação, para
+   *    quem já entra.
+   *
+   * Toda mudança invalida os links abertos da pessoa (appsec 7): o link
+   * antigo apontava para o endereço antigo. As mensagens voltam MONTADAS, e
+   * quem chama as entrega depois do COMMIT.
+   */
+  async trocarEmailNaTransacao(
+    c: pg.PoolClient,
+    dados: {
+      readonly clinicaId: ClinicaId
+      readonly clinicaNome: string
+      readonly pessoaId: string
+      readonly email: string | null
+      /** A pessoa que provou quem é; `null` para o operador, que não é pessoa da clínica. */
+      readonly porPessoaId: string | null
+    },
+  ): Promise<{ enviar: MensagemDeEmail | null; avisar: MensagemDeEmail | null }> {
+    const { pessoaId, email, clinicaNome } = dados
+    const atual = (
+      await c.query<{
+        nome: string
+        ativo: boolean
+        email: string | null
+        email_pendente: string | null
+        aguardando_primeira_senha: boolean
+      }>(
+        `SELECT nome, ativo, email, email_pendente, aguardando_primeira_senha
+           FROM pessoas WHERE id = $1 FOR UPDATE`,
+        [pessoaId],
+      )
+    ).rows[0]
+    if (atual === undefined) throw new NotFoundException('Pessoa não encontrada.')
+    const nada = { enviar: null, avisar: null }
+
+    if (email === null) {
+      if (atual.email === null && atual.email_pendente === null) return nada
+      await c.query(
+        'UPDATE pessoas SET email = NULL, email_pendente = NULL, email_confirmado_em = NULL WHERE id = $1',
+        [pessoaId],
+      )
+      await invalidarLinksDaPessoa(c, pessoaId)
+      return {
+        enviar: null,
+        avisar:
+          atual.email !== null && this.ligado
+            ? this.aviso('email_trocado', { para: atual.email, clinicaNome, nomeDaPessoa: atual.nome })
+            : null,
+      }
+    }
+    if (email === atual.email) {
+      if (atual.email_pendente === null) return nada
+      await c.query('UPDATE pessoas SET email_pendente = NULL WHERE id = $1', [pessoaId])
+      await invalidarLinksDaPessoa(c, pessoaId)
+      return nada
+    }
+    if (email === atual.email_pendente) return nada
+
+    await c.query('UPDATE pessoas SET email_pendente = $2 WHERE id = $1', [pessoaId, email])
+    await invalidarLinksDaPessoa(c, pessoaId)
+    if (!this.ligado) return nada
+    /**
+     * O confirmado atual é avisado NO PEDIDO (revisão appsec M2), venha ele
+     * da administradora ou do operador: um canal de recuperação novo não nasce
+     * sem que a dona da caixa antiga saiba. Antes, ela só ouvia depois da
+     * confirmação — quando o novo já valia.
+     */
+    const avisar =
+      atual.email === null
+        ? null
+        : this.aviso('troca_de_email_pedida', { para: atual.email, clinicaNome, nomeDaPessoa: atual.nome })
+    if (!atual.ativo) return { enviar: null, avisar }
+
+    const finalidade = atual.aguardando_primeira_senha ? 'convite' : 'confirmacao_de_email'
+    const token = await emitirLink(c, {
+      clinicaId: dados.clinicaId,
+      pessoaId,
+      finalidade,
+      emailHmac: this.chave.hmac(email),
+      agora: this.relogio.agora(),
+    })
+    await gravarEvento(c, {
+      clinicaId: dados.clinicaId,
+      pessoaId,
+      evento: finalidade === 'convite' ? 'convite_reenviado' : 'email_cadastrado',
+      porPessoaId: dados.porPessoaId,
+    })
+    return {
+      enviar: this.mensagemComLink(finalidade, token, { para: email, clinicaNome, nomeDaPessoa: atual.nome }),
+      avisar,
+    }
   }
 
   // ---------------------------------------------------------------------------

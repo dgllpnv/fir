@@ -7,6 +7,7 @@ import {
   EditarClinicaEntrada,
   EditarPessoaNoPainelEntrada,
   type PessoaCriadaNoPainel,
+  type PessoaEditadaNoPainel,
   type PessoaNoPainel,
   type PessoasDoPainel,
   RedefinirSenha,
@@ -230,7 +231,11 @@ export class PainelClinicasController {
   }
 
   /**
-   * **EDITAR** uma pessoa da clínica — nome, função e acesso.
+   * **EDITAR** uma pessoa da clínica — nome, função, acesso e e-mail.
+   *
+   * O e-mail novo entra PENDENTE e só autentica depois do link de
+   * confirmação, pela mesma regra do PATCH da clínica
+   * (`AcessoPorEmailService.trocarEmailNaTransacao`).
    *
    * O painel não tinha isto, e a falta aparecia no caso que ele existe para
    * resolver: a clínica trancada (sem administradora ativa) não consegue
@@ -246,7 +251,7 @@ export class PainelClinicasController {
     @Param('pessoaId') pessoaId: string,
     @Body() corpo: unknown,
     @Req() req: RequisicaoComPainel,
-  ): Promise<PessoaNoPainel> {
+  ): Promise<PessoaEditadaNoPainel> {
     const painel = painelDe(req)
     const clinica = await this.resolver(clinicaId)
     const dados = EditarPessoaNoPainelEntrada.safeParse(corpo)

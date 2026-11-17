@@ -3,6 +3,7 @@
 import type {
   ClinicaNaLista,
   PessoaCriadaNoPainel,
+  PessoaEditadaNoPainel,
   PessoaNoPainel,
   PessoasDoPainel,
   SenhaRedefinida,
@@ -13,6 +14,7 @@ import { useEffect, useState } from 'react'
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { ExcluirPessoa } from '@/components/excluir-pessoa'
 import { SenhaProvisoria } from '@/components/senha-provisoria'
+import { emailDoCampo, emailParaOPatch } from '@/lib/acesso-da-pessoa'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { usePainel } from '../../../contexto'
 import { ErroDoPainel } from '../../../pecas'
@@ -190,6 +192,12 @@ export default function PessoasDaClinica() {
                 <td data-rotulo="Nome">
                   {p.nome}
                   {p.funcao === '' ? null : <span className="muted">{p.funcao}</span>}
+                  {p.email === null && p.emailPendente === null ? null : (
+                    <span className="muted">
+                      {p.email ?? p.emailPendente}
+                      {p.emailPendente === null ? null : ' (aguardando confirmação)'}
+                    </span>
+                  )}
                 </td>
                 <td data-rotulo="Acesso">
                   {p.admin ? (
@@ -308,9 +316,15 @@ export default function PessoasDaClinica() {
           pessoa={editando}
           base={base}
           aoFechar={() => setEditando(null)}
-          aoSalvar={(nome) => {
+          aoSalvar={(nome, envio) => {
             setEditando(null)
-            setRecado(`${nome} foi atualizada em ${clinica.codigo}.`)
+            setRecado(
+              envio === 'enviado'
+                ? `${nome} foi atualizada em ${clinica.codigo}. O link de confirmação foi para o e-mail novo.`
+                : envio === 'falhou'
+                  ? `${nome} foi atualizada em ${clinica.codigo}, mas o link de confirmação não saiu. Salve o e-mail de novo para reenviar.`
+                  : `${nome} foi atualizada em ${clinica.codigo}.`,
+            )
             setTentativa((n) => n + 1)
           }}
         />
@@ -450,7 +464,7 @@ function FormularioDeAdmin({
 }
 
 /**
- * **O EDITOR DE PESSOA DO PAINEL** — nome, função e acesso.
+ * **O EDITOR DE PESSOA DO PAINEL** — nome, e-mail, função e acesso.
  *
  * O painel não tinha isto, e a falta aparecia justamente no caso que ele
  * existe para resolver: a clínica trancada — sem administradora ativa — não
@@ -477,9 +491,11 @@ function FormularioDeEdicao({
   pessoa: PessoaNoPainel
   base: string
   aoFechar: () => void
-  aoSalvar: (nome: string) => void
+  aoSalvar: (nome: string, envio: PessoaEditadaNoPainel['envioDeEmail']) => void
 }) {
   const [nome, setNome] = useState(pessoa.nome)
+  const [email, setEmail] = useState(emailDoCampo(pessoa))
+  const [erroDoEmail, setErroDoEmail] = useState('')
   const [funcao, setFuncao] = useState(pessoa.funcao)
   const [admin, setAdmin] = useState(pessoa.admin)
   const [ativo, setAtivo] = useState(pessoa.ativo)
@@ -489,6 +505,14 @@ function FormularioDeEdicao({
   async function salvar(e: React.FormEvent) {
     e.preventDefault()
     setErro('')
+    setErroDoEmail('')
+    // A forma do e-mail é a do DOMÍNIO (`validarEmail`, a mesma regra da 0103):
+    // conferida aqui para a frase sair debaixo do campo, e de novo no servidor.
+    const emailNovo = emailParaOPatch(email, pessoa)
+    if (typeof emailNovo === 'object' && emailNovo !== null) {
+      setErroDoEmail(emailNovo.erro)
+      return
+    }
     setEnviando(true)
     try {
       /**
@@ -507,15 +531,16 @@ function FormularioDeEdicao({
       // perfil exige escolher QUAL, e a lista de perfis da clínica não está
       // nesta tela. Quem reorganiza perfil é a clínica, por dentro.
       if (admin !== pessoa.admin && admin) corpo['acesso'] = { admin: true }
+      if (emailNovo !== undefined) corpo['email'] = emailNovo
       if (Object.keys(corpo).length === 0) {
         aoFechar()
         return
       }
-      await chamar<PessoaNoPainel>(`${base}/${pessoa.id}`, {
+      const r = await chamar<PessoaEditadaNoPainel>(`${base}/${pessoa.id}`, {
         method: 'PATCH',
         body: JSON.stringify(corpo),
       })
-      aoSalvar(nome.trim())
+      aoSalvar(nome.trim(), r.envioDeEmail)
     } catch (x) {
       // A mensagem do servidor INTEIRA: o 422 do domínio já explica a saída.
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
@@ -543,6 +568,41 @@ function FormularioDeEdicao({
             crie a pessoa com o usuário novo e exclua este.
           </small>
         </div>
+
+        <label className="campo">
+          <span>
+            E-mail <small>(deixe vazio para retirar)</small>
+          </span>
+          <input
+            type="email"
+            inputMode="email"
+            maxLength={254}
+            value={email}
+            placeholder="helena@clinica.com.br"
+            autoComplete="off"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            aria-invalid={erroDoEmail !== ''}
+            aria-describedby="erro-do-email-no-painel"
+            onChange={(e) => {
+              setEmail(e.target.value)
+              setErroDoEmail('')
+            }}
+          />
+          <span id="erro-do-email-no-painel" className="erro-do-painel" role="status" aria-live="polite">
+            {erroDoEmail}
+          </span>
+          <small>
+            {pessoa.email !== null && pessoa.emailPendente !== null
+              ? `Confirmado: ${pessoa.email}. O novo só vale depois que ${pessoa.nome} abrir o link.`
+              : pessoa.email !== null
+                ? 'Confirmado. Trocar manda um link para o novo; o atual continua valendo até lá.'
+                : pessoa.emailPendente !== null
+                  ? 'Ainda não confirmado: ela não entra nem recupera a senha por ele.'
+                  : 'Sem e-mail: ela entra pelo usuário. O novo só vale depois que ela abrir o link de confirmação.'}
+          </small>
+        </label>
 
         <label className="campo">
           Função <small>(opcional)</small>

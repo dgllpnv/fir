@@ -2,6 +2,7 @@ import type {
   CriarPessoaNoPainelEntrada,
   EditarPessoaNoPainelEntrada,
   PessoaCriadaNoPainel,
+  PessoaEditadaNoPainel,
   PessoaNoPainel,
   SenhaRedefinida,
 } from '@fir/contracts'
@@ -15,6 +16,7 @@ import {
 } from '@fir/domain'
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common'
 import type pg from 'pg'
+import { AcessoPorEmailService } from '../acesso/acesso-por-email.service'
 import type { OperadorId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import { RELOGIO, type Relogio } from '../comum/relogio'
@@ -52,6 +54,7 @@ export class PainelPessoasService {
   constructor(
     @Inject(BancoService) private readonly banco: BancoService,
     @Inject(RELOGIO) private readonly relogio: Relogio,
+    @Inject(AcessoPorEmailService) private readonly acessoPorEmail: AcessoPorEmailService,
   ) {}
 
   async listar(clinica: ClinicaResolvida, ator: OperadorId): Promise<PessoaNoPainel[]> {
@@ -65,13 +68,16 @@ export class PainelPessoasService {
         perfil_id: string | null
         ativo: boolean
         senha_provisoria: boolean
+        email: string | null
+        email_pendente: string | null
       }>(
         // Nunca `senha_hash`, nunca o prazo interno. A ficha do painel diz
         // SE a pessoa precisa trocar a senha, nunca qual ela é.
         // `excluida_em IS NULL` (0023): quem saiu da clínica de vez sai da
         // lista aqui como sai lá dentro. O painel não é a porta dos fundos
         // para ver quem a clínica excluiu.
-        `SELECT id, nome, usuario, funcao, admin, perfil_id, ativo, senha_provisoria
+        `SELECT id, nome, usuario, funcao, admin, perfil_id, ativo, senha_provisoria,
+                  email, email_pendente
            FROM pessoas WHERE excluida_em IS NULL ORDER BY nome`,
       ),
     )
@@ -93,8 +99,11 @@ export class PainelPessoasService {
         perfil_id: string | null
         ativo: boolean
         senha_provisoria: boolean
+        email: string | null
+        email_pendente: string | null
       }>(
-        `SELECT id, nome, usuario, funcao, admin, perfil_id, ativo, senha_provisoria
+        `SELECT id, nome, usuario, funcao, admin, perfil_id, ativo, senha_provisoria,
+                  email, email_pendente
            FROM pessoas WHERE id = $1 AND excluida_em IS NULL`,
         [pessoaId],
       ),
@@ -219,8 +228,8 @@ export class PainelPessoasService {
     ator: OperadorId,
     pessoaId: string,
     dados: EditarPessoaNoPainelEntrada,
-  ): Promise<PessoaNoPainel> {
-    const linha = await this.banco.comoPainel(clinica.id, ator, async (c) => {
+  ): Promise<PessoaEditadaNoPainel> {
+    const { linha, enviar, avisar } = await this.banco.comoPainel(clinica.id, ator, async (c) => {
       await travarAcessoDaClinica(c, clinica.id)
       const alvo = await alvoTravado(c, pessoaId)
       const equipe = await equipeDaClinica(c)
@@ -244,7 +253,7 @@ export class PainelPessoasService {
         exigirDominio(podeDesativar(alvo, '', equipe, dados.ativo))
       }
 
-      return editarPessoa(c, pessoaId, {
+      await editarPessoa(c, pessoaId, {
         ...(dados.nome === undefined ? {} : { nome: dados.nome }),
         ...(dados.funcao === undefined ? {} : { funcao: dados.funcao }),
         ...(dados.acesso === undefined
@@ -254,8 +263,40 @@ export class PainelPessoasService {
             : { admin: false as const, perfilId: dados.acesso.perfilId }),
         ...(dados.ativo === undefined ? {} : { ativo: dados.ativo }),
       })
+
+      /**
+       * O E-MAIL, pela MESMA regra do PATCH da clínica: o novo entra
+       * PENDENTE e só autentica depois do link (appsec 2, 4). O operador não
+       * confirma por ninguém — confirmar é provar a caixa de entrada, e é
+       * isso que distingue corrigir um erro de digitação de tomar a conta.
+       * `porPessoaId: null`: o operador não é pessoa da clínica; quem assina
+       * a escrita é a trigger da trilha, com `ator_tipo = 'operador'`.
+       */
+      const mensagens =
+        dados.email === undefined
+          ? { enviar: null, avisar: null }
+          : await this.acessoPorEmail.trocarEmailNaTransacao(c, {
+              clinicaId: clinica.id,
+              clinicaNome: clinica.nome,
+              pessoaId,
+              email: dados.email,
+              porPessoaId: null,
+            })
+
+      const relida = await c.query<LinhaDoPainel>(
+        `SELECT ${COLUNAS_DO_PAINEL} FROM pessoas WHERE id = $1 AND excluida_em IS NULL`,
+        [pessoaId],
+      )
+      const l = relida.rows[0]
+      if (l === undefined) throw new PessoaNaoExiste()
+      return { linha: l, ...mensagens }
     })
-    return paraOPainel(linha)
+    // Depois do COMMIT, como na clínica: a falha do SMTP não desfaz a
+    // correção, mas o operador ouve que o link não saiu.
+    const envioDeEmail =
+      enviar === null ? null : (await this.acessoPorEmail.entregar(enviar)) ? 'enviado' : 'falhou'
+    if (avisar !== null) this.acessoPorEmail.entregarDepois(avisar)
+    return { ...paraOPainel(linha), envioDeEmail }
   }
 
   /**
@@ -319,6 +360,12 @@ function exigirDominio(r: Result<void, ErroDeDominio>): void {
   })
 }
 
+type LinhaDoPainel = Parameters<typeof paraOPainel>[0]
+
+/** Nunca `senha_hash`, nunca o prazo interno da provisória. */
+const COLUNAS_DO_PAINEL = `id, nome, usuario, funcao, admin, perfil_id, ativo, senha_provisoria,
+  email, email_pendente`
+
 const paraOPainel = (p: {
   id: string
   nome: string
@@ -328,6 +375,8 @@ const paraOPainel = (p: {
   perfil_id: string | null
   ativo: boolean
   senha_provisoria: boolean
+  email: string | null
+  email_pendente: string | null
 }): PessoaNoPainel => ({
   id: p.id,
   nome: p.nome,
@@ -340,6 +389,8 @@ const paraOPainel = (p: {
   // `PessoaCriadaNoPainel` o campo `senhaProvisoria` é a SENHA. Dois
   // significados para o mesmo nome é a colisão que a terceira rota herda.
   precisaTrocarSenha: p.senha_provisoria,
+  email: p.email,
+  emailPendente: p.email_pendente,
 })
 
 export { PessoaNaoExiste }

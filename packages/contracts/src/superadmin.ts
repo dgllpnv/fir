@@ -267,8 +267,25 @@ export const PessoaNoPainel = z.object({
   perfilId: Uuid.nullable(),
   ativo: z.boolean(),
   precisaTrocarSenha: z.boolean(),
+  /**
+   * O e-mail CONFIRMADO (o único que autentica e recebe redefinição) e o
+   * PENDENTE, à espera do link (appsec 2). Inteiros, como na lista da
+   * clínica: o operador é quem corrige o erro de digitação.
+   */
+  email: z.string().nullable(),
+  emailPendente: z.string().nullable(),
 })
 export type PessoaNoPainel = z.infer<typeof PessoaNoPainel>
+
+/**
+ * A resposta do PATCH do painel: a ficha e se o link de confirmação saiu —
+ * a mesma forma de `PessoaEditada` da clínica. `null` quando não havia o que
+ * enviar (nada mudou no e-mail, ele foi retirado, ou o envio está desligado).
+ */
+export const PessoaEditadaNoPainel = PessoaNoPainel.extend({
+  envioDeEmail: z.enum(['enviado', 'falhou']).nullable(),
+})
+export type PessoaEditadaNoPainel = z.infer<typeof PessoaEditadaNoPainel>
 
 export const PessoasDoPainel = z.object({ itens: z.array(PessoaNoPainel) })
 export type PessoasDoPainel = z.infer<typeof PessoasDoPainel>

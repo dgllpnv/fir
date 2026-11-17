@@ -22,6 +22,7 @@ export type TipoDeMensagem =
   | 'confirmacao_de_email'
   | 'senha_alterada'
   | 'email_trocado'
+  | 'troca_de_email_pedida'
 
 export const ASSUNTOS: Readonly<Record<TipoDeMensagem, string>> = {
   convite: 'Seu acesso à FIR Clinic',
@@ -29,6 +30,7 @@ export const ASSUNTOS: Readonly<Record<TipoDeMensagem, string>> = {
   confirmacao_de_email: 'Confirme seu e-mail na FIR Clinic',
   senha_alterada: 'Sua senha da FIR Clinic foi alterada',
   email_trocado: 'Seu e-mail na FIR Clinic foi trocado',
+  troca_de_email_pedida: 'Pedido de troca do seu e-mail na FIR Clinic',
 }
 
 export type MensagemDeEmail = {
@@ -112,6 +114,15 @@ function conteudoDe(
       return {
         paragrafos: [
           `O e-mail do seu acesso à FIR Clinic na clínica ${clinica} foi trocado, e este endereço deixou de receber os avisos de acesso.`,
+        ],
+        rodape: 'Se não foi você, fale com a administradora da clínica.',
+      }
+    // No MOMENTO do pedido (revisão appsec M2): quem pediu a troca não precisa
+    // da caixa antiga, e a dona dela fica sabendo antes que o novo valha.
+    case 'troca_de_email_pedida':
+      return {
+        paragrafos: [
+          `Foi pedida a troca do e-mail do seu acesso à FIR Clinic na clínica ${clinica}. Este endereço continua valendo até o novo ser confirmado.`,
         ],
         rodape: 'Se não foi você, fale com a administradora da clínica.',
       }

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { AcessoPorEmailModule } from '../acesso/acesso-por-email.module'
 import { LimitePorOrigem } from '../autenticacao/limite-por-origem'
 import { CarteiraModule } from '../carteira/carteira.module'
 import { CarteiraService } from '../carteira/carteira.service'
@@ -40,7 +41,9 @@ import {
   // A entrada única (ADR 0024): o login do painel abre a sessão da conta de
   // gestão do operador pelo `CarteiraService` — a sessão de carteira nasce
   // só pela conexão `fir_carteira`.
-  imports: [CarteiraModule],
+  // `AcessoPorEmailModule`: o e-mail pelo painel usa a MESMA regra e o mesmo
+  // envio do PATCH da clínica (`trocarEmailNaTransacao`).
+  imports: [CarteiraModule, AcessoPorEmailModule],
   controllers: [
     PainelController,
     PainelClinicasController,
