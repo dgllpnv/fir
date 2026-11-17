@@ -49,21 +49,7 @@ function Frase({ resultado: r }: { resultado: ResultadoDoRelatorio }) {
               {r.resumo.porTipo.length > 0 ? <Totais titulo="Por tipo" itens={r.resumo.porTipo} /> : null}
             </dl>
           ) : null}
-          {r.resumo.diasAguardando > 0 ? (
-            <Dica
-              rotulo="Por que estes dias ficam fora do total"
-              titulo={
-                <p className="rel-aviso" style={{ margin: 0 }}>
-                  {r.resumo.aguardandoFechamento === null
-                    ? `${plural(r.resumo.diasAguardando, 'dia aguarda', 'dias aguardam')} o fechamento do caixa.`
-                    : `Mais ${formatarDinheiro(BigInt(r.resumo.aguardandoFechamento))} em ${plural(r.resumo.diasAguardando, 'dia', 'dias')} aguardando o fechamento do caixa.`}
-                </p>
-              }
-            >
-              O recebido conta a partir do fechamento do caixa do dia, como na Visão do mês. Até lá, a linha aparece sem valor e
-              sem forma, e o dinheiro desses dias fica só neste aviso.
-            </Dica>
-          ) : null}
+          <Aguardando resumo={r.resumo} />
         </>
       )
     }
@@ -174,6 +160,47 @@ function Frase({ resultado: r }: { resultado: ResultadoDoRelatorio }) {
         </p>
       )
   }
+}
+
+type ResumoDeRecebimentos = Extract<ResultadoDoRelatorio, { relatorio: 'recebimentos' }>['resumo']
+
+/**
+ * **Os dias aguardando o fechamento do caixa** (números c.10). O valor e a
+ * contagem chegam prontos e falam dos MESMOS dias — os anteriores a hoje.
+ * Hoje com o caixa aberto vem só como sinal (`hojeAguardando`) e nunca ganha
+ * valor ao lado: o dinheiro de hoje é o esperado da gaveta (regra 6), e o
+ * servidor nem o manda.
+ */
+function Aguardando({ resumo }: { resumo: ResumoDeRecebimentos }) {
+  const anteriores = resumo.diasAnterioresAguardando
+  const hoje = resumo.hojeAguardando
+  if (anteriores <= 0 && !hoje) return null
+  const linhaDosAnteriores =
+    anteriores <= 0
+      ? null
+      : resumo.aguardandoFechamento === null
+        ? `${plural(anteriores, 'dia aguarda', 'dias aguardam')} o fechamento do caixa.`
+        : `Mais ${formatarDinheiro(BigInt(resumo.aguardandoFechamento))} em ${plural(anteriores, 'dia', 'dias')} aguardando o fechamento do caixa.`
+  const linhaDeHoje = !hoje
+    ? null
+    : linhaDosAnteriores === null
+      ? 'Hoje aguarda o fechamento do caixa.'
+      : 'Hoje também aguarda o fechamento.'
+  return (
+    <Dica
+      rotulo="Por que estes dias ficam fora do total"
+      titulo={
+        <p className="rel-aviso" style={{ margin: 0 }}>
+          {linhaDosAnteriores}
+          {linhaDosAnteriores !== null && linhaDeHoje !== null ? ' ' : null}
+          {linhaDeHoje}
+        </p>
+      }
+    >
+      O recebido conta a partir do fechamento do caixa do dia, como na Visão do mês. Até lá, a linha aparece sem valor e sem
+      forma. O dinheiro dos dias anteriores fica só neste aviso; o de hoje só aparece depois que o caixa fechar.
+    </Dica>
+  )
 }
 
 function Totais({ titulo, itens }: { titulo: string; itens: readonly { rotulo: string; valor: Parameters<typeof formatarValorNaTela>[0] | null }[] }) {

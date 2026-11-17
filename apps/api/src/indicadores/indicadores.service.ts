@@ -899,6 +899,18 @@ export class IndicadoresService {
     const { unidadeId, ...daClinica } = ctx
     const porUnidade = d.chave !== null && kpiDoCatalogo(d.chave).porUnidade
     const meta = vigente === null ? null : await this.metaNaSaida(c, daClinica, k, d, vigente, hoje)
+    // Sem vigente, o selo diz quando a próxima começa. Só a data: nada a redigir.
+    const inicioDaProximaMeta =
+      vigente === null
+        ? ((
+            await c.query<{ inicio: string | null }>(
+              `SELECT min(inicio)::text AS inicio FROM metas_de_kpi
+                WHERE clinica_id = $1 AND kpi_id = $2 AND resultado_chave_id IS NULL AND arquivada_em IS NULL
+                  AND inicio > $3::date`,
+              [ctx.clinicaId, k.id, hoje],
+            )
+          ).rows[0]?.inicio ?? null)
+        : null
     const alvo =
       vigente === null || (unidadeId !== undefined && porUnidade)
         ? null
@@ -970,6 +982,7 @@ export class IndicadoresService {
       diasAguardando: m.diasAguardando,
       motivoSemValor: m.motivo ?? null,
       metaVigente: meta,
+      inicioDaProximaMeta,
       ...(await this.situacaoDoLancamento(c, ctx, k, d, hoje)),
     }
   }

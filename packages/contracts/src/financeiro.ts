@@ -635,6 +635,14 @@ export const PercentualDaMeta = z
     aguardandoFechamento: centavosNaSaida.optional(),
     /** Quantos dias estão aguardando fechamento. Não é dinheiro: atravessa. */
     diasAguardandoFechamento: z.number().int().optional(),
+    /**
+     * As duas partes de `diasAguardandoFechamento`, para pôr ao lado do valor:
+     * os dias ANTERIORES a hoje que aguardam — os MESMOS de
+     * `aguardandoFechamento` — e hoje com o caixa aberto, que nunca tem valor
+     * (regra 6) nem depende de haver pagamento hoje (appsec C11).
+     */
+    diasAnterioresAguardandoFechamento: z.number().int(),
+    hojeAguardandoFechamento: z.boolean(),
   })
   .strict()
 export type PercentualDaMeta = z.infer<typeof PercentualDaMeta>
@@ -723,6 +731,9 @@ export const VisaoDoMes = z
     /** Ver `PercentualDaMeta.aguardandoFechamento`. */
     aguardandoFechamento: centavosNaSaida.optional(),
     diasAguardandoFechamento: z.number().int().optional(),
+    /** Ver `PercentualDaMeta.diasAnterioresAguardandoFechamento`. */
+    diasAnterioresAguardandoFechamento: z.number().int(),
+    hojeAguardandoFechamento: z.boolean(),
     /**
      * O destino do link "Ver em Indicadores" (T7): o KPI `faturamento_conferido`
      * vivo e sem parâmetros, que guarda a meta do mês (I-26). `null` antes da

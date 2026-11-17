@@ -18,6 +18,7 @@ import {
   janelaDaMeta,
   janelaDosMeses,
   leituraDoRitmoDiario,
+  metasFuturas,
   ORDEM_DOS_BOTOES,
   pontosDaLinha,
   ROTULO_DO_AGRUPAMENTO,
@@ -162,7 +163,12 @@ export function GraficoDoDetalhe({ kpi, meta, hoje }: { kpi: DetalheDoKpi; meta:
         </form>
       ) : null}
 
-      {semMeta ? <p className="kd-aviso">Este indicador ainda não tem meta. Mostrando os últimos 3 meses.</p> : null}
+      {semMeta ? (
+        <p className="kd-aviso">
+          {metasFuturas(kpi.metas, hoje).length > 0 ? 'A meta deste indicador ainda não começou.' : 'Este indicador ainda não tem meta.'}{' '}
+          Mostrando os últimos 3 meses.
+        </p>
+      ) : null}
       {dados !== null && !dados.barrasSomamOTotal && !modoMeta ? (
         <div className="kd-aviso kd-aviso-dica">
           <Dica rotulo="Por que as barras não somam o total" titulo={<span>As barras não somam o total do período.</span>}>

@@ -177,6 +177,8 @@ describe('a meta medida pelo MedX (N-B6)', () => {
       // O de hoje (55,55) nunca sai: com o caixa aberto, é o esperado (regra 6).
       aguardandoFechamento: '0',
       diasAguardandoFechamento: 1,
+      diasAnterioresAguardandoFechamento: 0,
+      hojeAguardandoFechamento: true,
     })
     const v = await lerVisao()
     expect(v).toMatchObject({ medidaDaMeta: 'medx', medido: '25001', recebido: '28555', percentualDaMeta: 50, metaRestante: '24999' })
@@ -221,6 +223,8 @@ describe('a meta medida pelo MedX (N-B6)', () => {
       // O valor aguardando é dinheiro: a redação o apaga. A contagem atravessa.
       aguardandoFechamento: null,
       diasAguardandoFechamento: 1,
+      diasAnterioresAguardandoFechamento: 0,
+      hojeAguardandoFechamento: true,
     })
   })
 })

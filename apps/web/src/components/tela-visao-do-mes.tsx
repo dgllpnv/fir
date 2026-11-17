@@ -395,23 +395,42 @@ function Indicador({
 
 /**
  * **Os dias aguardando fechamento do caixa** e o link para o KPI da meta
- * (1.9 H; ADR "meta medida pelos dias de caixa fechado"). O total e os dias
- * chegam prontos (`aguardandoFechamento`, `diasAguardandoFechamento`) e
- * ficam FORA do medido da meta até o caixa fechar — a linha diz isso. O link
- * vai ao detalhe do KPI que guarda esta meta (`kpiDaMetaId`, um lugar só no
- * banco), e só para quem abre Indicadores.
+ * (1.9 H; ADR "meta medida pelos dias de caixa fechado"). O valor e a
+ * contagem chegam prontos e falam dos MESMOS dias — os anteriores a hoje
+ * (`aguardandoFechamento`, `diasAnterioresAguardandoFechamento`) — e ficam
+ * FORA do medido da meta até o caixa fechar. Hoje com o caixa aberto vem só
+ * como sinal (`hojeAguardandoFechamento`) e nunca ganha valor ao lado: o
+ * dinheiro de hoje é o esperado da gaveta (regra 6). O link vai ao detalhe do
+ * KPI que guarda esta meta (`kpiDaMetaId`), e só para quem abre Indicadores.
  */
-function AguardandoFechamento({ v, podeIndicadores }: { v: VisaoDoMes; podeIndicadores: boolean }) {
-  const dias = v.diasAguardandoFechamento ?? 0
+export function AguardandoFechamento({
+  v,
+  podeIndicadores,
+}: {
+  v: Pick<VisaoDoMes, 'aguardandoFechamento' | 'diasAnterioresAguardandoFechamento' | 'hojeAguardandoFechamento' | 'kpiDaMetaId'>
+  podeIndicadores: boolean
+}) {
+  const anteriores = v.diasAnterioresAguardandoFechamento
+  const hoje = v.hojeAguardandoFechamento
   const valor = v.aguardandoFechamento ?? null
   const kpi = podeIndicadores ? (v.kpiDaMetaId ?? null) : null
-  if (dias <= 0 && kpi === null) return null
+  if (anteriores <= 0 && !hoje && kpi === null) return null
+  const dosAnteriores =
+    anteriores <= 0
+      ? null
+      : `${valor === null ? 'Aguardando' : `${formatarDinheiro(centavos(valor))} aguardando`} fechamento do caixa em ${plural(anteriores, 'dia', 'dias')}, fora da meta até fechar.`
+  const deHoje = !hoje
+    ? null
+    : dosAnteriores === null
+      ? 'Hoje aguarda o fechamento do caixa, fora da meta até fechar.'
+      : 'Hoje também aguarda o fechamento.'
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 14px' }}>
-      {dias <= 0 ? null : (
+      {dosAnteriores === null && deHoje === null ? null : (
         <span className="nota num">
-          {valor === null ? '' : `${formatarDinheiro(centavos(valor))} `}
-          aguardando fechamento do caixa em {plural(dias, 'dia', 'dias')}, fora da meta até fechar.
+          {dosAnteriores}
+          {dosAnteriores !== null && deHoje !== null ? ' ' : null}
+          {deHoje}
         </span>
       )}
       {kpi === null ? null : (

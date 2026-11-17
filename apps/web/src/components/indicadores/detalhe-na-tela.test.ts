@@ -16,6 +16,9 @@ import {
   janelaDosMeses,
   leituraDoPonto,
   textoDaProjecao,
+  metasFuturas,
+  periodoDaMeta,
+  textoDaProximaMeta,
 } from './detalhe-na-tela'
 
 const ID = '00000000-0000-4000-8000-000000000001'
@@ -228,5 +231,57 @@ describe('a composição e os lançamentos', () => {
   it('o lançamento em reais sem valores sai "—"; nas outras unidades, o número', () => {
     expect(valorDoLancamento('reais', { emDinheiro: null, emNumero: null })).toBe('—')
     expect(valorDoLancamento('nota', { emDinheiro: null, emNumero: '850' })).toBe('8,5')
+  })
+})
+
+/**
+ * Meta futura (defeito visto em produção, 17/11/2026): uma meta de dezembro
+ * salva em novembro não é a vigente, não é anterior — e o detalhe dizia só
+ * "sem meta". Ela tem de aparecer como a próxima. Sem `valores`, o servidor
+ * apagou `alvo.emDinheiro` (redação única): a frase fica sem o valor, e a
+ * tela não tem `if` de permissão para isso.
+ */
+describe('as metas futuras no detalhe', () => {
+  const meta = (id: string, inicio: string, prazo: string, alvo: ReturnType<typeof reais>): MetaDeKpiNaSaida => ({
+    id,
+    kpiId: ID,
+    tipo: 'mes',
+    inicio,
+    prazo,
+    alvo,
+    partida: reais('0'),
+    medidaPor: 'fir',
+    responsavelId: null,
+    serieId: null,
+    atual: reais(null),
+    ritmo: reais(null),
+    situacao: 'sem_dado',
+    progresso: null,
+    projecao: null,
+    motivoSemProjecao: null,
+  })
+  const HOJE = '2026-11-17'
+  const out = meta('00000000-0000-4000-8000-000000000010', '2026-10-01', '2026-10-31', reais('9000000'))
+  const dez = meta('00000000-0000-4000-8000-000000000012', '2026-12-01', '2026-12-31', reais('12000000'))
+  const jan = meta('00000000-0000-4000-8000-000000000013', '2027-01-05', '2027-02-10', reais('15000000'))
+
+  it('são as que ainda não começaram, da mais próxima para a mais distante', () => {
+    expect(metasFuturas([jan, out, dez], HOJE).map((m) => m.id)).toEqual([dez.id, jan.id])
+    expect(metasFuturas([out], HOJE)).toEqual([])
+    // A que começa hoje já é a vigente, não a próxima.
+    expect(metasFuturas([meta(ID, HOJE, '2026-11-30', reais('1'))], HOJE)).toEqual([])
+  })
+
+  it('"Próxima meta: R$ 120.000,00 em dezembro/2026"; janela fora do mês civil, pelas datas', () => {
+    expect(textoDaProximaMeta(dez)).toMatch(/^Próxima meta: R\$\s?120\.000,00 em dezembro\/2026$/)
+    expect(textoDaProximaMeta(jan)).toMatch(/^Próxima meta: R\$\s?150\.000,00 de 05\/01\/2027 a 10\/02\/2027$/)
+    expect(periodoDaMeta(dez)).toBe('dezembro/2026')
+    expect(periodoDaMeta(jan)).toBe('05/01/2027 a 10/02/2027')
+  })
+
+  it('sem `valores` (alvo redigido): diz que há meta e quando, nunca R$', () => {
+    const redigida = { ...dez, alvo: reais(null) }
+    expect(textoDaProximaMeta(redigida)).toBe('Próxima meta em dezembro/2026')
+    expect(textoDaProximaMeta(redigida)).not.toMatch(/R\$|\d+,\d{2}/)
   })
 })

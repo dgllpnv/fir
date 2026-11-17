@@ -125,6 +125,19 @@ describe('o cartão do KPI sem `valores` (1.10 item 6)', () => {
     expect(html).toContain('35,5%')
     expect(html).toContain('Sem meta')
   })
+
+  it('só com meta futura: o selo diz quando ela começa, e não "Sem meta" (defeito de produção 17/11/2026)', () => {
+    const k: KpiNaLista = { ...kpi(true), metaVigente: null, inicioDaProximaMeta: '2026-12-01' }
+    const html = renderToStaticMarkup(createElement(CartaoDoKpi, { kpi: k, meta: null, atual: k.atual, serie: null, acoes: [], fuso: FUSO }))
+    expect(html).toContain('Meta a partir de dez/2026')
+    expect(html).not.toContain('Sem meta')
+    expect(html).not.toMatch(DINHEIRO)
+    // Sem a próxima, continua "Sem meta".
+    const sem = renderToStaticMarkup(
+      createElement(CartaoDoKpi, { kpi: { ...k, inicioDaProximaMeta: null }, meta: null, atual: k.atual, serie: null, acoes: [], fuso: FUSO }),
+    )
+    expect(sem).toContain('Sem meta')
+  })
 })
 
 describe('a frase da prévia D.3 é montada na tela (appsec C8)', () => {

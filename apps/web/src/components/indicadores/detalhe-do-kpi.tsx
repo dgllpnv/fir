@@ -22,10 +22,13 @@ import { GraficoDoDetalhe } from './detalhe-grafico'
 import {
   daSerie,
   metasAnteriores,
+  metasFuturas,
   MOTIVO_SEM_PROJECAO,
   numeroOuPercentual,
+  periodoDaMeta,
   proximaDaSerie,
   textoDaProjecao,
+  textoDaProximaMeta,
   textoDoAlvo,
 } from './detalhe-na-tela'
 import { PainelDeEdicao, PainelDeEscolherOkr, PainelDoPlanoDeAcao } from './detalhe-paineis'
@@ -143,6 +146,9 @@ export function DetalheDoKpiNaTela({
   const okrsDoKpi = (okrs.dados?.itens ?? []).filter((o) => k.okrIds.includes(o.id))
   const anteriores = metasAnteriores(k.metas, meta?.id ?? null, hoje)
   const proximaDoMes = proximaDaSerie(k.metas, meta)
+  const futuras = metasFuturas(k.metas, hoje)
+  // Sem meta agora, a próxima (se houver) aparece no lugar do "sem meta".
+  const proximaSemVigente = meta === null ? (futuras[0] ?? null) : null
 
   const opcoes: OpcaoDoMenu[] = podeGerir
     ? [
@@ -216,7 +222,7 @@ export function DetalheDoKpiNaTela({
           <dt>Meta e prazo</dt>
           <dd>{meta === null ? '—' : textoDoAlvo(meta)}</dd>
           <span className="kd-numero-nota">
-            {meta === null ? 'sem meta' : `até ${diaCompleto(meta.prazo)}`}
+            {meta === null ? (proximaSemVigente === null ? 'sem meta' : 'sem meta neste período') : `até ${diaCompleto(meta.prazo)}`}
             {meta !== null && daSerie(meta) ? ' · todo mês' : null}
             {meta === null ? null : (
               <>
@@ -230,6 +236,7 @@ export function DetalheDoKpiNaTela({
               em {nomeDoMes(proximaDoMes.inicio)}: {textoDoAlvo(proximaDoMes)}
             </span>
           )}
+          {proximaSemVigente === null ? null : <span className="kd-numero-nota">{textoDaProximaMeta(proximaSemVigente)}</span>}
         </div>
         <div>
           <dt>Onde deveria estar hoje</dt>
@@ -311,6 +318,21 @@ export function DetalheDoKpiNaTela({
           )}
         </section>
         <section aria-labelledby="kd-metas">
+          {futuras.length === 0 ? null : (
+            <>
+              <h3 id="kd-proximas">Próximas metas</h3>
+              <ul className="kd-lista-simples" aria-labelledby="kd-proximas">
+                {futuras.map((m) => (
+                  <li key={m.id}>
+                    <span className="kd-tabular">
+                      {periodoDaMeta(m)} · {textoDoAlvo(m)}
+                      {daSerie(m) ? ' · todo mês' : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           <h3 id="kd-metas">Metas anteriores</h3>
           {anteriores.length === 0 ? (
             <p className="nota">Nenhuma meta encerrada.</p>

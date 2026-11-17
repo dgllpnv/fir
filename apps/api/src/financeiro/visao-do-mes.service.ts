@@ -187,6 +187,8 @@ export class VisaoDoMesService {
         percentual: atingimento.percentual,
         aguardandoFechamento: medida.aguardando.centavos.toString(),
         diasAguardandoFechamento: medida.diasAguardandoSemHoje,
+        diasAnterioresAguardandoFechamento: medida.diasAnterioresAguardando,
+        hojeAguardandoFechamento: medida.hojeAguardando,
       }
     })
   }
@@ -536,6 +538,8 @@ function paraContrato(mes: string, v: VisaoDoMes, medida: FaturamentoConferido):
     percentualDaMeta: v.percentualDaMeta,
     aguardandoFechamento: t(medida.aguardando),
     diasAguardandoFechamento: medida.diasAguardandoSemHoje,
+    diasAnterioresAguardandoFechamento: medida.diasAnterioresAguardando,
+    hojeAguardandoFechamento: medida.hojeAguardando,
     caixa: {
       fechados: v.caixa.fechados,
       diasUteis: v.caixa.diasUteis,

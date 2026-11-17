@@ -1,6 +1,6 @@
 import type { DetalheDoKpi, MetaDeKpiNaSaida, SerieDoKpi } from '@fir/contracts'
 import { diasEntre, fimDoMes, formatarValorNaTela, somarMeses } from '@fir/domain'
-import { diaEMes, nomeDoMes } from './na-tela'
+import { diaCompleto, diaEMes, nomeDoMes } from './na-tela'
 
 /**
  * **O detalhe do KPI (1.9 E) — o que a tela escreve e desenha.**
@@ -499,6 +499,36 @@ export function textoDoAlvo(meta: MetaDeKpiNaSaida): string {
 /** As metas que já terminaram, da mais recente para a mais antiga. */
 export function metasAnteriores(metas: readonly MetaDeKpiNaSaida[], vigente: string | null, hoje: string): MetaDeKpiNaSaida[] {
   return metas.filter((m) => m.id !== vigente && m.prazo < hoje).sort((a, b) => (a.prazo < b.prazo ? 1 : -1))
+}
+
+/**
+ * As metas que ainda não começaram, da mais próxima para a mais distante. O
+ * servidor já as manda em `metas` (com o `alvo` redigido sem `valores`); sem
+ * isto, a meta de dezembro salva em novembro não aparecia em lugar nenhum —
+ * nem vigente, nem anterior — e o detalhe dizia só "sem meta".
+ */
+export function metasFuturas(metas: readonly MetaDeKpiNaSaida[], hoje: string): MetaDeKpiNaSaida[] {
+  return metas.filter((m) => m.inicio > hoje).sort((a, b) => (a.inicio < b.inicio ? -1 : a.inicio > b.inicio ? 1 : 0))
+}
+
+const mesCivilInteiro = (m: Pick<MetaDeKpiNaSaida, 'inicio' | 'prazo'>): boolean =>
+  m.inicio.endsWith('-01') && m.prazo === fimDoMes(m.inicio.slice(0, 7))
+
+/** "dezembro/2026" quando a meta é um mês civil inteiro; senão "05/01/2027 a 10/02/2027". */
+export function periodoDaMeta(m: Pick<MetaDeKpiNaSaida, 'inicio' | 'prazo'>): string {
+  if (mesCivilInteiro(m)) return `${nomeDoMes(m.inicio)}/${m.inicio.slice(0, 4)}`
+  return `${diaCompleto(m.inicio)} a ${diaCompleto(m.prazo)}`
+}
+
+/**
+ * "Próxima meta: R$ 120.000,00 em dezembro/2026". Sem `valores` o servidor
+ * apagou o alvo em reais, e a frase fica sem ele — "Próxima meta em
+ * dezembro/2026" — sem nenhum `if` de permissão aqui.
+ */
+export function textoDaProximaMeta(m: MetaDeKpiNaSaida): string {
+  const alvo = formatarValorNaTela(m.alvo)
+  const quando = `${mesCivilInteiro(m) ? 'em' : 'de'} ${periodoDaMeta(m)}`
+  return alvo === null ? `Próxima meta ${quando}` : `Próxima meta: ${alvo} ${quando}`
 }
 
 /** A meta faz parte de uma série "Todo mês" (I-24)? Quem diz é o `serieId` do servidor. */

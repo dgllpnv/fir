@@ -100,6 +100,14 @@ export type FaturamentoConferido = {
    * primeiro Pix do dia mudaria 0 → 1 e diria que houve pagamento (C11).
    */
   readonly diasAguardandoSemHoje: number
+  /**
+   * As duas partes de `diasAguardandoSemHoje`, para a tela que põe valor ao
+   * lado da contagem (Visão do mês): os dias ANTERIORES a hoje que não contam
+   * — os mesmos de `aguardando` — e hoje com o caixa aberto, que nunca tem
+   * valor (regra 6). Juntas, escreviam "R$ 0,00 … em 1 dia".
+   */
+  readonly diasAnterioresAguardando: number
+  readonly hojeAguardando: boolean
   /** `D`/`L` para ritmo e projeção (números B1). */
   readonly corte: CorteDosDias
   readonly lidoEm: Date | null
@@ -144,8 +152,8 @@ export async function medirFaturamentoConferido(
   }
   const diasAguardando = recorte.semCaixa.filter((d) => !contam.has(d)).length
   const hojeAberto = recorte.dias.includes(hoje) && !recorte.fechados.has(hoje)
-  const diasAguardandoSemHoje =
-    recorte.semCaixa.filter((d) => d !== hoje && !contam.has(d)).length + (hojeAberto ? 1 : 0)
+  const diasAnterioresAguardando = recorte.semCaixa.filter((d) => d !== hoje && !contam.has(d)).length
+  const diasAguardandoSemHoje = diasAnterioresAguardando + (hojeAberto ? 1 : 0)
 
   let medido: Dinheiro | null = recebidoQueConta
   if (medidaPor === 'medx') {
@@ -160,6 +168,8 @@ export async function medirFaturamentoConferido(
     aguardando,
     diasAguardando,
     diasAguardandoSemHoje,
+    diasAnterioresAguardando,
+    hojeAguardando: hojeAberto,
     corte: corteDosDiasQueContam(marcados),
     lidoEm: recorte.lido?.lidoEm ?? null,
   }
@@ -170,6 +180,16 @@ export type DiasQueContam = {
   readonly corte: CorteDosDias
   /** O contador de `/v1/indicadores*`, com a mesma regra de `diasAguardandoSemHoje`. */
   readonly diasAguardando: number
+  /**
+   * As duas partes de `diasAguardando`, para quem põe valor ao lado da
+   * contagem (relatório 8): os dias ANTERIORES a hoje que não contam — os
+   * mesmos cujo dinheiro é o "aguardando" — e hoje com o caixa aberto, que
+   * nunca tem valor (regra 6). Somar a contagem de hoje a um valor sem hoje
+   * escreveu "Mais R$ 0,00 em 1 dia".
+   */
+  readonly diasAnterioresAguardando: number
+  /** Hoje está no período com o caixa aberto — haja pagamento hoje ou não (C11). */
+  readonly hojeAguardando: boolean
 }
 
 /**
@@ -205,9 +225,12 @@ export async function diasQueContamNasTelas(
   }))
   const contam = new Set(marcados.filter((d) => d.conta).map((d) => d.dia))
   const hojeAberto = recorte.dias.includes(hoje) && !recorte.fechados.has(hoje)
+  const anteriores = recorte.semCaixa.filter((d) => d !== hoje && !contam.has(d)).length
   return {
     corte: corteDosDiasQueContam(marcados),
-    diasAguardando: recorte.semCaixa.filter((d) => d !== hoje && !contam.has(d)).length + (hojeAberto ? 1 : 0),
+    diasAguardando: anteriores + (hojeAberto ? 1 : 0),
+    diasAnterioresAguardando: anteriores,
+    hojeAguardando: hojeAberto,
   }
 }
 

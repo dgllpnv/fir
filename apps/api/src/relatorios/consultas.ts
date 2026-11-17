@@ -241,7 +241,10 @@ export async function recebimentos(
       porForma: emLista(porForma),
       porTipo: emLista(porTipo),
       aguardandoFechamento: aguardando.centavos.toString(),
-      diasAguardando: dias.diasAguardando,
+      // A contagem que acompanha o valor é a dos MESMOS dias: só os anteriores
+      // a hoje. Hoje vai à parte, sem valor nenhum (regra 6).
+      diasAnterioresAguardando: dias.diasAnterioresAguardando,
+      hojeAguardando: dias.hojeAguardando,
     },
     truncado,
     filtrosEmTexto,

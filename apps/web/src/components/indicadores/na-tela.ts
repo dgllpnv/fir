@@ -63,6 +63,20 @@ const ORDEM_DA_SITUACAO: readonly SituacaoDoCartao[] = ['abaixo', 'atencao', 'no
 export const situacaoDoCartao = (meta: MetaDeKpiNaSaida | null): SituacaoDoCartao =>
   meta === null ? 'sem_meta' : meta.situacao
 
+const MES_ABREVIADO = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'] as const
+
+/**
+ * O texto do selo do cartão. Sem meta vigente mas com a próxima já definida
+ * (`inicioDaProximaMeta`, só a data, do servidor), "Meta a partir de
+ * dez/2026" no lugar de "Sem meta" — que soava como se ninguém a tivesse
+ * definido.
+ */
+export function textoDoSelo(situacao: SituacaoDoCartao, inicioDaProximaMeta: string | null | undefined): string {
+  if (situacao !== 'sem_meta' || inicioDaProximaMeta === null || inicioDaProximaMeta === undefined) return ROTULO_DA_SITUACAO[situacao]
+  const mes = MES_ABREVIADO[Number(inicioDaProximaMeta.slice(5, 7)) - 1] ?? ''
+  return `Meta a partir de ${mes}/${inicioDaProximaMeta.slice(0, 4)}`
+}
+
 /** "Em atenção" no resumo da faixa: amarelo ou vermelho. Contar não é calcular. */
 export const emAtencao = (s: SituacaoDoCartao): boolean => s === 'atencao' || s === 'abaixo'
 

@@ -235,6 +235,39 @@ describe('relatório 8 — recebimentos (números c.10, c.15; appsec C11)', () =
     expect(r.text).not.toContain('23333')
   })
 
+  it('relatorio-8-hoje-aguardando-a-parte: os dias ANTERIORES têm contagem e valor; hoje é só um sinal, sem valor', async () => {
+    // Defeito de produção (17/11/2026): com só hoje aguardando, a tela dizia
+    // "Mais R$ 0,00 em 1 dia" — a contagem incluía hoje e o valor não.
+    await cenarioDeOutubro()
+    const r = await executar('recebimentos', OUTUBRO)
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200)
+    expect(r.body.resumo).toMatchObject({ aguardandoFechamento: '7000', diasAnterioresAguardando: 1, hojeAguardando: true })
+    expect(r.body.resumo).not.toHaveProperty('diasAguardando')
+
+    // Só hoje aguardando: nenhum dia anterior, nenhum valor, e o sinal de hoje.
+    await fecharCaixa('2026-10-07')
+    const soHoje = await executar('recebimentos', OUTUBRO)
+    expect(soHoje.body.resumo).toMatchObject({ aguardandoFechamento: '0', diasAnterioresAguardando: 0, hojeAguardando: true })
+    expect(soHoje.text).not.toContain('3333')
+
+
+    // Caixa de hoje fechado: hoje conta, e não aguarda mais.
+    await fecharCaixa(HOJE)
+    const fechado = await executar('recebimentos', OUTUBRO)
+    expect(fechado.body.resumo).toMatchObject({ aguardandoFechamento: '0', diasAnterioresAguardando: 0, hojeAguardando: false })
+  })
+
+  it('relatorio-8-hoje-aguardando-sem-pagamento: o sinal de hoje não depende de haver pagamento hoje (C11)', async () => {
+    await c.migrate.query(`UPDATE clinicas SET conferencia_desde = '2026-10-01' WHERE id = $1`, [c.clinica])
+    await receber('2026-10-05T12:00:00Z', [['Pix', 10000]], c.pacientes['ana']!)
+    await fecharCaixa('2026-10-05')
+    const r = await executar('recebimentos', OUTUBRO)
+    expect(r.body.resumo).toMatchObject({ diasAnterioresAguardando: 0, hojeAguardando: true })
+    // Período que não chega a hoje: hoje não é assunto.
+    const setembro = await executar('recebimentos', { de: '2026-09-01', ate: '2026-09-30' })
+    expect(setembro.body.resumo).toMatchObject({ diasAnterioresAguardando: 0, hojeAguardando: false })
+  })
+
   it('relatorio-8-bate-com-visao-com-promissoria: Σ linhas = `recebido` da Visão do mês, centavo a centavo', async () => {
     await cenarioDeOutubro()
     await fecharCaixa('2026-10-07')
@@ -261,7 +294,7 @@ describe('relatório 8 — recebimentos (números c.10, c.15; appsec C11)', () =
     const soma = (r.body.linhas as { valor: string }[]).reduce((s, l) => s + BigInt(l.valor), 0n)
     const v = await pegar(c, '/v1/visao-do-mes', { mes: '2026-09' }, 'beatriz')
     expect(soma.toString()).toBe(v.body.recebido)
-    expect(r.body.resumo).toMatchObject({ aguardandoFechamento: '0', diasAguardando: 0, recebimentos: 2 })
+    expect(r.body.resumo).toMatchObject({ aguardandoFechamento: '0', diasAnterioresAguardando: 0, hojeAguardando: false, recebimentos: 2 })
   })
 
   it('relatorio-8-contagem-distinta: "N recebimentos" conta recebimento, não parte', async () => {

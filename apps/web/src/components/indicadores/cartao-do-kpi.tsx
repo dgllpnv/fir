@@ -10,11 +10,11 @@ import {
   faixaDeLancamento,
   fonteDoKpi,
   numeroDoCartao,
-  ROTULO_DA_SITUACAO,
   rotuloDaComparacao,
   situacaoDoCartao,
   textoDaMeta,
   textoDaVariacao,
+  textoDoSelo,
   TOM_DA_SITUACAO,
   type Tom,
 } from './na-tela'
@@ -89,7 +89,7 @@ export function CartaoDoKpi({
             <p>{dica}</p>
           </Dica>
         )}
-        <Selo tom={TOM_DA_SITUACAO[situacao]} texto={ROTULO_DA_SITUACAO[situacao]} />
+        <Selo tom={TOM_DA_SITUACAO[situacao]} texto={textoDoSelo(situacao, meta === null ? kpi.inicioDaProximaMeta : null)} />
       </div>
 
       <div className="ii-kpi-valor">

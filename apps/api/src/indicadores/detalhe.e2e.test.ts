@@ -232,6 +232,54 @@ describe('GET /v1/tarefas?kpiId — os planos de ação do KPI', () => {
   })
 })
 
+describe('GET /v1/indicadores/kpis/:id — a meta que ainda não começou', () => {
+  it('vem em `metas`, não é a vigente; sem `valores`, o alvo em reais não atravessa (com mutação)', async () => {
+    // Defeito de produção (17/11/2026): a meta do mês seguinte, salva hoje,
+    // não aparecia no detalhe. A tela a lê de `metas`; o servidor tem de mandá-la.
+    const id = await kpiNoBanco('faturamento_conferido')
+    const meta = { kpiId: id, tipo: 'mes', inicio: '2026-11-01', prazo: '2026-11-30', alvo: '12000000' }
+    const criada = await postar(c, '/v1/indicadores/metas', meta, 'beatriz')
+    expect(criada.statusCode, JSON.stringify(criada.body)).toBe(201)
+
+    const r = await pegar(c, `/v1/indicadores/kpis/${id}`, {}, 'beatriz')
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200)
+    expect(r.body.metaVigente).toBeNull()
+    const futuras = (r.body.metas as { inicio: string; prazo: string; alvo: { emDinheiro: string | null } }[]).filter(
+      (m) => m.inicio > '2026-10-24',
+    )
+    expect(futuras.map((m) => [m.inicio, m.prazo, m.alvo.emDinheiro])).toEqual([['2026-11-01', '2026-11-30', '12000000']])
+
+    const equipe = await pegar(c, `/v1/indicadores/kpis/${id}`, {}, 'juliana')
+    expect(equipe.statusCode, JSON.stringify(equipe.body)).toBe(200)
+    const dela = equipe.body.metas as { inicio: string; alvo: { emDinheiro: string | null } }[]
+    expect(dela.map((m) => [m.inicio, m.alvo.emDinheiro])).toEqual([['2026-11-01', null]])
+    expect(equipe.text).not.toContain('12000000')
+  })
+
+  it('o cartão da lista leva só o INÍCIO da próxima meta (sem valor); com meta vigente, `null`', async () => {
+    const id = await kpiNoBanco('faturamento_conferido')
+    const cartao = async (quem: string) =>
+      ((await pegar(c, '/v1/indicadores', {}, quem)).body.itens as { id: string; metaVigente: unknown; inicioDaProximaMeta: string | null }[]).find(
+        (k) => k.id === id,
+      )!
+    expect((await cartao('beatriz')).inicioDaProximaMeta).toBeNull()
+    for (const [inicio, prazo] of [
+      ['2026-12-01', '2026-12-31'],
+      ['2026-11-01', '2026-11-30'],
+    ] as const) {
+      const r = await postar(c, '/v1/indicadores/metas', { kpiId: id, tipo: 'mes', inicio, prazo, alvo: '12000000' }, 'beatriz')
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(201)
+    }
+    // A mais próxima, para quem tem e para quem não tem `valores` — é uma data, não dinheiro.
+    expect(await cartao('beatriz')).toMatchObject({ metaVigente: null, inicioDaProximaMeta: '2026-11-01' })
+    expect(await cartao('juliana')).toMatchObject({ metaVigente: null, inicioDaProximaMeta: '2026-11-01' })
+    // Com meta vigente, o cartão mostra a vigente; a próxima não é assunto dele.
+    const vigente = await postar(c, '/v1/indicadores/metas', { kpiId: id, tipo: 'mes', inicio: '2026-10-01', prazo: '2026-10-31', alvo: '1000' }, 'beatriz')
+    expect(vigente.statusCode, JSON.stringify(vigente.body)).toBe(201)
+    expect((await cartao('beatriz')).inicioDaProximaMeta).toBeNull()
+  })
+})
+
 describe('SerieDoKpi.ritmoDiario — a linha do ritmo diário da meta', () => {
   it('dia a dia com meta: o ritmo é o da prévia D.3; sem `valores`, só o percentual (com mutação)', async () => {
     const id = await kpiNoBanco('faturamento_conferido')

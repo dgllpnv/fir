@@ -884,9 +884,9 @@ No cartão do OKR: **Editar OKR** e o menu com **Encerrar OKR**, **Duplicar para
 - **Gráfico:** abre em **Período da meta**, com o valor real, o ritmo esperado, a projeção e o alvo. **3 meses** e **12 meses** mostram o histórico, com o mês atual marcado como em andamento. **Personalizado** abre De e Até (sem data futura), com os atalhos Este mês, Mês passado, Últimos 6 meses e Este ano.
 - **Mês, semana ou dia:** mais de um mês aparece mês a mês; dentro de um mês, o faturamento aparece dia a dia e os KPIs semanais, semana a semana. A etiqueta acima do gráfico diz qual. Toque num ponto para ver a data e o valor.
 - **De onde vem o número:** no automático, a composição do período (o faturamento por forma de pagamento e por tipo de atendimento) e o atalho **Ver recebimentos**, que abre o relatório já filtrado; no manual, a tabela de lançamentos. Sem a permissão daquele detalhe, aparece "Sem acesso ao detalhe".
-- No rodapé, os OKRs que usam o indicador e as metas anteriores, atingidas ou não.
+- No rodapé, os OKRs que usam o indicador, as próximas metas (as que ainda não começaram) e as metas anteriores, atingidas ou não.
 
-KPI sem meta mostra os últimos 3 meses, com o aviso "Este indicador ainda não tem meta".`,
+KPI sem meta mostra os últimos 3 meses, com o aviso "Este indicador ainda não tem meta". Se a meta já foi definida para um período que ainda não começou, o detalhe diz "Próxima meta" e quando ela começa.`,
       },
       {
         titulo: 'Plano de ação',

@@ -104,6 +104,13 @@ export const KpiNaLista = z
     motivoSemValor: z.string().nullable(),
     metaVigente: MetaDeKpiNaSaida.nullable(),
     /**
+     * Sem meta vigente: o início da próxima meta, se já houver uma definida
+     * (o selo diz "Meta a partir de dez/2026" em vez de "Sem meta"). Só a
+     * data — nunca o alvo —, e por isso atravessa sem `valores`. `null` com
+     * meta vigente. Opcional só para a web que monta o tipo à mão.
+     */
+    inicioDaProximaMeta: DiaDoKpi.nullable().optional(),
+    /**
      * KPI manual (1.9 C.1): o período corrente sem lançamento, com o dia de
      * lançar já chegado. `false` no KPI de catálogo. Opcional só para a web
      * que ainda monta o tipo à mão; o servidor sempre manda.

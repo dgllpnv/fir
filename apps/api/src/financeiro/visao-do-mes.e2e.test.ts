@@ -286,6 +286,9 @@ describe('a meta', () => {
       aguardandoFechamento: '0',
       // Hoje (24/10) tem o caixa aberto: aguarda, com ou sem pagamento.
       diasAguardandoFechamento: 1,
+      // A contagem que acompanha o valor é só a dos dias anteriores; hoje vai à parte.
+      diasAnterioresAguardandoFechamento: 0,
+      hojeAguardandoFechamento: true,
     })
   })
 
@@ -298,6 +301,18 @@ describe('a meta', () => {
     // O total de HOJE nunca sai, nem para quem tem `valores`: com o caixa aberto,
     // é o esperado da gaveta (regra 6). Só a contagem do dia aguardando.
     expect(r.body).toMatchObject({ aguardandoFechamento: '0', diasAguardandoFechamento: 1 })
+    // Defeito de produção (17/11/2026): "R$ 0,00 aguardando fechamento do caixa
+    // em 1 dia". O valor fala dos dias ANTERIORES; hoje é só um sinal.
+    expect(r.body).toMatchObject({ diasAnterioresAguardandoFechamento: 0, hojeAguardandoFechamento: true })
+    const v = await visao()
+    expect(v.statusCode).toBe(200)
+    expect(v.body).toMatchObject({
+      aguardandoFechamento: '0',
+      diasAguardandoFechamento: 1,
+      diasAnterioresAguardandoFechamento: 0,
+      hojeAguardandoFechamento: true,
+    })
+    expect(v.text).not.toContain('192000')
     expect(r.text).not.toContain('192000')
     // A equipe não lê o valor aguardando: só a contagem de dias (c.11d).
     const equipe = await percentual(MES, 'rita')
@@ -327,6 +342,8 @@ describe('a meta', () => {
       aguardandoFechamento: '400000',
       // 23/10 sem caixa e hoje (24/10) aberto.
       diasAguardandoFechamento: 2,
+      diasAnterioresAguardandoFechamento: 1,
+      hojeAguardandoFechamento: true,
     })
   })
 

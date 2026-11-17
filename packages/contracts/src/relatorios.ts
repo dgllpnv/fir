@@ -954,6 +954,11 @@ export const TotalComRotulo = z.object({ rotulo: z.string(), valor: ValorNaTelaS
  * Relatório 8. `total`, `porForma` e `porTipo` somam SÓ os dias que contam; o
  * resto do período é `aguardandoFechamento`, um total só (números c.10).
  * `recebimentos` = `count(DISTINCT r.id)` dos dias que contam (números c.15).
+ *
+ * `aguardandoFechamento` e `diasAnterioresAguardando` falam dos MESMOS dias:
+ * os anteriores a hoje ainda sem caixa. Hoje com o caixa aberto é só
+ * `hojeAguardando` — sem valor, nunca (regra 6), e sem depender de haver
+ * pagamento hoje (appsec C11).
  */
 export const ResumoRecebimentos = z
   .object({
@@ -962,7 +967,8 @@ export const ResumoRecebimentos = z
     porForma: z.array(TotalComRotulo),
     porTipo: z.array(TotalComRotulo),
     aguardandoFechamento: centavosNaSaida,
-    diasAguardando: z.number().int(),
+    diasAnterioresAguardando: z.number().int(),
+    hojeAguardando: z.boolean(),
   })
   .strict()
 
