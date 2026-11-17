@@ -8,6 +8,7 @@ import {
 } from './limite-por-origem'
 import { provedorDeRelogio } from '../comum/relogio'
 import { SessaoGuard } from './sessao.guard'
+import { ChaveDeEmail } from '../acesso/chave-de-email'
 
 @Module({
   controllers: [AutenticacaoController],
@@ -24,7 +25,10 @@ import { SessaoGuard } from './sessao.guard'
       provide: LimitePorOrigem,
       useFactory: () => new LimitePorOrigem(MAX_LOGIN_POR_ORIGEM, JANELA_LOGIN_POR_ORIGEM_MS),
     },
+    // O HMAC do e-mail (ADR 2026-11-16): o entrar por e-mail sem conta grava
+    // `e:<hmac>`, nunca o endereço (LGPD L7).
+    { provide: ChaveDeEmail, useFactory: () => ChaveDeEmail.doAmbiente() },
   ],
-  exports: [AutenticacaoService, SessaoGuard, LimitePorOrigem],
+  exports: [AutenticacaoService, SessaoGuard, LimitePorOrigem, ChaveDeEmail],
 })
 export class AutenticacaoModule {}

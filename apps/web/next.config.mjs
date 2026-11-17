@@ -74,6 +74,18 @@ export default {
           { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=()' },
         ],
       },
+      /**
+       * **As páginas dos links de acesso não mandam `Referer`** (appsec 15,
+       * LGPD L2). O token vive no fragmento, que o navegador já não manda —
+       * isto fecha o resto: nem o caminho nem a clínica saem para outro site
+       * a partir destas telas. A lista é `ROTAS_DE_LINK`, em
+       * `src/lib/link-de-acesso.ts`, e `link-de-acesso.test.ts` cobra as duas
+       * iguais.
+       */
+      ...['/criar-senha', '/confirmar-email', '/esqueci-senha'].map((source) => ({
+        source,
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      })),
     ]
   },
 

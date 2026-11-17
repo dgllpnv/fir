@@ -3,6 +3,8 @@ import {
   EditarPessoa,
   type ListaDePerfis,
   type ListaDePessoas,
+  type EnvioFeito,
+  type PessoaEditada,
   type PessoaCriada,
   type PessoaNaLista,
   SalvarPerfis,
@@ -29,6 +31,7 @@ import {
   Put,
   Req,
 } from '@nestjs/common'
+import { AcessoPorEmailService } from '../acesso/acesso-por-email.service'
 import { Exige } from '../autorizacao/autorizacao.guard'
 import type { RequisicaoComContexto } from '../comum/contexto'
 import { primeiroErro } from '../tarefas/tarefas.controller'
@@ -65,6 +68,7 @@ export class PessoasController {
   constructor(
     @Inject(PessoasService) private readonly pessoas: PessoasService,
     @Inject(AcessoService) private readonly acesso: AcessoService,
+    @Inject(AcessoPorEmailService) private readonly acessoPorEmail: AcessoPorEmailService,
   ) {}
 
   @Get()
@@ -131,11 +135,15 @@ export class PessoasController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() corpo: unknown,
     @Req() req: RequisicaoComContexto,
-  ): Promise<PessoaNaLista> {
+  ): Promise<PessoaEditada> {
     const dados = EditarPessoa.safeParse(corpo)
     if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
     const c = req.contexto!
-    return this.acesso.editar({ clinicaId: c.clinicaId, ator: c.ator }, id, dados.data)
+    return this.acesso.editar(
+      { clinicaId: c.clinicaId, ator: c.ator, clinicaNome: c.clinicaNome },
+      id,
+      dados.data,
+    )
   }
 
   /**
@@ -204,6 +212,31 @@ export class PessoasController {
       }
       throw e
     }
+  }
+
+  /**
+   * **Reenviar o convite** (spec 2.7): invalida o anterior e cria outro, só
+   * para quem está `aguardando_primeira_senha`. **Enviar o link de
+   * redefinição**: só para o e-mail CONFIRMADO (appsec 4, 409 sem ele). As
+   * duas passam por `podeAgirSobre` (só admin age sobre admin, appsec 20) e
+   * respondem 503 com o envio desligado — nunca um 202 que não mandou nada.
+   */
+  @Post(':id/convite')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async reenviarConvite(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: RequisicaoComContexto,
+  ): Promise<EnvioFeito> {
+    return this.acessoPorEmail.enviarPelaAdmin(req.contexto!, id, 'convite')
+  }
+
+  @Post(':id/redefinicao')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async enviarRedefinicao(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: RequisicaoComContexto,
+  ): Promise<EnvioFeito> {
+    return this.acessoPorEmail.enviarPelaAdmin(req.contexto!, id, 'redefinicao')
   }
 
   /**

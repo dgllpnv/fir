@@ -38,6 +38,7 @@ export function SenhaProvisoria({
   usuario,
   senha,
   expiraEm,
+  nota,
   aoFechar,
 }: {
   nome: string
@@ -46,6 +47,11 @@ export function SenhaProvisoria({
   senha: string
   /** Instante UTC em que ela deixa de autenticar. */
   expiraEm: string
+  /**
+   * Uma frase a mais, no topo — hoje, o aviso de que o envio de e-mail está
+   * desligado e por isso a pessoa recebe a provisória em vez do convite.
+   */
+  nota?: string
   aoFechar: () => void
 }) {
   const [copiado, setCopiado] = useState<'nao' | 'sim' | 'falhou'>('nao')
@@ -77,6 +83,7 @@ export function SenhaProvisoria({
         `aria-modal`, e o leitor de tela anuncia o diálogo ao receber o foco.
         Um `alert` dentro dele leria o mesmo conteúdo duas vezes.
       */}
+      {nota === undefined ? null : <p className="nota">{nota}</p>}
       <p className="nota">
         <b>Ela aparece só desta vez.</b> Nem você nem ninguém consegue ler esta senha depois de
         fechar — nem no banco, nem na trilha. Se perder, use <b>Redefinir senha</b> para gerar

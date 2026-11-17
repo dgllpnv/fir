@@ -123,6 +123,9 @@ export class PainelPessoasService {
         funcao: dados.funcao,
         perfilId: dados.perfilId,
         provisoria,
+        // Opcional no painel (spec 9), e PENDENTE: a primeira administradora
+        // continua com a provisória, sem convite.
+        emailPendente: dados.email ?? null,
       })
     })
 

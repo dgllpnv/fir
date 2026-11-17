@@ -43,19 +43,24 @@ Na ordem em que eu tentaria: `firmare.com.br` · `firmare.app` · `usefirmare.co
 
 **O que eu faço depois:** troco duas variáveis, subo de novo, e o Traefik emite o certificado sozinho. Cerca de dez minutos.
 
-## ~~2 · Provedor de e-mail~~ — **ENCERRADO (D-10, 2026-10-27)**
+## 2 · Provedor de e-mail — **REABERTO (ADR 2026-11-16)**
 
-**Não há mais e-mail no produto.** Você trocou e-mail por usuário e senha: o superadmin cria os admins das clínicas, e cada admin cria a equipe dela. Não existe convite, não existe recuperação por e-mail, e não há `nodemailer` no código. O texto abaixo fica como registro do que a decisão tornou desnecessário.
+**O e-mail voltou** como segundo identificador: convite para pessoa nova, "Esqueci minha senha" e confirmação de e-mail. O código está pronto e roda com o envio **desligado** (cai na senha provisória de sempre, e as rotas de envio respondem 503). Ligar exige o que segue — e cada item é condição do gate de LGPD (L10) ou de appsec (15), não preferência.
 
-### O que era
+1. **Conta Resend no nome da Firmare** (não no de uma pessoa). O plano gratuito cobre o volume (300 a 800 mensagens por mês com quatro clínicas), e o SMTP é o comum.
+2. **SPF e DKIM** do domínio remetente (`firmaregestao.com.br`) apontando para o Resend. Sem os dois, o convite cai no spam.
+3. **DPA com o Resend** assinado: ele passa a ser suboperador do e-mail da equipe de cada clínica.
+4. **Garantia de transferência internacional** registrada (o Resend processa nos EUA), com a mesma base da VPS (item 3).
+5. **O Resend listado como suboperador** no DPA com cada clínica (item 4) e na avaliação de impacto.
+6. **Retenção mínima no provedor**: os logs de mensagens com o menor prazo que o plano permitir.
+7. **Rastreamento de clique e de abertura DESLIGADOS** no painel do Resend. O rastreamento de clique reescreve o `href` e passaria a ver o token do link; o de abertura é um pixel. É o único controle que existe antes de alguém preencher `SMTP_HOST`.
+8. As variáveis `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA`, `EMAIL_REMETENTE` e `URL_PUBLICA` no `.env` da VPS. **O envio só liga com os sete itens acima feitos** (LGPD L10).
 
-**O que destrava:** hoje ninguém cria conta. Sem isso, nenhuma clínica cadastra a própria equipe — nem no ensaio da migração.
+**O que destrava:** a pessoa nova cria a própria senha (ninguém mais dita a provisória), e quem esquece a senha resolve sozinha.
 
-**O Mavia já passou por isto e segue parado no mesmo ponto.** O README de produção de lá diz, com todas as letras, que o SMTP desligado é *"a única coisa que separa esta instalação de um produto usável"*. Resolver uma vez resolve os dois: **o mesmo provedor serve os dois produtos**, com domínios diferentes.
+**Depende do item 1:** o provedor precisa de um domínio verificado.
 
-**Recomendação: Resend** — mesma do Mavia, pelas mesmas razões. Volume baixo (convite, recuperação de senha, lembrete de conta a pagar — algo como 300 a 800 mensagens/mês com quatro clínicas), SMTP comum, e entrega confiável no Gmail.
-
-**Depende do item 1:** o provedor precisa de um domínio seu para verificar.
+**O que eu faço depois:** preencho as variáveis, subo de novo, e mando um convite de teste para conferir a caixa de entrada (não o spam).
 
 ## ~~3 · Onde a VPS fica fisicamente~~ — **MEDIDO E DECIDIDO (D-11, 2026-11-02)**
 

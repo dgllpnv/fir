@@ -2,6 +2,7 @@ import type {
   EditarPessoa,
   ListaDePerfis,
   ListaDePessoas,
+  PessoaEditada,
   PessoaNaLista,
   SalvarPerfis,
 } from '@fir/contracts'
@@ -15,12 +16,23 @@ import {
   podeExcluirPessoa,
   podeRemoverPerfis,
   podeTrocarAcesso,
+  situacaoDoAcesso,
 } from '@fir/domain'
-import { Inject, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
+import {
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common'
 import type pg from 'pg'
+import { AcessoPorEmailService } from '../acesso/acesso-por-email.service'
+import { emitirLink, gravarEvento, invalidarLinksDaPessoa } from '../acesso/links'
+import type { MensagemDeEmail } from '../acesso/mensagens'
 import { pessoaDoAtor, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
+import { RELOGIO, type Relogio } from '../comum/relogio'
 import {
   exigirDominio,
   lerAtorDeAcesso,
@@ -47,6 +59,8 @@ import { editarPessoa, excluirPessoa } from './escrita-de-pessoa'
 type Contexto = {
   readonly clinicaId: ClinicaId
   readonly ator: Ator
+  /** Para o texto do e-mail que o `PATCH` de e-mail pode disparar. */
+  readonly clinicaNome?: string
 }
 
 type LinhaDePessoa = {
@@ -59,6 +73,11 @@ type LinhaDePessoa = {
   ativo: boolean
   senha_provisoria: boolean
   senha_provisoria_expira_em: Date | null
+  email: string | null
+  email_pendente: string | null
+  aguardando_primeira_senha: boolean
+  /** O prazo do convite VIVO mais recente — o selo "Convite pendente/vencido". */
+  convite_expira_em: Date | null
 }
 
 /**
@@ -71,14 +90,23 @@ type LinhaDePessoa = {
  */
 const SELECT_PESSOA = `
   SELECT id, nome, usuario, funcao, admin, perfil_id, ativo,
-         senha_provisoria, senha_provisoria_expira_em
+         senha_provisoria, senha_provisoria_expira_em,
+         email, email_pendente, aguardando_primeira_senha,
+         (SELECT l.expira_em FROM links_de_acesso l
+           WHERE l.pessoa_id = pessoas.id AND l.finalidade = 'convite'
+             AND l.usado_em IS NULL AND l.invalidado_em IS NULL
+           ORDER BY l.criado_em DESC LIMIT 1) AS convite_expira_em
     FROM pessoas
    WHERE excluida_em IS NULL`
 
 @Injectable()
 export class AcessoService {
   // `@Inject` explícito: o esbuild não emite `design:paramtypes`.
-  constructor(@Inject(BancoService) private readonly banco: BancoService) {}
+  constructor(
+    @Inject(BancoService) private readonly banco: BancoService,
+    @Inject(RELOGIO) private readonly relogio: Relogio,
+    @Inject(AcessoPorEmailService) private readonly acessoPorEmail: AcessoPorEmailService,
+  ) {}
 
   /**
    * A lista da tela. Ativas primeiro, e `euMesma` marcado pelo SERVIDOR.
@@ -99,7 +127,7 @@ export class AcessoService {
       // funcionária como "você".
       return {
         pessoas: r.rows.map((l) => ({
-          ...paraSaida(l, pessoaDoAtor(ctx.ator) ?? ''),
+          ...paraSaida(l, pessoaDoAtor(ctx.ator) ?? '', this.relogio.agora()),
           avisoDeAdministradora: l.admin && l.ativo ? (avisos.get(l.id) ?? null) : null,
         })),
       }
@@ -117,8 +145,27 @@ export class AcessoService {
    * (`t.responsavelNome = u.nome`), que é uma segunda fonte para "quem é o
    * responsável".
    */
-  async editar(ctx: Contexto, pessoaId: string, dados: EditarPessoa): Promise<PessoaNaLista> {
-    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+  async editar(ctx: Contexto, pessoaId: string, dados: EditarPessoa): Promise<PessoaEditada> {
+    /**
+     * **O PRÓPRIO e-mail não muda por aqui** (appsec 1, revisão P1). Esta rota
+     * não pede a senha atual; `/v1/eu/email` pede. Sem esta recusa, quem acha
+     * aberta a sessão de uma admin poria o e-mail dele na ficha dela,
+     * confirmaria e tomaria a conta pelo esqueci-senha.
+     *
+     * Vale também para o OPERADOR na sessão de suporte sobre a administradora
+     * em cujo nome ele assina (`comoPessoa`): a conta dela não é dele para
+     * redirecionar, e ele também não provou a senha dela.
+     */
+    if (dados.email !== undefined && pessoaId === quemAssina(ctx.ator)) {
+      throw new ForbiddenException(
+        typeof ctx.ator === 'string'
+          ? 'Troque o seu e-mail em Trocar senha › E-mail.'
+          : 'O e-mail da administradora em cujo nome o suporte age só muda por ela.',
+      )
+    }
+    const depois: MensagemDeEmail[] = []
+    const avisos: MensagemDeEmail[] = []
+    const saida = await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       /**
        * A ORDEM É A INVARIANTE: lock da clínica → ator relido → alvo → equipe →
        * privilégio → estado → escrita. O lock vem ANTES de qualquer leitura:
@@ -184,7 +231,7 @@ export class AcessoService {
        * ninguém revisa é a que esquece de derrubar as sessões ao desativar.
        * O que muda entre os dois é o POOL e o ATOR, nunca a regra.
        */
-      const linha = await editarPessoa(c, pessoaId, {
+      await editarPessoa(c, pessoaId, {
         ...(dados.nome === undefined ? {} : { nome: dados.nome }),
         ...(dados.funcao === undefined ? {} : { funcao: dados.funcao }),
         ...(dados.acesso === undefined
@@ -194,11 +241,118 @@ export class AcessoService {
             : { admin: false as const, perfilId: dados.acesso.perfilId }),
         ...(dados.ativo === undefined ? {} : { ativo: dados.ativo }),
       })
+      if (dados.email !== undefined) {
+        const r = await this.trocarEmail(c, ctx, pessoaId, dados.email)
+        if (r.enviar !== null) depois.push(r.enviar)
+        if (r.avisar !== null) avisos.push(r.avisar)
+      }
 
       // Nada de `registrar()` à mão: o trigger `registrar_auditoria` (0004) já
-      // gravou quem, quando e de → para.
-      return paraSaida(linha, pessoaDoAtor(ctx.ator) ?? '')
+      // gravou quem, quando e de → para. A saída é relida com o selo do convite.
+      const relida = (await c.query<LinhaDePessoa>(`${SELECT_PESSOA} AND id = $1`, [pessoaId])).rows[0]
+      if (relida === undefined) throw new NotFoundException('Pessoa não encontrada.')
+      return paraSaida(relida, pessoaDoAtor(ctx.ator) ?? '', this.relogio.agora())
     })
+    // Depois do COMMIT. A falha do SMTP não desfaz a correção — mas a admin
+    // ouve que falhou (`envioDeEmail: 'falhou'`) e reenvia; nunca um "salvo" mudo.
+    let envioDeEmail: PessoaEditada['envioDeEmail'] = null
+    for (const m of depois) {
+      envioDeEmail = (await this.acessoPorEmail.entregar(m)) ? 'enviado' : 'falhou'
+    }
+    for (const m of avisos) this.acessoPorEmail.entregarDepois(m)
+    return { ...saida, envioDeEmail }
+  }
+
+  /**
+   * O e-mail pelo `PATCH` (spec 10, fluxos 4 e 17): corrigir ou RETIRAR.
+   *
+   *  - `null` apaga o confirmado e o pendente (LGPD L8): a pessoa fica no
+   *    caminho do usuário com senha. O endereço antigo confirmado é avisado
+   *    (L11).
+   *  - Um endereço novo entra PENDENTE; o confirmado anterior continua valendo
+   *    até a confirmação (appsec 2). Com o envio ligado, o link sai para o
+   *    novo: o convite, para quem ainda não criou a senha; a confirmação, para
+   *    quem já entra.
+   *
+   * Toda mudança invalida os links abertos da pessoa (appsec 7): o link
+   * antigo apontava para o endereço antigo.
+   */
+  private async trocarEmail(
+    c: pg.PoolClient,
+    ctx: Contexto,
+    pessoaId: string,
+    email: string | null,
+  ): Promise<{ enviar: MensagemDeEmail | null; avisar: MensagemDeEmail | null }> {
+    const atual = (
+      await c.query<{
+        nome: string
+        ativo: boolean
+        email: string | null
+        email_pendente: string | null
+        aguardando_primeira_senha: boolean
+      }>(
+        `SELECT nome, ativo, email, email_pendente, aguardando_primeira_senha
+           FROM pessoas WHERE id = $1 FOR UPDATE`,
+        [pessoaId],
+      )
+    ).rows[0]
+    if (atual === undefined) throw new NotFoundException('Pessoa não encontrada.')
+    const clinicaNome = ctx.clinicaNome ?? ''
+    const nada = { enviar: null, avisar: null }
+
+    if (email === null) {
+      if (atual.email === null && atual.email_pendente === null) return nada
+      await c.query(
+        'UPDATE pessoas SET email = NULL, email_pendente = NULL, email_confirmado_em = NULL WHERE id = $1',
+        [pessoaId],
+      )
+      await invalidarLinksDaPessoa(c, pessoaId)
+      return {
+        enviar: null,
+        avisar:
+          atual.email !== null && this.acessoPorEmail.ligado
+            ? this.acessoPorEmail.aviso('email_trocado', {
+                para: atual.email,
+                clinicaNome,
+                nomeDaPessoa: atual.nome,
+              })
+            : null,
+      }
+    }
+    if (email === atual.email) {
+      if (atual.email_pendente === null) return nada
+      await c.query('UPDATE pessoas SET email_pendente = NULL WHERE id = $1', [pessoaId])
+      await invalidarLinksDaPessoa(c, pessoaId)
+      return nada
+    }
+    if (email === atual.email_pendente) return nada
+
+    await c.query('UPDATE pessoas SET email_pendente = $2 WHERE id = $1', [pessoaId, email])
+    await invalidarLinksDaPessoa(c, pessoaId)
+    if (!this.acessoPorEmail.ligado || !atual.ativo) return nada
+
+    const finalidade = atual.aguardando_primeira_senha ? 'convite' : 'confirmacao_de_email'
+    const token = await emitirLink(c, {
+      clinicaId: ctx.clinicaId,
+      pessoaId,
+      finalidade,
+      emailHmac: this.acessoPorEmail.hmacDoEmail(email),
+      agora: this.relogio.agora(),
+    })
+    await gravarEvento(c, {
+      clinicaId: ctx.clinicaId,
+      pessoaId,
+      evento: finalidade === 'convite' ? 'convite_reenviado' : 'email_cadastrado',
+      porPessoaId: pessoaDoAtor(ctx.ator),
+    })
+    return {
+      enviar: this.acessoPorEmail.mensagemComLink(finalidade, token, {
+        para: email,
+        clinicaNome,
+        nomeDaPessoa: atual.nome,
+      }),
+      avisar: null,
+    }
   }
 
   /**
@@ -387,7 +541,16 @@ async function lerPerfis(c: pg.PoolClient): Promise<ListaDePerfis['perfis']> {
   return r.rows
 }
 
-const paraSaida = (l: LinhaDePessoa, euId: string): PessoaNaLista => ({
+/**
+ * A pessoa em nome de quem a sessão escreve: a própria, ou a administradora
+ * que o operador de suporte empresta (`comoPessoa`, ADR
+ * "suporte-age-como-administradora").
+ */
+const quemAssina = (ator: Ator): string | null =>
+  pessoaDoAtor(ator) ??
+  (typeof ator !== 'string' && ator.tipo === 'operador' ? (ator.comoPessoa ?? null) : null)
+
+const paraSaida = (l: LinhaDePessoa, euId: string, agora: Date): PessoaNaLista => ({
   id: l.id,
   nome: l.nome,
   usuario: l.usuario,
@@ -399,4 +562,12 @@ const paraSaida = (l: LinhaDePessoa, euId: string): PessoaNaLista => ({
   provisoriaExpiraEm: l.senha_provisoria_expira_em?.toISOString() ?? null,
   euMesma: l.id === euId,
   avisoDeAdministradora: null,
+  email: l.email,
+  emailPendente: l.email_pendente,
+  emailConfirmado: l.email !== null,
+  situacaoDoAcesso: situacaoDoAcesso(
+    { aguardandoPrimeiraSenha: l.aguardando_primeira_senha },
+    l.convite_expira_em === null ? null : { expiraEm: l.convite_expira_em },
+    agora,
+  ),
 })

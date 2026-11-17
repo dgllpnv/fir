@@ -132,6 +132,24 @@ export async function apagarPagamentosDesfeitosDeTeste(
 }
 
 /**
+ * Apaga as FOTOGRAFIAS DE KPI de uma clínica de teste (0098). Mesma forma de
+ * `apagarPagamentosDesfeitosDeTeste`: append-only nas duas camadas, e
+ * precisar desligar a trigger aqui é a prova de que ela funciona.
+ */
+export async function apagarFotografiasDeKpiDeTeste(cliente: pg.Client, clinicaId: string): Promise<void> {
+  await cliente.query('BEGIN')
+  try {
+    await cliente.query('ALTER TABLE fotografias_de_kpi DISABLE TRIGGER fotografias_de_kpi_sem_update')
+    await cliente.query('DELETE FROM fotografias_de_kpi WHERE clinica_id = $1', [clinicaId])
+    await cliente.query('ALTER TABLE fotografias_de_kpi ENABLE TRIGGER fotografias_de_kpi_sem_update')
+    await cliente.query('COMMIT')
+  } catch (e) {
+    await cliente.query('ROLLBACK')
+    throw e
+  }
+}
+
+/**
  * Desfaz um OPERADOR de teste, trilha do painel inclusive.
  *
  * `auditoria_do_painel` é append-only nas duas camadas, como a `auditoria`, e
@@ -263,6 +281,16 @@ const EM_ORDEM_DE_APAGAR = [
   // pessoa, e o grupo aponta para `pessoas` (`criado_por`).
   'membros_de_grupo',
   'grupos_da_equipe',
+  // Indicadores (0098): `tarefas.kpi_id` aponta para `kpis` (por isso depois de
+  // `tarefas`); a meta aponta para série, KR e KPI; a série para KR e KPI; o KR
+  // para OKR e KPI. Todos apontam para `pessoas`. `fotografias_de_kpi` é
+  // append-only e sai antes do laço, em `apagarFotografiasDeKpiDeTeste`.
+  'metas_de_kpi',
+  'series_de_meta',
+  'resultados_chave',
+  'okrs',
+  'lancamentos_de_kpi',
+  'kpis',
   // Depois de `tarefas`, que aponta para as três pela chave estrangeira
   // COMPOSTA `(coluna, clinica_id)`: o filho vai antes do pai.
   // `campanhas` entra aqui pela 0020: `tarefas.campanha_id` e
@@ -315,6 +343,10 @@ const EM_ORDEM_DE_APAGAR = [
   'unidades',
   'sessoes',
   'tentativas_login',
+  // O acesso por e-mail (0097): os dois apontam para `pessoas`. O link tem
+  // trilha pelo trigger; o evento não tem (LGPD L6).
+  'links_de_acesso',
+  'eventos_de_acesso',
   'pessoas',
   'perfis',
 ] as const
@@ -336,6 +368,8 @@ export async function apagarClinicaDeTeste(cliente: pg.Client, clinicaId: string
   await apagarMovimentosDeEstoqueDeTeste(cliente, clinicaId)
   // ANTES do laço também: aponta para `contas_a_pagar` e `pessoas`.
   await apagarPagamentosDesfeitosDeTeste(cliente, clinicaId)
+  // ANTES do laço: aponta para `kpis`.
+  await apagarFotografiasDeKpiDeTeste(cliente, clinicaId)
   for (const tabela of EM_ORDEM_DE_APAGAR) {
     await cliente.query(`DELETE FROM ${tabela} WHERE clinica_id = $1`, [clinicaId])
   }

@@ -102,7 +102,12 @@ const GRUPOS = `
                  p.modo_de_cobranca
             FROM recebimentos r
             LEFT JOIN programas p ON p.id = r.programa_id
-           WHERE r.clinica_id = $1 AND r.estornado_em IS NULL
+           WHERE r.clinica_id = $1
+             -- Sem a opção ate ($5 NULL): o saldo de AGORA, como sempre. Com ele, a
+             -- POSIÇÃO no instante (I-6): o que já existia e ainda não estava estornado.
+             AND ($5::timestamptz IS NULL AND r.estornado_em IS NULL
+                  OR $5::timestamptz IS NOT NULL AND r.recebido_em < $5::timestamptz
+                     AND (r.estornado_em IS NULL OR r.estornado_em >= $5::timestamptz))
              AND r.paciente_id = ANY($3::uuid[])) e
    GROUP BY paciente_id, programa_id`
 
@@ -114,6 +119,10 @@ const dinheiro = (texto: string): Dinheiro => Dinheiro.deCentavos(BigInt(texto))
 /**
  * O saldo de vários pacientes de uma vez — uma consulta, não uma por linha.
  *
+ * `ate` (números c.9): o saldo no INSTANTE — a fotografia de `saldo_a_receber`
+ * do dia D é `saldosDe(…, { ate: início(D+1) })`, e o job que roda atrasado
+ * dá o mesmo número.
+ *
  * Paciente sem recebimento nenhum **não volta do `SELECT`** e não some da
  * resposta: ele recebe `VAZIO`, que é `saldoEmAberto([])` — grupos vazios,
  * saldo zero, `temSaldo: false`. Deixá-lo de fora do mapa faria a lista de
@@ -123,12 +132,19 @@ export async function saldosDe(
   c: pg.PoolClient,
   clinicaId: string,
   pacienteIds: readonly string[],
+  opcoes: { readonly ate?: Date } = {},
 ): Promise<Map<string, SaldoDoPaciente>> {
   const saldos = new Map<string, SaldoDoPaciente>()
   for (const id of pacienteIds) saldos.set(id, VAZIO)
   if (pacienteIds.length === 0) return saldos
 
-  const r = await c.query<LinhaDeGrupo>(GRUPOS, [clinicaId, TIPOS_QUE_ABATEM, [...pacienteIds], TIPO_DA_SESSAO])
+  const r = await c.query<LinhaDeGrupo>(GRUPOS, [
+    clinicaId,
+    TIPOS_QUE_ABATEM,
+    [...pacienteIds],
+    TIPO_DA_SESSAO,
+    opcoes.ate ?? null,
+  ])
 
   const porPaciente = new Map<string, EventoDeSaldo[]>()
   for (const linha of r.rows) {

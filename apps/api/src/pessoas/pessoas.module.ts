@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { AcessoPorEmailModule } from '../acesso/acesso-por-email.module'
 import { provedorDeRelogio } from '../comum/relogio'
 import { AcessoService } from './acesso.service'
 import { EquipeController } from './equipe.controller'
@@ -37,6 +38,9 @@ import { PessoasService } from './pessoas.service'
  * lugares para corrigir a definição de um indicador.
  */
 @Module({
+  // O acesso por e-mail (ADR 2026-11-16): o convite na criação, o reenvio, a
+  // redefinição pela admin e a troca de e-mail pelo `PATCH`.
+  imports: [AcessoPorEmailModule],
   controllers: [
     PessoasController,
     EquipeController,

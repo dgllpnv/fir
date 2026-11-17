@@ -49,13 +49,13 @@ beforeAll(async () => {
   await fir('2026-10-24T15:00:00Z', 5555)
 })
 afterAll(async () => {
-  for (const t of ['leituras_de_faturamento_externo', 'metas_do_mes', 'caixas_do_dia', 'integracoes_da_clinica']) {
+  for (const t of ['leituras_de_faturamento_externo', 'metas_de_kpi', 'metas_do_mes', 'caixas_do_dia', 'integracoes_da_clinica']) {
     await c.migrate.query(`DELETE FROM ${t} WHERE clinica_id = $1`, [c.clinica])
   }
   await desmontarCenario(c)
 })
 beforeEach(async () => {
-  for (const t of ['leituras_de_faturamento_externo', 'metas_do_mes', 'caixas_do_dia', 'integracoes_da_clinica']) {
+  for (const t of ['leituras_de_faturamento_externo', 'metas_de_kpi', 'metas_do_mes', 'caixas_do_dia', 'integracoes_da_clinica']) {
     await c.migrate.query(`DELETE FROM ${t} WHERE clinica_id = $1`, [c.clinica])
   }
   await c.migrate.query(
@@ -161,28 +161,36 @@ describe('a meta medida pelo MedX (N-B6)', () => {
   it('a régua é copiada da configuração quando a meta é definida; o percentual da rota é o da Visão do mês', async () => {
     await configurar({ medidaPor: 'medx' })
     const salva = (await botar(c, `/v1/metas/${MES}`, { valor: '50000' }, 'beatriz').expect(200)).body as PercentualDaMeta
-    // O mês INTEIRO do MedX (a meta não passa pelo corte do caixa, como antes):
-    // 150,01 + 100,00 + 77,77 = 327,78 de 500,00 → 66%. `recebido` continua o da FIR.
+    // ADR 2026-11-17-meta-medida-pelos-dias-de-caixa (números B5/B6): a régua
+    // do MedX passa pelo MESMO corte da FIR. O primeiro caixa é 20/10, então
+    // 01–19 ficam no regime anterior e contam; 20 e 21 fecharam; 24 (hoje,
+    // aberto) aguarda. 150,01 + 100,00 = 250,01 de 500,00 → 50% (era 66%, com
+    // os 77,77 do dia aberto). `recebido` continua o da FIR, o mês inteiro.
     expect(salva).toEqual({
       mes: MES,
       meta: '50000',
       recebido: '28555',
       medidaPor: 'medx',
-      medido: '32778',
+      medido: '25001',
       lidoEm: AGORA.toISOString(),
-      percentual: 66,
+      percentual: 50,
+      // O de hoje (55,55) nunca sai: com o caixa aberto, é o esperado (regra 6).
+      aguardandoFechamento: '0',
+      diasAguardandoFechamento: 1,
     })
     const v = await lerVisao()
-    expect(v).toMatchObject({ medidaDaMeta: 'medx', medido: '32778', recebido: '28555', percentualDaMeta: 66, metaRestante: '17222' })
+    expect(v).toMatchObject({ medidaDaMeta: 'medx', medido: '25001', recebido: '28555', percentualDaMeta: 50, metaRestante: '24999' })
   })
 
   it('14. retroatividade: trocar a configuração não muda mês que já tem meta', async () => {
     await configurar({ medidaPor: 'fir' })
     await botar(c, `/v1/metas/${MES}`, { valor: '50000' }, 'beatriz').expect(200)
-    expect((await lerMeta()).percentual).toBe(57)
+    // ADR 2026-11-17-meta-medida-pelos-dias-de-caixa: 150 + 80 = 230 de 500 →
+    // 46% (era 57%, com os 55,55 de hoje, que tem o caixa aberto).
+    expect((await lerMeta()).percentual).toBe(46)
     await configurar({ medidaPor: 'medx' })
-    expect(await lerMeta()).toMatchObject({ medidaPor: 'fir', percentual: 57 })
-    expect((await lerVisao()).percentualDaMeta).toBe(57)
+    expect(await lerMeta()).toMatchObject({ medidaPor: 'fir', percentual: 46 })
+    expect((await lerVisao()).percentualDaMeta).toBe(46)
   })
 
   it('MedX com leitura incompleta: sem percentual e sem "faltam" — nunca 0%', async () => {
@@ -208,7 +216,11 @@ describe('a meta medida pelo MedX (N-B6)', () => {
       medidaPor: 'medx',
       medido: null,
       lidoEm: AGORA.toISOString(),
-      percentual: 66,
+      // ADR 2026-11-17-meta-medida-pelos-dias-de-caixa: 50% (era 66%).
+      percentual: 50,
+      // O valor aguardando é dinheiro: a redação o apaga. A contagem atravessa.
+      aguardandoFechamento: null,
+      diasAguardandoFechamento: 1,
     })
   })
 })

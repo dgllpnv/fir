@@ -361,6 +361,37 @@ export async function limparFinanceiro(c: Cenario): Promise<void> {
       [c.clinica, c.outraClinica],
     ])
   }
+  // A meta do mês mora em `metas_de_kpi` desde a 0100, e o início da
+  // conferência nasce do primeiro caixa: sem caixa, volta a NULL (G1).
+  await limparIndicadores(c)
+  await c.migrate.query('UPDATE clinicas SET conferencia_desde = NULL WHERE id = ANY($1::uuid[])', [
+    [c.clinica, c.outraClinica],
+  ])
+}
+
+/**
+ * Apaga o que Indicadores & Insights escreve (0098), nas duas clínicas. A
+ * fotografia é append-only nas duas camadas: sai pela função que desliga a
+ * trigger, a mesma de `limpeza-de-teste.ts`.
+ */
+export async function limparIndicadores(c: Cenario): Promise<void> {
+  const clinicas = [c.clinica, c.outraClinica]
+  await c.migrate.query('BEGIN')
+  try {
+    await c.migrate.query('ALTER TABLE fotografias_de_kpi DISABLE TRIGGER fotografias_de_kpi_sem_update')
+    await c.migrate.query('DELETE FROM fotografias_de_kpi WHERE clinica_id = ANY($1::uuid[])', [clinicas])
+    await c.migrate.query('ALTER TABLE fotografias_de_kpi ENABLE TRIGGER fotografias_de_kpi_sem_update')
+    await c.migrate.query('COMMIT')
+  } catch (e) {
+    await c.migrate.query('ROLLBACK')
+    throw e
+  }
+  await c.migrate.query('UPDATE tarefas SET kpi_id = NULL WHERE clinica_id = ANY($1::uuid[]) AND kpi_id IS NOT NULL', [
+    clinicas,
+  ])
+  for (const tabela of ['metas_de_kpi', 'series_de_meta', 'resultados_chave', 'okrs', 'lancamentos_de_kpi', 'kpis']) {
+    await c.migrate.query(`DELETE FROM ${tabela} WHERE clinica_id = ANY($1::uuid[])`, [clinicas])
+  }
 }
 
 /**

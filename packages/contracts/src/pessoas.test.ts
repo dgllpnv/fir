@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CriarPessoaEntrada, PessoaNaLista } from './pessoas'
 
 const PERFIL = '11111111-1111-4111-8111-111111111111'
-const BASE = { nome: 'Ana Lima', usuario: 'ana.lima', funcao: 'Recepção' }
+const BASE = { nome: 'Ana Lima', usuario: 'ana.lima', funcao: 'Recepção', email: 'ana@clinica.com' }
 
 /**
  * O corpo de criar pessoa é DISCRIMINADO: `acesso` (novo) ou `perfilId` (legado,
@@ -69,6 +69,10 @@ describe('PessoaNaLista.avisoDeAdministradora', () => {
     aguardandoPrimeiroAcesso: false,
     provisoriaExpiraEm: null,
     euMesma: false,
+    email: null,
+    emailPendente: null,
+    emailConfirmado: false,
+    situacaoDoAcesso: 'ativo',
   }
 
   it('leva só quem fez e quando — nada além', () => {

@@ -3,7 +3,11 @@ import {
   avaliarSenha,
   diaCivil,
   ehErro,
+  ehOk,
   fimDaSessaoDoBalcao,
+  identificadorEhEmail,
+  mascararEmail,
+  validarEmail,
   temPerm,
   type ChaveDePermissao,
   type ErroDeDominio,
@@ -13,6 +17,8 @@ import { Inject, Injectable } from '@nestjs/common'
 import type pg from 'pg'
 import { SISTEMA, operadorIdDeFonteConfiavel, pessoaIdDeFonteConfiavel } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
+import { ChaveDeEmail } from '../acesso/chave-de-email'
+import { invalidarLinksDaPessoa } from '../acesso/links'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { type ClinicaId, clinicaIdDeFonteConfiavel } from '../banco/clinica-id'
 import { inteiroDoAmbiente } from '../comum/ambiente'
@@ -92,11 +98,15 @@ type LinhaPessoa = {
   ativo: boolean
   senha_provisoria: boolean
   senha_provisoria_expira_em: Date | null
+  email: string | null
+  email_pendente: string | null
+  aguardando_primeira_senha: boolean
 }
 
 /** As colunas de `pessoas` que a sessão precisa. Uma lista só, nunca duas. */
 const COLUNAS_DA_PESSOA = `id, nome, usuario, funcao, senha_hash, admin, perfil_id, ativo,
-          senha_provisoria, senha_provisoria_expira_em`
+          senha_provisoria, senha_provisoria_expira_em,
+          email, email_pendente, aguardando_primeira_senha`
 
 /**
  * Os perfis DA CLÍNICA, num lugar só.
@@ -127,6 +137,11 @@ const pessoaPublica = (p: LinhaPessoa) => ({
   perfilId: p.perfil_id,
   ativo: p.ativo,
   senhaProvisoria: p.senha_provisoria,
+  // O confirmado é da própria pessoa e vai inteiro; o pendente, mascarado — a
+  // faixa só precisa que ela o reconheça.
+  email: p.email,
+  emailPendente: p.email_pendente === null ? null : mascararEmail(p.email_pendente),
+  emailConfirmado: p.email !== null,
 })
 
 @Injectable()
@@ -140,6 +155,7 @@ export class AutenticacaoService {
     // O dia de negócio em `EuSaida.hoje` vem DAQUI, e não de `new Date()`:
     // é a mesma autoridade que recusa um recebimento de amanhã (regra 24).
     @Inject(RELOGIO) private readonly relogio: Relogio,
+    @Inject(ChaveDeEmail) private readonly chaveDeEmail: ChaveDeEmail,
   ) {}
 
   /**
@@ -283,19 +299,50 @@ export class AutenticacaoService {
     // `SISTEMA`: aqui ninguém provou identidade nenhuma ainda — quem teclou o
     // usuário apenas afirmou ser alguém. Nada é escrito nesta transação.
     const etapa1 = await this.banco.naClinica(clinica.id, SISTEMA, async (c) => {
+      /**
+       * **ENTRAR POR E-MAIL** (ADR 2026-11-16). O ramo do `@` é decidido aqui,
+       * sobre o que o contrato entregou — que já canonizou como e-mail, e não
+       * como usuário, quando havia `@` (appsec 10).
+       *
+       * Só o e-mail CONFIRMADO autentica (spec 3.10): a busca é em
+       * `pessoas.email`, e o pendente mora noutra coluna. E-mail pendente,
+       * inativo ou inexistente cai em `pessoa = null` e passa pelo `HASH_FALSO`
+       * e pelo piso, como o usuário que não existe.
+       *
+       * **UM ORÇAMENTO DE FALHAS POR CONTA** (appsec 9): quando o e-mail resolve
+       * para uma pessoa, a tentativa conta no USUÁRIO dela — três falhas pelo
+       * usuário e duas pelo e-mail somam cinco. Sem conta, conta como
+       * `e:<hmac>`, e o e-mail nunca é gravado em claro (LGPD L7).
+       */
+      const porEmail = identificadorEhEmail(usuario)
+      let identificador = usuario
+      let pessoaPorEmail: LinhaPessoa | null = null
+      if (porEmail) {
+        if (ehOk(validarEmail(usuario))) {
+          const r = await c.query<LinhaPessoa>(
+            `SELECT ${COLUNAS_DA_PESSOA}
+               FROM pessoas WHERE email = $1 AND ativo AND excluida_em IS NULL`,
+            [usuario],
+          )
+          pessoaPorEmail = r.rows[0] ?? null
+        }
+        identificador = pessoaPorEmail?.usuario ?? `e:${this.chaveDeEmail.hmac(usuario)}`
+      }
+
       const tentativas = await c.query<{ em: Date; sucesso: boolean }>(
         `SELECT em, sucesso FROM tentativas_login
          WHERE identificador = $1 AND em > now() - interval '15 minutes'`,
-        [usuario],
+        [identificador],
       )
       if (limiteExcedido(tentativas.rows, new Date())) {
         return { tipo: 'limite' as const }
       }
+      if (porEmail) return { tipo: 'segue' as const, pessoa: pessoaPorEmail, identificador }
 
       // `normalizar_nome($1)` cai sobre o PARÂMETRO, nunca sobre a coluna:
       // escrito sobre a coluna, o índice único `(clinica_id, usuario)` vira
       // enfeite e a entrada vira varredura. Medido em
-      // `teste/identidade-sem-email.test.ts`, com `EXPLAIN`.
+      // `teste/identidade-com-email.test.ts`, com `EXPLAIN`.
       //
       // A normalização aqui é a SEGUNDA: o contrato já canonizou. Ela fica
       // porque o banco é a autoridade sobre a forma canônica, e porque um
@@ -306,10 +353,11 @@ export class AutenticacaoService {
          FROM pessoas WHERE usuario = normalizar_nome($1) AND ativo`,
         [usuario],
       )
-      return { tipo: 'segue' as const, pessoa: p.rows[0] ?? null }
+      return { tipo: 'segue' as const, pessoa: p.rows[0] ?? null, identificador }
     })
     if (etapa1.tipo === 'limite') throw new LimiteDeTentativas()
     const pessoa = etapa1.pessoa
+    const identificador = etapa1.identificador
 
     // --- FORA DE TRANSAÇÃO: o semáforo e o Argon2.
     //
@@ -343,7 +391,14 @@ export class AutenticacaoService {
       pessoa.senha_provisoria_expira_em !== null &&
       pessoa.senha_provisoria_expira_em.getTime() <= this.relogio.agora().getTime()
 
-    const ok = senhaConfere && !vencida
+    /**
+     * Convidada que ainda não criou a senha não entra por senha nenhuma: o hash
+     * dela é de um segredo descartado, e o caminho é o link do convite. O
+     * Argon2 já rodou, e a frase é a de sempre.
+     */
+    const convidada = pessoa?.aguardando_primeira_senha === true
+
+    const ok = senhaConfere && !vencida && !convidada
 
     /**
      * O ATOR DA TRANSAÇÃO 2, e esta é a única escolha de ator não óbvia do
@@ -386,7 +441,7 @@ export class AutenticacaoService {
       const tentativas = await c.query<{ em: Date; sucesso: boolean }>(
         `SELECT em, sucesso FROM tentativas_login
          WHERE identificador = $1 AND em > now() - interval '15 minutes'`,
-        [usuario],
+        [identificador],
       )
       const excedido = limiteExcedido(tentativas.rows, new Date())
 
@@ -399,7 +454,7 @@ export class AutenticacaoService {
         // O identificador gravado é o CANÔNICO, que é o que o contrato
         // entrega. Sem isso, `Helena`, `HELENA` e `heléna` seriam três contas
         // distintas para o limite, e cinco tentativas virariam quinze.
-        [clinica.id, usuario, ok && !excedido],
+        [clinica.id, identificador, ok && !excedido],
       )
       if (excedido) return { tipo: 'limite' as const }
       if (!ok || !pessoa) return { tipo: 'invalida' as const }
@@ -743,6 +798,10 @@ export class AutenticacaoService {
           WHERE pessoa_id = $1 AND token_hash <> $2 AND revogada_em IS NULL`,
         [usuario.id, hashDaSessaoAtual],
       )
+      // A senha mudou: um link de redefinição ou de convite aberto deixa de
+      // valer (appsec 7). Quem trocou a senha logada não precisa mais dele, e
+      // quem o interceptou não deve poder usá-lo.
+      await invalidarLinksDaPessoa(c, usuario.id)
     })
 
     return 'ok'

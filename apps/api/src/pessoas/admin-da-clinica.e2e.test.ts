@@ -57,7 +57,12 @@ const patch = (s: string[], id: string, c: Corpo) =>
 const del = (s: string[], id: string) => srv().delete(`/v1/pessoas/${id}`).set('Cookie', s)
 const senha = (s: string[], id: string, c: Corpo = {}) =>
   srv().post(`/v1/pessoas/${id}/senha`).set('Cookie', s).send(c)
-const criar = (s: string[], c: Corpo) => srv().post('/v1/pessoas').set('Cookie', s).send(c)
+// O e-mail obrigatório (ADR 2026-11-16) entra pendente; a provisória segue.
+const criar = (s: string[], c: Corpo) =>
+  srv()
+    .post('/v1/pessoas')
+    .set('Cookie', s)
+    .send({ email: `${String(c['usuario'] ?? 'x').replace(/[^a-z0-9.]/gi, '')}@teste.com`, ...c })
 const salvarPerfis = (s: string[], c: Corpo) =>
   srv().put('/v1/pessoas/perfis').set('Cookie', s).send(c)
 

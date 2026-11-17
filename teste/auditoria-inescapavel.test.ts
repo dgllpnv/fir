@@ -5,6 +5,7 @@ import {
   ENTIDADES_COM_CLINICA_POR_GRUPO,
   ENTIDADES_DA_CARTEIRA_SEM_CLINICA,
   ENTIDADES_DO_FINANCEIRO_DA_CARTEIRA_SEM_CLINICA,
+  ENTIDADES_SEM_TRILHA_POR_DECISAO,
 } from './registro'
 
 // Tabelas da carteira (ADR 0012) TÊM `clinica_id` e por isso aparecem na
@@ -129,9 +130,20 @@ describe('nenhuma escrita de negócio escapa da trilha', () => {
     ).toEqual(esperadas)
 
     expect(
-      todas.filter((t) => !t.tem_trigger).map((t) => t.relname),
+      todas
+        .filter((t) => !t.tem_trigger && !ENTIDADES_SEM_TRILHA_POR_DECISAO.includes(t.relname))
+        .map((t) => t.relname),
       'tabela com clinica_id SEM o trigger de auditoria: toda escrita nela fica sem passado',
     ).toEqual([])
+  })
+
+  it('as tabelas SEM trilha por decisão de fato não têm o trigger (LGPD L6)', async () => {
+    // A exceção tem dentes nos dois sentidos: quem acrescentar o trigger a
+    // `eventos_de_acesso` faz o evento herdar os 5 anos da trilha.
+    const todas = await comClinicaId()
+    for (const t of ENTIDADES_SEM_TRILHA_POR_DECISAO) {
+      expect(todas.find((x) => x.relname === t)?.tem_trigger, t).toBe(false)
+    }
   })
 
   it('a varredura NOMEIA a tabela que esqueceu o trigger', async () => {
@@ -150,7 +162,9 @@ describe('nenhuma escrita de negócio escapa da trilha', () => {
           clinica_id uuid NOT NULL REFERENCES clinicas(id)
         )
       `)
-      const faltando = (await comClinicaId()).filter((t) => !t.tem_trigger).map((t) => t.relname)
+      const faltando = (await comClinicaId())
+        .filter((t) => !t.tem_trigger && !ENTIDADES_SEM_TRILHA_POR_DECISAO.includes(t.relname))
+        .map((t) => t.relname)
       expect(faltando).toEqual(['_canario_sem_auditoria'])
     } finally {
       await migrate.query('ROLLBACK')

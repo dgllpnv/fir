@@ -1,10 +1,11 @@
 import { apagarClinicaDeTeste, declararAtorSistema } from '@fir/api/banco/limpeza-de-teste'
-import { canonizarUsuario, ehOk, validarUsuario } from '@fir/domain'
+import { canonizarEmail, canonizarUsuario, ehOk, validarEmail, validarUsuario } from '@fir/domain'
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 /**
- * A identidade do produto depois da **D-10**: clínica + usuário + senha.
+ * A identidade do produto: clínica + usuário + senha (D-10), e o e-mail de volta
+ * como SEGUNDO identificador (ADR 2026-11-16) — sem substituir o usuário.
  *
  * O que estes testes protegem não é a coluna — é a decisão. O banco é a
  * autoridade sobre a forma canônica (`CHECK` com `normalizar_nome` **mais** o
@@ -60,15 +61,83 @@ afterAll(async () => {
   await migrate.end()
 })
 
-describe('pessoas.usuario substitui pessoas.email', () => {
-  it('a coluna email não existe mais em pessoas', async () => {
-    const r = await migrate.query(
-      `SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'pessoas' AND column_name = 'email'`,
+describe('o e-mail voltou como segundo identificador (ADR 2026-11-16)', () => {
+  const comEmail = (clinica: string, perfil: string, usuario: string, email: string) =>
+    migrate.query<{ id: string }>(
+      `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id, email, email_confirmado_em)
+       VALUES ($1, 'Fulana', $2, 'hash-de-teste', $3, $4, now()) RETURNING id`,
+      [clinica, usuario, perfil, email],
     )
-    expect(r.rowCount).toBe(0)
+
+  it('o CHECK do banco e `canonizarEmail`/`validarEmail` concordam — a forma é UMA', async () => {
+    // A mesma prova de `validarUsuario`, para o e-mail: se alguém afrouxar um
+    // dos dois lados, a tela aceita o que o banco recusa (ou o contrário).
+    const amostras = [
+      'ana@clinica.com',
+      '  Ana.Souza@Gmail.COM ',
+      'ana',
+      'ana@',
+      'ana@clinica',
+      '@clinica.com',
+      'ana souza@clinica.com',
+      'ana@@clinica.com',
+      'a@b.c',
+      `${'a'.repeat(250)}@b.com`,
+    ]
+    let i = 0
+    for (const bruto of amostras) {
+      const canonico = canonizarEmail(bruto)
+      const dominioAceita = ehOk(validarEmail(canonico))
+      const usuario = `email.amostra${i++}`
+      const bancoAceita = await comEmail(clinicaA, perfilA, usuario, canonico).then(
+        () => true,
+        () => false,
+      )
+      expect(bancoAceita, `divergência em "${bruto}" → "${canonico}"`).toBe(dominioAceita)
+      if (bancoAceita) await apagarPessoa(clinicaA, usuario)
+    }
   })
 
+  it('o banco recusa e-mail fora da forma canônica (caixa ou espaço)', async () => {
+    await expect(comEmail(clinicaA, perfilA, 'caixa.alta', 'Ana@Clinica.com')).rejects.toThrow(
+      /email_canonico/,
+    )
+  })
+
+  it('o confirmado é único POR CLÍNICA; o pendente não é único', async () => {
+    await comEmail(clinicaA, perfilA, 'dona.um', 'dona@clinica.com')
+    try {
+      await expect(comEmail(clinicaA, perfilA, 'dona.dois', 'dona@clinica.com')).rejects.toThrow(
+        /pessoas_email_por_clinica/,
+      )
+      // Outra clínica pode ter o mesmo endereço confirmado.
+      await expect(comEmail(clinicaB, perfilB, 'dona.um', 'dona@clinica.com')).resolves.toBeDefined()
+      // E o MESMO endereço como pendente em duas pessoas não reserva nada (appsec 2).
+      for (const u of ['pend.um', 'pend.dois']) {
+        await migrate.query(
+          `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id, email_pendente)
+           VALUES ($1, 'Fulana', $2, 'hash-de-teste', $3, 'dona@clinica.com')`,
+          [clinicaA, u, perfilA],
+        )
+      }
+    } finally {
+      for (const u of ['dona.um', 'dona.dois', 'pend.um', 'pend.dois']) await apagarPessoa(clinicaA, u)
+      await apagarPessoa(clinicaB, 'dona.um')
+    }
+  })
+
+  it('e-mail confirmado sempre tem data, e data sem e-mail não existe', async () => {
+    await expect(
+      migrate.query(
+        `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, perfil_id, email)
+         VALUES ($1, 'Fulana', 'sem.data', 'hash-de-teste', $2, 'x@y.com')`,
+        [clinicaA, perfilA],
+      ),
+    ).rejects.toThrow(/email_confirmado_tem_data/)
+  })
+})
+
+describe('pessoas.usuario continua o identificador de sempre', () => {
   it('usuario é único POR CLÍNICA, nunca global', async () => {
     // A mesma pessoa pode atender duas clínicas com o mesmo usuário.
     await inserirPessoa(clinicaA, perfilA, 'ana')

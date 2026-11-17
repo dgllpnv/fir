@@ -23,6 +23,13 @@ export default defineConfig({
       MAX_LOGIN_POR_ORIGEM: '5000',
       MAX_PAINEL_POR_ORIGEM: '5000',
       SEGUNDO_FATOR_CARTEIRA_LIGADO: 'false',
+      // O ENVIO DE E-MAIL desligado, fixado: um shell com `SMTP_HOST` não muda o
+      // que os e2e medem. `acesso-por-email.e2e.test.ts` liga o seu, com o
+      // correio que captura. E o limite por origem do esqueci-senha (5 por
+      // hora) alto, pela mesma razão do entrar: o describe dedicado mede o 429.
+      SMTP_HOST: '',
+      URL_PUBLICA: '',
+      MAX_ESQUECI_POR_ORIGEM: '5000',
     },
   },
 })

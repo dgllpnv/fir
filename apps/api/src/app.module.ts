@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
 import { AcessoInterceptor } from './auditoria/acesso.interceptor'
+import { AcessoPorEmailModule } from './acesso/acesso-por-email.module'
 import { AuditoriaModule } from './auditoria/auditoria.module'
 import { AutenticacaoModule } from './autenticacao/autenticacao.module'
 import { SenhaProvisoriaGuard } from './autenticacao/senha-provisoria.guard'
@@ -38,6 +39,7 @@ import { CarteiraChecklistsModule } from './carteira/checklists/checklists.modul
 import { CarteiraResumoModule } from './carteira/resumo/resumo-semanal.module'
 import { CarteiraVisaoGeralModule } from './carteira/painel/visao-geral.module'
 import { CampanhasModule } from './campanhas/campanhas.module'
+import { IndicadoresModule } from './indicadores/indicadores.module'
 import { PainelGeralModule } from './painel-geral/painel.module'
 import { PessoasModule } from './pessoas/pessoas.module'
 import { ProgramasModule } from './programas/programas.module'
@@ -48,6 +50,8 @@ import { TarefasModule } from './tarefas/tarefas.module'
   imports: [
     BancoModule,
     AutenticacaoModule,
+    // Acesso por e-mail e redefinição de senha (ADR 2026-11-16).
+    AcessoPorEmailModule,
     AuditoriaModule,
     PacientesModule,
     PessoasModule,
@@ -71,6 +75,8 @@ import { TarefasModule } from './tarefas/tarefas.module'
     // SUPERADMIN — ver a nota em `painel-geral/painel.module.ts`.
     CampanhasModule,
     PainelGeralModule,
+    // Indicadores & Insights (T2): KPIs, metas e a calculadora.
+    IndicadoresModule,
     TarefasModule,
     JornadaModule,
     ClinicaModule,

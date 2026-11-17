@@ -19,7 +19,6 @@ O legado carrega três gerações de nomes para as mesmas coisas. Essa dívida s
 | `valor` nu | `Dinheiro` ou `Quantidade` | Os dois convivem na mesma tela de estoque |
 | `admin = true/false` | `Perfil de acesso` com `permissões` | O booleano foi substituído pela matriz; usá-lo reintroduz o modelo antigo |
 | `qtd` sem unidade | `Quantidade` com `medida` | Quantidade sem unidade é a origem da dose errada |
-| `e-mail`, `email`, `convite` | `Usuário` (o identificador de login) | **D-10:** o e-mail saiu do produto inteiro. Não há coluna, não há convite, não há SMTP. `grep -rn "email"` em `apps` e `packages` devolve zero, e é assim que fica |
 | `admin` para o superadmin | `Operador` | `admin` é a administradora **da clínica**, que é uma `Pessoa`. O superadmin é um `Operador`, que **não é uma `Pessoa`** — confundir os dois é o primeiro passo para um booleano em `pessoas` |
 | `grupo` sozinho | `Grupo de colaboradores` (pessoas da clínica, para onde vai uma `Tarefa`) ou `Grupo` da carteira (conjunto de clínicas, seção abaixo) | Dois conceitos em dois produtos; `grupos` já é tabela da carteira, e a da clínica é `grupos_da_equipe` |
 | `setor` sozinho | `Setor de atuação` (onde a `Pessoa` da clínica atua, e para onde vai uma `Tarefa`) ou `Setor da carteira` (o `setor` do `Usuário de Gestão`) | São dois conceitos em dois produtos, e um deles **amplia quem vê dado de paciente**. O identificador já gravado da carteira (`usuarios_gestao.setor`, `SetorDaCarteiraEnum`) fica como está, pela mesma razão de `'Sessão de plano'`; todo código, tela e documento **novo** diz o nome inteiro. ADR 0025 |
@@ -56,7 +55,16 @@ O tenant. **Toda tabela de negócio tem `clinica_id NOT NULL` com RLS.** Tem `at
 ### `Pessoa` e `Perfil`
 `Pessoa` é quem usa a ferramenta; tem `ativo`, e desativar nunca apaga. O acesso vem de um `Perfil`, que é um conjunto de `permissões` por pilar — não mais de um booleano `admin`.
 
-**O identificador de login é `usuario`**, único por clínica, e **não há e-mail** (D-10). A forma canônica é `normalizar_nome(usuario)` restrita ao alfabeto de identificador — `^[a-z][a-z0-9]*([._-][a-z0-9]+)*$`, 3 a 32 — e quem a define é o **banco**, por `CHECK`. Ela existe para ser **ditável por telefone**: `ana.silva` se dita sem ambiguidade, `Ana Silva` não. Não há coluna "como foi digitado": um identificador de login não tem valor de exibição.
+**O identificador de login é `usuario`**, único por clínica. O e-mail saiu na D-10 e **voltou como segundo identificador** na ADR 2026-11-16 (`docs/adr/2026-11-16-acesso-por-email.md`): opcional para quem já existia, obrigatório para pessoa nova, e nunca substitui o `usuario`. A forma canônica é `normalizar_nome(usuario)` restrita ao alfabeto de identificador — `^[a-z][a-z0-9]*([._-][a-z0-9]+)*$`, 3 a 32 — e quem a define é o **banco**, por `CHECK`. Ela existe para ser **ditável por telefone**: `ana.silva` se dita sem ambiguidade, `Ana Silva` não. Não há coluna "como foi digitado": um identificador de login não tem valor de exibição.
+
+### Acesso por e-mail (ADR 2026-11-16)
+
+- **`E-mail confirmado`** (`pessoas.email`): o endereço que a pessoa PROVOU ser dela, usando um `Link de acesso`. Só ele autentica no entrar e só ele recebe a `Redefinição de senha`. Único por clínica.
+- **`E-mail pendente`** (`pessoas.email_pendente`): o endereço digitado (pela admin ou pela própria pessoa) e ainda não provado. Não autentica, não recebe redefinição e não reserva nada; o confirmado anterior continua valendo até a confirmação.
+- **`Convite`**: o `Link de acesso` de 7 dias que a pessoa nova recebe para criar a própria senha, com o envio de e-mail ligado. Enquanto não o usa, a pessoa está **aguardando a primeira senha** (`aguardando_primeira_senha`) e não entra com senha nenhuma. Na lista: *Convite pendente* ou *Convite vencido*.
+- **`Link de acesso`** (`links_de_acesso`): um link de uso único, com prazo, preso ao e-mail para onde foi (pelo HMAC). Três finalidades: `convite` (7 dias), `redefinicao` (1 hora) e `confirmacao_de_email` (24 horas). Um vivo por pessoa e finalidade; o mais novo invalida o anterior. O banco guarda só o hash do token.
+- **`Redefinição de senha`**: criar uma senha nova pelo link de 1 hora, pedido em *Esqueci minha senha* ou enviado pela admin. Derruba todas as sessões da pessoa. Não confundir com a `senha provisória`, que a admin gera e a pessoa troca no primeiro acesso.
+- **`Evento de acesso`** (`eventos_de_acesso`): o registro mínimo de cada passo (convite enviado, senha criada pelo convite, link vencido…), lido em Atividades. Sem e-mail, IP ou token; prazo de 1 ano, fora da trilha de auditoria.
 
 **Senha definida por outra pessoa é `senha provisória`**: gerada no servidor (quatro palavras, `pinheiro-balde-sete-azul`), devolvida **uma única vez** na resposta que a criou, válida por 72 h, e a pessoa é obrigada a trocá-la no primeiro acesso. **Ninguém nunca lê a senha de outra pessoa** — nem quem a redefiniu. É o defeito da D-0 corrigido: na v20 o administrativo vê o PIN de cada pessoa.
 
@@ -599,6 +607,108 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 
 ---
 
+## Indicadores & Insights
+
+Spec: [`docs/specs/indicadores-e-insights.md`](docs/specs/indicadores-e-insights.md). Os termos abaixo valem para a aba **Indicadores & Insights**. Os números deles saem das mesmas funções do Painel e da Visão do mês, nunca de um cálculo paralelo.
+
+### `KPI` (na tela: *KPI* ou *indicador*)
+Um número da **clínica** acompanhado no tempo. Tem nome, pilar (Comercial, Financeiro, Processos ou Pessoas), unidade, direção (`maior` ou `menor` melhor), frequência (`semanal` ou `mensal`), responsável e origem:
+- **do catálogo** (automático): uma das 20 chaves de `packages/domain/src/indicadores/catalogo.ts`;
+- **manual**: lançado pela clínica.
+
+No código é `Kpi` (tabela `kpis`).
+
+**Não confundir com** o `Indicador da carteira`, que é da Firmare sobre um `Cliente Firmare`, nem com os `INDICADORES` das metas de pessoa, que são uma lista fixa de RH. "Indicador" sozinho, no código, é proibido.
+
+**Invariantes:**
+- **A escala vem da unidade, numa tabela** (`ESCALA_DA_UNIDADE`):
+
+  | Unidade | Valor |
+  |---|---|
+  | reais | centavos (`Dinheiro`) |
+  | horas | minutos |
+  | percentual, quantidade, dias, nota | centésimos |
+
+  Nunca `number` para valor, e comparar unidades diferentes lança erro.
+- **A agregação é do catálogo.** **Todo KPI manual é `posicao`**: o valor do período é o último lançamento dentro dele.
+
+  | Agregação | Valor do período |
+  |---|---|
+  | `soma` | soma no período |
+  | `taxa` | Σ numerador ÷ Σ denominador, nunca média de percentuais |
+  | `posicao` | o valor no instante do fim do período |
+  | `analise` | a perda de estoque, calculada na janela inteira. Os meses **não** se somam |
+  | `media_mensal` | o atingimento das metas individuais, só mensal |
+- **KPI de RH, e a razão entre dois valores em dinheiro, só existe para quem tem a `permissaoDoValor` do catálogo** (`pessoas.gerir` ou `valores`). Sem ela, o KPI não aparece em nenhuma resposta.
+- KPI do catálogo é único por `(clínica, chave, parâmetros)` entre os vivos. Arquivar é um estado, nunca uma exclusão.
+- Valor em reais viaja sempre como `ValorNaTela.emDinheiro`, que a redação apaga. Sem `valores`, sobra só o percentual da meta.
+
+### `Lançamento de KPI`
+O valor de um KPI manual numa **referência**: a segunda-feira da semana ou o dia 1º do mês. Guarda valor, comentário, quem lançou e quando. É idempotente por `(kpi, referência)`: relançar **corrige** a mesma linha, e a correção aparece em Atividades. Lançar conclui, na mesma transação, a tarefa "Lançar [nome]" daquela referência.
+
+**Não é** o `Lançamento de indicador` da carteira, nem lançamento financeiro.
+
+### `Faturamento conferido`
+Os recebimentos (`Dinheiro que entrou`) dos dias **com caixa fechado**. O que entrou em dia ainda aberto aparece à parte, como **aguardando fechamento**, e não conta para meta, ritmo nem projeção.
+
+É a régua da meta de faturamento **também na Visão do mês**, e por isso os dois percentuais não divergem. A linha "Recebido" da Visão do mês continua sendo o mês inteiro.
+
+**Vale a partir de `clinicas.conferencia_desde`**, o dia do primeiro caixa fechado da clínica. Antes desse dia vale a medida anterior: conta tudo o que foi recebido, e nenhum mês passado muda. A exceção vale nos dois regimes: **hoje sem caixa fechado nunca conta** (regra 6). Ritmo e projeção contam só os dias úteis dos dias conferidos, nunca o prefixo até o primeiro dia aberto.
+
+### `Meta com prazo` (na tela: *meta*)
+O valor-alvo de um KPI entre um **início** e um **prazo**, com responsável e **valor de partida**. Há três tipos:
+- `mes`: do mês;
+- `ate_data`: até uma data;
+- `recorrente`: todo mês, uma `Série` que materializa a meta de cada mês, como a da conta a pagar.
+
+**Invariantes:**
+- **Uma meta viva por KPI e contexto, a qualquer instante**, garantida por `EXCLUDE` no banco. O contexto é "saúde" ou um `Resultado-chave`. O mesmo KPI em dois OKRs tem duas metas.
+- **A meta de faturamento do mês mora aqui, e só aqui.** `metas_do_mes` foi migrada e congelada, e a Visão do mês lê e grava `metas_de_kpi`.
+- A meta de campanha continua na campanha, e as metas individuais continuam em `metas_de_pessoa`. O KPI as lê, não as copia.
+- Na `soma`, a partida é sempre 0. Na `taxa` e na `posicao`, é o valor no dia do início.
+- **Situação:**
+  - `no_ritmo`, `atencao` (até 10% do avanço esperado abaixo do ritmo), `abaixo`, `atingida` ou `sem_meta`;
+  - prazo vencido sem atingir é `abaixo`;
+  - meta de teto (`soma` com menor melhor) só fica atingida depois do prazo.
+
+### `Ritmo esperado`
+Onde o KPI deveria estar numa data, numa linha reta entre a partida (no início) e o alvo (no prazo). Na `soma`, a linha é proporcional aos **dias úteis** (segunda a sexta, sem feriado, a mesma régua da Visão do mês). Nas outras agregações, aos dias corridos.
+
+É de `packages/domain/src/indicadores/meta.ts`, e **o front nunca o calcula**: a tela desenha os pontos que o servidor manda.
+
+### `Projeção`
+Onde o KPI chega no prazo, mantida a média do período já decorrido. Na `soma`: `atual × úteis totais ÷ úteis decorridos`. Nas outras agregações: extrapolação linear desde a partida.
+
+Sai também como percentual da meta ("87% da meta"), sem limite em 100. Antes do primeiro dia útil decorrido, é `null` ("cedo para projetar").
+
+### `OKR`
+Um **objetivo** em linguagem de dono ("Ter uma agenda previsível"), com um período (trimestre, por padrão, ou datas livres), um responsável e de 1 a 5 `Resultados-chave`.
+
+**Invariantes:**
+- Progresso = **média** do progresso dos resultados-chave.
+- Situação = **a pior** entre eles.
+- A lista ordena do menor progresso para o maior.
+- Ligar um KPI a um OKR é opcional. O KPI sem OKR fica em "Saúde da clínica".
+
+### `Resultado-chave`
+O vínculo de um OKR com um KPI, **com uma meta própria** (`metas_de_kpi.resultado_chave_id`). Progresso = progresso da meta, limitado a 0–100.
+
+O KR de campanha usa a meta da própria campanha.
+
+### `Plano de ação`
+Uma `Tarefa` com `kpi_id`: descrição, responsável e prazo, ligada ao KPI, normalmente criada na reunião semanal para uma meta em vermelho. Aparece em Hoje com o selo do KPI e no detalhe do KPI.
+
+Não é entidade nova: é tarefa, com todas as regras de tarefa.
+
+### `Relatório favorito`
+Um relatório salvo **pela clínica** (não pela pessoa) com os filtros preenchidos ("Inativos de tirzepatida há 4 meses"), para rodar de novo com um clique.
+
+**Invariantes:**
+- Os filtros são validados pelo schema do relatório na escrita **e na leitura**. Filtro que deixou de valer aparece como "filtros desatualizados", nunca roda pela metade.
+- Rodar o favorito exige a permissão do relatório.
+
+---
+
 ## Glossário rápido
 
 | Termo | Significado |
@@ -638,6 +748,16 @@ Dose, produto, lote e aplicação **por paciente** são **dado pessoal sensível
 | **Período aquisitivo** | Os 12 meses de CLT que dão 30 dias de férias, com 12 meses para conceder |
 | **Banco de horas** | O saldo do mês em **minutos inteiros**, transcrito do app de ponto |
 | **Alerta de pessoa** | Férias · Experiência · Documento · Banco de horas, com o prazo da tarefa |
+| **KPI** | Número da clínica acompanhado no tempo, do catálogo ou manual. No código, `Kpi`. Nunca "indicador" sozinho |
+| **Lançamento de KPI** | O valor de um KPI manual numa referência (semana ou mês). Relançar corrige |
+| **Faturamento conferido** | Recebimentos dos dias com caixa fechado. O resto fica como "aguardando fechamento" |
+| **Meta com prazo** | Alvo de um KPI entre início e prazo: do mês, até uma data ou recorrente. Uma viva por KPI e contexto |
+| **Ritmo esperado** | Linha reta da partida ao alvo. Na soma, por dias úteis |
+| **Projeção** | Onde o KPI chega no prazo, mantida a média do período decorrido |
+| **OKR** | Objetivo com 1 a 5 resultados-chave. Progresso = média; situação = a pior |
+| **Resultado-chave** | Vínculo de OKR com KPI, com meta própria |
+| **Plano de ação** | Tarefa ligada a um KPI (`kpi_id`) |
+| **Relatório favorito** | Relatório salvo pela clínica com os filtros, para rodar de novo |
 
 ---
 

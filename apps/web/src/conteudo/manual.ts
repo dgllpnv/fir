@@ -67,11 +67,13 @@ No computador, cada frente abre ao passar o mouse. No celular, a barra de baixo 
     secoes: [
       {
         titulo: 'Entrar na ferramenta',
-        texto: `Abra o link da ferramenta e informe três coisas: o **código da clínica**, o seu **usuário** e a sua **senha**.
+        texto: `Abra o link da ferramenta e informe três coisas: o **código da clínica**, o seu **usuário ou e-mail** e a sua **senha**.
 
-O usuário é o nome curto que a clínica cadastrou para você (por exemplo, ana.silva). Ele é único na clínica, não muda, e foi feito para ser ditado por telefone sem ambiguidade. Quem cria o seu acesso é quem administra a clínica.
+O usuário é o nome curto que a clínica cadastrou para você (por exemplo, ana.silva). Ele é único na clínica, não muda, e foi feito para ser ditado por telefone sem ambiguidade. Quem cria o seu acesso é quem administra a clínica. O **e-mail** só serve para entrar depois de confirmado; até lá, entre pelo usuário.
 
-No primeiro acesso você usa a **senha provisória** que lhe foi passada, e a ferramenta pede uma senha nova antes de abrir qualquer tela.`,
+No primeiro acesso há dois caminhos:
+- **Convite por e-mail:** chega "Seu acesso à FIR Clinic", com o botão **Criar minha senha**. O link vale 7 dias e serve uma vez. Depois de criar a senha, entre com o seu e-mail ou usuário.
+- **Senha provisória:** você usa a senha provisória que lhe foi passada, e a ferramenta pede uma senha nova antes de abrir qualquer tela.`,
       },
       {
         titulo: 'Primeiro acesso da clínica',
@@ -87,7 +89,9 @@ No primeiro uso:
         titulo: 'Trocar a senha',
         texto: `Toque em “Trocar senha”, no rodapé do menu lateral (no celular, abra o Menu). Informe a senha atual e a nova duas vezes. As outras sessões abertas com a senha antiga caem na hora.
 
-Esqueceu a senha? Quem administra a clínica gera uma **senha provisória** para você em Configurações › Usuários e acessos. Ela aparece uma única vez, na tela de quem a gerou: **ninguém lê a senha de outra pessoa**, nem quem a redefiniu.`,
+Esqueceu a senha? Na tela de entrada, toque em **Esqueci minha senha** e informe o seu e-mail confirmado: chega um link para criar uma senha nova, que vale 1 hora e serve uma vez. A resposta da tela é sempre a mesma, tenha o e-mail conta ou não. Sem e-mail confirmado (ou se o link não aparecer na entrada), quem administra a clínica gera uma **senha provisória** para você em Configurações › Usuários e acessos. Ela aparece uma única vez, na tela de quem a gerou: **ninguém lê a senha de outra pessoa**, nem quem a redefiniu.
+
+**Cadastre seu e-mail.** Quem ainda não tem e-mail confirmado vê, no topo do sistema, o aviso **Cadastre seu e-mail**: informe o e-mail e a senha atual e toque em **Enviar confirmação**. O link de confirmação vale 24 horas. Até confirmar nada muda, e você continua entrando pelo usuário. "Agora não" esconde o aviso até a próxima entrada. Para trocar ou retirar o seu e-mail depois, use a parte **E-mail** de “Trocar senha” — sempre com a senha atual.`,
       },
       {
         titulo: 'Usar no celular',
@@ -522,7 +526,8 @@ Exemplo: toxina botulínica, repetir a cada 4 meses, contato 15 dias antes.`,
     secoes: [
       {
         titulo: 'Equipe',
-        texto: `Em **Configurações › Usuários e acessos**, cadastre cada pessoa com nome, **usuário para entrar** e função, e escolha o **perfil de acesso**. A senha é gerada pela ferramenta e aparece uma única vez, para ser passada à pessoa.
+        texto: `Em **Configurações › Usuários e acessos**, cadastre cada pessoa com nome, **usuário para entrar**, **e-mail** (obrigatório; prefira o de trabalho) e função, e escolha o **perfil de acesso**. Com o envio de e-mail ligado, ela recebe um **convite** para criar a própria senha, e você nunca a vê. Com o envio desligado, a senha provisória é gerada pela ferramenta e aparece uma única vez, para ser passada à pessoa.
+- **Selos:** "Convite pendente", "Convite vencido" (o link de 7 dias passou) e "E-mail não confirmado". Ao abrir a pessoa, **Reenviar convite** manda um link novo e invalida o anterior; **Enviar link para redefinir senha** só vale para quem tem e-mail confirmado. Esvaziar o e-mail no cadastro o retira.
 - **Perfil de acesso:** é ele que decide o que a pessoa vê — valores em reais, Painel geral e Equipe estão em perfis próprios. Os perfis são editados na aba **Perfis de acesso**, desta mesma tela.
 - **Pode entrar na ferramenta?** responda “Não” quando a pessoa sair da clínica. O acesso dela cai na hora e o histórico é mantido.`,
       },

@@ -1,19 +1,37 @@
 'use client'
 
 import type {
+  ConfigDoAcesso,
+  EnvioFeito,
   GrupoDaEquipeParaAdministrar,
   GruposDaEquipeParaAdministrar,
   ListaDePerfis,
   ListaDePessoas,
   PerfilPublico,
   PessoaCriada,
+  PessoaEditada,
   PessoaNaLista,
   SenhaRedefinida,
 } from '@fir/contracts'
-import { type ChaveDePermissao, PERMS, PILARES, canonizarUsuario } from '@fir/domain'
+import {
+  type ChaveDePermissao,
+  PERMS,
+  PILARES,
+  canonizarEmail,
+  canonizarUsuario,
+  ehErro,
+  validarEmail,
+} from '@fir/domain'
 import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
+import {
+  type AcaoDeEmail,
+  acoesDeEmail,
+  emailDoCampo,
+  emailParaOPatch,
+  seloDoAcesso,
+} from '@/lib/acesso-da-pessoa'
 import { Carregando, Erro, Toast } from './estados'
 import { ExcluirPessoa } from './excluir-pessoa'
 import { AbaGrupos, CampoDeGrupos } from './grupos-da-equipe'
@@ -61,6 +79,14 @@ export function TelaUsuarios({ souAdmin }: { souAdmin: boolean }) {
   const perfis = useDados<ListaDePerfis>('v1/pessoas/perfis')
   // Com a composição (membroIds): só esta tela, que exige `config`, a lê.
   const grupos = useDados<GruposDaEquipeParaAdministrar>('v1/grupos/administracao')
+  /**
+   * O envio de e-mail está ligado nesta instalação? Decide o caminho da
+   * criação (convite ou provisória) e se "Reenviar convite" e "Enviar link"
+   * aparecem. Enquanto não responde, vale o caminho de hoje — o servidor é
+   * quem decide de verdade, e a resposta da criação diz qual foi.
+   */
+  const config = useDados<ConfigDoAcesso>('v1/acesso/config')
+  const envioDeEmail = config.dados?.envioDeEmail ?? false
   const [recado, setRecado] = useState<string | null>(null)
 
   return (
@@ -100,6 +126,7 @@ export function TelaUsuarios({ souAdmin }: { souAdmin: boolean }) {
       {aba === 'pessoas' ? (
         <AbaPessoas
           souAdmin={souAdmin}
+          envioDeEmail={envioDeEmail}
           pessoas={pessoas}
           perfis={perfis.dados?.perfis ?? []}
           grupos={grupos.dados?.grupos ?? []}
@@ -124,6 +151,7 @@ export function TelaUsuarios({ souAdmin }: { souAdmin: boolean }) {
 
 function AbaPessoas({
   souAdmin,
+  envioDeEmail,
   pessoas,
   perfis,
   grupos,
@@ -132,6 +160,7 @@ function AbaPessoas({
   aoMudarGrupos,
 }: {
   souAdmin: boolean
+  envioDeEmail: boolean
   pessoas: ReturnType<typeof useDados<ListaDePessoas>>
   perfis: readonly PerfilPublico[]
   grupos: readonly GrupoDaEquipeParaAdministrar[]
@@ -149,7 +178,7 @@ function AbaPessoas({
    * só desta vez" ser verdade, e não uma frase.
    */
   const [provisoria, setProvisoria] = useState<
-    { nome: string; usuario: string; senha: string; expiraEm: string } | null
+    { nome: string; usuario: string; senha: string; expiraEm: string; nota?: string } | null
   >(null)
 
   const d = pessoas.dados
@@ -174,6 +203,7 @@ function AbaPessoas({
           usuario={provisoria.usuario}
           senha={provisoria.senha}
           expiraEm={provisoria.expiraEm}
+          {...(provisoria.nota === undefined ? {} : { nota: provisoria.nota })}
           aoFechar={() => setProvisoria(null)}
         />
       )}
@@ -191,6 +221,7 @@ function AbaPessoas({
       {editando === 'nova' ? (
         <FormularioDePessoa
           souAdmin={souAdmin}
+          envioDeEmail={envioDeEmail}
           perfis={perfis}
           grupos={grupos}
           aoFechar={() => setEditando(null)}
@@ -198,16 +229,32 @@ function AbaPessoas({
           aoMudarGrupos={aoMudarGrupos}
           aoCriar={(p, gruposFalharam) => {
             setEditando(null)
-            setProvisoria({
-              nome: p.nome,
-              usuario: p.usuario,
-              senha: p.senhaProvisoria,
-              expiraEm: p.senhaProvisoriaExpiraEm,
-            })
+            // `senhaProvisoria === null`: o envio de e-mail está ligado e a
+            // pessoa recebeu o convite — não há senha a anotar. Quem decide o
+            // caminho é a RESPOSTA, não a configuração lida antes: ela é a
+            // verdade do instante em que a pessoa foi criada.
+            if (p.senhaProvisoria !== null) {
+              setProvisoria({
+                nome: p.nome,
+                usuario: p.usuario,
+                senha: p.senhaProvisoria,
+                expiraEm: p.senhaProvisoriaExpiraEm,
+                nota: 'O envio de e-mail ainda não está ligado nesta instalação; passe a senha provisória à pessoa.',
+              })
+            }
             aoAvisar(
-              gruposFalharam
-                ? `${p.nome} foi adicionada, mas não consegui colocá-la nos grupos. Abra o cadastro dela e tente de novo.`
-                : `${p.nome} foi adicionada.`,
+              [
+                p.convite === 'enviado'
+                  ? `Convite enviado para ${p.emailPendente}.`
+                  : p.convite === 'falhou'
+                    ? `${p.nome} foi adicionada, mas o convite não saiu agora. Abra o cadastro dela e toque em Reenviar convite.`
+                    : `${p.nome} foi adicionada.`,
+                gruposFalharam
+                  ? 'Não consegui colocá-la nos grupos: abra o cadastro dela e tente de novo.'
+                  : null,
+              ]
+                .filter((x) => x !== null)
+                .join(' '),
             )
             pessoas.recarregar()
           }}
@@ -224,6 +271,7 @@ function AbaPessoas({
             <LinhaDePessoa
               key={p.id}
               souAdmin={souAdmin}
+              envioDeEmail={envioDeEmail}
               p={p}
               perfis={perfis}
               grupos={grupos}
@@ -268,6 +316,7 @@ const inicial = (nome: string) => (nome.trim()[0] ?? '?').toUpperCase()
 
 function LinhaDePessoa({
   souAdmin,
+  envioDeEmail,
   p,
   perfis,
   grupos,
@@ -279,6 +328,7 @@ function LinhaDePessoa({
   aoRedefinir,
 }: {
   souAdmin: boolean
+  envioDeEmail: boolean
   p: PessoaNaLista
   perfis: readonly PerfilPublico[]
   grupos: readonly GrupoDaEquipeParaAdministrar[]
@@ -295,6 +345,9 @@ function LinhaDePessoa({
 
   // Conveniência: o servidor recusa (403) quem não é administradora e age sobre uma.
   const somenteLeitura = p.admin && !souAdmin
+  const selo = seloDoAcesso(p)
+  // O confirmado é o que autentica; o pendente aparece enquanto não há um.
+  const emailNaLinha = p.email ?? p.emailPendente
 
   return (
     <div style={{ display: 'grid' }}>
@@ -324,6 +377,12 @@ function LinhaDePessoa({
               .filter((x) => x !== null)
               .join(' · ')}
           </small>
+          {emailNaLinha === null && selo === null ? null : (
+            <span className="acesso-da-pessoa">
+              {emailNaLinha === null ? null : <small className="email-da-pessoa">{emailNaLinha}</small>}
+              {selo === null ? null : <span className={selo.classe}>{selo.texto}</span>}
+            </span>
+          )}
         </div>
         <span className={p.admin ? 'pill bom' : 'pill'}>{nomeDoAcesso}</span>
         {/*
@@ -343,6 +402,7 @@ function LinhaDePessoa({
       {aberto ? (
         <FormularioDePessoa
           souAdmin={souAdmin}
+          envioDeEmail={envioDeEmail}
           p={p}
           perfis={perfis}
           grupos={grupos}
@@ -372,6 +432,7 @@ function textoDoAviso(a: NonNullable<PessoaNaLista['avisoDeAdministradora']>): s
 
 function FormularioDePessoa({
   souAdmin,
+  envioDeEmail,
   p,
   perfis,
   grupos,
@@ -383,6 +444,7 @@ function FormularioDePessoa({
   aoRedefinir,
 }: {
   souAdmin: boolean
+  envioDeEmail: boolean
   p?: PessoaNaLista
   perfis: readonly PerfilPublico[]
   grupos: readonly GrupoDaEquipeParaAdministrar[]
@@ -396,6 +458,10 @@ function FormularioDePessoa({
   const [nome, setNome] = useState(p?.nome ?? '')
   const [usuario, setUsuario] = useState(p?.usuario ?? '')
   const [funcao, setFuncao] = useState(p?.funcao ?? '')
+  const [email, setEmail] = useState(p === undefined ? '' : emailDoCampo(p))
+  /** O erro do e-mail fica DEBAIXO do campo, não no fim do formulário. */
+  const [erroDoEmail, setErroDoEmail] = useState('')
+  const acoes = p === undefined ? null : acoesDeEmail(p, envioDeEmail)
   /** `__admin` é a opção "Administradora"; o resto é id de perfil. */
   const [acesso, setAcesso] = useState(p === undefined ? '' : p.admin ? '__admin' : (p.perfilId ?? ''))
   const [ativo, setAtivo] = useState(p?.ativo ?? true)
@@ -439,8 +505,24 @@ function FormularioDePessoa({
 
   async function salvar() {
     setErro(null)
+    setErroDoEmail('')
     if (nome.trim().length < 2) {
       setErro('Informe o nome.')
+      return
+    }
+    // O e-mail é OBRIGATÓRIO para pessoa nova (ADR 2026-11-16); na edição,
+    // esvaziar o campo o retira. A forma é a do domínio, a mesma do servidor.
+    // Na PRÓPRIA ficha o e-mail não viaja: o servidor recusa (403), e o caminho
+    // é Trocar senha › E-mail, com a senha atual (appsec 1).
+    const emailNovo = p === undefined || p.euMesma ? undefined : emailParaOPatch(email, p)
+    if (p === undefined) {
+      const forma = validarEmail(canonizarEmail(email))
+      if (ehErro(forma)) {
+        setErroDoEmail(email.trim() === '' ? 'Informe o e-mail.' : forma.erro.mensagem)
+        return
+      }
+    } else if (typeof emailNovo === 'object' && emailNovo !== null) {
+      setErroDoEmail(emailNovo.erro)
       return
     }
     if (acesso === '') {
@@ -462,6 +544,7 @@ function FormularioDePessoa({
             nome: nome.trim(),
             usuario,
             funcao: funcao.trim(),
+            email: canonizarEmail(email),
             acesso: acesso === '__admin' ? { admin: true } : { admin: false, perfilId: acesso },
           }),
         })
@@ -489,6 +572,7 @@ function FormularioDePessoa({
       if (nome.trim() !== p.nome) corpo['nome'] = nome.trim()
       if (funcao.trim() !== p.funcao) corpo['funcao'] = funcao.trim()
       if (ativo !== p.ativo) corpo['ativo'] = ativo
+      if (emailNovo !== undefined) corpo['email'] = emailNovo
       const acessoAtual = p.admin ? '__admin' : (p.perfilId ?? '')
       if (acesso !== acessoAtual) {
         corpo['acesso'] =
@@ -499,11 +583,13 @@ function FormularioDePessoa({
         aoFechar()
         return
       }
+      let envio: PessoaEditada['envioDeEmail'] = null
       if (Object.keys(corpo).length > 0) {
-        await chamar<PessoaNaLista>(`v1/pessoas/${p.id}`, {
+        const editada = await chamar<PessoaEditada>(`v1/pessoas/${p.id}`, {
           method: 'PATCH',
           body: JSON.stringify(corpo),
         })
+        envio = editada.envioDeEmail
       }
       if (mudouGrupos) {
         try {
@@ -517,7 +603,13 @@ function FormularioDePessoa({
           return
         }
       }
-      aoMudar?.('Alterações salvas.')
+      aoMudar?.(
+        envio === 'falhou'
+          ? 'Alterações salvas, mas o e-mail com o link não saiu agora. Abra o cadastro e reenvie.'
+          : envio === 'enviado'
+            ? 'Alterações salvas. O link foi para o e-mail novo.'
+            : 'Alterações salvas.',
+      )
     } catch (e) {
       // A MENSAGEM DO SERVIDOR INTEIRA: o 422 dele já explica a saída ("dê
       // acesso de administrador a outra pessoa antes"), e reescrevê-la aqui
@@ -563,6 +655,31 @@ function FormularioDePessoa({
     }
   }
 
+  /**
+   * Reenviar o convite (invalida o anterior) ou mandar o link de redefinição
+   * ao e-mail CONFIRMADO. A admin **nunca vê a senha** — nem a de agora, nem a
+   * que a pessoa vai criar. A resposta traz o endereço mascarado, e é ele que o
+   * aviso repete.
+   */
+  async function enviarPorEmail(finalidade: 'convite' | 'redefinicao') {
+    if (p === undefined) return
+    setErro(null)
+    setOcupado(true)
+    try {
+      const r = await chamar<EnvioFeito>(`v1/pessoas/${p.id}/${finalidade}`, { method: 'POST' })
+      const para = r.enviadoPara ?? 'o e-mail dela'
+      aoMudar?.(
+        finalidade === 'convite'
+          ? `Convite reenviado para ${para}. O anterior deixou de valer.`
+          : `Link para redefinir a senha enviado para ${para}. Vale por 1 hora.`,
+      )
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não consegui enviar o e-mail.')
+    } finally {
+      setOcupado(false)
+    }
+  }
+
   return (
     <div className="painel">
       <b>{p === undefined ? 'Adicionar pessoa' : `Editar ${p.nome}`}</b>
@@ -603,6 +720,58 @@ function FormularioDePessoa({
             adicione a pessoa com o usuário novo e desative este.
           </small>
         </div>
+      )}
+
+      {p?.euMesma === true ? (
+        <div className="campo">
+          <span>E-mail</span>
+          <input type="text" readOnly value={p.email ?? p.emailPendente ?? ''} />
+          <small>
+            O seu e-mail muda em Trocar senha › E-mail, com a sua senha atual — nunca por esta ficha.
+          </small>
+        </div>
+      ) : (
+      <label className="campo">
+        {p === undefined ? 'E-mail' : (
+          <span>
+            E-mail <small>(deixe vazio para retirar)</small>
+          </span>
+        )}
+        <input
+          type="email"
+          inputMode="email"
+          maxLength={254}
+          value={email}
+          placeholder="juliana@clinica.com.br"
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          required={p === undefined}
+          aria-invalid={erroDoEmail !== ''}
+          aria-describedby="erro-do-email-da-pessoa"
+          onChange={(e) => {
+            setEmail(e.target.value)
+            setErroDoEmail('')
+          }}
+        />
+        <span id="erro-do-email-da-pessoa" className="erro" role="status" aria-live="polite">
+          {erroDoEmail}
+        </span>
+        <small>
+          {p === undefined
+            ? envioDeEmail
+              ? 'Use o e-mail de trabalho dela. O convite para criar a senha vai para ele.'
+              : 'Use o e-mail de trabalho dela. Ele fica guardado até ela confirmar.'
+            : p.email === null && p.emailPendente === null
+              ? 'Sem e-mail: ela entra pelo usuário e, se esquecer a senha, você gera uma provisória.'
+              : p.email !== null && p.emailPendente !== null
+              ? `Confirmado: ${p.email}. O novo vale depois que ela confirmar.`
+              : p.emailConfirmado
+                ? 'Confirmado. Trocar o e-mail pede uma confirmação nova; o atual vale até lá.'
+                : 'Ainda não confirmado: ela não entra nem redefine a senha por ele.'}
+        </small>
+      </label>
       )}
 
       <label className="campo">
@@ -672,10 +841,17 @@ function FormularioDePessoa({
       />
 
       {p === undefined ? (
-        <p className="nota">
-          A senha é <b>gerada pelo servidor</b> e aparece uma única vez, agora. Você não a escolhe e
-          não consegue lê-la depois — nem aqui, nem no banco.
-        </p>
+        envioDeEmail ? (
+          <p className="nota">
+            Ela recebe um <b>convite por e-mail</b> e cria a própria senha. O link vale 7 dias. Você
+            não escolhe nem vê a senha dela.
+          </p>
+        ) : (
+          <p className="nota">
+            A senha é <b>gerada pelo servidor</b> e aparece uma única vez, agora. Você não a escolhe e
+            não consegue lê-la depois — nem aqui, nem no banco.
+          </p>
+        )
       ) : (
         <>
           <div className="pergunta">
@@ -769,6 +945,29 @@ function FormularioDePessoa({
           </button>
         )}
       </div>
+      {/* O ACESSO POR E-MAIL — só com o envio ligado e nunca sobre si mesma
+          (`acoesDeEmail`). Opção que não vale agora aparece desligada e diz
+          por quê, em vez de sumir sem explicação. */}
+      {acoes === null || (acoes.convite === null && acoes.redefinicao === null) ? null : (
+        <div className="acoes-de-email">
+          {acoes.convite === null ? null : (
+            <AcaoPorEmail
+              rotulo="Reenviar convite"
+              acao={acoes.convite}
+              ocupado={ocupado}
+              aoTocar={() => void enviarPorEmail('convite')}
+            />
+          )}
+          {acoes.redefinicao === null ? null : (
+            <AcaoPorEmail
+              rotulo="Enviar link para redefinir senha"
+              acao={acoes.redefinicao}
+              ocupado={ocupado}
+              aoTocar={() => void enviarPorEmail('redefinicao')}
+            />
+          )}
+        </div>
+      )}
       {confirmandoSenha ? (
         <>
           {p?.admin ? (
@@ -821,6 +1020,27 @@ function FormularioDePessoa({
         />
       ) : null}
     </div>
+  )
+}
+
+function AcaoPorEmail({
+  rotulo,
+  acao,
+  ocupado,
+  aoTocar,
+}: {
+  rotulo: string
+  acao: AcaoDeEmail
+  ocupado: boolean
+  aoTocar: () => void
+}) {
+  return (
+    <span className="acao-de-email">
+      <button type="button" className="btn ghost" disabled={!acao.habilitada || ocupado} onClick={aoTocar}>
+        {rotulo}
+      </button>
+      {acao.motivo === null ? null : <small>{acao.motivo}</small>}
+    </span>
   )
 }
 

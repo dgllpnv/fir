@@ -22,6 +22,7 @@ export default defineConfig({
     fileParallelism: false,
     // Mesma razão de `apps/api/vitest.config.ts`: o segundo fator da carteira
     // desligado, o padrão de produção desde a D-23 (ADR 0023).
-    env: { SEGUNDO_FATOR_CARTEIRA_LIGADO: 'false' },
+    // E o envio de e-mail desligado (ADR 2026-11-16), pela mesma razão.
+    env: { SEGUNDO_FATOR_CARTEIRA_LIGADO: 'false', SMTP_HOST: '', URL_PUBLICA: '' },
   },
 })

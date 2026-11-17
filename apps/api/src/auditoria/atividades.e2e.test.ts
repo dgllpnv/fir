@@ -70,7 +70,7 @@ describe('GET /v1/atividades', () => {
     const l = await pegar(c, '/v1/atividades', {}, 'beatriz')
     expect(l.statusCode).toBe(200)
     for (const i of l.body.itens as Item[]) {
-      expect(Object.keys(i).sort()).toEqual(['acao', 'assunto', 'campos', 'chave', 'em', 'entidadeId', 'motivo', 'quem'])
+      expect(Object.keys(i).sort()).toEqual(['acao', 'assunto', 'campos', 'chave', 'em', 'entidadeId', 'evento', 'motivo', 'quem'])
       expect(i.campos.every((k) => /^[a-z_0-9]+$/.test(k))).toBe(true)
     }
     expect(JSON.stringify(l.body)).not.toMatch(/"(de|para|salario|valor)"/)

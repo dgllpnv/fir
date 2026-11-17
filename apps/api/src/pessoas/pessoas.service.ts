@@ -7,6 +7,9 @@ import {
   type PessoaDaClinica,
 } from '@fir/domain'
 import { Inject, Injectable } from '@nestjs/common'
+import { AcessoPorEmailService } from '../acesso/acesso-por-email.service'
+import { emitirLink, gravarEvento } from '../acesso/links'
+import { pessoaDoAtor } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import { RELOGIO, type Relogio } from '../comum/relogio'
 import { atorDeAcessoDoContexto, type ContextoDaRequisicao } from '../comum/contexto'
@@ -18,6 +21,7 @@ import {
 } from './acesso-do-ator'
 import {
   gerarProvisoria,
+  hashDoConvite,
   inserirPessoa,
   PessoaNaoExiste,
   provisoriaEscolhida,
@@ -38,6 +42,7 @@ export class PessoasService {
   constructor(
     @Inject(BancoService) private readonly banco: BancoService,
     @Inject(RELOGIO) private readonly relogio: Relogio,
+    @Inject(AcessoPorEmailService) private readonly acessoPorEmail: AcessoPorEmailService,
   ) {}
 
   /**
@@ -52,9 +57,20 @@ export class PessoasService {
    * transação, depois do lock da clínica (`travarAcessoDaClinica`).
    */
   async criar(contexto: ContextoDaRequisicao, dados: CriarPessoaEntrada): Promise<PessoaCriada> {
-    const provisoria = await gerarProvisoria(this.relogio.agora())
+    /**
+     * **Dois caminhos, decididos pelo envio** (spec 2.1 e 5, ADR 2026-11-16):
+     *
+     *  - LIGADO: nasce convidada, sem provisória, e o convite de 7 dias vai
+     *    para o e-mail. Ninguém além dela chega a conhecer a senha dela.
+     *  - DESLIGADO: o caminho de hoje, a provisória — e o e-mail fica guardado
+     *    PENDENTE, para a pessoa confirmá-lo quando o envio ligar.
+     */
+    const convidando = this.acessoPorEmail.ligado
+    const agora = this.relogio.agora()
+    const gerada = convidando ? null : await gerarProvisoria(agora)
+    const provisoria = gerada ?? { senha: null, hash: await hashDoConvite(), expiraEm: agora }
 
-    const linha = await this.banco.naClinica(contexto.clinicaId, contexto.ator, async (c) => {
+    const criada = await this.banco.naClinica(contexto.clinicaId, contexto.ator, async (c) => {
       await travarAcessoDaClinica(c, contexto.clinicaId)
       const ator = await lerAtorDeAcesso(c, contexto.ator)
       exigirDominio(podeConcederAdministracao(ator, null, dados.acesso.admin))
@@ -63,25 +79,67 @@ export class PessoasService {
           podeAtribuirPerfil(ator, await lerPerfisDoDominio(c), dados.acesso.perfilId, null),
         )
       }
-      return inserirPessoa(c, {
+      const linha = await inserirPessoa(c, {
         clinicaId: contexto.clinicaId,
         nome: dados.nome,
         usuario: dados.usuario,
         funcao: dados.funcao,
         perfilId: dados.acesso.admin ? null : dados.acesso.perfilId,
         provisoria,
+        emailPendente: dados.email,
+        aguardandoPrimeiraSenha: convidando,
       })
+      if (!convidando) return { linha, token: null }
+      // O convite nasce na MESMA transação da pessoa: sem pessoa, sem link; e
+      // sem link, sem pessoa presa em `aguardando_primeira_senha`.
+      const token = await emitirLink(c, {
+        clinicaId: contexto.clinicaId,
+        pessoaId: linha.id,
+        finalidade: 'convite',
+        emailHmac: this.acessoPorEmail.hmacDoEmail(dados.email),
+        agora,
+      })
+      await gravarEvento(c, {
+        clinicaId: contexto.clinicaId,
+        pessoaId: linha.id,
+        evento: 'convite_enviado',
+        porPessoaId: pessoaDoAtor(contexto.ator),
+      })
+      return { linha, token }
     })
 
+    const base = {
+      id: criada.linha.id,
+      nome: criada.linha.nome,
+      usuario: criada.linha.usuario,
+      funcao: criada.linha.funcao,
+      admin: criada.linha.admin,
+      perfilId: criada.linha.perfil_id,
+      emailPendente: dados.email,
+    }
+    if (gerada !== null) {
+      return {
+        ...base,
+        convite: null,
+        senhaProvisoria: gerada.senha,
+        senhaProvisoriaExpiraEm: gerada.expiraEm.toISOString(),
+      }
+    }
+    if (criada.token === null) throw new Error('convite sem link: a transação acima o emite sempre')
+    // O e-mail sai DEPOIS do COMMIT: se o SMTP recusar, a pessoa e o convite
+    // existem, e a admin o reenvia — nunca uma pessoa presa sem convite.
+    const saiu = await this.acessoPorEmail.entregar(
+      this.acessoPorEmail.mensagemComLink('convite', criada.token, {
+        para: dados.email,
+        clinicaNome: contexto.clinicaNome,
+        nomeDaPessoa: dados.nome,
+      }),
+    )
     return {
-      id: linha.id,
-      nome: linha.nome,
-      usuario: linha.usuario,
-      funcao: linha.funcao,
-      admin: linha.admin,
-      perfilId: linha.perfil_id,
-      senhaProvisoria: provisoria.senha,
-      senhaProvisoriaExpiraEm: provisoria.expiraEm.toISOString(),
+      ...base,
+      convite: saiu ? 'enviado' : 'falhou',
+      senhaProvisoria: null,
+      senhaProvisoriaExpiraEm: null,
     }
   }
 

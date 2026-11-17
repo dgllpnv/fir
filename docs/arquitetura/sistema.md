@@ -85,7 +85,13 @@ A lista curta e definitiva. O ponto de partida está em `CLAUDE.md` §5:
    `*.googleapis.com`) e `LeitorDePlanilhaEmMemoria` (fixture). Roda só no `worker-planilhas`;
    a API nunca fala com o Google nem recebe a credencial.
 
-Cada um com: o que observa, o que **não** observa, e por que não há um décimo.
+10. `Correio` — **implementado** no acesso por e-mail (ADR 2026-11-16). Manda UMA mensagem já
+   montada e nada mais: o link, o texto e o destinatário são decididos antes dele. `CorreioSmtp`
+   (nodemailer; liga só com `SMTP_HOST` e `URL_PUBLICA`) e `CorreioCapturador` (testes). Rejeita
+   com `FalhaDeEnvio(código)`, nunca com o erro cru do provedor, e registra só tipo, código e o
+   destinatário mascarado. Em `apps/api/src/acesso/correio.ts`.
+
+Cada um com: o que observa, o que **não** observa, e por que não há um décimo primeiro.
 
 > **O painel do superadmin (2026-10-28) NÃO acrescentou seam nenhum**, e isso é
 > o resultado desejado, não uma coincidência. Ele cai inteiro nos que já
@@ -94,6 +100,14 @@ Cada um com: o que observa, o que **não** observa, e por que não há um décim
 > varredura de catálogo. Um painel que precisasse de um seam próprio seria um
 > painel que faz algo que o produto não sabe fazer — e é justamente isso que
 > ele não pode ser.
+
+> **Indicadores & Insights (2026-11-16, spec `docs/specs/indicadores-e-insights.md`) também não
+> acrescentou seam.** Não há sistema externo: os KPIs são medidos pelas funções que o Painel, a
+> Visão do mês, o estoque, as pessoas e as campanhas já usam, atrás de um módulo profundo
+> (`CalculadoraDeKpi`). Os relatórios são consultas atrás de um motor (`MotorDeRelatorios`). Os
+> dois se testam pela HTTP sobre Postgres real, e a matemática de meta é de `packages/domain`.
+> O módulo `metas` (só persistência de `metas_de_kpi`) existe para que `financeiro` e
+> `indicadores` não formem ciclo: `indicadores → metas · financeiro`, `financeiro → metas`.
 
 ## 3. Modelo de dados
 Tabelas, `clinica_id`, policies de RLS, índices, o que é append-only e o que é soft delete. Derivado do `CONTEXT.md` — e o `CONTEXT.md` vem primeiro.

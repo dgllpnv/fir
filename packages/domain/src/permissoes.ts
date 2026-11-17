@@ -1,3 +1,5 @@
+import type { UnidadeDeKpi } from './indicadores/unidades'
+
 /**
  * A matriz de permissões, portada do protótipo (`PERMS`, seção 5.1 do
  * documento de passagem).
@@ -28,6 +30,11 @@ export const PERMS = [
   ['Processos', 'estoque.gerir', 'Estoque: cadastro de itens, ajustes, custos e análise', 'Inclui valor em estoque, etiquetas, importação e locais'],
   ['Pessoas', 'pessoas.gerir', 'Equipe: fichas, metas, conversas 1:1 e banco de horas', 'Dados de RH (inclui salário)'],
   ['Gestão', 'painel', 'Painel geral', 'Indicadores de prazos, pacientes e unidades', 'valores'],
+  // Indicadores & Insights (I-32). `indicadores.gerir` depende de `indicadores`,
+  // que NÃO tem dependência própria: `temPerm` confere um nível só, e o teste
+  // `perms-sem-dependencia-em-cadeia` cobra que nenhuma cadeia nasça (appsec C4).
+  ['Gestão', 'indicadores', 'Indicadores & Insights', 'OKRs, KPIs, metas e relatórios'],
+  ['Gestão', 'indicadores.gerir', 'Criar e editar KPIs, metas e OKRs', 'Inclui a meta de faturamento e o plano de ação', 'indicadores'],
   ['Gestão', 'config', 'Configurações', 'Unidades, usuários e acessos, procedimentos'],
 ] as const satisfies readonly (readonly [string, string, string, string, string?])[]
 
@@ -51,7 +58,7 @@ export const infoDaPermissao = (chave: ChaveDePermissao) => porChave.get(chave)
  */
 export function perfisPadrao(): Perfil[] {
   return [
-    { id: 'pf_sup', nome: 'Supervisão / gestão', perms: ['tarefas.equipe', 'jornada', 'pacientes', 'pacientes.gerir', 'programas', 'programas.gerir', 'campanhas', 'campanhas.gerir', 'valores', 'receber', 'caixa', 'contas', 'cobrancas', 'estoque', 'estoque.gerir', 'painel'] },
+    { id: 'pf_sup', nome: 'Supervisão / gestão', perms: ['tarefas.equipe', 'jornada', 'pacientes', 'pacientes.gerir', 'programas', 'programas.gerir', 'campanhas', 'campanhas.gerir', 'valores', 'receber', 'caixa', 'contas', 'cobrancas', 'estoque', 'estoque.gerir', 'painel', 'indicadores', 'indicadores.gerir'] },
     { id: 'pf_rec', nome: 'Recepção', perms: ['jornada', 'pacientes', 'programas', 'campanhas', 'receber', 'caixa', 'contas', 'cobrancas', 'estoque'] },
     { id: 'pf_com', nome: 'Comercial', perms: ['jornada', 'pacientes', 'programas', 'campanhas', 'cobrancas'] },
     { id: 'pf_enf', nome: 'Enfermagem', perms: ['programas', 'estoque'] },
@@ -82,6 +89,57 @@ export function temPerm(
   const dependencia = porChave.get(chave)?.[4] as ChaveDePermissao | undefined
   if (dependencia && !perms.includes(dependencia)) return false
   return perms.includes(chave)
+}
+
+/**
+ * **Valor em reais exige `valores` para ESCREVER** (appsec C3). Um predicado
+ * só, chamado por toda rota que grava alvo ou partida: meta, série, prévia,
+ * KR de OKR (criar, editar e duplicar) e o `PUT` de KPI manual que muda a
+ * unidade para `reais`. Quem grava um alvo em reais conhece o alvo — e com o
+ * `percentualDaMeta` que a equipe lê, deduz o atual.
+ */
+export function exigeValoresParaEscrever(unidade: UnidadeDeKpi): boolean {
+  return unidade === 'reais'
+}
+
+/** O predicado acima aplicado à pessoa: pode gravar alvo/partida nesta unidade? */
+export function podeEscreverNaUnidade(
+  usuario: UsuarioDePermissao | null | undefined,
+  perfis: readonly Perfil[],
+  unidade: UnidadeDeKpi,
+): boolean {
+  return !exigeValoresParaEscrever(unidade) || temPerm(usuario, perfis, 'valores')
+}
+
+export type KpiParaLancar = {
+  readonly origem: 'catalogo' | 'manual'
+  readonly arquivado: boolean
+  /** Lido do banco NA MESMA TRANSAÇÃO que grava o lançamento (appsec C1). */
+  readonly responsavelId: string | null
+}
+
+/**
+ * Quem pode lançar o valor de um KPI manual (I-31) — a EXCEÇÃO NOMEADA da
+ * matriz de acesso: a responsável lança mesmo sem `indicadores`. A gestão
+ * (`indicadores.gerir`) também lança, para corrigir.
+ *
+ * Cada recusa tem o seu status na borda (appsec C1): KPI de catálogo → 422,
+ * arquivado → 409, quem não é a responsável → 403. O KPI de outra clínica nem
+ * chega aqui: a RLS o esconde e a rota dá 404.
+ *
+ * **Não abre leitura** (appsec C2): nenhuma rota de leitura chama esta
+ * função. O que a janela de lançamento precisa chega pela tarefa.
+ */
+export function podeLancar(
+  usuario: (UsuarioDePermissao & { readonly pessoaId: string }) | null | undefined,
+  perfis: readonly Perfil[],
+  kpi: KpiParaLancar,
+): 'pode' | 'kpi_de_catalogo' | 'kpi_arquivado' | 'nao_e_responsavel' {
+  if (kpi.origem !== 'manual') return 'kpi_de_catalogo'
+  if (kpi.arquivado) return 'kpi_arquivado'
+  if (!usuario) return 'nao_e_responsavel'
+  if (kpi.responsavelId !== null && kpi.responsavelId === usuario.pessoaId) return 'pode'
+  return temPerm(usuario, perfis, 'indicadores.gerir') ? 'pode' : 'nao_e_responsavel'
 }
 
 /**
@@ -394,4 +452,22 @@ export const CAMPOS_MONETARIOS = [
   'totalNovo',
   'totalExato',
   'arredondamentoDoMedx',
+
+  /**
+   * Indicadores & Insights (I-34, I-35; appsec C7). Todo valor de KPI em
+   * reais viaja em `ValorNaTela.emDinheiro`, e SÓ nele: `valorNaTela` põe
+   * `emNumero = null` em reais, então apagar este nome apaga o valor inteiro.
+   *
+   * **O que NÃO entra:** `emNumero` (contagens, percentuais, notas, horas),
+   * `percentualDaMeta`, `escala` e a variação — são o que sobra para quem não
+   * tem `valores`, e o residual de inferência está aceito na ADR de T1.
+   */
+  'emDinheiro',
+  /**
+   * T2 (I-35; números c.11d): o recebido dos dias que ainda não contam para a
+   * meta, na Visão do mês e em `/v1/metas/:mes/percentual`. Um total só, em
+   * centavos; a equipe lê `null` e o `diasAguardandoFechamento`, que não é
+   * dinheiro.
+   */
+  'aguardandoFechamento',
 ] as const

@@ -298,7 +298,7 @@ describe('Grupos — cadastro e vínculo (config, nunca o próprio, nunca o supo
     expect(texto).not.toMatch(/"de"|"para"|Recepção|Enfermagem/)
     // Cada linha: só quem fez, quando, o quê e os NOMES dos campos.
     for (const i of doVinculo) {
-      expect(Object.keys(i).sort()).toEqual(['acao', 'assunto', 'campos', 'chave', 'em', 'entidadeId', 'motivo', 'quem'])
+      expect(Object.keys(i).sort()).toEqual(['acao', 'assunto', 'campos', 'chave', 'em', 'entidadeId', 'evento', 'motivo', 'quem'])
     }
   })
 })

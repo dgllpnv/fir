@@ -1,0 +1,10 @@
+// Indicadores & Insights (spec `docs/specs/indicadores-e-insights.md`, T1).
+export { arredondar, type Fracao } from './aritmetica'
+export * from './unidades'
+export * from './catalogo'
+export * from './periodos'
+export * from './meta'
+export * from './okr'
+export * from './jornada'
+export * from './pessoas'
+export * from './conversao'

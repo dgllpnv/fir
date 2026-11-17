@@ -20,7 +20,11 @@ export type RecebimentoDoMes = { readonly valor: Dinheiro; readonly forma?: stri
 /** Uma outra entrada do mês (não é de paciente). Só o valor importa aqui. */
 export type OutraEntradaDoMes = { readonly valor: Dinheiro }
 export type ContaEmAberto = { readonly valor: Dinheiro; readonly vencida: boolean }
-export type CaixaDoMes = { readonly diferenca: Dinheiro }
+/**
+ * `semDiferenca`: toda forma conferida igual (I-15, ADR de `caixasDoMes`).
+ * Sem ele, cai na regra antiga (a soma do caixa), que só os testes puros usam.
+ */
+export type CaixaDoMes = { readonly diferenca: Dinheiro; readonly semDiferenca?: boolean }
 
 export type EntradaDaVisao = {
   readonly recebido: readonly RecebimentoDoMes[]
@@ -70,6 +74,8 @@ export type EntradaDaVisao = {
   readonly medidaDaMeta: MedidaDaMeta
   readonly caixas: readonly CaixaDoMes[]
   readonly diasUteis: number
+  /** O denominador de `caixasSemDiferenca` (o mesmo conjunto do numerador). */
+  readonly diasDaConferencia?: number
 }
 
 /**
@@ -99,6 +105,8 @@ export type ResumoDeCaixa = {
   readonly diasUteis: number
   readonly comDiferenca: number
   readonly diferenca: Dinheiro
+  /** Úteis até ontem + hoje se fechado + não úteis com caixa (I-15). `null` = não informado. */
+  readonly diasDaConferencia: number | null
 }
 
 export type VisaoDoMes = {
@@ -321,7 +329,9 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
   const resultado = recebido.mais(outras).menos(despesasPagas)
   const atingimento = atingimentoDaMetaDoMes(entrada.meta, entrada.medidoParaAMeta)
 
-  const comDiferenca = entrada.caixas.filter((c) => !c.diferenca.ehZero()).length
+  const comDiferenca = entrada.caixas.filter((c) =>
+    c.semDiferenca === undefined ? !c.diferenca.ehZero() : !c.semDiferenca,
+  ).length
 
   return {
     recebido,
@@ -365,6 +375,7 @@ export function visaoDoMes(entrada: EntradaDaVisao): VisaoDoMes {
       diasUteis: entrada.diasUteis,
       comDiferenca,
       diferenca: entrada.caixas.reduce((s, c) => s.mais(c.diferenca), Dinheiro.zero()),
+      diasDaConferencia: entrada.diasDaConferencia ?? null,
     },
   }
 }

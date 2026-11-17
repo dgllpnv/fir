@@ -52,6 +52,7 @@ export function Shell({
   usuario,
   funcao,
   suporte,
+  aviso = null,
   children,
 }: {
   itens: readonly ItemDeMenu[]
@@ -67,6 +68,11 @@ export function Shell({
    * `.shell[data-suporte='sim'] .topbar`.
    */
   suporte: boolean
+  /**
+   * Um aviso para a PESSOA, no topo do conteúdo — hoje, a faixa "Cadastre seu
+   * e-mail". Quem decide se ele existe é o layout, no servidor.
+   */
+  aviso?: ReactNode
   children: ReactNode
 }) {
   const rota = usePathname()
@@ -395,7 +401,10 @@ export function Shell({
             <SeletorDeTema id="tema-topo" lugar="topo" />
           </div>
         </header>
-        <main className="wrap">{children}</main>
+        <main className="wrap">
+          {aviso}
+          {children}
+        </main>
       </div>
     </div>
   )

@@ -2,11 +2,13 @@ import {
   type ChaveDePermissao,
   PERMS,
   SENHA_MAX,
+  SITUACOES_DO_ACESSO,
   canonizarUsuario,
   ehErro,
   validarUsuario,
 } from '@fir/domain'
 import { z } from 'zod'
+import { EmailCanonico } from './acesso-por-email'
 import { PerfilPublico } from './autenticacao'
 import { Uuid } from './comum'
 
@@ -54,6 +56,13 @@ const CorpoDeCriarPessoa = z
         if (ehErro(r)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: r.erro.mensagem })
       }),
     funcao: z.string().trim().max(120).default(''),
+    /**
+     * **Obrigatório para pessoa nova** (ADR 2026-11-16). Nasce PENDENTE, nunca
+     * confirmado: quem o digitou foi a admin, e só o uso do link prova que a
+     * caixa de entrada é da pessoa (appsec 2). Com o envio ligado, o convite
+     * vai para ele; desligado, fica guardado e a pessoa entra pela provisória.
+     */
+    email: EmailCanonico,
     acesso: z
       .discriminatedUnion('admin', [
         z.object({ admin: z.literal(true) }).strict(),
@@ -75,6 +84,7 @@ export const CriarPessoaEntrada = CorpoDeCriarPessoa.superRefine((d, ctx) => {
   nome: d.nome,
   usuario: d.usuario,
   funcao: d.funcao,
+  email: d.email,
   // O `superRefine` acima garante que, sem `acesso`, há `perfilId`.
   acesso: d.acesso ?? { admin: false as const, perfilId: d.perfilId ?? '' },
 }))
@@ -93,18 +103,45 @@ export type CriarPessoaEntrada = z.output<typeof CriarPessoaEntrada>
  * Nada guarda esta cadeia: só o hash Argon2id existe no banco, a trilha a
  * esconde por `auditoria_sem_segredos`, e nenhum log a vê.
  */
-export const PessoaCriada = z.object({
+const BaseDaPessoaCriada = {
   id: Uuid,
   nome: z.string(),
   usuario: z.string(),
   funcao: z.string(),
   admin: z.boolean(),
   perfilId: Uuid.nullable(),
+  /** O e-mail digitado, ainda PENDENTE de confirmação. */
+  emailPendente: z.string(),
+}
+
+/**
+ * **Dois caminhos, e `convite` diz qual** (spec 2.1 e 5):
+ *
+ *  - `convite: null` — o envio de e-mail está DESLIGADO nesta instalação. É o
+ *    caminho de hoje: a provisória vem em claro, uma vez, e a tela mostra o
+ *    modal "anote esta senha".
+ *  - `convite: 'enviado' | 'falhou'` — o envio está ligado. **Não há senha
+ *    provisória** (`senhaProvisoria: null`): a pessoa cria a dela pelo link de
+ *    7 dias. `'falhou'` é o SMTP que recusou agora; o convite existe e a admin
+ *    o reenvia por `POST /v1/pessoas/:id/convite` (appsec, recomendação).
+ *
+ * `senhaProvisoria === null` estreita o tipo para o segundo caminho.
+ */
+export const PessoaCriadaComProvisoria = z.object({
+  ...BaseDaPessoaCriada,
+  convite: z.null(),
   /** A senha provisória EM CLARO. Aparece aqui, uma vez, e em lugar nenhum mais. */
   senhaProvisoria: z.string(),
   /** Instante UTC em que ela deixa de autenticar. Papel no balcão tem prazo. */
   senhaProvisoriaExpiraEm: z.string(),
 })
+export const PessoaCriadaComConvite = z.object({
+  ...BaseDaPessoaCriada,
+  convite: z.enum(['enviado', 'falhou']),
+  senhaProvisoria: z.null(),
+  senhaProvisoriaExpiraEm: z.null(),
+})
+export const PessoaCriada = z.union([PessoaCriadaComProvisoria, PessoaCriadaComConvite])
 export type PessoaCriada = z.infer<typeof PessoaCriada>
 
 /**
@@ -148,10 +185,11 @@ export type RedefinirSenha = z.infer<typeof RedefinirSenha>
  * esta senha" para quem acabou de escolhê-la é ruído, e o modal existe
  * justamente porque a gerada não pode ser recuperada depois.
  */
-export const SenhaRedefinida = PessoaCriada.pick({
-  id: true,
-  senhaProvisoriaExpiraEm: true,
-}).extend({ senhaProvisoria: z.string().nullable() })
+export const SenhaRedefinida = z.object({
+  id: Uuid,
+  senhaProvisoria: z.string().nullable(),
+  senhaProvisoriaExpiraEm: z.string(),
+})
 export type SenhaRedefinida = z.infer<typeof SenhaRedefinida>
 
 /**
@@ -181,6 +219,17 @@ export const PessoaNaLista = z.object({
   provisoriaExpiraEm: z.string().nullable(),
   /** `true` para quem está pedindo a lista — a tela esconde as ações sobre si. */
   euMesma: z.boolean(),
+  /** O e-mail CONFIRMADO: o que autentica e recebe a redefinição. */
+  email: z.string().nullable(),
+  /** O e-mail digitado e ainda não confirmado (pela admin ou pela pessoa). */
+  emailPendente: z.string().nullable(),
+  emailConfirmado: z.boolean(),
+  /**
+   * O selo: `convite_pendente` e `convite_vencido` só para quem foi convidada e
+   * ainda não criou a senha. "E-mail não confirmado" a tela deduz de
+   * `emailConfirmado`.
+   */
+  situacaoDoAcesso: z.enum(SITUACOES_DO_ACESSO),
   /**
    * **Aviso de administradora nova** (P-3): criada ou promovida nos últimos 30
    * dias. SÓ o que a clínica precisa para reconhecer um acesso que não pediu —
@@ -198,6 +247,17 @@ export const PessoaNaLista = z.object({
     .nullable(),
 })
 export type PessoaNaLista = z.infer<typeof PessoaNaLista>
+
+/**
+ * A resposta do `PATCH /v1/pessoas/:id`: a linha da lista e o que aconteceu com
+ * o e-mail que a correção do e-mail dispara (convite ou confirmação). `null`
+ * quando nada foi enviado; `'falhou'` quando o SMTP recusou — a correção fica
+ * salva e a admin reenvia, mas a tela não pode dizer "salvo" e calar.
+ */
+export const PessoaEditada = PessoaNaLista.extend({
+  envioDeEmail: z.enum(['enviado', 'falhou']).nullable(),
+})
+export type PessoaEditada = z.infer<typeof PessoaEditada>
 
 export const ListaDePessoas = z.object({ pessoas: z.array(PessoaNaLista) })
 export type ListaDePessoas = z.infer<typeof ListaDePessoas>
@@ -241,6 +301,13 @@ export const EditarPessoa = z
       ])
       .optional(),
     ativo: z.boolean().optional(),
+    /**
+     * Corrigir (`'x@y.com'`) ou RETIRAR (`null`, LGPD L8) o e-mail. O novo
+     * entra como PENDENTE e o confirmado anterior continua valendo até a
+     * confirmação (appsec 2); `null` apaga os dois. Os dois caminhos invalidam
+     * os links da pessoa (appsec 7).
+     */
+    email: EmailCanonico.nullable().optional(),
   })
   .strict()
   .refine((d) => Object.keys(d).length > 0, 'Não há nada para alterar.')

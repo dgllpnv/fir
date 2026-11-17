@@ -6,6 +6,8 @@ import type {
 } from '@fir/contracts'
 import {
   atingimentoDaMetaDoMes,
+  caixaSemDiferenca,
+  caixasSemDiferenca,
   type ContaEmAberto,
   type DespesaPaga,
   diaCivil,
@@ -14,7 +16,6 @@ import {
   fimDoMes,
   janela,
   type MedidaDaMeta,
-  medidoParaAMeta,
   type RecebimentoDoMes,
   somarMeses,
   visaoDoMes,
@@ -26,8 +27,9 @@ import { exigePessoa, type Ator, type PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import type { ClinicaId } from '../banco/clinica-id'
 import { RELOGIO, type Relogio } from '../comum/relogio'
-import { faturamentoLidoDoMedx, somaDoMedx } from '../integracoes/faturamento-lido'
+import { definirMetaDoMes, metaDoMes } from '../metas/metas.repositorio'
 import { PARTES_VIVAS } from './dinheiro-que-entrou'
+import { caixasDoPeriodo, type FaturamentoConferido, medirFaturamentoConferido } from './faturamento-conferido'
 import { outrasEntradasDaJanela } from './outras-entradas.repositorio'
 import { recebidosDaJanela } from './recebido-por-dia'
 import { pacientesQuePodemTerSaldo, saldosDe } from './saldo.repositorio'
@@ -41,7 +43,7 @@ const MESES_DA_ROTINA = 12
 const DESCRICAO_DO_FECHAMENTO =
   'Fechamento financeiro do mês: recebido, contas pagas por categoria, resultado e cobranças'
 
-type Contexto = {
+export type ContextoDaVisao = {
   readonly clinicaId: ClinicaId
   readonly ator: Ator
   readonly fuso: string
@@ -74,12 +76,38 @@ export class VisaoDoMesService {
    * função, com o mesmo fuso. Uma comparação "vs. setembro" medida com réguas
    * diferentes é o jeito mais discreto de um relatório mentir.
    */
-  async visao(ctx: Contexto, mes: string): Promise<VisaoNoContrato> {
+  async visao(ctx: ContextoDaVisao, mes: string): Promise<VisaoNoContrato> {
     const hoje = diaCivil(this.relogio.agora(), ctx.fuso)
-    const anterior = somarMeses(`${mes}-01`, -1).slice(0, 7)
-
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const [{ recebimentos: recebido, partes }, { recebimentos: recebidoAnterior }] =
+      const { visao, medida } = await this.visaoNaConexao(c, ctx, mes, hoje)
+      return paraContrato(mes, visao, medida)
+    })
+  }
+
+  /**
+   * A Visão do mês sobre uma conexão já aberta — a FONTE dos KPIs
+   * `resultado_do_mes`, `despesas_fixas_sobre_recebido` e `ticket_medio`
+   * (spec I-7: mover, nunca copiar).
+   *
+   * `soDiasQueContam`: o KPI passa `true`, e o `recebido` (e tudo o que sai
+   * dele) fica só com os dias que contam pela I-9 — com o caixa de hoje
+   * aberto, nenhum byte de `/v1/indicadores*` muda com um recebimento de hoje
+   * (appsec C11). A Visão do mês passa `false`: a tela é a de sempre.
+   */
+  async visaoNaConexao(
+    c: pg.PoolClient,
+    ctx: ContextoDaVisao,
+    mes: string,
+    hoje: string,
+    soDiasQueContam = false,
+  ): Promise<{
+    visao: VisaoDoMes
+    medida: FaturamentoConferido
+    recebimentos: readonly (RecebimentoDoMes & { dia: string })[]
+  }> {
+    const anterior = somarMeses(`${mes}-01`, -1).slice(0, 7)
+    {
+      const [{ recebimentos: todos, partes }, { recebimentos: recebidoAnterior }] =
         await Promise.all([this.recebidoNoMes(c, ctx, mes), this.recebidoNoMes(c, ctx, anterior)])
       const outras = await outrasEntradasDaJanela(
         c,
@@ -95,11 +123,15 @@ export class VisaoDoMesService {
       // A REGRA 6 DENTRO DA VISÃO DO MÊS. `porForma` só alcança os dias que
       // já tiveram caixa fechado; o total do mês continua inteiro.
       const conferidos = await this.diasConferidos(c, ctx, mes)
-      const diasComRecebimento = new Set(recebido.map((x) => x.dia))
+      const diasComRecebimento = new Set(todos.map((x) => x.dia))
       const semCaixa = [...diasComRecebimento].filter((d) => !conferidos.has(d))
 
-      const meta = await this.metaDe(c, ctx, mes)
-      const medida = await this.medidaDoMes(c, ctx, mes, hoje, meta, somaDe(recebido))
+      const meta = await metaDoMes(c, ctx.clinicaId, mes)
+      const medida = await this.medidaDoMes(c, ctx, mes, hoje, meta)
+      const contam = new Set(medida.corte.dias)
+      const recebido = soDiasQueContam ? todos.filter((x) => contam.has(x.dia)) : todos
+      const caixas = await caixasDoPeriodo(c, ctx.clinicaId, `${mes}-01`, fimDoMes(mes))
+      const conferencia = caixasSemDiferenca(`${mes}-01`, fimDoMes(mes), hoje, caixas)
 
       const v = visaoDoMes({
         recebido,
@@ -116,14 +148,16 @@ export class VisaoDoMesService {
         meta: meta?.valor ?? null,
         medidoParaAMeta: medida.medido,
         medidaDaMeta: medida.medidaPor,
-        caixas: await this.caixasDoMes(c, ctx, mes),
+        // I-15 (ADR 2026-11-17-correcao-de-caixas-do-mes): "com diferença" é
+        // ALGUMA forma diferente, não a soma do caixa.
+        caixas: caixas.map((x) => ({ diferenca: x.diferenca, semDiferenca: caixaSemDiferenca(x.linhas) })),
         // "18 dias úteis passados" é do MANUAL, e é contado até HOJE — num mês
         // passado o laço para no fim do mês sozinho.
         diasUteis: diasUteisAte(mes, hoje),
+        diasDaConferencia: conferencia.dias,
       })
-
-      return paraContrato(mes, v)
-    })
+      return { visao: v, medida, recebimentos: recebido }
+    }
   }
 
   /**
@@ -133,12 +167,12 @@ export class VisaoDoMesService {
    * `CAMPOS_MONETARIOS` e saem `null`; `percentual` não é monetário e
    * atravessa. **Zero linha de código aqui decide permissão.**
    */
-  async percentualDaMeta(ctx: Contexto, mes: string): Promise<PercentualDaMeta> {
+  async percentualDaMeta(ctx: ContextoDaVisao, mes: string): Promise<PercentualDaMeta> {
     const hoje = diaCivil(this.relogio.agora(), ctx.fuso)
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const meta = await this.metaDe(c, ctx, mes)
+      const meta = await metaDoMes(c, ctx.clinicaId, mes)
       const recebido = somaDe((await this.recebidoNoMes(c, ctx, mes)).recebimentos)
-      const medida = await this.medidaDoMes(c, ctx, mes, hoje, meta, recebido)
+      const medida = await this.medidaDoMes(c, ctx, mes, hoje, meta)
       // O MESMO cálculo da Visão do mês, sobre o MESMO medido: os dois
       // percentuais não divergem (N-B6, propriedade 13).
       const atingimento = atingimentoDaMetaDoMes(meta?.valor ?? null, medida.medido)
@@ -150,37 +184,31 @@ export class VisaoDoMesService {
         medido: medida.medido === null ? null : medida.medido.centavos.toString(),
         lidoEm: medida.lidoEm === null ? null : medida.lidoEm.toISOString(),
         percentual: atingimento.percentual,
+        aguardandoFechamento: medida.aguardando.centavos.toString(),
+        diasAguardandoFechamento: medida.diasAguardandoSemHoje,
       }
     })
   }
 
   /**
-   * A régua e o valor medido do mês. A régua é a GRAVADA com a meta; sem
-   * meta, o padrão da clínica (só para a tela dizer como o mês SERÁ medido).
-   * Quem escolhe entre FIR e MedX é `medidoParaAMeta`, e só ele.
+   * A régua e o valor medido do mês: o FATURAMENTO CONFERIDO (I-9; ADR
+   * 2026-11-17-meta-medida-pelos-dias-de-caixa). A régua é a GRAVADA com a
+   * meta; sem meta, o padrão da clínica. Antes de `conferencia_desde` a medida
+   * é a de sempre (todo o recebido); hoje sem caixa nunca conta.
    */
   private async medidaDoMes(
     c: pg.PoolClient,
-    ctx: Contexto,
+    ctx: ContextoDaVisao,
     mes: string,
     hoje: string,
-    meta: { valor: Dinheiro; medidaPor: MedidaDaMeta } | null,
-    recebidoFir: Dinheiro,
-  ): Promise<{ medidaPor: MedidaDaMeta; medido: Dinheiro | null; lidoEm: Date | null }> {
+    meta: { medidaPor: MedidaDaMeta } | null,
+  ): Promise<FaturamentoConferido> {
     const medidaPor = meta?.medidaPor ?? (await this.medidaPadrao(c, ctx))
-    if (medidaPor === 'fir') return { medidaPor, medido: recebidoFir, lidoEm: null }
-    const lido = await faturamentoLidoDoMedx(c, ctx.clinicaId, `${mes}-01`, fimDoMes(mes), hoje)
-    const medido = medidoParaAMeta({
-      medidaPor,
-      recebidoFir,
-      faturamentoMedx: lido === null ? null : somaDoMedx(lido).faturamento,
-      coberturaMedxCompleta: lido?.coberturaCompleta ?? false,
-    })
-    return { medidaPor, medido, lidoEm: lido?.lidoEm ?? null }
+    return medirFaturamentoConferido(c, ctx.clinicaId, `${mes}-01`, fimDoMes(mes), ctx.fuso, hoje, medidaPor)
   }
 
   /** O padrão da clínica para os meses novos: MedX só com o faturamento do MedX ligado. */
-  private async medidaPadrao(c: pg.PoolClient, ctx: Contexto): Promise<MedidaDaMeta> {
+  async medidaPadrao(c: pg.PoolClient, ctx: ContextoDaVisao): Promise<MedidaDaMeta> {
     const r = await c.query<{ medida: MedidaDaMeta }>(
       `SELECT CASE WHEN faturamento_ligado AND meta_medida_por = 'medx' THEN 'medx' ELSE 'fir' END AS medida
          FROM integracoes_da_clinica WHERE clinica_id = $1`,
@@ -189,35 +217,21 @@ export class VisaoDoMesService {
     return r.rows[0]?.medida ?? 'fir'
   }
 
-  /** `PUT` idempotente. **Zero REMOVE a meta**, explicitamente. */
-  async salvarMeta(ctx: Contexto, mes: string, valor: bigint): Promise<PercentualDaMeta> {
+  /**
+   * `PUT` idempotente sobre o lugar único (`metas_de_kpi`, I-26). **Zero
+   * ARQUIVA a meta.** Mês dentro de uma meta `ate_data` → 409.
+   */
+  async salvarMeta(ctx: ContextoDaVisao, mes: string, valor: bigint): Promise<PercentualDaMeta> {
     await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      if (valor === 0n) {
-        await c.query('DELETE FROM metas_do_mes WHERE clinica_id = $1 AND competencia = $2::date', [
-          ctx.clinicaId,
-          `${mes}-01`,
-        ])
-        return
-      }
       // A régua é COPIADA da configuração da clínica quando a meta é definida
-      // (N-B6): trocar a configuração depois não reescreve este mês. Editar a
-      // meta do mês copia de novo, e a trilha de `metas_do_mes` registra.
+      // (N-B6): trocar a configuração depois não reescreve este mês.
       const medidaPor = await this.medidaPadrao(c, ctx)
-      await c.query(
-        `INSERT INTO metas_do_mes (clinica_id, competencia, valor, definida_por, medida_por)
-         VALUES ($1, $2::date, $3, $4, $5)
-         ON CONFLICT (clinica_id, competencia)
-           DO UPDATE SET valor = EXCLUDED.valor, definida_por = EXCLUDED.definida_por,
-                         medida_por = EXCLUDED.medida_por, definida_em = now()`,
-        // `metas_do_mes.definida_por` e NOT NULL: a meta e da clinica,
-        // definida por quem responde por ela (D-13).
-        [ctx.clinicaId, `${mes}-01`, valor.toString(), exigePessoa(ctx.ator), medidaPor],
-      )
+      await definirMetaDoMes(c, ctx.clinicaId, mes, valor, medidaPor, exigePessoa(ctx.ator))
     })
     return this.percentualDaMeta(ctx, mes)
   }
 
-  async config(ctx: Contexto): Promise<ConfigFinanceira> {
+  async config(ctx: ContextoDaVisao): Promise<ConfigFinanceira> {
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const r = await c.query<{ caixa_responsavel_id: string | null; mensagem_de_cobranca: string }>(
         'SELECT caixa_responsavel_id, mensagem_de_cobranca FROM configuracao_financeira WHERE clinica_id = $1',
@@ -231,7 +245,7 @@ export class VisaoDoMesService {
     })
   }
 
-  async salvarConfig(ctx: Contexto, dados: ConfigFinanceira): Promise<ConfigFinanceira> {
+  async salvarConfig(ctx: ContextoDaVisao, dados: ConfigFinanceira): Promise<ConfigFinanceira> {
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
       const responsavel = dados.caixaResponsavelId ?? null
       if (responsavel !== null) {
@@ -268,7 +282,7 @@ export class VisaoDoMesService {
    * (clinica_id, marcador, prazo)` tem o PRAZO na chave, então o segundo toque
    * gera exatamente o mesmo conjunto e não escreve nada.
    */
-  async criarRotina(ctx: Contexto): Promise<RotinaDeFechamento> {
+  async criarRotina(ctx: ContextoDaVisao): Promise<RotinaDeFechamento> {
     const hoje = diaCivil(this.relogio.agora(), ctx.fuso)
     const inicio = somarMeses(`${hoje.slice(0, 7)}-01`, 1)
 
@@ -312,7 +326,7 @@ export class VisaoDoMesService {
    */
   private async recebidoNoMes(
     c: pg.PoolClient,
-    ctx: Contexto,
+    ctx: ContextoDaVisao,
     mes: string,
   ): Promise<{
     recebimentos: readonly (RecebimentoDoMes & { dia: string })[]
@@ -340,7 +354,7 @@ export class VisaoDoMesService {
 
   private async pagasNoMes(
     c: pg.PoolClient,
-    ctx: Contexto,
+    ctx: ContextoDaVisao,
     mes: string,
   ): Promise<readonly DespesaPaga[]> {
     // O VALOR PAGO, nunca o valor da conta: a conta era R$ 980 e veio
@@ -360,7 +374,7 @@ export class VisaoDoMesService {
 
   private async aPagarAte(
     c: pg.PoolClient,
-    ctx: Contexto,
+    ctx: ContextoDaVisao,
     mes: string,
     hoje: string,
   ): Promise<readonly ContaEmAberto[]> {
@@ -377,31 +391,16 @@ export class VisaoDoMesService {
   }
 
   /** O saldo a receber dos pacientes — a MESMA `saldoEmAberto` da tela Cobranças. */
-  private async aReceber(c: pg.PoolClient, ctx: Contexto): Promise<Dinheiro> {
+  private async aReceber(c: pg.PoolClient, ctx: ContextoDaVisao): Promise<Dinheiro> {
     const candidatos = await pacientesQuePodemTerSaldo(c, ctx.clinicaId)
     const saldos = await saldosDe(c, ctx.clinicaId, candidatos)
     return [...saldos.values()].reduce((s, x) => s.mais(x.saldo), Dinheiro.zero())
   }
 
-  private async caixasDoMes(
-    c: pg.PoolClient,
-    ctx: Contexto,
-    mes: string,
-  ): Promise<readonly { diferenca: Dinheiro }[]> {
-    const r = await c.query<{ diferenca: string }>(
-      `SELECT coalesce(sum(f.contado - f.esperado), 0)::text AS diferenca
-         FROM caixas_do_dia cx LEFT JOIN caixa_por_forma f ON f.caixa_id = cx.id
-        WHERE cx.clinica_id = $1 AND to_char(cx.dia, 'YYYY-MM') = $2
-        GROUP BY cx.id`,
-      [ctx.clinicaId, mes],
-    )
-    return r.rows.map((x) => ({ diferenca: dinheiro(x.diferenca) }))
-  }
-
   /** Os dias do mês cujo caixa já foi fechado. */
   private async diasConferidos(
     c: pg.PoolClient,
-    ctx: Contexto,
+    ctx: ContextoDaVisao,
     mes: string,
   ): Promise<ReadonlySet<string>> {
     const r = await c.query<{ dia: string }>(
@@ -412,18 +411,6 @@ export class VisaoDoMesService {
     return new Set(r.rows.map((x) => x.dia))
   }
 
-  private async metaDe(
-    c: pg.PoolClient,
-    ctx: Contexto,
-    mes: string,
-  ): Promise<{ valor: Dinheiro; medidaPor: MedidaDaMeta } | null> {
-    const r = await c.query<{ valor: string; medida_por: MedidaDaMeta }>(
-      'SELECT valor::text AS valor, medida_por FROM metas_do_mes WHERE clinica_id = $1 AND competencia = $2::date',
-      [ctx.clinicaId, `${mes}-01`],
-    )
-    const linha = r.rows[0]
-    return linha === undefined ? null : { valor: dinheiro(linha.valor), medidaPor: linha.medida_por }
-  }
 }
 
 /** O último dia conferido, em ordem de calendário. `null` quando não há nenhum. */
@@ -435,7 +422,7 @@ function ultimoDia(dias: ReadonlySet<string>): string | null {
 }
 
 /** O domínio na forma que o JSON fala: centavos em texto, `null` onde é nulo. */
-function paraContrato(mes: string, v: VisaoDoMes): VisaoNoContrato {
+function paraContrato(mes: string, v: VisaoDoMes, medida: FaturamentoConferido): VisaoNoContrato {
   const t = (d: Dinheiro): string => d.centavos.toString()
   return {
     mes,
@@ -475,11 +462,14 @@ function paraContrato(mes: string, v: VisaoDoMes): VisaoNoContrato {
     medido: v.medido === null ? null : t(v.medido),
     metaRestante: v.metaRestante === null ? null : t(v.metaRestante),
     percentualDaMeta: v.percentualDaMeta,
+    aguardandoFechamento: t(medida.aguardando),
+    diasAguardandoFechamento: medida.diasAguardandoSemHoje,
     caixa: {
       fechados: v.caixa.fechados,
       diasUteis: v.caixa.diasUteis,
       comDiferenca: v.caixa.comDiferenca,
       diferenca: t(v.caixa.diferenca),
+      ...(v.caixa.diasDaConferencia === null ? {} : { diasDaConferencia: v.caixa.diasDaConferencia }),
     },
   }
 }

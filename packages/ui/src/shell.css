@@ -570,3 +570,83 @@
   font-size: 14px;
   line-height: 1.45;
 }
+
+/* ---------- acesso por e-mail (ADR 2026-11-16) ---------- */
+
+/* As telas de link — criar a senha, confirmar o e-mail, esqueci a senha —
+   reusam `.entrada` inteira. Só o título e o link de rodapé são próprios. */
+.titulo-de-acesso {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.cabeca-de-acesso { display: grid; gap: 4px; }
+.cabeca-de-acesso .nota b { color: var(--ink); overflow-wrap: anywhere; }
+/* A frase única do esqueci-senha: é a resposta inteira da tela, e se lê na
+   tinta principal, não em `--muted`. */
+.frase-de-acesso { margin: 0; font-size: 15px; line-height: 1.5; }
+/* "Esqueci minha senha" e "Voltar para a entrada": link de texto com alvo de
+   toque de 44 px, centrado sob o botão. */
+.link-de-acesso {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+/* O e-mail a confirmar: a mesma moldura de `.clinica-do-link`. `anywhere`
+   porque um endereço não tem onde quebrar, e 390 px não rola na horizontal. */
+.email-a-confirmar {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--bg);
+}
+.email-a-confirmar b { display: block; font-size: 15px; overflow-wrap: anywhere; }
+
+.meu-email-situacao { margin: 0; display: grid; gap: 6px; }
+.meu-email-situacao > div { display: grid; gap: 1px; }
+.meu-email-situacao dt { font-size: 12px; color: var(--muted); }
+.meu-email-situacao dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+
+/*
+ * A FAIXA "Cadastre seu e-mail" — no topo do conteúdo, para a pessoa sem
+ * e-mail confirmado.
+ *
+ * Fundo `--surface`, e não `--gold-soft`: dentro dela há rótulo de campo,
+ * `small` em `--muted` e erro em `--bad`, e esses pares só estão medidos sobre
+ * a superfície (`contraste.test.ts`). O dourado é traço — a borda —, que é o
+ * papel dele.
+ *
+ * Em 390 px tudo empilha; a partir de 720 px os dois campos ficam lado a lado.
+ */
+.faixa-do-email {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--gold);
+  border-left-width: 4px;
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.faixa-do-email-form { display: grid; gap: 10px; }
+.faixa-do-email-texto { margin: 0; display: grid; gap: 2px; font-size: 14px; line-height: 1.45; }
+.faixa-do-email-texto b { font-size: 15px; }
+.faixa-do-email-texto .num { overflow-wrap: anywhere; }
+.faixa-do-email-campos { display: grid; gap: 8px; }
+.faixa-do-email-campos .erro:empty { display: none; }
+.faixa-do-email-erro { margin: 0; font-size: 13px; }
+.faixa-do-email .botoes { align-items: center; }
+.faixa-do-email .botoes .link { min-height: 44px; padding: 0 6px; }
+@media (min-width: 720px) {
+  .faixa-do-email-campos { grid-template-columns: 1fr 1fr; align-items: start; }
+}
+
+/* Usuários e acessos: o e-mail e o selo, numa linha que quebra. */
+.acesso-da-pessoa { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 2px; }
+.linha .info .email-da-pessoa { overflow-wrap: anywhere; min-width: 0; }
+.acoes-de-email { display: flex; flex-wrap: wrap; gap: 10px 16px; }
+.acao-de-email { display: grid; gap: 4px; justify-items: start; }
+.acao-de-email small { font-size: 12px; color: var(--muted); }

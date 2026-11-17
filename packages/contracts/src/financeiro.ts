@@ -625,6 +625,16 @@ export const PercentualDaMeta = z
     lidoEm: z.string().datetime().nullable(),
     /** Não é monetário, e por isso atravessa para quem não tem `valores`. */
     percentual: z.number().int().nullable(),
+    /**
+     * O recebido dos dias que ainda NÃO contam para a meta (I-9, ADR
+     * 2026-11-17-meta-medida-pelos-dias-de-caixa): hoje sem caixa e, a partir
+     * de `conferencia_desde`, todo dia sem caixa. UM total, nunca por dia nem
+     * por forma (números c.10). Está em `CAMPOS_MONETARIOS`: a equipe recebe
+     * `null` (c.11d). Opcional só para a tela antiga continuar compilando.
+     */
+    aguardandoFechamento: centavosNaSaida.optional(),
+    /** Quantos dias estão aguardando fechamento. Não é dinheiro: atravessa. */
+    diasAguardandoFechamento: z.number().int().optional(),
   })
   .strict()
 export type PercentualDaMeta = z.infer<typeof PercentualDaMeta>
@@ -710,12 +720,22 @@ export const VisaoDoMes = z
     medido: centavosNaSaida,
     metaRestante: centavosNaSaida,
     percentualDaMeta: z.number().int().nullable(),
+    /** Ver `PercentualDaMeta.aguardandoFechamento`. */
+    aguardandoFechamento: centavosNaSaida.optional(),
+    diasAguardandoFechamento: z.number().int().optional(),
 
     caixa: z.object({
       fechados: z.number().int(),
       diasUteis: z.number().int(),
+      /** Caixas com ALGUMA forma diferente (I-15; ADR 2026-11-17-correcao-de-caixas-do-mes). */
       comDiferenca: z.number().int(),
       diferenca: centavosNaSaida,
+      /**
+       * O denominador corrigido de "caixas sem diferença": úteis até ontem +
+       * hoje se fechado + não úteis com caixa. `fechados` ÷ isto nunca passa
+       * de 100%; `diasUteis` continua sendo o "N dias úteis passados" da meta.
+       */
+      diasDaConferencia: z.number().int().optional(),
     }),
   })
   .strict()

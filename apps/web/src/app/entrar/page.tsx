@@ -2,11 +2,18 @@
 
 import { useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useRef, useState } from 'react'
+import type { ConfigDoAcesso } from '@fir/contracts'
 import { chamar, ErroDaApi } from '@/lib/api'
 /* O olho mora em `lib/icones` desde que a entrada do PAINEL passou a usar o
    mesmo: duas cópias do mesmo traço divergem na primeira correção. */
 import { ICONE_OLHO_ABERTO, ICONE_OLHO_FECHADO } from '@/lib/icones'
-import { clinicaGuardada, lembrarClinica, resolverClinica } from '@/lib/clinica-do-link'
+import { esquecerAdiamento } from '@/lib/faixa-do-email'
+import {
+  clinicaGuardada,
+  codigoDeClinicaOuVazio,
+  lembrarClinica,
+  resolverClinica,
+} from '@/lib/clinica-do-link'
 
 /**
  * A tela de entrada — e **a clínica vem do LINK**.
@@ -53,6 +60,13 @@ export default function Entrar() {
   const [enviando, setEnviando] = useState(false)
   const campoUsuario = useRef<HTMLInputElement>(null)
   const campoClinica = useRef<HTMLInputElement>(null)
+  /**
+   * "Esqueci minha senha" só aparece com o envio de e-mail LIGADO (spec 2.1):
+   * com ele desligado o pedido não manda nada, e o link prometeria um e-mail
+   * que nunca chega. Nasce escondido; falha da consulta mantém escondido — o
+   * caminho de sempre (pedir à administradora) continua valendo.
+   */
+  const [envioDeEmail, setEnvioDeEmail] = useState(false)
 
   /**
    * A clínica é resolvida DEPOIS da montagem, e não num inicializador.
@@ -74,6 +88,18 @@ export default function Entrar() {
     setDoLink(recolher)
     // Zero digitação para quem tem o link: o foco já nasce no usuário.
     if (recolher) campoUsuario.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    let valeu = true
+    chamar<ConfigDoAcesso>('v1/acesso/config')
+      .then((c) => {
+        if (valeu) setEnvioDeEmail(c.envioDeEmail)
+      })
+      .catch(() => undefined)
+    return () => {
+      valeu = false
+    }
   }, [])
 
   async function enviar(e: React.FormEvent) {
@@ -101,6 +127,8 @@ export default function Entrar() {
        * a tela passaria a abrir sozinha numa clínica que não existe.
        */
       lembrarClinica(clinica)
+      // "Agora não" da faixa do e-mail vale até a PRÓXIMA entrada (spec 2, fluxo 6).
+      esquecerAdiamento()
       window.location.assign('/hoje')
     } catch (x) {
       setErro(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
@@ -166,8 +194,10 @@ export default function Entrar() {
               />
             </label>
           )}
+          {/* "Usuário ou e-mail" (ADR 2026-11-16): com `@` o servidor procura o
+              e-mail CONFIRMADO; sem `@`, o usuário, como sempre. */}
           <label className="campo">
-            Usuário
+            Usuário ou e-mail
             <input
               ref={campoUsuario}
               value={usuario}
@@ -221,10 +251,21 @@ export default function Entrar() {
           <button type="submit" disabled={enviando} className="btn">
             {enviando ? 'Entrando…' : 'Entrar'}
           </button>
+          {envioDeEmail ? (
+            <a className="link link-de-acesso" href={linkDoEsqueci(clinica)}>
+              Esqueci minha senha
+            </a>
+          ) : null}
         </div>
       </form>
     </main>
   )
+}
+
+/** A clínica segue para `/esqueci-senha` pelo mesmo `?clinica=`, nunca nada além dela. */
+function linkDoEsqueci(clinica: string): string {
+  const codigo = codigoDeClinicaOuVazio(clinica)
+  return codigo === '' ? '/esqueci-senha' : `/esqueci-senha?clinica=${encodeURIComponent(codigo)}`
 }
 
 /**

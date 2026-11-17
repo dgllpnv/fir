@@ -253,7 +253,10 @@ describe('despesas e resultado', () => {
 describe('a meta', () => {
   it('a equipe sem `valores` lê o PERCENTUAL, e só ele', async () => {
     await definirMeta(MES, '1200000')
-    await recebimentoEm('2026-10-24T10:00:00.000-03:00', '792000')
+    // ADR 2026-11-17-meta-medida-pelos-dias-de-caixa: hoje (24/10) sem caixa
+    // NUNCA conta para a meta (regra 6). O recebimento é de ONTEM para medir o
+    // que este teste sempre mediu: a redação.
+    await recebimentoEm('2026-10-23T10:00:00.000-03:00', '792000')
 
     const r = await percentual(MES, 'rita')
     expect(r.statusCode).toBe(200)
@@ -266,7 +269,10 @@ describe('a meta', () => {
 
   it('quem tem `valores` lê os três', async () => {
     await definirMeta(MES, '1200000')
-    await recebimentoEm('2026-10-24T10:00:00.000-03:00', '792000')
+    // ADR 2026-11-17-meta-medida-pelos-dias-de-caixa: hoje (24/10) sem caixa
+    // NUNCA conta para a meta (regra 6). O recebimento é de ONTEM para medir o
+    // que este teste sempre mediu: a redação.
+    await recebimentoEm('2026-10-23T10:00:00.000-03:00', '792000')
     const r = await percentual(MES, 'beatriz')
     expect(r.body).toEqual({
       mes: MES,
@@ -277,6 +283,50 @@ describe('a meta', () => {
       medido: '792000',
       lidoEm: null,
       percentual: 66,
+      aguardandoFechamento: '0',
+      // Hoje (24/10) tem o caixa aberto: aguarda, com ou sem pagamento.
+      diasAguardandoFechamento: 1,
+    })
+  })
+
+  it('hoje-sem-caixa-nao-conta: o recebido de hoje com o caixa aberto fica AGUARDANDO, nos dois regimes', async () => {
+    await definirMeta(MES, '1200000')
+    await recebimentoEm('2026-10-23T10:00:00.000-03:00', '600000')
+    await recebimentoEm('2026-10-24T10:00:00.000-03:00', '192000')
+    const r = await percentual(MES, 'beatriz')
+    expect(r.body).toMatchObject({ recebido: '792000', medido: '600000', percentual: 50 })
+    // O total de HOJE nunca sai, nem para quem tem `valores`: com o caixa aberto,
+    // é o esperado da gaveta (regra 6). Só a contagem do dia aguardando.
+    expect(r.body).toMatchObject({ aguardandoFechamento: '0', diasAguardandoFechamento: 1 })
+    expect(r.text).not.toContain('192000')
+    // A equipe não lê o valor aguardando: só a contagem de dias (c.11d).
+    const equipe = await percentual(MES, 'rita')
+    expect(equipe.body.aguardandoFechamento).toBeNull()
+    expect(equipe.body.diasAguardandoFechamento).toBe(1)
+    expect(equipe.text).not.toContain('192000')
+  })
+
+  it('conferencia-desde-regime-anterior-nao-muda: antes do primeiro caixa conta tudo; dali em diante, só dia fechado', async () => {
+    await definirMeta(MES, '1000000')
+    await recebimentoEm('2026-10-20T10:00:00.000-03:00', '100000')
+    await recebimentoEm('2026-10-22T10:00:00.000-03:00', '200000')
+    await recebimentoEm('2026-10-23T10:00:00.000-03:00', '400000')
+    // Regime anterior (sem caixa nenhum): os três dias contam, como sempre.
+    expect((await percentual(MES, 'beatriz')).body).toMatchObject({ medido: '700000', percentual: 70 })
+    // O primeiro caixa é o de 22/10: 20/10 fica no regime anterior e conta;
+    // 22/10 conta porque fechou; 23/10, sem caixa, passa a aguardar.
+    await c.migrate.query(
+      `INSERT INTO caixas_do_dia (clinica_id, dia, fechado_por) VALUES ($1, '2026-10-22', $2)`,
+      [c.clinica, c.pessoas['sonia']],
+    )
+    const depois = await c.migrate.query<{ d: string }>('SELECT conferencia_desde::text AS d FROM clinicas WHERE id = $1', [c.clinica])
+    expect(depois.rows[0]!.d).toBe('2026-10-22')
+    expect((await percentual(MES, 'beatriz')).body).toMatchObject({
+      medido: '300000',
+      percentual: 30,
+      aguardandoFechamento: '400000',
+      // 23/10 sem caixa e hoje (24/10) aberto.
+      diasAguardandoFechamento: 2,
     })
   })
 
@@ -293,8 +343,9 @@ describe('a meta', () => {
   it('`PUT` é idempotente: gravar duas vezes deixa UMA linha', async () => {
     await definirMeta(MES, '1000000')
     await definirMeta(MES, '1500000')
+    // A meta mora em `metas_de_kpi` desde a 0100 (ADR 2026-11-17-meta-unica).
     const n = await c.migrate.query<{ n: string }>(
-      'SELECT count(*)::text AS n FROM metas_do_mes WHERE clinica_id = $1',
+      'SELECT count(*)::text AS n FROM metas_de_kpi WHERE clinica_id = $1 AND arquivada_em IS NULL',
       [c.clinica],
     )
     expect(Number(n.rows[0]!.n)).toBe(1)
@@ -306,9 +357,13 @@ describe('a meta', () => {
   })
 
   it('a meta de OUTRA clínica não é alcançável', async () => {
+    // O lugar da meta é `metas_de_kpi` desde a 0100 (ADR 2026-11-17-meta-unica).
     await c.migrate.query(
-      `INSERT INTO metas_do_mes (clinica_id, competencia, valor, definida_por)
-       SELECT $1, '2026-10-01'::date, 9999900, id FROM pessoas WHERE clinica_id = $1 LIMIT 1`,
+      `WITH k AS (
+         INSERT INTO kpis (clinica_id, origem, chave_catalogo, nome, frequencia)
+         VALUES ($1, 'catalogo', 'faturamento_conferido', 'Faturamento conferido', 'mensal') RETURNING id)
+       INSERT INTO metas_de_kpi (clinica_id, kpi_id, tipo, inicio, prazo, alvo_centavos, partida_centavos)
+       SELECT $1, k.id, 'mes', '2026-10-01', '2026-10-31', 9999900, 0 FROM k`,
       [c.outraClinica],
     )
     const r = await percentual()

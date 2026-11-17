@@ -8,6 +8,7 @@ import {
   novaFilaDeUsoDiario,
 } from './fila-uso-diario'
 import { executarUsoDiarioCliente } from './uso-diario-cliente'
+import { executarIndicadoresDoDia } from '../../indicadores/fotografias'
 
 /**
  * **O PROCESSO DO WORKER DA CARTEIRA** (G4) — entrypoint próprio, `tsx src/
@@ -43,6 +44,12 @@ async function main(): Promise<void> {
     } else {
       console.log(`[carteira:uso-diario] ${resumo.processados} processados, sem falhas.`)
     }
+    // Indicadores & Insights (T2): o job `indicadores-do-dia` — as fotografias
+    // dos KPIs de posição, uma clínica por vez, como `fir_app`. Reentrante:
+    // a posição é a do INSTANTE, e o dia já gravado não muda. O log leva só
+    // contagens e ids, nunca um valor.
+    const ind = await executarIndicadoresDoDia(banco, relogio)
+    console.log(`[indicadores-do-dia] ${ind.processadas} clínicas, ${ind.gravadas} fotografias, ${ind.falhas.length} falha(s)`, ind.falhas)
   }
 
   const worker = new Worker(

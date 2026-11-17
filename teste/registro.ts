@@ -199,16 +199,18 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
       'variaveis',
       'valor',
       'diferenca',
+      // T2 (I-9, números c.11d): o recebido dos dias que ainda não contam.
+      'aguardandoFechamento',
     ],
   },
-  { metodo: 'GET', caminho: '/v1/metas/:mes/percentual', camposDeDinheiro: ['meta', 'recebido', 'medido'] },
+  { metodo: 'GET', caminho: '/v1/metas/:mes/percentual', camposDeDinheiro: ['meta', 'recebido', 'medido', 'aguardandoFechamento'] },
   /**
    * `PUT`/`DELETE` da meta devolvem a MESMA forma do percentual — gravar e
    * reler pela mesma porta, para que a tela não precise de uma segunda
    * chamada só para saber em quanto a barra ficou.
    */
-  { metodo: 'PUT', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido', 'medido'] },
-  { metodo: 'DELETE', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido', 'medido'] },
+  { metodo: 'PUT', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido', 'medido', 'aguardandoFechamento'] },
+  { metodo: 'DELETE', caminho: '/v1/metas/:mes', camposDeDinheiro: ['meta', 'recebido', 'medido', 'aguardandoFechamento'] },
 
   /**
    * OS PROGRAMAS (épico 5).
@@ -716,6 +718,21 @@ export const ROTAS_COM_DINHEIRO: readonly RotaRegistrada[] = [
    * real em `visao-geral.e2e.test.ts`.
    */
   { metodo: 'GET', caminho: '/v1/carteira/painel', camposDeDinheiro: ['mrr', 'ticketMedio', 'valorEstimado'] },
+  /**
+   * Indicadores & Insights (T2, I-34): todo valor de KPI em reais viaja em
+   * `ValorNaTela.emDinheiro`, e SÓ nele — a lista, o detalhe, a série, a
+   * prévia e as escritas que devolvem o cartão ou a meta. `aguardandoFechamento`
+   * NUNCA sai em `/v1/indicadores*` (regra 6): só a contagem de dias.
+   */
+  { metodo: 'GET', caminho: '/v1/indicadores', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'GET', caminho: '/v1/indicadores/catalogo', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'GET', caminho: '/v1/indicadores/kpis/:id', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'GET', caminho: '/v1/indicadores/kpis/:id/serie', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'GET', caminho: '/v1/indicadores/metas/previa', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'POST', caminho: '/v1/indicadores/kpis', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'PUT', caminho: '/v1/indicadores/kpis/:id', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'POST', caminho: '/v1/indicadores/metas', camposDeDinheiro: ['emDinheiro'] },
+  { metodo: 'PUT', caminho: '/v1/indicadores/metas/:id', camposDeDinheiro: ['emDinheiro'] },
 ]
 
 /**
@@ -775,6 +792,11 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'contas_a_pagar',
   // A diferença reconhecida (0085): APPEND-ONLY, efeito zero no saldo.
   'diferencas_reconhecidas',
+  // O acesso por e-mail (0097, ADR 2026-11-16): o link de uso único (só hashes;
+  // `fir_app` altera só `usado_em`/`invalidado_em`, sem DELETE) e o evento para
+  // Atividades (só INSERT, SEM trilha — ver `ENTIDADES_SEM_TRILHA_POR_DECISAO`).
+  'eventos_de_acesso',
+  'links_de_acesso',
   // Os grupos de colaboradores (0083): nome é dado de configuração, a
   // composição (`membros_de_grupo`) é dado de RH. Os dois com RLS forçada e
   // trilha de auditoria.
@@ -798,6 +820,15 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'itens_do_programa',
   'locais_de_estoque',
   'metas_do_mes',
+  // Indicadores & Insights (0098, T1): FK composta em toda referência, sem
+  // DELETE para `fir_app`; `fotografias_de_kpi` é APPEND-ONLY (só INSERT).
+  'kpis',
+  'lancamentos_de_kpi',
+  'okrs',
+  'resultados_chave',
+  'series_de_meta',
+  'metas_de_kpi',
+  'fotografias_de_kpi',
   'movimentos_de_estoque',
   'motivos_de_perda',
   'notas_de_entrada',
@@ -825,6 +856,15 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'unidades',
   'vinculos_de_nota',
 ]
+
+/**
+ * Tabelas com `clinica_id` que NÃO têm o trigger de auditoria, por decisão
+ * escrita — e a única hoje é a LGPD L6: `eventos_de_acesso` copiado para a
+ * `auditoria` herdaria os 5 anos dela, e o prazo de 1 ano do evento deixaria de
+ * ser um. `auditoria-inescapavel.test.ts` cobra o inverso para elas: que o
+ * trigger NÃO exista.
+ */
+export const ENTIDADES_SEM_TRILHA_POR_DECISAO: readonly string[] = ['eventos_de_acesso']
 
 /**
  * Tabelas com `clinica_id` cuja RLS é por `grupo_id`, não por `clinica_id`
@@ -989,6 +1029,30 @@ export const ROTAS_PUBLICAS: readonly RotaPublica[] = [
     metodo: 'POST',
     caminho: '/v1/entrar',
     razao: 'É a rota que CRIA a sessão. Exigir sessão aqui seria circular.',
+  },
+  {
+    metodo: 'GET',
+    caminho: '/v1/acesso/config',
+    razao:
+      'A tela de entrada esconde "Esqueci minha senha" com o envio desligado. Devolve só {envioDeEmail} — da instalação, nunca de uma clínica.',
+  },
+  {
+    metodo: 'POST',
+    caminho: '/v1/esqueci-senha',
+    razao:
+      'Quem esqueceu a senha não tem sessão. Sempre 202 e a mesma frase, com piso de tempo: não diz quem tem conta nem que clínica existe (appsec 11).',
+  },
+  {
+    metodo: 'POST',
+    caminho: '/v1/link-de-acesso/consultar',
+    razao:
+      'A credencial é o token de 256 bits do link, não um cookie. Devolve o primeiro nome, a clínica e o usuário SÓ a quem tem o link vivo; não consome (appsec 16).',
+  },
+  {
+    metodo: 'POST',
+    caminho: '/v1/link-de-acesso/usar',
+    razao:
+      'A credencial é o token do link. Grava a senha ou confirma o e-mail e responde 204 sem Set-Cookie: não cria sessão (appsec 8).',
   },
   {
     metodo: 'POST',

@@ -43,10 +43,11 @@ describe('dependências entre chaves', () => {
 })
 
 describe('a matriz', () => {
-  it('tem as 20 chaves do protótipo, sem repetição', () => {
+  it('tem as 20 chaves do protótipo mais as 2 de Indicadores & Insights (I-32), sem repetição', () => {
     const chaves = PERMS.map(([, k]) => k)
-    expect(chaves).toHaveLength(20)
-    expect(new Set(chaves).size).toBe(20)
+    expect(chaves).toHaveLength(22)
+    expect(new Set(chaves).size).toBe(22)
+    expect(chaves).toEqual(expect.arrayContaining(['indicadores', 'indicadores.gerir']))
   })
 
   it('toda dependência aponta para uma chave existente', () => {

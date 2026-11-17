@@ -1,4 +1,4 @@
-import { SENHA_MAX, canonizarUsuario } from '@fir/domain'
+import { SENHA_MAX, canonizarEmail, canonizarUsuario, identificadorEhEmail } from '@fir/domain'
 import { z } from 'zod'
 import { DiaCivil, Uuid } from './comum'
 import { OperadorPublico } from './superadmin'
@@ -15,15 +15,20 @@ export const EntrarEntrada = z.object({
    * recusaria `Helena`, que é o que o teclado do tablet entrega; a recusa de
    * forma mora no cadastro e no `CHECK` do banco.
    *
-   * `max(64)` antes do transform, e não `max(USUARIO_MAX)`: o teto aqui é de
+   * `max(320)` antes do transform, e não `max(USUARIO_MAX)`: o teto aqui é de
    * custo, não de regra. Quem digitar 40 caracteres recebe credencial
    * inválida, como qualquer um que erre o usuário — nunca uma mensagem que
    * diga como o identificador é formado.
+   *
+   * **"Usuário ou e-mail"** (ADR 2026-11-16): com `@` o identificador é
+   * e-mail e canoniza como e-mail; sem `@`, como usuário. A decisão vem
+   * ANTES de `canonizarUsuario`, porque o `@` não sobrevive a ela (appsec 10).
+   * Quem autentica é só o e-mail CONFIRMADO, e isso é o servidor que decide.
    */
   usuario: z
     .string()
-    .max(64)
-    .transform(canonizarUsuario)
+    .max(320)
+    .transform((v) => (identificadorEhEmail(v) ? canonizarEmail(v) : canonizarUsuario(v)))
     .pipe(z.string().min(1, 'Informe o usuário.')),
   /**
    * `min(1)`, e **não** `min(SENHA_MIN)`. A tela de ENTRADA não aplica a
@@ -47,8 +52,20 @@ export type PerfilPublico = z.infer<typeof PerfilPublico>
 export const PessoaPublica = z.object({
   id: Uuid,
   nome: z.string(),
-  /** O identificador de login, na forma canônica. Não há e-mail (D-10). */
+  /** O identificador de login, na forma canônica. Continua existindo com o e-mail. */
   usuario: z.string(),
+  /**
+   * O e-mail CONFIRMADO da própria pessoa, inteiro — é dela, e é por ele que
+   * ela entra e redefine a senha. `null` enquanto não confirmou nenhum.
+   */
+  email: z.string().nullable(),
+  /**
+   * O e-mail que espera confirmação, MASCARADO (`j***@g***.com`): a faixa
+   * "enviamos o link para…" precisa só reconhecê-lo. `null` sem pendente.
+   */
+  emailPendente: z.string().nullable(),
+  /** Há e-mail confirmado. A faixa "Cadastre seu e-mail" aparece quando é `false`. */
+  emailConfirmado: z.boolean(),
   funcao: z.string(),
   admin: z.boolean(),
   perfilId: Uuid.nullable(),

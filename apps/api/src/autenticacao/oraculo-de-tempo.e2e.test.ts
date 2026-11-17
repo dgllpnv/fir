@@ -129,6 +129,14 @@ const EXISTEM = serie('existe')
 const NAO_EXISTEM = serie('naoexiste')
 /** Série própria para o caso da CLÍNICA, para não dividir limite com a de cima. */
 const EXISTEM_CLINICA = serie('existeclin')
+/**
+ * As séries do ENTRAR POR E-MAIL (appsec 10, ADR 2026-11-16): confirmado,
+ * pendente e inexistente. Uma conta por amostra, pela mesma razão de cima — e
+ * o confirmado divide o orçamento de falhas com o usuário dela.
+ */
+const EMAIL_CONFIRMADO = serie('emailok')
+const EMAIL_PENDENTE = serie('emailpend')
+const emailDe = (u: string) => `${u}@oraculo.example`
 
 beforeAll(async () => {
   const [{ AppModule }, { registrarCookie }, senhaMod, { PISO_DE_RESPOSTA_MS }, limpeza] =
@@ -154,6 +162,16 @@ beforeAll(async () => {
     `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin)
      SELECT $1, 'Conta do oráculo', u, $2, true FROM unnest($3::text[]) AS u`,
     [clinica, hash, [...EXISTEM, ...EXISTEM_CLINICA]],
+  )
+  await migrate.query(
+    `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin, email, email_confirmado_em)
+     SELECT $1, 'Conta do oráculo', u, $2, true, u || '@oraculo.example', now() FROM unnest($3::text[]) AS u`,
+    [clinica, hash, EMAIL_CONFIRMADO],
+  )
+  await migrate.query(
+    `INSERT INTO pessoas (clinica_id, nome, usuario, senha_hash, admin, email_pendente)
+     SELECT $1, 'Conta do oráculo', u, $2, true, u || '@oraculo.example' FROM unnest($3::text[]) AS u`,
+    [clinica, hash, EMAIL_PENDENTE],
   )
 
   const { FastifyAdapter } = await import('@nestjs/platform-fastify')
@@ -258,5 +276,37 @@ describe('toda saída 401 de entrar inclui um Argon2', () => {
         `(${custoDeUmArgon2} ms) — uma requisição por código enumera os tenants da instalação, ` +
         'e sem deixar rastro, porque nem tentativa é gravada.',
     ).toBeGreaterThanOrEqual(piso401)
+  })
+})
+
+describe('toda saída 401 do entrar POR E-MAIL inclui um Argon2 (appsec 10)', () => {
+  /**
+   * O ramo do `@` faz uma consulta a mais (a pessoa pelo e-mail) e grava a
+   * tentativa como `e:<hmac>` quando não há conta. A pergunta é a mesma do
+   * resto do arquivo: a resposta incluiu um Argon2? Contra a REFERÊNCIA,
+   * porque os três caminhos fazem números diferentes de consultas.
+   */
+  const piso401 = () => custoDeUmArgon2 * FRACAO_DE_UM_ARGON2
+  const medirEmails = async (emails: readonly string[]) => {
+    const tempos: number[] = []
+    for (const e of emails) tempos.push(await umaTentativa(e, 'chute-errado-aqui', codigo))
+    return mediana(tempos)
+  }
+
+  it('confirmado, pendente e inexistente gastam, cada um, um Argon2', async () => {
+    const confirmado = await medirEmails(EMAIL_CONFIRMADO.map(emailDe))
+    const pendente = await medirEmails(EMAIL_PENDENTE.map(emailDe))
+    const inexistente = await medirEmails(serie('emailnada').map(emailDe))
+    for (const [nome, t] of [
+      ['confirmado', confirmado],
+      ['pendente', pendente],
+      ['inexistente', inexistente],
+    ] as const) {
+      expect(
+        t,
+        `e-mail ${nome} respondeu em ${t} ms, menos de ${FRACAO_DE_UM_ARGON2} de um Argon2 ` +
+          `(${custoDeUmArgon2} ms) — o relógio diz quais e-mails têm conta. Confira HASH_FALSO no ramo do @.`,
+      ).toBeGreaterThanOrEqual(piso401())
+    }
   })
 })

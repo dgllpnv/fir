@@ -6,6 +6,7 @@ import {
   somarDias,
   valorDaFalta as valorDaFaltaNoItem,
 } from '@fir/domain'
+import type pg from 'pg'
 import { Inject, Injectable } from '@nestjs/common'
 import type { Ator, PessoaId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
@@ -72,86 +73,93 @@ export class AnaliseService {
     const ate = consulta.ate ?? hoje
     const de = consulta.de ?? somarDias(ate, -30)
 
-    return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const r = await c.query<LinhaDeItem>(
-        `SELECT i.id, i.nome, i.categoria, i.medida, i.controla_validade,
-                i.custo::text AS custo, i.local_id, l.nome AS local
-           FROM itens_de_estoque i
-           LEFT JOIN locais_de_estoque l ON l.id = i.local_id
-          WHERE i.excluido_em IS NULL AND i.ativo
-          ORDER BY i.nome`,
-      )
-      const movs = await movimentosDosItens(
-        c,
-        r.rows.map((l) => l.id),
-      )
+    return this.banco.naClinica(ctx.clinicaId, ctx.ator, (c) => analiseNaConexao(c, de, ate))
+  }
+}
 
-      let valorDaFalta = Dinheiro.zero()
-      let itensComFalta = 0
-      let itensSemContagens = 0
+/**
+ * A análise do estoque de `[de, ate]` numa conexão já aberta — a FONTE do KPI
+ * `perda_de_estoque` (spec I-4, `analise`: a janela inteira, nunca somada por
+ * mês). Movida do `doPeriodo`, sem mudar a conta.
+ */
+export async function analiseNaConexao(c: pg.PoolClient, de: string, ate: string): Promise<AnaliseDoEstoque> {
+    const r = await c.query<LinhaDeItem>(
+      `SELECT i.id, i.nome, i.categoria, i.medida, i.controla_validade,
+              i.custo::text AS custo, i.local_id, l.nome AS local
+         FROM itens_de_estoque i
+         LEFT JOIN locais_de_estoque l ON l.id = i.local_id
+        WHERE i.excluido_em IS NULL AND i.ativo
+        ORDER BY i.nome`,
+    )
+    const movs = await movimentosDosItens(
+      c,
+      r.rows.map((l) => l.id),
+    )
 
-      const itens = r.rows.map((l): ItemNaAnalise => {
-        const a = analiseDoPeriodo(movs.get(l.id) ?? [], de, ate, l.medida)
-        const q = (m: bigint) => quantidadeNaSaida(Quantidade.deMilesimos(m, l.medida))
-        const cabecalho = {
-          itemId: l.id,
-          nome: l.nome,
-          categoria: l.categoria,
-          medida: l.medida,
-          controlaValidade: l.controla_validade,
-          localId: l.local_id,
-          local: l.local,
-        }
-        if (a === null || !a.temEsperado) {
-          itensSemContagens++
-          return {
-            ...cabecalho,
-            deDia: null,
-            ateDia: null,
-            inicialEmEstoque: null,
-            entradasEmEstoque: null,
-            saidasEmEstoque: null,
-            ajustesEmEstoque: null,
-            esperadoEmEstoque: null,
-            finalEmEstoque: null,
-            diferencaEmEstoque: null,
-            valorDaFalta: null,
-          }
-        }
-        // A conta é a de `packages/domain` (`valorDaFalta`): a MESMA da tela da
-        // contagem concluída, meio-para-cima por item, e o total é a soma da
-        // coluna — quem soma os itens desta aba chega ao total, centavo a centavo.
-        const valor = valorDaFaltaNoItem(
-          a.diferenca,
-          Dinheiro.deCentavos(BigInt(l.custo ?? '0')),
-        )
-        if (a.diferenca.milesimos < 0n) {
-          itensComFalta++
-          valorDaFalta = valorDaFalta.mais(valor)
-        }
+    let valorDaFalta = Dinheiro.zero()
+    let itensComFalta = 0
+    let itensSemContagens = 0
+
+    const itens = r.rows.map((l): ItemNaAnalise => {
+      const a = analiseDoPeriodo(movs.get(l.id) ?? [], de, ate, l.medida)
+      const q = (m: bigint) => quantidadeNaSaida(Quantidade.deMilesimos(m, l.medida))
+      const cabecalho = {
+        itemId: l.id,
+        nome: l.nome,
+        categoria: l.categoria,
+        medida: l.medida,
+        controlaValidade: l.controla_validade,
+        localId: l.local_id,
+        local: l.local,
+      }
+      if (a === null || !a.temEsperado) {
+        itensSemContagens++
         return {
           ...cabecalho,
-          deDia: a.deDia,
-          ateDia: a.ateDia,
-          inicialEmEstoque: q(a.anterior?.quantidade.milesimos ?? 0n),
-          entradasEmEstoque: q(a.entradas.milesimos),
-          saidasEmEstoque: q(a.saidas.milesimos),
-          ajustesEmEstoque: q(a.ajustes.milesimos),
-          esperadoEmEstoque: q(a.esperado.milesimos),
-          finalEmEstoque: q(a.contado.milesimos),
-          diferencaEmEstoque: q(a.diferenca.milesimos),
-          valorDaFalta: valor.centavos.toString(),
+          deDia: null,
+          ateDia: null,
+          inicialEmEstoque: null,
+          entradasEmEstoque: null,
+          saidasEmEstoque: null,
+          ajustesEmEstoque: null,
+          esperadoEmEstoque: null,
+          finalEmEstoque: null,
+          diferencaEmEstoque: null,
+          valorDaFalta: null,
         }
-      })
-
+      }
+      // A conta é a de `packages/domain` (`valorDaFalta`): a MESMA da tela da
+      // contagem concluída, meio-para-cima por item, e o total é a soma da
+      // coluna — quem soma os itens desta aba chega ao total, centavo a centavo.
+      const valor = valorDaFaltaNoItem(
+        a.diferenca,
+        Dinheiro.deCentavos(BigInt(l.custo ?? '0')),
+      )
+      if (a.diferenca.milesimos < 0n) {
+        itensComFalta++
+        valorDaFalta = valorDaFalta.mais(valor)
+      }
       return {
-        de,
-        ate,
-        itens,
-        itensComFalta,
-        valorDaFalta: valorDaFalta.centavos.toString(),
-        itensSemContagens,
+        ...cabecalho,
+        deDia: a.deDia,
+        ateDia: a.ateDia,
+        inicialEmEstoque: q(a.anterior?.quantidade.milesimos ?? 0n),
+        entradasEmEstoque: q(a.entradas.milesimos),
+        saidasEmEstoque: q(a.saidas.milesimos),
+        ajustesEmEstoque: q(a.ajustes.milesimos),
+        esperadoEmEstoque: q(a.esperado.milesimos),
+        finalEmEstoque: q(a.contado.milesimos),
+        diferencaEmEstoque: q(a.diferenca.milesimos),
+        valorDaFalta: valor.centavos.toString(),
       }
     })
-  }
+
+    return {
+      de,
+      ate,
+      itens,
+      itensComFalta,
+      valorDaFalta: valorDaFalta.centavos.toString(),
+      itensSemContagens,
+    }
 }

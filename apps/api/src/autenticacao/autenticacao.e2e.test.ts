@@ -119,12 +119,12 @@ describe('POST /v1/entrar', () => {
     expect(cookieDaResposta(r).join()).toMatch(/__Host-fir-sessao=/)
   })
 
-  it('não há e-mail em lugar nenhum da resposta', async () => {
-    // D-10: o produto inteiro deixou de coletar e-mail da equipe. Uma linha a
-    // menos na avaliação de impacto, e uma a menos em `tentativas_login`.
+  it('quem não cadastrou e-mail recebe os campos de e-mail vazios — e nenhum @', async () => {
+    // ADR 2026-11-16: o e-mail voltou como segundo identificador, opcional para
+    // quem já existia. Sem ele, a resposta não inventa um.
     const r = await entrar('senha-de-teste').expect(200)
     expect(JSON.stringify(r.body)).not.toMatch(/@/)
-    expect(Object.keys(r.body.usuario)).not.toContain('email')
+    expect(r.body.usuario).toMatchObject({ email: null, emailPendente: null, emailConfirmado: false })
   })
 
   it('perdoa caixa, acento e espaço nas pontas no campo usuário', async () => {

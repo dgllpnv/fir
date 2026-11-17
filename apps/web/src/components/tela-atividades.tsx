@@ -177,7 +177,16 @@ export function TelaAtividades({ fuso }: { fuso: string }) {
                     )}
                   </td>
                   <td data-rotulo="O que fez">
-                    <b>{ACOES[a.acao]}</b> · {assuntoLegivel(a.assunto)}
+                    {/* Evento de acesso (convite enviado, senha redefinida pelo
+                        link…): o rótulo vem pronto do servidor, e "Criou ·
+                        Eventos de acesso" não diria nada a quem administra. */}
+                    {a.evento === null ? (
+                      <>
+                        <b>{ACOES[a.acao]}</b> · {assuntoLegivel(a.assunto)}
+                      </>
+                    ) : (
+                      <b>{a.evento.rotulo}</b>
+                    )}
                     {a.campos.length > 0 && (
                       <span className="muted">Mudou: {a.campos.map(campoLegivel).join(', ')}</span>
                     )}

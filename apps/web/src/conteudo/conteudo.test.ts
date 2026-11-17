@@ -12,10 +12,10 @@ import { rotuloDoCapitulo } from './busca'
  *
  *  1. **A contagem** — 14 capítulos, 78 seções, 51 perguntas. Uma seção que
  *     alguém apague ao resolver um conflito não acusa nada sem isto.
- *  2. **A D-10** — nenhuma menção a PIN, a e-mail ou a convite sobrevive. O
- *     e-mail saiu do produto inteiro; um manual que ensina a trocar o PIN
- *     manda a recepção procurar um campo que não existe, e `identidade-sem-email`
- *     já cobra o mesmo do código.
+ *  2. **A D-10** — nenhuma menção a PIN sobrevive: um manual que ensina a
+ *     trocar o PIN manda a recepção procurar um campo que não existe. O
+ *     e-mail, que a D-10 tinha tirado, VOLTOU pela ADR 2026-11-16 como canal de
+ *     convite e de redefinição — e o texto tem de descrevê-lo como ele é.
  */
 const tudoDaAjuda = AJUDA.map((p) => `${p.pergunta} ${p.resposta} ${p.chaves}`).join('\n')
 const tudoDoManual = MANUAL.flatMap((c) =>
@@ -66,10 +66,10 @@ describe('o conteúdo é o dela, inteiro', () => {
 
 describe('a D-10 alcançou o conteúdo', () => {
   /**
-   * A mesma varredura de `teste/identidade-sem-email.test.ts`, do lado do
-   * texto. O e-mail não existe no produto: não há coluna, não há convite, não
-   * há SMTP — e um manual que o mencione é a instrução que sobra depois de a
-   * coisa sair.
+   * O PIN não existe no produto, e um manual que o mencione é a instrução que
+   * sobra depois de a coisa sair. O e-mail existe de novo (ADR 2026-11-16), e
+   * as duas varreduras abaixo cobram o contrário: que ele apareça como é, e
+   * que nada falso sobre ele apareça.
    */
   it('nenhuma menção a PIN', () => {
     const achados = AJUDA.filter((p) =>
@@ -83,13 +83,33 @@ describe('a D-10 alcançou o conteúdo', () => {
     expect([...achados, ...noManual]).toEqual([])
   })
 
-  it('nenhuma menção a e-mail nem a convite', () => {
-    // `/\bconvite\b/` e não `convit`: "convidar" também é proibido, e o `\b`
-    // pega os dois sem casar com palavra que só contém as letras.
-    const proibidos = [/e-?mail/i, /\bconvites?\b/i, /\bconvid/i, /\bSMTP\b/i]
+  /**
+   * **O e-mail VOLTOU** (ADR 2026-11-16) — como canal de convite e de
+   * redefinição, nunca como lugar onde a senha viaja. O que continua falso, e
+   * por isso continua proibido: falar do servidor de envio (detalhe de
+   * instalação, não da rotina da recepção), prometer a senha por e-mail ou
+   * dizer que a administradora vê a senha de alguém.
+   */
+  it('nada do que ainda é falso sobre o e-mail', () => {
+    const proibidos = [
+      /\bSMTP\b/i,
+      /senha (provisória )?(chega|vai|é enviada) (por|pelo) e-?mail/i,
+      /(administradora|admin) (vê|lê) a senha/i,
+    ]
     for (const p of proibidos) {
       expect(p.test(TUDO) ? `achou ${p} no conteúdo` : 'ok').toBe('ok')
     }
+  })
+
+  it('o que entrou com o e-mail: entrar por ele, esqueci a senha, cadastrar e convite', () => {
+    expect(TUDO).toContain('usuário ou e-mail')
+    expect(TUDO).toContain('Esqueci minha senha')
+    expect(TUDO).toContain('Cadastre seu e-mail')
+    expect(TUDO).toContain('Reenviar convite')
+    expect(TUDO).toContain('Enviar link para redefinir senha')
+    // Os prazos são os do servidor (spec 3.3): convite 7 dias, redefinição 1 hora.
+    expect(TUDO).toMatch(/vale 7 dias/)
+    expect(TUDO).toMatch(/vale 1 hora/)
   })
 
   /**

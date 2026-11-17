@@ -294,6 +294,10 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
   },
   { caminho: '/v1/eu', razao: 'Quem é você, a clínica e os perfis. Nenhum valor, nenhum dia.' },
   {
+    caminho: '/v1/acesso/config',
+    razao: 'Só se o envio de e-mail está ligado na instalação. Nenhum dado de clínica, valor ou dia.',
+  },
+  {
     caminho: '/v1/carteira/eu',
     razao:
       'Quem é o Usuário de Gestão da carteira: usuário, nome, escopo e grupo. ' +
@@ -654,6 +658,31 @@ export const ROTAS_FORA_DA_CONFERENCIA: readonly RotaForaDaConferencia[] = [
     caminho: '/v1/contas',
     razao:
       'Contas A PAGAR. É dinheiro que SAI, e o caixa confere o que entrou — nenhuma das duas listas alcança a outra.',
+  },
+  {
+    caminho: '/v1/indicadores',
+    razao:
+      'Indicadores (T2): o recebido só entra pelos dias que CONTAM (I-9) — com o caixa de hoje aberto, o período em reais termina ontem, e o contador de dias aguardando não depende de haver pagamento hoje. Nenhum recorte por forma. Provado byte a byte em `indicadores.e2e.test.ts` (`regra-6-nenhum-byte-de-hoje`).',
+  },
+  {
+    caminho: '/v1/indicadores/catalogo',
+    razao:
+      'Indicadores (T2): o recebido só entra pelos dias que CONTAM (I-9) — com o caixa de hoje aberto, o período em reais termina ontem, e o contador de dias aguardando não depende de haver pagamento hoje. Nenhum recorte por forma. Provado byte a byte em `indicadores.e2e.test.ts` (`regra-6-nenhum-byte-de-hoje`).',
+  },
+  {
+    caminho: '/v1/indicadores/metas/previa',
+    razao:
+      'Indicadores (T2): o recebido só entra pelos dias que CONTAM (I-9) — com o caixa de hoje aberto, o período em reais termina ontem, e o contador de dias aguardando não depende de haver pagamento hoje. Nenhum recorte por forma. Provado byte a byte em `indicadores.e2e.test.ts` (`regra-6-nenhum-byte-de-hoje`).',
+  },
+  {
+    caminho: '/v1/indicadores/kpis/:id',
+    razao:
+      'Indicadores (T2): o recebido só entra pelos dias que CONTAM (I-9) — com o caixa de hoje aberto, o período em reais termina ontem, e o contador de dias aguardando não depende de haver pagamento hoje. Nenhum recorte por forma. Provado byte a byte em `indicadores.e2e.test.ts` (`regra-6-nenhum-byte-de-hoje`).',
+  },
+  {
+    caminho: '/v1/indicadores/kpis/:id/serie',
+    razao:
+      'Indicadores (T2): o recebido só entra pelos dias que CONTAM (I-9) — com o caixa de hoje aberto, o período em reais termina ontem, e o contador de dias aguardando não depende de haver pagamento hoje. Nenhum recorte por forma. Provado byte a byte em `indicadores.e2e.test.ts` (`regra-6-nenhum-byte-de-hoje`).',
   },
   {
     caminho: '/v1/metas/:mes/percentual',

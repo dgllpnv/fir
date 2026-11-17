@@ -1,3 +1,4 @@
+import { recorteDeCaixa } from '../financeiro/faturamento-conferido'
 import type {
   ConferenciaMedx,
   CumprimentoDePrazos,
@@ -14,6 +15,7 @@ import type {
 } from '@fir/contracts'
 import { PERIODOS_DO_PAINEL } from '@fir/contracts'
 import {
+  conversaoDeOrcamentos,
   Dinheiro,
   TIPOS_DE_CONTATO,
   TIPOS_DE_RECEITA,
@@ -22,7 +24,6 @@ import {
   TIPO_PAGAMENTO_DE_ORCAMENTO,
   fimDoMes,
   janela,
-  diasEntre,
   percentualInteiro,
   residuoDeArredondamento,
   somarDias,
@@ -38,8 +39,8 @@ import { RELOGIO, type Relogio } from '../comum/relogio'
 import { diaDaClinica } from '../estoque/dia-da-clinica'
 import { DINHEIRO_QUE_ENTROU } from '../financeiro/dinheiro-que-entrou'
 import { outrasEntradasDaJanela } from '../financeiro/outras-entradas.repositorio'
-import { porDia, recebidosDaJanela } from '../financeiro/recebido-por-dia'
-import { faturamentoLidoDoMedx, somaDoMedx } from '../integracoes/faturamento-lido'
+import { somaDoMedx } from '../integracoes/faturamento-lido'
+import { ticketMedio, totaisDePacientes } from './totais-de-pacientes'
 import { FORA_DE_PACIENTE_DESATIVADO } from '../tarefas/leitura'
 import {
   TIPOS_DE_SESSAO,
@@ -161,23 +162,12 @@ export class PainelService {
     periodo: { de: string; ate: string },
     hoje: string,
   ): Promise<ConferenciaMedx | null> {
-    const lido = await faturamentoLidoDoMedx(c, ctx.clinicaId, periodo.de, periodo.ate, hoje)
+    // O recorte é o de `recorteDeCaixa`: UMA função de "dia sem caixa" para o
+    // Painel, a Visão do mês e o KPI (números B5, `dias-sem-caixa-uma-funcao`).
+    const recorte = await recorteDeCaixa(c, ctx.clinicaId, periodo.de, periodo.ate, ctx.fuso, hoje)
+    const { lido, fir, fechados, semCaixa } = recorte
     if (lido === null) return null
-
-    const fim = periodo.ate < hoje ? periodo.ate : hoje
-    const dias = fim < periodo.de ? [] : Array.from({ length: diasEntre(periodo.de, fim) + 1 }, (_, i) => somarDias(periodo.de, i))
-    const fir = porDia(await recebidosDaJanela(c, ctx.clinicaId, janela(periodo.de, periodo.ate, ctx.fuso), ctx.fuso))
-    const r = await c.query<{ dia: string }>(
-      `SELECT dia::text AS dia FROM caixas_do_dia
-        WHERE clinica_id = $1 AND dia BETWEEN $2::date AND $3::date`,
-      [ctx.clinicaId, periodo.de, periodo.ate],
-    )
-    const fechados = new Set(r.rows.map((x) => x.dia))
-
-    const conferidos = dias.filter((d) => fechados.has(d))
-    const semCaixa = dias.filter(
-      (d) => !fechados.has(d) && (!(fir.get(d)?.ehZero() ?? true) || !(lido.porDia.get(d)?.faturamento.ehZero() ?? true)),
-    )
+    const conferidos = recorte.dias.filter((d) => fechados.has(d))
     const medx = somaDoMedx(lido, conferidos)
     const recebidoNaFir = conferidos.reduce((s, d) => s.mais(fir.get(d) ?? Dinheiro.zero()), Dinheiro.zero())
     const diasComDiferenca = conferidos.flatMap((d) => {
@@ -319,33 +309,10 @@ export class PainelService {
     ]
     const EH_RECEITA = `(t.tipo = ANY($4::text[]) OR (t.tipo = ANY($5::text[]) AND r.valor > 0))`
 
-    const totais = await c.query<{
-      receita: string
-      pagamentos: string
-      atendidos: string
-      contatos: string
-      orc_qtd: string
-      orc_valor: string
-    }>(
-      `SELECT coalesce(sum(r.valor) FILTER (WHERE ${EH_RECEITA}), 0)::text AS receita,
-              count(*) FILTER (WHERE ${EH_RECEITA})::text AS pagamentos,
-              count(DISTINCT t.paciente_id) FILTER (WHERE t.tipo = ANY($7::text[]))::text AS atendidos,
-              count(*) FILTER (WHERE t.tipo = ANY($6::text[]))::text AS contatos,
-              count(*) FILTER (WHERE t.tipo = $8)::text AS orc_qtd,
-              coalesce(sum(r.valor) FILTER (WHERE t.tipo = $8), 0)::text AS orc_valor
-         FROM tarefas t
-         LEFT JOIN recebimentos r
-                ON r.tarefa_id = t.id AND r.estornado_em IS NULL AND ${DINHEIRO_QUE_ENTROU}
-        WHERE t.clinica_id = $1
-          AND t.excluida_em IS NULL
-          AND t.status = 'concluida'
-          AND t.paciente_id IS NOT NULL
-          AND t.concluida_em >= $2 AND t.concluida_em < $3`,
-      args,
-    )
-    const t = totais.rows[0]!
-    const receita = Dinheiro.deCentavos(BigInt(t.receita))
-    const pagamentos = Number(t.pagamentos)
+    // Os totais da tabela: a MESMA função dos KPIs de ticket e de orçamento (I-7).
+    const t = await totaisDePacientes(c, ctx.clinicaId, j)
+    const receita = t.receita
+    const pagamentos = t.pagamentos
 
     /**
      * AS FORMAS DE PAGAMENTO — **SÓ DOS DIAS COM CAIXA JÁ FECHADO** (regra 6).
@@ -503,18 +470,16 @@ export class PainelService {
       pagamentos,
       outrasEntradas: outras.reduce((s2, x) => s2.mais(x.valor), Dinheiro.zero()).centavos.toString(),
       quantidadeDeOutrasEntradas: outras.length,
-      pacientesAtendidos: Number(t.atendidos),
+      pacientesAtendidos: t.atendidos,
       // **Pelo value object** (regra 1), e `null` sem pagamento nenhum:
       // `R$ 0,00` diria que o ticket médio é zero, e ele não existe.
-      ticketMedio: pagamentos === 0 ? null : receita.media(pagamentos).centavos.toString(),
-      contatos: Number(t.contatos),
-      orcamentosPagos: Number(t.orc_qtd),
-      valorDosOrcamentosPagos: t.orc_valor,
+      ticketMedio: ticketMedio(t)?.centavos.toString() ?? null,
+      contatos: t.contatos,
+      orcamentosPagos: t.orcamentosPagos,
+      valorDosOrcamentosPagos: t.valorDosOrcamentosPagos.centavos.toString(),
       orcamentosEnviados: enviados,
-      conversaoDeOrcamentos:
-        enviados === 0
-          ? null
-          : Math.min(100, percentualInteiro(BigInt(fechados), BigInt(enviados)) ?? 0),
+      // A regra (com o limite de 100) é do domínio, a MESMA do KPI (números c.1).
+      conversaoDeOrcamentos: conversaoDeOrcamentos(enviados, fechados),
       porForma: formas.rows.map((f) => ({
         forma: f.forma,
         pagamentos: Number(f.n),

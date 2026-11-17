@@ -1,6 +1,8 @@
 export * from './comum'
 export * from './auditoria'
 export * from './autenticacao'
+// Acesso por e-mail e redefinição de senha (ADR 2026-11-16).
+export * from './acesso-por-email'
 export * from './clinica'
 export * from './pacientes'
 export * from './tarefas'
@@ -65,3 +67,6 @@ export * from './biblioteca-e-beneficio-carteira'
 // Transparência: os grupos que recebem a clínica.
 export * from './grupos-da-clinica'
 export * from './integracoes'
+// Indicadores & Insights (T1: enums e parâmetros do catálogo).
+export * from './indicadores'
+export * from './indicadores-api'

@@ -1,4 +1,5 @@
 import { SENHA_MAX, canonizarUsuario, ehErro, validarUsuario } from '@fir/domain'
+import { EmailCanonico } from './acesso-por-email'
 import { z } from 'zod'
 import { DiaCivil, Uuid } from './comum'
 
@@ -178,6 +179,11 @@ export const CriarPessoaNoPainelEntrada = z
      * um.
      */
     perfilId: Uuid.nullable(),
+    /**
+     * OPCIONAL no painel (spec 9): a primeira administradora continua com a
+     * provisória. Fica guardado como PENDENTE, sem convite.
+     */
+    email: EmailCanonico.optional(),
   })
   .strict()
 export type CriarPessoaNoPainelEntrada = z.infer<typeof CriarPessoaNoPainelEntrada>
@@ -354,6 +360,13 @@ export const AtividadeDaClinica = AtividadeDoPainel.omit({ clinica: true }).exte
    */
   entidadeId: z.string().nullable().default(null),
   motivo: z.string().nullable().default(null),
+  /**
+   * Um EVENTO DE ACESSO (`eventos_de_acesso`, ADR 2026-11-16): convite enviado,
+   * senha redefinida pelo link, link vencido… `assunto` é `eventos_de_acesso`,
+   * `acao` é `criou`, e o que a tela mostra é `rotulo`. `null` nas linhas da
+   * trilha. Nunca o e-mail, o IP ou o token — a tabela não os tem.
+   */
+  evento: z.object({ codigo: z.string(), rotulo: z.string() }).strict().nullable().default(null),
 })
 export type AtividadeDaClinica = z.infer<typeof AtividadeDaClinica>
 

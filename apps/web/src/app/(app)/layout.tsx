@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react'
 import { FaixaDeSuporte } from '@/components/faixa-de-suporte'
+import { FaixaDoEmail } from '@/components/faixa-do-email'
 import { Shell } from '@/components/shell'
+import { envioDeEmailLigado } from '@/lib/config-do-acesso'
+import { mostraFaixaDoEmail } from '@/lib/faixa-do-email'
 import { itensDoMenu } from '@/lib/menu'
 import { sessaoAtual } from '@/lib/sessao'
 
@@ -14,6 +17,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   // `lib/sessao` — na sessão de suporte ele é acesso total (D-13), pela MESMA
   // função `temPerm` que a API usa.
   const itens = itensDoMenu(quem, perfis)
+
+  // "Cadastre seu e-mail" (spec 2, fluxo 6): só para uma PESSOA — nunca a
+  // sessão de suporte, que não tem e-mail de ninguém —, sem e-mail confirmado,
+  // com o envio ligado. A configuração só é perguntada a quem pode ver a faixa.
+  const pessoa = eu.usuario
+  const faixaDoEmail =
+    pessoa !== null && !pessoa.emailConfirmado && mostraFaixaDoEmail(pessoa, await envioDeEmailLigado())
 
   return (
     <>
@@ -40,6 +50,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         usuario={eu.usuario?.nome ?? suporte?.operador.nome ?? ''}
         funcao={eu.usuario?.funcao ?? (suporte === null ? '' : 'Operador do painel')}
         suporte={suporte !== null}
+        aviso={faixaDoEmail && pessoa !== null ? <FaixaDoEmail emailPendente={pessoa.emailPendente} /> : null}
       >
         {children}
       </Shell>

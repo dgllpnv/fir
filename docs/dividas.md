@@ -314,6 +314,8 @@ e o único redigido por uma permissão diferente (`pessoas.gerir`). Um `salarioB
 
 Ela é append-only nas duas camadas, então a purga **não é um `DELETE` comum**: é um job privilegiado que, numa transação, desliga `auditoria_sem_update`, apaga a faixa vencida e o religa — o mesmo caminho que `apagarClinicaDeTeste` usa nos testes. Precisa de registro próprio do que apagou (quantas linhas, de que período), senão a purga vira a única operação do sistema sem rastro.
 
+**E as duas tabelas do acesso por e-mail (ADR 2026-11-16, LGPD L5 e L6), no mesmo job:** `links_de_acesso` apagado **30 dias** depois de usado, invalidado ou vencido (só hashes, mas sem razão para ficar), e `eventos_de_acesso` apagado com **1 ano**. As duas não têm o caminho da trilha: `fir_app` não tem `DELETE` nelas, e a purga roda com o papel de migração. O de 30 dias é o primeiro prazo de todo o sistema a vencer — mas sobre dezenas de linhas de hash, e por isso não antecipa o gatilho.
+
 **Gatilho:** a primeira clínica completar **um ano** em produção — é quando o prazo mais curto começa a vencer e o acúmulo deixa de ser hipótese. **Sintoma se esquecer:** nada visível. É o modo de falha da LGPD: acúmulo indefinido de dado sensível não dá erro, dá multa.
 
 ---
@@ -732,6 +734,16 @@ O HMAC dos ids do MedX e a referência selada derivam de `FIR_INTEGRACOES_CHAVE_
 
 `leituras_de_faturamento_externo` e `historico_de_faturamento_externo` (0095) têm prazo de "integração ligada + 2 anos" (`docs/compliance/retencao.md`), e nada apaga. São totais por dia, sem paciente: o custo de esperar é volume, não exposição.
 **Gatilho:** o mesmo da D-L4. Os dois jobs podem ser um só.
+
+### D-I1 · A perda de estoque do KPI usa o custo ATUAL do item
+
+`perda_de_estoque` (Indicadores, T2) multiplica a falta pelo custo **de hoje** do item (`analiseNaConexao`, a mesma conta da aba Análise do estoque). Editar o custo de um item reescreve a perda de todos os meses passados, e um OKR de "reduzir perda" muda de número sem que nada no estoque tenha mudado (números B4).
+**Gatilho:** a primeira reclamação de um número de perda que mudou sozinho, ou o primeiro OKR de perda que atravessa uma troca de custo. Caminho: custo vigente gravado no movimento (`custo_no_movimento`), lido na análise.
+
+### D-I2 · A Visão do mês mostra o recebido de HOJE a quem tem `finmes` (medido no T2, appsec C11)
+
+Medido: `GET /v1/visao-do-mes` devolve `recebido` com os pagamentos de hoje, caixa aberto ou não, e `quantidadeDeRecebimentos` junto. Quem tem `finmes` (e por isso `valores`) e vai contar a gaveta subtrai o `recebido` de ontem e lê o total do dia — o esperado do caixa, por outra porta (regra 6). O `porForma` já corta no caixa fechado; o total não. O T2 **não amplia** a exposição: a meta passou a medir só dias que contam, `aguardandoFechamento` é um total só e some sem `valores`, e `/v1/indicadores*` não muda nenhum byte com um recebimento de hoje (`regra-6-nenhum-byte-de-hoje`).
+**Gatilho:** a primeira clínica em que quem tem `finmes` também conta o caixa às cegas — ou a próxima mudança na tela da Visão do mês. Caminho: `recebido` com o mesmo corte de `porForma`, e a linha "aguardando fechamento" para o resto.
 
 ## Pendências de produto, não de código
 

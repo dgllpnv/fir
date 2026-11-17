@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { EuSaida } from '@fir/contracts'
+import type { ConfigDoAcesso, EuSaida } from '@fir/contracts'
 import { SENHA_MIN, avaliarSenha, ehErro } from '@fir/domain'
+import { CamposDoMeuEmail, useMeuEmail } from '@/components/meu-email'
 import { chamar, ErroDaApi } from '@/lib/api'
 
 /**
@@ -78,7 +79,7 @@ export default function TrocarSenha() {
 
   return (
     <main className="entrada">
-      <form className="caixa" onSubmit={enviar}>
+      <div className="caixa">
         <div className="marcabloco">
           <div className="marca">
             FIR Clinic<span>.</span>
@@ -86,7 +87,7 @@ export default function TrocarSenha() {
           <div className="eyebrow">Rotinas de gestão</div>
         </div>
 
-        <div className="cartao">
+        <form className="cartao" onSubmit={enviar}>
           <p className="aviso-primeiro-acesso">
             Esta senha foi criada por outra pessoa e vale só para o primeiro acesso. Escolha agora
             uma senha que só você saiba — as outras sessões desta conta serão encerradas.
@@ -144,13 +145,168 @@ export default function TrocarSenha() {
           <button type="submit" disabled={!podeEnviar} className="btn">
             {enviando ? 'Trocando…' : 'Trocar a senha'}
           </button>
-        </div>
+        </form>
+
+        {/* O PRÓPRIO E-MAIL — só fora da provisória: com ela, o servidor recusa
+            `/v1/eu/email` (a pessoa troca a senha primeiro), e oferecer o campo
+            seria oferecer um erro. A sessão de suporte não tem pessoa. */}
+        {eu?.usuario && !eu.usuario.senhaProvisoria ? <MeuEmail pessoa={eu.usuario} /> : null}
 
         {/* A ÚNICA saída lateral. Não há "pular" nem "depois". */}
         <button type="button" onClick={sair} className="btn ghost">
           Sair
         </button>
-      </form>
+      </div>
     </main>
+  )
+}
+
+/**
+ * **E-mail** — cadastrar, trocar ou retirar o próprio (LGPD L8), sempre com a
+ * senha atual (appsec 1). O confirmado continua valendo até o novo ser
+ * confirmado: trocar não tira ninguém do caminho de entrada que já funciona.
+ */
+function MeuEmail({ pessoa }: { pessoa: NonNullable<EuSaida['usuario']> }) {
+  const [envioDeEmail, setEnvioDeEmail] = useState<boolean | null>(null)
+  const [email, setEmail] = useState('')
+  const [senha, setSenha] = useState('')
+  const [confirmado, setConfirmado] = useState(pessoa.email)
+  const [pendente, setPendente] = useState(pessoa.emailPendente)
+  const [retirando, setRetirando] = useState(false)
+  const [recado, setRecado] = useState('')
+  const { erros, enviando, enviar, limpar } = useMeuEmail()
+
+  useEffect(() => {
+    chamar<ConfigDoAcesso>('v1/acesso/config')
+      .then((c) => setEnvioDeEmail(c.envioDeEmail))
+      .catch(() => setEnvioDeEmail(false))
+  }, [])
+
+  const temAlgum = confirmado !== null || pendente !== null
+
+  async function aoEnviar(e: React.FormEvent) {
+    e.preventDefault()
+    setRecado('')
+    const r = await enviar(retirando ? null : email, senha)
+    if (r === 'erro') return
+    setSenha('')
+    if (retirando) {
+      setConfirmado(null)
+      setPendente(null)
+      setRetirando(false)
+      setRecado('E-mail retirado. Você continua entrando pelo usuário.')
+      return
+    }
+    setPendente(r.enviadoPara)
+    setEmail('')
+    setRecado(
+      `Enviamos o link para ${r.enviadoPara ?? 'o e-mail informado'}. Confira sua caixa de entrada.`,
+    )
+  }
+
+  return (
+    <form className="cartao" onSubmit={aoEnviar} noValidate aria-labelledby="meu-email-titulo">
+      <h2 className="titulo-de-acesso" id="meu-email-titulo">
+        E-mail
+      </h2>
+      <dl className="meu-email-situacao">
+        <div>
+          <dt>Confirmado</dt>
+          <dd>{confirmado ?? 'Nenhum'}</dd>
+        </div>
+        {pendente === null ? null : (
+          <div>
+            <dt>Esperando confirmação</dt>
+            <dd>{pendente}</dd>
+          </div>
+        )}
+      </dl>
+
+      {retirando ? (
+        <>
+          <p className="nota">
+            Sem e-mail, você entra só pelo usuário e, se esquecer a senha, pede à administradora.
+          </p>
+          <label className="campo">
+            Senha atual
+            <input
+              type="password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              autoComplete="current-password"
+              aria-invalid={erros.senha !== ''}
+              aria-describedby="meu-email-erro-retirar"
+            />
+            <span id="meu-email-erro-retirar" className="erro" role="status" aria-live="polite">
+              {erros.senha}
+            </span>
+          </label>
+        </>
+      ) : envioDeEmail === false ? (
+        <p className="nota">O envio de e-mail ainda não está ligado nesta instalação.</p>
+      ) : (
+        <CamposDoMeuEmail
+          id="meu-email"
+          email={email}
+          senha={senha}
+          aoMudarEmail={setEmail}
+          aoMudarSenha={setSenha}
+          erros={erros}
+          rotuloDoEmail={confirmado === null ? 'E-mail' : 'E-mail novo'}
+        />
+      )}
+
+      {erros.geral === '' ? null : (
+        <p className="erro" role="alert">
+          {erros.geral}
+        </p>
+      )}
+      {recado === '' ? null : (
+        <p className="nota" role="status">
+          {recado}
+        </p>
+      )}
+
+      <div className="botoes">
+        {retirando ? (
+          <>
+            <button type="submit" className="btn" disabled={enviando}>
+              {enviando ? 'Retirando…' : 'Confirmar: retirar meu e-mail'}
+            </button>
+            <button
+              type="button"
+              className="link"
+              onClick={() => {
+                limpar()
+                setRetirando(false)
+              }}
+            >
+              Deixar como está
+            </button>
+          </>
+        ) : (
+          <>
+            {envioDeEmail === false ? null : (
+              <button type="submit" className="btn" disabled={enviando || envioDeEmail === null}>
+                {enviando ? 'Enviando…' : 'Enviar confirmação'}
+              </button>
+            )}
+            {temAlgum ? (
+              <button
+                type="button"
+                className="link perigo"
+                onClick={() => {
+                  limpar()
+                  setRecado('')
+                  setRetirando(true)
+                }}
+              >
+                Retirar meu e-mail
+              </button>
+            ) : null}
+          </>
+        )}
+      </div>
+    </form>
   )
 }

@@ -11,7 +11,7 @@ import type {
   SalvarPaciente,
   TarefaNaLista,
 } from '@fir/contracts'
-import { diaCivil, type Relogio, type SaldoDoPaciente, somarDias, TIPOS } from '@fir/domain'
+import { DIAS_SEM_RETORNO, diaCivil, type Relogio, type SaldoDoPaciente, somarDias, TIPOS } from '@fir/domain'
 import {
   BadRequestException,
   ConflictException,
@@ -52,8 +52,8 @@ import { decidirIndicacaoNoBanco, traduzirErroDeIndicacao, vinculosNaFicha } fro
  */
 const TIPOS_DE_ATENDIMENTO = TIPOS.filter((t) => t.atende === true).map((t) => t.nome)
 
-/** "Sem retorno há 6+ meses" é 182 dias no protótipo. O mesmo número aqui. */
-const DIAS_SEM_RETORNO = 182
+// "Sem retorno há 6+ meses" (182 dias no protótipo) é `DIAS_SEM_RETORNO`, do
+// domínio desde a I-12: o KPI de recaptação usa o mesmo número.
 
 /**
  * O "movimento" do paciente: o mais recente entre o último atendimento

@@ -29,8 +29,8 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   {
     tema: 'Primeiros passos',
     pergunta: 'Como entro na ferramenta?',
-    resposta: 'Abra o link da ferramenta e informe três coisas: o código da clínica, o seu usuário e a sua senha. O usuário é o nome curto que a clínica cadastrou para você (por exemplo, ana.silva), feito para ser ditado por telefone sem ambiguidade. No primeiro acesso você usa a senha provisória que lhe foi passada, e a ferramenta pede uma senha nova antes de abrir qualquer tela.',
-    chaves: 'login entrar acesso senha usuario clinica primeiro acesso provisoria',
+    resposta: 'Abra o link da ferramenta e informe três coisas: o código da clínica, o seu usuário ou e-mail e a sua senha. O usuário é o nome curto que a clínica cadastrou para você (por exemplo, ana.silva), feito para ser ditado por telefone sem ambiguidade; o e-mail só entra depois de confirmado. No primeiro acesso, ou você recebe um convite por e-mail com o botão Criar minha senha (vale 7 dias), ou usa a senha provisória que lhe foi passada, e a ferramenta pede uma senha nova antes de abrir qualquer tela.',
+    chaves: 'login entrar acesso senha usuario email clinica primeiro acesso provisoria convite',
   },
   {
     tema: 'Primeiros passos',
@@ -41,8 +41,8 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   {
     tema: 'Primeiros passos',
     pergunta: 'Esqueci minha senha. E agora?',
-    resposta: 'Peça a quem administra a clínica: em Configurações › Usuários e acessos ela toca em “Redefinir senha” e a ferramenta gera uma senha provisória. A senha aparece uma única vez, na tela de quem a gerou, para ser passada a você — ninguém lê a senha de outra pessoa, nem quem a redefiniu. Ela vale por 72 horas e é trocada no seu primeiro acesso.',
-    chaves: 'senha esqueci recuperar redefinir provisoria',
+    resposta: 'Na tela de entrada, toque em “Esqueci minha senha” e informe o seu e-mail confirmado: chega um link para criar uma senha nova, que vale 1 hora e serve uma vez. Se você não tem e-mail confirmado, ou o link não aparece na entrada, peça a quem administra a clínica: em Configurações › Usuários e acessos ela pode enviar o link para redefinir a senha ou tocar em “Redefinir senha” para gerar uma senha provisória. A provisória aparece uma única vez, na tela de quem a gerou, para ser passada a você — ninguém lê a senha de outra pessoa, nem quem a redefiniu. Ela vale por 72 horas e é trocada no seu primeiro acesso.',
+    chaves: 'senha esqueci recuperar redefinir provisoria email link',
   },
   {
     tema: 'Primeiros passos',
@@ -323,8 +323,8 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   {
     tema: 'Gestão',
     pergunta: 'Como cadastro uma pessoa da equipe?',
-    resposta: 'Em Configurações › Usuários e acessos › Adicionar pessoa: informe o nome, o usuário para entrar e a função, e escolha o perfil de acesso. A senha é gerada pela ferramenta e aparece uma única vez, agora, para você passar à pessoa — nem você consegue lê-la depois. É o perfil de acesso que decide o que ela vê: valores em reais, Painel geral e Equipe ficam em perfis próprios.',
-    chaves: 'equipe usuario cadastrar pessoa funcionario colaborador permissao perfil senha',
+    resposta: 'Em Configurações › Usuários e acessos › Adicionar pessoa: informe o nome, o usuário para entrar, o e-mail (obrigatório) e a função, e escolha o perfil de acesso. Com o envio de e-mail ligado, ela recebe um convite para criar a própria senha; se não chegar, abra a pessoa e toque em “Reenviar convite”. Com o envio desligado, a senha é gerada pela ferramenta e aparece uma única vez, agora, para você passar à pessoa — nem você consegue lê-la depois. É o perfil de acesso que decide o que ela vê: valores em reais, Painel geral e Equipe ficam em perfis próprios.',
+    chaves: 'equipe usuario cadastrar pessoa funcionario colaborador permissao perfil senha email convite',
     gestao: true,
   },
   {

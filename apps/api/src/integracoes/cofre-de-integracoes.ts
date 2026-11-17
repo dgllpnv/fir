@@ -41,7 +41,7 @@ const ROTULO = 'fir:integracoes'
 // Fora de produção, um par FIXO de desenvolvimento, que nunca vale para dado real.
 const PUBLICA_DE_DESENVOLVIMENTO = 'MCowBQYDK2VuAyEA0YE9LhTCKrCYsMf7kI8P+YHF22PDXbQK+V8NKbI3sSs='
 const PRIVADA_DE_DESENVOLVIMENTO = 'MC4CAQAwBQYDK2VuBCIEIPjdg/GHsp9gsbS7aB5/QRwRDnmJPpBRhc9B3gIB7TR8'
-const PEPPER_DE_DESENVOLVIMENTO = 'fir-integracoes-pepper-de-desenvolvimento-nunca-em-producao'
+export const PEPPER_DE_DESENVOLVIMENTO = 'fir-integracoes-pepper-de-desenvolvimento-nunca-em-producao'
 
 export type ParDeChaves = { readonly publica: string; readonly privada: string }
 
@@ -68,7 +68,8 @@ function chaveSimetrica(compartilhado: Buffer, efemera: Buffer, destinatario: Bu
   )
 }
 
-function exigido(ambiente: NodeJS.ProcessEnv, nome: string, dev: string): string {
+/** Exportada para o acesso por e-mail, que deriva a chave dele do MESMO pepper. */
+export function exigido(ambiente: NodeJS.ProcessEnv, nome: string, dev: string): string {
   const v = ambiente[nome]
   if (v !== undefined && v.length >= 32) return v
   if (ambiente['NODE_ENV'] === 'production') {

@@ -1,5 +1,7 @@
 import { avaliarSenha, ehErro, gerarSenhaProvisoria, type ErroDeDominio } from '@fir/domain'
+import { randomBytes } from 'node:crypto'
 import type pg from 'pg'
+import { invalidarLinksDaPessoa } from '../acesso/links'
 import { semaforoArgon2 } from '../autenticacao/concorrencia'
 import { hashDeSenha } from '../autenticacao/senha'
 
@@ -110,6 +112,17 @@ export async function provisoriaEscolhida(
   return { senha: null, hash, expiraEm: new Date(agora.getTime() + PROVISORIA_VALE_MS) }
 }
 
+/**
+ * O hash de quem nasce CONVIDADA (envio ligado, ADR 2026-11-16): de um segredo
+ * de 256 bits que ninguém vê e que é descartado aqui. `senha_hash` é `NOT NULL`
+ * e o entrar roda Argon2 contra ele como contra qualquer outro — o tempo não
+ * distingue a convidada —, e o entrar ainda recusa `aguardando_primeira_senha`.
+ */
+export async function hashDoConvite(): Promise<string> {
+  const descartado = randomBytes(32).toString('base64url')
+  return semaforoArgon2.executar(() => hashDeSenha(descartado))
+}
+
 export type LinhaDePessoaCriada = {
   id: string
   nome: string
@@ -137,6 +150,16 @@ export async function inserirPessoa(
     funcao: string
     perfilId: string | null
     provisoria: Provisoria
+    /**
+     * O e-mail digitado por quem cria. Entra PENDENTE, nunca confirmado
+     * (appsec 2): só o uso de um link prova a caixa de entrada.
+     */
+    emailPendente?: string | null
+    /**
+     * Convidada: sem provisória, `provisoria.hash` é o de `hashDoConvite`, e a
+     * pessoa cria a senha pelo link do convite.
+     */
+    aguardandoPrimeiraSenha?: boolean
   },
 ): Promise<LinhaDePessoaCriada> {
   /**
@@ -162,8 +185,10 @@ export async function inserirPessoa(
   try {
     const r = await c.query<LinhaDePessoaCriada>(
       `INSERT INTO pessoas (clinica_id, nome, usuario, funcao, senha_hash, admin, perfil_id,
-                            senha_provisoria, senha_provisoria_expira_em)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)
+                            senha_provisoria, senha_provisoria_expira_em,
+                            email_pendente, aguardando_primeira_senha)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOT $10, CASE WHEN $10 THEN NULL ELSE $8::timestamptz END,
+               $9, $10)
        RETURNING id, nome, usuario, funcao, admin, perfil_id`,
       [
         dados.clinicaId,
@@ -174,6 +199,8 @@ export async function inserirPessoa(
         dados.perfilId === null,
         dados.perfilId,
         dados.provisoria.expiraEm,
+        dados.emailPendente ?? null,
+        dados.aguardandoPrimeiraSenha === true,
       ],
     )
     return r.rows[0]!
@@ -209,7 +236,8 @@ export async function redefinirSenhaDePessoa(
 ): Promise<void> {
   const r = await c.query(
     `UPDATE pessoas
-        SET senha_hash = $1, senha_provisoria = true, senha_provisoria_expira_em = $2
+        SET senha_hash = $1, senha_provisoria = true, senha_provisoria_expira_em = $2,
+            aguardando_primeira_senha = false
       WHERE id = $3 AND excluida_em IS NULL`,
     [provisoria.hash, provisoria.expiraEm, pessoaId],
   )
@@ -219,6 +247,9 @@ export async function redefinirSenhaDePessoa(
     `UPDATE sessoes SET revogada_em = now() WHERE pessoa_id = $1 AND revogada_em IS NULL`,
     [pessoaId],
   )
+  // A provisória substitui o convite e qualquer link de redefinição aberto
+  // (appsec 7): quem tem a provisória na mão não deve ter também um link.
+  await invalidarLinksDaPessoa(c, pessoaId)
 }
 
 /**
@@ -255,7 +286,12 @@ export async function excluirPessoa(c: pg.PoolClient, pessoaId: string): Promise
     `UPDATE pessoas
         SET excluida_em   = now(),
             ativo         = false,
-            desativada_em = coalesce(desativada_em, now())
+            desativada_em = coalesce(desativada_em, now()),
+            -- LGPD L9: quem saiu da clínica de vez não guarda e-mail. A
+            -- DESATIVADA guarda (pode ser reativada); a excluída, não.
+            email               = NULL,
+            email_pendente      = NULL,
+            email_confirmado_em = NULL
       WHERE id = $1 AND excluida_em IS NULL`,
     [pessoaId],
   )
@@ -265,6 +301,7 @@ export async function excluirPessoa(c: pg.PoolClient, pessoaId: string): Promise
     'UPDATE sessoes SET revogada_em = now() WHERE pessoa_id = $1 AND revogada_em IS NULL',
     [pessoaId],
   )
+  await invalidarLinksDaPessoa(c, pessoaId)
 }
 
 /**
@@ -382,6 +419,9 @@ export async function editarPessoa(
       [pessoaId],
     )
   }
+  // Desativada não usa link nenhum (appsec 7) — e um link que sobrevivesse à
+  // desativação voltaria a valer na reativação.
+  if (dados.ativo === false) await invalidarLinksDaPessoa(c, pessoaId)
   return linha
 }
 

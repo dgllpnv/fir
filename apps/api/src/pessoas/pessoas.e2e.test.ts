@@ -53,8 +53,14 @@ let admin: string[]
 let semConfig: string[]
 let adminDaOutra: string[]
 
+// O e-mail é obrigatório desde o acesso por e-mail (ADR 2026-11-16); com o
+// envio desligado nos e2e, ele entra pendente e a provisória segue o caminho de
+// sempre — que é o que esta suíte mede.
 const criarPessoa = (sessao: string[], corpo: Record<string, unknown>) =>
-  request(app.getHttpServer()).post('/v1/pessoas').set('Cookie', sessao).send(corpo)
+  request(app.getHttpServer())
+    .post('/v1/pessoas')
+    .set('Cookie', sessao)
+    .send({ email: `${String(corpo['usuario'] ?? 'x').replace(/[^a-z0-9.]/gi, '')}@teste.com`, ...corpo })
 
 const redefinir = (sessao: string[], id: string, senha?: string) =>
   request(app.getHttpServer())
