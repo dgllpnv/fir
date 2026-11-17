@@ -83,14 +83,22 @@ export async function executarUsoDiarioCliente(
   banco: BancoService,
   relogio: Relogio,
   diaAlvo?: string,
+  // Só para teste, como em `executarSincronizacaoDeCampanhas`: o job varre
+  // TODO cliente ativo, e um arquivo de teste que o rodasse gravaria uso nos
+  // clientes de outro arquivo no meio da limpeza dele (FK em
+  // `uso_diario_cliente`, 2026-11-17). O agendador nunca o informa.
+  opcoes: { readonly clienteIds?: readonly string[] } = {},
 ): Promise<ResumoDoJob> {
+  const recorte = opcoes.clienteIds
   const clientes = await banco.nasTabelasDaCarteiraComEscopo('geral', null, (c) =>
     c.query<ClienteAtivo>(
       `SELECT id, nome, clinica_id, grupo_id, status FROM clientes_carteira
         WHERE status IN ('ativo', 'onboarding') AND excluido_em IS NULL
           -- Desde a 0047 o cliente pode existir sem clínica na FIR Clinic (D-22
           -- item 4): sem clínica não há uso a medir, e isso não é falha.
-          AND clinica_id IS NOT NULL`,
+          AND clinica_id IS NOT NULL
+          ${recorte === undefined ? '' : 'AND id = ANY($1)'}`,
+      recorte === undefined ? [] : [[...recorte]],
     ),
   )
   if (clientes.rows.length === 0) return { processados: 0, falhas: [] }

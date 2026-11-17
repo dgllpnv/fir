@@ -327,7 +327,7 @@ describe('jobs ignoram o cliente de um grupo de que a clínica foi removida', ()
           .rows[0].count,
       )
     for (let i = 0; i < 3; i++) {
-      const r = await executarUsoDiarioCliente(banco, { agora: () => AGORA }, '2026-11-10')
+      const r = await executarUsoDiarioCliente(banco, { agora: () => AGORA }, '2026-11-10', { clienteIds: [ativo, removido] })
       expect(r.falhas.filter((f) => [ativo, removido].includes(f.clienteCarteiraId))).toEqual([])
       expect(await linhasDeUso()).toBe(1)
     }

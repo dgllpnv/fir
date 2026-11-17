@@ -376,7 +376,7 @@ const linhaDe = async (clienteCarteiraId: string): Promise<LinhaUsoDiario | unde
 
 describe('executarUsoDiarioCliente — G4', () => {
   it('calcula a linha do dia para cada Cliente Firmare ATIVO ou em ONBOARDING', async () => {
-    const resumo = await executarUsoDiarioCliente(banco, relogio, DIA)
+    const resumo = await executarUsoDiarioCliente(banco, relogio, DIA, { clienteIds: [clienteA, clienteB, clienteOnboarding, clienteD] })
     // Só as falhas DOS clientes deste arquivo: o job varre o banco inteiro, e outro arquivo
     // rodando junto pode apagar um cliente dele no meio da varredura (corrida de FK).
     const meus = [clienteA, clienteB, clienteOnboarding, clienteD]
@@ -438,7 +438,7 @@ describe('executarUsoDiarioCliente — G4', () => {
     const antes = await linhaDe(clienteA)
     expect(antes).toBeDefined()
 
-    const resumo = await executarUsoDiarioCliente(banco, relogio, DIA)
+    const resumo = await executarUsoDiarioCliente(banco, relogio, DIA, { clienteIds: [clienteA, clienteB, clienteOnboarding, clienteD] })
     expect(resumo.falhas.filter((x) => [clienteA, clienteB, clienteOnboarding, clienteD].includes(x.clienteCarteiraId))).toEqual([])
 
     const contagem = await migrate.query<{ n: string }>(
@@ -455,7 +455,7 @@ describe('executarUsoDiarioCliente — G4', () => {
   it('"ontem no fuso da clínica" é o default quando nenhum dia é informado', async () => {
     // `relogio` está fixado em 2026-11-10T23:00Z, e a clínica é America/Bahia
     // (UTC-3): "hoje" ali é 10/11 às 20h, então "ontem" é 09/11.
-    const resumo = await executarUsoDiarioCliente(banco, relogio)
+    const resumo = await executarUsoDiarioCliente(banco, relogio, undefined, { clienteIds: [clienteA, clienteB, clienteOnboarding, clienteD] })
     expect(resumo.falhas.filter((x) => [clienteA, clienteB, clienteOnboarding, clienteD].includes(x.clienteCarteiraId))).toEqual([])
     const r = await migrate.query<{ n: string }>(
       `SELECT count(*)::text AS n FROM uso_diario_cliente
@@ -470,9 +470,21 @@ describe('executarUsoDiarioCliente — G4', () => {
   })
 
 
+  it('o recorte de teste (`clienteIds`) só grava os clientes da lista', async () => {
+    const dia = '2026-11-08'
+    const r = await executarUsoDiarioCliente(banco, relogio, dia, { clienteIds: [clienteA] })
+    expect(r.processados).toBe(1)
+    const linhas = await migrate.query<{ cliente_carteira_id: string }>(
+      `SELECT cliente_carteira_id FROM uso_diario_cliente WHERE cliente_carteira_id = ANY($1) AND dia = $2`,
+      [[clienteA, clienteB, clienteOnboarding], dia],
+    )
+    expect(linhas.rows.map((l) => l.cliente_carteira_id)).toEqual([clienteA])
+    await migrate.query(`DELETE FROM uso_diario_cliente WHERE cliente_carteira_id = $1 AND dia = $2`, [clienteA, dia])
+  })
+
   it('R13: uso crítico vira UMA tarefa interna por (cliente, dia), mesmo rodando três vezes', async () => {
     for (let i = 0; i < 3; i++) {
-      const r = await executarUsoDiarioCliente(banco, relogio, DIA)
+      const r = await executarUsoDiarioCliente(banco, relogio, DIA, { clienteIds: [clienteA, clienteB, clienteOnboarding, clienteD] })
       // O job percorre TODAS as clínicas do banco; outro arquivo de teste rodando em
       // paralelo pode apagar a sua no meio (FK). Só as falhas DESTE cenário contam,
       // como nos testes acima.
@@ -500,7 +512,7 @@ describe('executarUsoDiarioCliente — G4', () => {
 
   it('R13: a tarefa de alerta que a equipe cancelou não renasce (regra 27)', async () => {
     await migrate.query(`UPDATE tarefas_internas SET status = 'cancelada' WHERE cliente_carteira_id = $1`, [clienteD])
-    await executarUsoDiarioCliente(banco, relogio, DIA)
+    await executarUsoDiarioCliente(banco, relogio, DIA, { clienteIds: [clienteA, clienteB, clienteOnboarding, clienteD] })
     const t = await migrate.query<{ status: string }>(
       `SELECT status FROM tarefas_internas WHERE cliente_carteira_id = $1`,
       [clienteD],

@@ -211,6 +211,25 @@ export async function apagarOperadorDeTeste(cliente: pg.Client, operadorId: stri
  * nunca `DELETE` na antiga (ADR 0011/0012).
  */
 export async function apagarHistoricoGrupoDeTeste(cliente: pg.Client, clinicaId: string): Promise<void> {
+  // O `DISABLE TRIGGER` trava as duas tabelas inteiras, e a produção as escreve
+  // nas DUAS ordens (criar clínica: histórico → participação; encerrar
+  // participação: participação → histórico). Nenhuma ordem de trava daqui evita
+  // o deadlock com outro arquivo de teste rodando em paralelo
+  // (`trocar-pagador`, 2026-11-17): o Postgres desfaz um dos dois, e a limpeza,
+  // que é idempotente, tenta de novo.
+  for (let tentativa = 1; ; tentativa++) {
+    try {
+      await apagarHistoricoGrupoUmaVez(cliente, clinicaId)
+      return
+    } catch (e) {
+      const deadlock = typeof e === 'object' && e !== null && 'code' in e && e.code === '40P01'
+      if (!deadlock || tentativa >= 5) throw e
+      await new Promise((r) => setTimeout(r, 50 * tentativa))
+    }
+  }
+}
+
+async function apagarHistoricoGrupoUmaVez(cliente: pg.Client, clinicaId: string): Promise<void> {
   await cliente.query('BEGIN')
   try {
     await cliente.query(
@@ -375,8 +394,21 @@ export async function apagarClinicaDeTeste(cliente: pg.Client, clinicaId: string
   }
   // Desde a 0067 toda clínica criada por um operador nasce com Cliente Firmare
   // e linha de histórico de grupo: sem apagá-los, `clinicas` não sai.
-  await cliente.query('DELETE FROM uso_diario_cliente WHERE cliente_carteira_id IN (SELECT id FROM clientes_carteira WHERE clinica_id = $1)', [clinicaId])
-  await cliente.query('DELETE FROM clientes_carteira WHERE clinica_id = $1', [clinicaId])
+  //
+  // Numa transação, com o cliente travado ANTES: o job de uso diário de outro
+  // arquivo de teste, rodando em paralelo, inseria uma linha nova entre os dois
+  // DELETEs e o segundo quebrava na FK. O INSERT dele precisa de FOR KEY SHARE
+  // na linha do cliente, que o FOR UPDATE daqui segura até o COMMIT.
+  await cliente.query('BEGIN')
+  try {
+    await cliente.query('SELECT id FROM clientes_carteira WHERE clinica_id = $1 FOR UPDATE', [clinicaId])
+    await cliente.query('DELETE FROM uso_diario_cliente WHERE cliente_carteira_id IN (SELECT id FROM clientes_carteira WHERE clinica_id = $1)', [clinicaId])
+    await cliente.query('DELETE FROM clientes_carteira WHERE clinica_id = $1', [clinicaId])
+    await cliente.query('COMMIT')
+  } catch (e) {
+    await cliente.query('ROLLBACK')
+    throw e
+  }
   await apagarHistoricoGrupoDeTeste(cliente, clinicaId)
   await apagarTrilhaDeTeste(cliente, clinicaId)
   await cliente.query('DELETE FROM clinicas WHERE id = $1', [clinicaId])
