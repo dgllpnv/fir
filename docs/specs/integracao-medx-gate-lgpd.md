@@ -115,7 +115,7 @@ Esses quatro sinais tornam detectáveis o vazamento da chave e o uso indevido. S
 
 **N1 — Faturamento por dia.** Total e quantidade por dia, sem paciente, não é dado pessoal. Uma exceção marginal: num dia com quantidade 1, quem tem `valores` e vê a agenda pode inferir quanto um paciente pagou. O risco é baixo e fica coberto pela redação de `valores` (C.8). O mesmo parse em memória do B2 vale aqui: `/faturas` e `/pagamentos` trazem o paciente, e só data e valor passam pelo schema.
 
-**N2 — Hospedagem (P-2).** A integração não cria transferência nova, já que MedX e VPS estão no Brasil (o host do MedX está a confirmar na pergunta 3). Mas ela aumenta o volume de dado de saúde na VPS, e isso pesa na decisão da P-2.
+**N2 — Hospedagem (P-2).** **Corrigido em 17/11:** a VPS **não** está no Brasil — fica em Boston, EUA (D-11). Ler do MedX traz dado de saúde para a VPS, então a integração **aumenta o volume de transferência internacional** já existente (o host do MedX está a confirmar na pergunta 3); ver P-2. Mas ela aumenta o volume de dado de saúde na VPS, e isso pesa na decisão da P-2.
 
 **N3 — Termos de uso do MedX.** Confirmar que a API de integração admite uso por terceiro em nome da clínica. É a premissa do caminho A.
 

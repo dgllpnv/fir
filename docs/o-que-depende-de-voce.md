@@ -1,103 +1,98 @@
 # O que depende de você
 
-Escrito depois de olhar a VPS pelo repositório do Mavia, que já roda lá. **Tirei desta lista tudo que eu consegui decidir sozinho** — o que sobrou precisa de você de verdade, e cada item diz por quê, quanto custa e o que eu faço depois.
+Revisto em **17/11/2026**, item por item, contra a produção, o DNS e as fontes legais. Cada item diz o estado, o que já foi feito do nosso lado e o que só você faz.
+
+Os documentos jurídicos ficam **fora do repositório** (ele é público), em `C:\Users\DAVI LOPES\Documents\firmare-lgpd\`:
+
+| Arquivo | Para quê |
+|---|---|
+| `01-minuta-dpa-clinica.md` | Minuta do contrato de tratamento com cada clínica, para o advogado revisar |
+| `02-anexo-tecnico.md` | O anexo técnico do DPA. Cada fato cita o arquivo do repositório |
+| `03-transferencia-internacional.md` | Res. CD/ANPD 19/2024, situação da Hostinger e do Resend, e o formulário de registro |
+| `04-ripd-resumo.md` | O relatório de impacto (RIPD), com 17 riscos e as medidas |
+| `05-checklist-resend.md` | O passo a passo do painel do Resend, para você executar |
 
 ---
 
-## O que eu decidi, e sai da sua mesa
+## Resolvidos
 
-### `PROXY_SALTOS_CONFIAVEIS = 1` — decidido
-
-O FIR vai entrar na **mesma topologia do Mavia**: containers comuns ao lado da orquestração do EasyPanel, descobertos pelo Traefik por label, com o Traefik publicando 80 e 443 em modo host. Logo o Traefik **é o primeiro salto TCP**, e o primeiro endereço de `X-Forwarded-For` é o que ele anotou.
-
-**O invariante que vem junto, e está no código do Mavia:** isso vale **enquanto** o Traefik for o primeiro salto. Um CDN ou proxy à frente faz o endereço virar o do CDN, e o limite por origem **falha aberto, sem mudar de cor**. Domínio próprio e CDN costumam chegar no mesmo dia — vira item obrigatório de conferência no deploy.
-
-### TLS não bloqueia o login — eu estava errado
-
-Eu disse que sem domínio não há TLS, logo não há cookie `__Host-`, logo não há login. **Está errado.** O EasyPanel dá um subdomínio curinga com certificado válido — o Mavia roda em `https://mavia.o9cmue.easypanel.host` com TLS funcionando. O FIR entra como `fir.o9cmue.easypanel.host` e **o login funciona no primeiro deploy**.
-
-O domínio continua sendo bloqueador, mas de **e-mail**, não de login. A diferença muda a ordem das coisas.
-
-### O piso de tempo na VPS — meu, no primeiro deploy
-
-Medir o p99 de `/v1/entrar` lá e ajustar. Não é decisão, é medição.
+- **Domínio:** `firmaregestao.com.br` está no ar, com o DNS na Hostinger e o `A` em `2.24.79.49`.
+- **Sessão no balcão:** a D-17 decidiu que a sessão vai até o fim do dia da clínica, com teto de 12 horas. Já está implementada.
+- **`PROXY_SALTOS_CONFIAVEIS = 1`** e o piso de tempo do login: estão medidos e no compose. Se um CDN entrar na frente do Traefik, isso volta a ser item de conferência.
+- **Infraestrutura do e-mail** (commits `332c8f6` e `da1aeb4`, ADR `2026-11-17-saida-de-email-da-api`). Antes, mesmo com o provedor pronto, o e-mail não sairia de produção: a API estava numa rede sem saída e não recebia as variáveis de SMTP.
+  - Agora a saída é **opt-in**. Só com `SMTP_HOST` no `.env` a API entra na rede `saida-email` (porta 465). Sem ele, nada muda.
+  - O passo a passo para ligar está em `infra/producao/README.md` ("Ligar o envio de e-mail").
 
 ---
 
-## 1 · Um domínio próprio — **o bloqueador de verdade**
+## 1 · Hospedagem — **REABERTO: bloqueia a primeira clínica** (P-2)
 
-Não porque o sistema não sobe sem ele, mas porque **a cadeia inteira do primeiro acesso depende dele**:
+A D-11 deixou a VPS em Boston contando com garantia contratual, e essa garantia **não existe hoje**. Conferido nas fontes em 17/11:
 
-```
-sem domínio → sem SPF/DKIM/DMARC → e-mail cai no spam ou é recusado
-            → sem convite por e-mail → ninguém cria conta → nenhuma clínica entra
-```
+- **Hostinger:** o DPA (revisão de 29/09/2026) só traz as cláusulas-padrão da **UE**. Não menciona a ANPD nem as cláusulas brasileiras.
+- **ANPD:** a Res. CD/ANPD 19/2024 exige as cláusulas dela **sem alteração**. O prazo para incluí-las nos contratos (12 meses desde agosto de 2024) já passou.
+- **Outras bases:** o art. 33, IX não cobre dado de saúde (art. 11), e o consentimento de cada paciente não é viável.
 
-SPF, DKIM e DMARC são registros DNS **no domínio de quem envia**. Você não controla o DNS de `o9cmue.easypanel.host`, então não autentica e-mail nenhum.
+**Recomendação, nesta ordem:**
 
-E tem o lado que não é técnico: **uma tela de login que pede senha para acessar prontuário, hospedada num subdomínio de painel de hospedagem, parece golpe.** A recepcionista que hesita em digitar a senha está certa em hesitar.
+1. **Pedir à Hostinger, por escrito,** que assine as cláusulas-padrão da ANPD. O texto do pedido sai do `03-transferencia-internacional.md`.
+2. **Se ela recusar, recriar a VPS no data center da Hostinger no Brasil.** A Hostinger oferece VPS no Brasil, mas a página não diz a cidade, então confirme no painel. A VPS nova sobe a partir do backup, com o procedimento de restauração já ensaiado (`restaurar-ensaio.sh`). Isso elimina a transferência inteira e ainda reduz a latência para as clínicas.
 
-**O que preciso:** registrar um domínio e apontar um `A` para `2.24.79.49`. Você já usa Hostinger — registrar lá deixa o DNS no mesmo painel.
+Isto pesa mais que todos os outros itens: sem resolver, nenhuma clínica real entra.
 
-Na ordem em que eu tentaria: `firmare.com.br` · `firmare.app` · `usefirmare.com.br`. O `.com.br` custa cerca de **R$ 40/ano** no registro.br, e num produto que guarda dado de paciente o "empresa brasileira" pesa mais do que pesaria em outro.
+## 2 · E-mail (Resend) — **falta só o que é seu**
 
-**O que eu faço depois:** troco duas variáveis, subo de novo, e o Traefik emite o certificado sozinho. Cerca de dez minutos.
+O código e a infraestrutura estão prontos, e o envio segue desligado.
 
-## 2 · Provedor de e-mail — **REABERTO (ADR 2026-11-16)**
+**O que você faz** (detalhe em `05-checklist-resend.md`):
 
-**O e-mail voltou** como segundo identificador: convite para pessoa nova, "Esqueci minha senha" e confirmação de e-mail. O código está pronto e roda com o envio **desligado** (cai na senha provisória de sempre, e as rotas de envio respondem 503). Ligar exige o que segue — e cada item é condição do gate de LGPD (L10) ou de appsec (15), não preferência.
+1. Criar a conta do Resend **no nome da Firmare**. Na hora de adicionar o domínio, escolher a região **São Paulo (`sa-east-1`)**.
+   - A região muda só por onde o e-mail sai; metadados e logs ficam nos EUA.
+   - Trocar de região depois exige refazer o domínio.
+2. Conferir que o **rastreamento de abertura e de clique está desligado**, que é o padrão. **Não** criar o subdomínio de rastreamento, porque depois de criado ele não sai mais.
+3. Pôr no DNS da Hostinger os registros que o Resend mostrar ao adicionar o domínio. Hoje o domínio **não tem nenhum** MX, TXT ou DMARC, então não há o que conflitar.
 
-1. **Conta Resend no nome da Firmare** (não no de uma pessoa). O plano gratuito cobre o volume (300 a 800 mensagens por mês com quatro clínicas), e o SMTP é o comum.
-2. **SPF e DKIM** do domínio remetente (`firmaregestao.com.br`) apontando para o Resend. Sem os dois, o convite cai no spam.
-3. **DPA com o Resend** assinado: ele passa a ser suboperador do e-mail da equipe de cada clínica.
-4. **Garantia de transferência internacional** registrada (o Resend processa nos EUA), com a mesma base da VPS (item 3).
-5. **O Resend listado como suboperador** no DPA com cada clínica (item 4) e na avaliação de impacto.
-6. **Retenção mínima no provedor**: os logs de mensagens com o menor prazo que o plano permitir.
-7. **Rastreamento de clique e de abertura DESLIGADOS** no painel do Resend. O rastreamento de clique reescreve o `href` e passaria a ver o token do link; o de abertura é um pixel. É o único controle que existe antes de alguém preencher `SMTP_HOST`.
-8. As variáveis `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA`, `EMAIL_REMETENTE` e `URL_PUBLICA` no `.env` da VPS. **O envio só liga com os sete itens acima feitos** (LGPD L10).
+   | Tipo | Nome | Valor |
+   |---|---|---|
+   | MX | `send` | `feedback-smtp.sa-east-1.amazonses.com`, prioridade 10, conforme o painel |
+   | TXT | `send` | `v=spf1 include:amazonses.com ~all` |
+   | TXT | `resend._domainkey` | a chave DKIM que o painel gerar |
+   | TXT | `_dmarc` | `v=DMARC1; p=none;` para começar (endurecer para `quarantine` depois de algumas semanas sem falha) |
 
-**O que destrava:** a pessoa nova cria a própria senha (ninguém mais dita a provisória), e quem esquece a senha resolve sozinha.
+   Copie os valores do painel do Resend. A tabela acima serve para você saber o que esperar.
+4. Gerar a chave com permissão **só de envio**, restrita ao domínio. Ela vai **do painel direto para o `.env` da VPS**, nunca para o chat.
+5. **Decisão do advogado:** o Resend não assina instrumento da LGPD/ANPD.
+   - Para o e-mail de trabalho da equipe, que não é dado sensível e leva conteúdo mínimo, a base recomendada é o art. 33, IX combinado com o art. 7º, V.
+   - Se o advogado aceitar, a condição L10 (b) do gate de e-mail precisa ser reescrita, porque hoje ela pede cláusulas-padrão "ou garantia equivalente".
+6. **Retenção:** no plano gratuito, os logs ficam 30 dias fixos. Isso entra no RIPD, não é configurável.
 
-**Depende do item 1:** o provedor precisa de um domínio verificado.
+**O que eu faço depois**, junto com um deploy que você pedir:
+- aplicar a regra de firewall da `saida-email` na VPS e persisti-la (é a máquina compartilhada, então com você ciente);
+- confirmar que a faixa `172.31.247.0/24` está livre;
+- preencher as variáveis;
+- mandar um convite de teste para um Gmail e um Outlook seus. Tem de chegar na caixa de entrada, e o link não pode ter sido reescrito.
 
-**O que eu faço depois:** preencho as variáveis, subo de novo, e mando um convite de teste para conferir a caixa de entrada (não o spam).
+## 3 · Contrato com cada clínica (DPA)
 
-## ~~3 · Onde a VPS fica fisicamente~~ — **MEDIDO E DECIDIDO (D-11, 2026-11-02)**
+**Feito do nosso lado:** a minuta (`01`) e o anexo técnico (`02`) estão escritos. Os campos `[PREENCHER]` são seus ou do advogado.
 
-A VPS é Hostinger, `2.24.79.49`, e fica em **Boston, Estados Unidos** — confirmado por SSH, não suposto. Você decidiu deixá-la lá (*"não importe com a localização, deixe ela lá, só garanta que vai funcionar"*).
+**O que o advogado decide** (detalhe nos arquivos):
+- **Base legal do funil comercial**, para procedimento orçado e não fechado. O legítimo interesse não serve para dado sensível.
+- **Acesso de suporte:** controle só por registro ou com chamado prévio. Recomendo **exigir o chamado**.
+- **Destino da trilha de auditoria** no fim do contrato.
+- **Prazos:** aviso de troca de suboperador (o Resend avisa com 14 dias, a Hostinger não fixa prazo), devolução e eliminação, e atendimento ao titular.
+- Razão social, CNPJ, foro, encarregados, operadores nomeados e limite de responsabilidade.
 
-**O que sobra disso não é infraestrutura, é contrato:** transferência internacional de dado de saúde exige base legal e garantias registradas, e isso virou **cláusula obrigatória do DPA** (item 4). O resto do texto abaixo fica como registro do porquê.
+O anexo técnico lista com franqueza o que **ainda não existe**: anonimização do paciente, exportação ao titular, as purgas D9, D-L4 e D-L5, cópia de segurança fora da VPS, alertas de incidente e a P-10. Os backups mensais duram 12 meses, então a anonimização só alcança essas cópias depois desse prazo. A minuta já diz isso.
 
-**Por que importa aqui e não importava lá:** o Mavia guarda dado financeiro. O FIR guarda **dado de saúde de paciente** — dose aplicada, lote, procedimento. É dado sensível do art. 11 da LGPD, e transferência internacional tem regra própria.
+## 4 · A janela de migração (P-5)
 
-**Não é proibido hospedar fora do Brasil**, mas exige base legal e garantias adequadas registradas na avaliação de impacto — e é a clínica, como controladora, que responde por isso.
+**Ainda não é hora de marcar.** O importador da migração (épico 9) não foi construído, e os dados da v20 (`versoes/v20-producao/`) não estão nesta máquina. A recomendação continua a mesma: a menor clínica primeiro, fora do horário, com a v20 em leitura por uma semana. E ninguém corta se a conferência não bater exatamente.
 
-**O que preciso:** ou você confirma a região no painel da Hostinger, ou me autoriza o SSH e eu confirmo em trinta segundos. Se for fora do Brasil, a decisão é: migrar para uma região brasileira, ou registrar as garantias. **Isso precisa estar resolvido antes da primeira clínica, não antes do deploy.**
-
-## 4 · Contrato de tratamento com cada clínica (DPA)
-
-A clínica é **controladora** do dado das pacientes dela; nós somos **operadores**. Não existe implantação sem esse contrato — e ele é o que dá base legal ao acesso de suporte que o painel do superadmin vai fazer um dia.
-
-**O que preciso:** uma minuta revisada por quem cuida do seu jurídico. Eu escrevo o anexo técnico — o que coletamos, por quanto tempo, quem acessa, como a clínica pede exclusão.
-
-## 5 · A janela de migração
-
-Qual clínica primeiro, que dia, e quanto tempo a v20 fica em paralelo somente leitura.
-
-**Minha recomendação:** a menor primeiro, fora do horário, com a v20 em leitura por **uma semana**. Se o relatório de conferência não bater **exatamente**, ninguém corta.
-
-**O que preciso:** conversar com as quatro e escolher a primeira.
-
-## 6 · A sessão no balcão
-
-Você escolheu e-mail e senha por pessoa, e recusou o PIN como troca rápida. A consequência prática segue aberta: ou a sessão é longa e o computador fica logado numa pessoa só — e a trilha de auditoria registra **o nome errado** —, ou a equipe digita senha dezenas de vezes por dia e ela vira papel colado no monitor.
-
-**Opções, e eu recomendo a terceira:** sessão curta com bloqueio de tela · sessão longa com reautenticação rápida por PIN **dentro** da sessão já autenticada · **sessão de 12 horas que expira no fim do expediente**, com a pessoa reentrando uma vez por dia.
+**O que você faz:** me passar a pasta `versoes/v20-producao/` para o importador começar.
 
 ---
 
 ## O que não depende de você, mas precisa acontecer logo
 
-**As 4 clínicas continuam na v20, e a autenticação dela é fraca por desenho.** Três mitigações cabem numa tarde cada uma, no próprio Apps Script, **sem depender de nada que a gente entregue**. É a única dívida do projeto cujo relógio corre sozinho — cada semana de migração adiada é uma semana exposta.
-
-Detalhe em `seguranca-v20-local.md`, que fica fora do repositório porque ele é público.
+As 4 clínicas continuam na v20, cuja autenticação é fraca por desenho. Há três mitigações no próprio Apps Script, uma tarde cada. O detalhe está em `seguranca-v20-local.md`, **que também não está nesta máquina**. Junto com a pasta da v20, me passe esse arquivo, e eu preparo as três mudanças para você revisar e aplicar. Quem publica no Apps Script das clínicas é você.

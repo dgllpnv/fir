@@ -249,8 +249,9 @@ O que essa fatia resolveu, e como:
 
 | | O que falta | Quem |
 |---|---|---|
-| ~~**P-9**~~ | ~~SMTP~~ — **sai da lista (D-10)**. Não há convite, não há recuperação por e-mail, não há `nodemailer`. O Mailpit continua no compose sem código que o chame | resolvido |
-| **P-8** | **Domínio próprio e certificado.** Já não bloqueia o login nem o e-mail: o EasyPanel dá subdomínio com TLS válido, como no Mavia. Sobra como questão de **marca** — e como **item obrigatório de conferência da allowlist do painel**: um CDN à frente faz a allowlist falhar ABERTA sem mudar de cor | dono |
+| **P-9** | **SMTP — reaberto pela ADR 2026-11-16 (acesso por e-mail).** Código e infraestrutura prontos (saída opt-in, ADR 2026-11-17-saida-de-email-da-api); falta a conta do Resend, o DNS e a base legal da transferência. Ver `o-que-depende-de-voce.md` §2 | dono |
+| **P-2** | **Hospedagem — reaberta em 17/11:** o DPA da Hostinger não tem as cláusulas da ANPD. Bloqueia a primeira clínica. Ver `o-que-depende-de-voce.md` §1 | dono + advogado |
+| ~~**P-8**~~ | **Resolvido: `firmaregestao.com.br` no ar (DNS na Hostinger).** Fica o registro: já não bloqueava o login nem o e-mail: o EasyPanel dá subdomínio com TLS válido, como no Mavia. Sobra como questão de **marca** — e como **item obrigatório de conferência da allowlist do painel**: um CDN à frente faz a allowlist falhar ABERTA sem mudar de cor | dono |
 | **P-10** | **Concessão de acesso do operador a dado clínico.** Hoje o painel só trata identidade, com acesso total e registro obrigatório (D-10). No dia em que ele ler ficha de paciente, isso precisa virar concessão com motivo, prazo e revogação (D-5, restrições 2 e 4) | dono + `especialista-lgpd-saude` |
 | **D1** | ~~`PROXY_SALTOS_CONFIAVEIS`~~ — **decidido: `1`**, pela topologia do Mavia (Traefik é o primeiro salto TCP). Vira item de conferência se um CDN entrar na frente, porque aí falha **aberto** | resolvido |
 | **D2** | O piso de tempo de 100 ms foi calibrado nesta máquina — medir o p99 na VPS | nós, no primeiro deploy |
