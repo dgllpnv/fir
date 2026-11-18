@@ -1,3 +1,5 @@
+// Primeiro, e com efeito: instala as mensagens padrão do Zod em português.
+export * from './mensagens-zod'
 export * from './comum'
 export * from './auditoria'
 export * from './autenticacao'

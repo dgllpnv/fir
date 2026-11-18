@@ -5,6 +5,7 @@ import { formatarDinheiro } from '@fir/ui'
 import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
+import { corpoDoProcedimento } from '@/lib/corpo-do-procedimento'
 import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
 import { plural } from '@/lib/formato'
 import { Carregando, Erro, Toast, Vazio } from './estados'
@@ -195,8 +196,8 @@ function Formulario({
    * reabrir um valor lançado.
    *
    * `null` (sem `valores`) vira campo vazio: a pessoa que não vê o preço não
-   * o apaga por acidente — e o `PATCH` é parcial, então o campo ausente
-   * preserva o que está gravado.
+   * o apaga por acidente: `corpoDoProcedimento` só manda `null` quando havia
+   * valor gravado, e o `PATCH` parcial preserva o campo ausente.
    */
   const [valor, setValor] = useState(
     p?.valorPorSessao === null || p?.valorPorSessao === undefined
@@ -223,25 +224,22 @@ function Formulario({
       setErro('Valor por sessão inválido. Use o formato 300,00.')
       return
     }
-    const corpo = {
-      nome: nome.trim(),
-      sessoesSugeridas: sessoes,
-      intervaloSugeridoDias: intervalo,
-      rotuloSessao: rotulo.trim() === '' ? 'Sessão' : rotulo.trim(),
-      ...(responsavelId === '' ? { responsavelId: null } : { responsavelId }),
-      ...(centavos === null ? { valorPorSessao: null } : { valorPorSessao: centavos.toString() }),
-      ...(temRetorno
-        ? {
-            retorno: {
-              quantidade: retornoQtd,
-              unidade: retornoUni,
-              antecedenciaDias: antecedencia,
-              responsavelId: null,
-            },
-          }
-        : { retorno: null }),
-      ativo,
-    }
+    // Criar e editar dizem "vazio" de jeitos diferentes — ver `corpoDoProcedimento`.
+    const corpo = corpoDoProcedimento(
+      {
+        nome,
+        sessoes,
+        intervalo,
+        rotulo,
+        responsavelId,
+        valor: centavos,
+        retorno: temRetorno
+          ? { quantidade: retornoQtd, unidade: retornoUni, antecedenciaDias: antecedencia }
+          : null,
+        ativo,
+      },
+      p === undefined ? { tipo: 'criar' } : { tipo: 'editar', valorGravado: p.valorPorSessao },
+    )
     setOcupado(true)
     try {
       if (p === undefined) {

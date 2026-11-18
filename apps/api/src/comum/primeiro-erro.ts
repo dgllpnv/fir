@@ -22,6 +22,10 @@
  * continua na frase** de propósito: "campo que não existe" sem dizer qual
  * manda quem integra procurar no escuro, e é exatamente a informação que
  * torna o 400 melhor do que ignorar o campo em silêncio.
+ *
+ * As DEMAIS mensagens padrão do Zod saem em português pelo mapa global de
+ * `@fir/contracts` (`mensagens-zod.ts`, desde 2026-11-18, quando uma clínica
+ * viu "Expected object, received null" ao criar um procedimento).
  */
 export const primeiroErro = (erro: {
   issues: readonly { message: string; code?: string; keys?: readonly string[] }[]
