@@ -15,7 +15,7 @@ import { EdicaoDoPrograma } from '@/components/programas/edicao-do-programa'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
-import { diaEmTexto, plural } from '@/lib/formato'
+import { diaEmTexto, plural, rotuloDaSessao } from '@/lib/formato'
 import { Carregando, Erro, Toast } from './estados'
 
 /**
@@ -252,7 +252,7 @@ function SecaoDoItem({
               pronta — não derivação de regra. O percentual, o saldo e a
               situação continuam vindo do servidor. */}
           <span className="num">
-            {realizadas} de {validas} {validas === 1 ? item.rotuloSessao.toLowerCase() : `${item.rotuloSessao.toLowerCase()}s`}
+            {realizadas} de {validas} {rotuloDaSessao(item.rotuloSessao, validas)}
           </span>
           <span className="num">a cada {plural(item.intervaloDias, 'dia', 'dias')}</span>
           {item.dose === '' ? null : <span>dose {item.dose}</span>}

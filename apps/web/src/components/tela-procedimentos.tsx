@@ -7,7 +7,7 @@ import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { corpoDoProcedimento } from '@/lib/corpo-do-procedimento'
 import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
-import { plural } from '@/lib/formato'
+import { plural, rotuloDaSessao } from '@/lib/formato'
 import { Carregando, Erro, Toast, Vazio } from './estados'
 
 /**
@@ -125,7 +125,7 @@ function Linha({
 }) {
   const responsavel = equipe.find((x) => x.id === p.responsavelId)
   const resumo = [
-    `${p.sessoesSugeridas} ${p.sessoesSugeridas === 1 ? p.rotuloSessao.toLowerCase() : `${p.rotuloSessao.toLowerCase()}s`}`,
+    `${p.sessoesSugeridas} ${rotuloDaSessao(p.rotuloSessao, p.sessoesSugeridas)}`,
     p.intervaloSugeridoDias === 7
       ? 'toda semana'
       : p.intervaloSugeridoDias === 30

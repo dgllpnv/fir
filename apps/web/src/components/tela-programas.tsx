@@ -13,7 +13,7 @@ import {
 import { chamar } from '@/lib/api'
 import { consultaEmTexto, useDados, useEspera } from '@/lib/dados'
 import { centavos, larguraDaBarra } from '@/lib/financeiro'
-import { diaEmTexto, plural } from '@/lib/formato'
+import { diaEmTexto, plural, rotuloDaSessao } from '@/lib/formato'
 import { Carregando, Erro, Toast, Vazio } from './estados'
 
 /**
@@ -384,7 +384,7 @@ function ListaDePacientes({
                 <b>{p.pacienteNome}</b>
                 <small>
                   {p.procedimentos} · {p.realizadas} de {p.total}{' '}
-                  {p.total === 1 ? p.rotuloSessao.toLowerCase() : `${p.rotuloSessao.toLowerCase()}s`}
+                  {rotuloDaSessao(p.rotuloSessao, p.total)}
                   {p.proximaEm === null || p.situacao === 'atrasado'
                     ? ''
                     : ` · próxima ${diaEmTexto(p.proximaEm)}`}

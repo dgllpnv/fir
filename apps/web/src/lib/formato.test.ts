@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   abreviacaoDoDia,
   diaEmTexto,
+  rotuloDaSessao,
   linkDeWhatsApp,
   plural,
   rotuloDoDia,
@@ -63,5 +64,30 @@ describe('plural', () => {
   it('não escreve "tarefa(s)"', () => {
     expect(plural(1, 'tarefa em aberto', 'tarefas em aberto')).toBe('1 tarefa em aberto')
     expect(plural(6, 'tarefa em aberto', 'tarefas em aberto')).toBe('6 tarefas em aberto')
+  })
+})
+
+/**
+ * O rótulo da sessão é texto livre do catálogo ("Aplicação", "Sessão",
+ * "Procedimento"). Até 2026-11-18 o plural era "+s" e a lista mostrava
+ * "3 sessãos" e "8 aplicaçãos". A regra é a do protótipo (`rotSessao`).
+ */
+describe('rotuloDaSessao', () => {
+  it('-ão vira -ões', () => {
+    expect(rotuloDaSessao('Sessão', 3)).toBe('sessões')
+    expect(rotuloDaSessao('Aplicação', 8)).toBe('aplicações')
+  })
+  it('vogal ganha s; r, s e z ganham es; l vira is', () => {
+    expect(rotuloDaSessao('Procedimento', 2)).toBe('procedimentos')
+    expect(rotuloDaSessao('Infusor', 2)).toBe('infusores')
+    expect(rotuloDaSessao('Laser', 2)).toBe('laseres')
+    expect(rotuloDaSessao('Aplicação capilar', 2)).toBe('aplicações capilar')
+  })
+  it('um fica no singular, em minúsculas', () => {
+    expect(rotuloDaSessao('Aplicação', 1)).toBe('aplicação')
+  })
+  it('rótulo já no plural ou vazio', () => {
+    expect(rotuloDaSessao('Sessões', 1)).toBe('sessão')
+    expect(rotuloDaSessao('  ', 2)).toBe('sessões')
   })
 })

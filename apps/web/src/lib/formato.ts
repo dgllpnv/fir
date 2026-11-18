@@ -111,6 +111,29 @@ export const plural = (n: number, um: string, varios: string): string =>
   `${n} ${n === 1 ? um : varios}`
 
 /**
+ * O rótulo da sessão, em minúsculas, no número certo: "sessões",
+ * "aplicações". O rótulo é texto livre do catálogo, então "+s" não serve
+ * ("3 sessãos", visto em produção em 2026-11-18). É a regra do protótipo
+ * (`rotSessao`): só a primeira palavra flexiona — "aplicações capilar".
+ */
+export function rotuloDaSessao(rotulo: string, n: number): string {
+  let x = rotulo.trim().toLowerCase()
+  if (x === '' || x === 'sessões') x = 'sessão'
+  if (n === 1) return x
+  return x
+    .split(' ')
+    .map((w, i) => {
+      if (i > 0) return w
+      if (/ão$/.test(w)) return w.replace(/ão$/, 'ões')
+      if (/[aeiou]$/.test(w)) return `${w}s`
+      if (/[rsz]$/.test(w)) return `${w}es`
+      if (/l$/.test(w)) return w.replace(/l$/, 'is')
+      return w
+    })
+    .join(' ')
+}
+
+/**
  * `aaaa-mm-dd` → `Date` no fuso de quem está olhando.
  *
  * `new Date('2026-12-01')` seria meia-noite **UTC**, e no Brasil o Excel
