@@ -25,6 +25,7 @@ type LinhaDb = {
   prazo: string | null
   situacao: KpiDaClinicaNaCarteira['situacao']
   percentual_da_meta: number | null
+  inicio_da_proxima_meta: string | null
 }
 
 const ORDEM_DO_PILAR = new Map<string, number>(PILARES_DE_KPI.map((p, i) => [p, i]))
@@ -66,7 +67,8 @@ export class IndicadoresDaClinicaService {
           `SELECT kpi_ref, dia::text AS dia, chave_catalogo, nome, pilar, unidade,
                   valor_centavos::text AS valor_centavos, valor_numero::text AS valor_numero,
                   alvo_centavos::text AS alvo_centavos, alvo_numero::text AS alvo_numero,
-                  prazo::text AS prazo, situacao, percentual_da_meta
+                  prazo::text AS prazo, situacao, percentual_da_meta,
+                  inicio_da_proxima_meta::text AS inicio_da_proxima_meta
              FROM kpis_na_carteira
             WHERE cliente_carteira_id = $1 AND ($2::uuid IS NULL OR grupo_id = $2::uuid)
               AND dia = (SELECT max(dia) FROM kpis_na_carteira
@@ -103,6 +105,7 @@ export class IndicadoresDaClinicaService {
           prazo: l.prazo,
           situacao: l.situacao,
           percentualDaMeta: l.percentual_da_meta,
+          inicioDaProximaMeta: l.inicio_da_proxima_meta,
         }),
       )
       .sort(

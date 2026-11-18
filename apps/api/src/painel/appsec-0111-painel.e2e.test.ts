@@ -164,7 +164,7 @@ describe('appsec 0111: abuso do e-mail pelo painel', () => {
     expect(corpo).not.toContain(token)
     expect(corpo).not.toMatch(/[0-9a-f]{64}/)
     expect(Object.keys(r.body).sort()).toEqual(
-      ['admin', 'ativo', 'email', 'emailPendente', 'envioDeEmail', 'funcao', 'id', 'nome', 'perfilId', 'precisaTrocarSenha', 'usuario'].sort(),
+      ['admin', 'ativo', 'email', 'emailPendente', 'envioDeEmail', 'funcao', 'id', 'nome', 'perfilId', 'precisaTrocarSenha', 'situacaoDoAcesso', 'usuario'].sort(),
     )
     await entrar('paula.nova@sol.com').expect(401)
     await srv().post('/v1/esqueci-senha').send({ clinica: codigoA, email: 'paula.nova@sol.com' }).expect(202)

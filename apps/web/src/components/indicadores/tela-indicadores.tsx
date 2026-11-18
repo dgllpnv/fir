@@ -12,6 +12,7 @@ import {
   type SeriesDosKpis,
 } from '@fir/contracts'
 import { type PilarDeKpi, PILARES_DE_KPI } from '@fir/domain'
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Carregando, Erro, Toast, Vazio } from '@/components/estados'
 import { Modal } from '@/components/modal'
@@ -36,6 +37,7 @@ import {
   trimestresAte,
   unidadesDoFiltro,
 } from './na-tela'
+import { pedirTelaCheia } from './reuniao-na-tela'
 
 type Aberto =
   | { readonly tipo: 'kpi' }
@@ -239,9 +241,15 @@ export function TelaIndicadores({
           <h2>Indicadores &amp; Insights</h2>
         </div>
         <div className="ii-acoes">
-          <a className="btn ghost" href="/indicadores/reuniao">
+          {/* Tela cheia pedida no próprio clique (o navegador só a concede num
+              gesto), e navegação pelo `Link`, que não recarrega e a preserva. */}
+          <Link
+            className="btn ghost"
+            href="/indicadores/reuniao"
+            onClick={(e) => pedirTelaCheia(e, document.documentElement, document.fullscreenElement)}
+          >
             Modo reunião
-          </a>
+          </Link>
           {/* Backlog 1.5. É o mesmo desenho da tela: sem `valores`, o servidor já
               apagou os reais, e o papel sai sem R$ do mesmo jeito. */}
           <button type="button" className="btn ghost" onClick={() => window.print()}>

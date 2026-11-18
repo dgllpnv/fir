@@ -38,6 +38,12 @@ export const KpiDaClinicaNaCarteira = z
     prazo: DiaDoKpi.nullable(),
     situacao: SituacaoDaMetaSchema.nullable(),
     percentualDaMeta: z.number().int().nullable(),
+    /**
+     * Sem meta vigente: o início da próxima meta já definida ("Meta a partir
+     * de dez/2026", como o cartão de `KpiNaLista`). Só a data, nunca o alvo.
+     * `null` com meta vigente, ou sem próxima.
+     */
+    inicioDaProximaMeta: DiaDoKpi.nullable(),
   })
   .strict()
 export type KpiDaClinicaNaCarteira = z.infer<typeof KpiDaClinicaNaCarteira>

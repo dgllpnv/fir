@@ -450,7 +450,7 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   {
     tema: 'Indicadores e relatórios',
     pergunta: 'Como uso o Modo reunião?',
-    resposta: 'Em Indicadores & Insights, toque em “Modo reunião”. Ele mostra um slide por vez, para a TV: a capa com o resumo, os OKRs, os KPIs em vermelho ou amarelo e, no fim, os planos de ação da semana. Passe com as setas; “Tela cheia” ocupa a tela toda e Esc sai. Em cada slide de KPI dá para criar um plano de ação sem sair da reunião.',
+    resposta: 'Em Indicadores & Insights, toque em “Modo reunião”. Ele mostra um slide por vez, para a TV: a capa com o resumo, os OKRs, os KPIs em vermelho ou amarelo e, no fim, os planos de ação da semana. Ela já abre em tela cheia; passe com as setas, e Esc sai. Em cada slide de KPI dá para criar um plano de ação sem sair da reunião.',
     chaves: 'modo reuniao semanal tv slides apresentar pauta',
     gestao: true,
   },
@@ -471,7 +471,7 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   {
     tema: 'Indicadores e relatórios',
     pergunta: 'Como tiro uma lista de pacientes para uma campanha?',
-    resposta: 'Em Indicadores & Insights › Relatórios, escolha a lista (por exemplo, Pacientes sem compra), preencha os filtros e toque em “Gerar”. Depois toque em “Criar campanha com esta lista”: escolha a campanha (ou crie uma nova), o tipo da tarefa, o prazo e quem faz os contatos. Cada paciente ganha uma tarefa, sem exportar nem importar planilha. Até 2.000 pacientes por vez.',
+    resposta: 'Em Indicadores & Insights › Relatórios, escolha a lista (por exemplo, Pacientes sem compra), preencha os filtros e toque em “Gerar”. Depois toque em “Criar campanha com esta lista”: escolha a campanha (ou crie uma nova), o tipo da tarefa, o prazo e quem faz os contatos. Cada paciente ganha uma tarefa, sem exportar nem importar planilha, e a tela vai direto para a campanha. Até 2.000 pacientes por vez.',
     chaves: 'lista pacientes campanha relatorio inativos recaptacao sem compra criar tarefas',
     gestao: true,
   },

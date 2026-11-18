@@ -10,12 +10,15 @@ import {
   MAX_PACIENTES_DA_CAMPANHA_DA_LISTA,
 } from '@fir/contracts'
 import { ehPagamento, TIPOS } from '@fir/domain'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { type FormEvent, useState } from 'react'
 import { Modal } from '@/components/modal'
 import { type CorpoDaCampanha, Formulario } from '@/components/tela-campanhas'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { somarDiasNaTela } from '@/lib/formato'
+import { enderecoDaCampanhaCriada, textoDoResultado } from './campanha-criada'
 
 /** A dica do relatório de saúde (spec I-42; LGPD L-IN-9): sempre à vista. */
 export const DICA_DA_CAMPANHA_DE_SAUDE =
@@ -35,6 +38,10 @@ const LIMITE = MAX_PACIENTES_DA_CAMPANHA_DA_LISTA.toLocaleString('pt-BR')
  *
  * A campanha nova reusa o formulário da tela Campanhas, com a dica do nome
  * à vista (L-A3-12).
+ *
+ * **Criou, foi para a campanha** (achado da validação em produção): o id que
+ * o servidor devolveu leva à tela da campanha, que confirma as contagens.
+ * O "Campanha pronta" fica só enquanto a navegação acontece, com o link.
  */
 export function CampanhaDaLista({
   chave,
@@ -53,6 +60,7 @@ export function CampanhaDaLista({
   aoFechar: () => void
   aoCriar: (recado: string) => void
 }) {
+  const router = useRouter()
   const [idempotencia, setIdempotencia] = useState(() => crypto.randomUUID())
   const campanhas = useDados<Campanhas>('v1/campanhas')
   const equipe = useDados<ListaDaEquipe>('v1/equipe')
@@ -96,6 +104,7 @@ export function CampanhaDaLista({
       })
       setFeito(r)
       aoCriar(resultadoEmTexto(r, nomeDoDestino))
+      router.push(enderecoDaCampanhaCriada(r))
     } catch (x) {
       setErro(mensagemDoErro(x))
       // 409: nome repetido ou campanha deste pedido excluída. Nenhum dos dois
@@ -113,9 +122,9 @@ export function CampanhaDaLista({
           {resultadoEmTexto(feito, nomeDoDestino)}
         </p>
         <div className="rel-confirmar-botoes">
-          <a className="link" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center' }} href={`/campanhas/${feito.campanhaId}`}>
+          <Link className="link" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center' }} href={enderecoDaCampanhaCriada(feito)}>
             Abrir a campanha
-          </a>
+          </Link>
           <button type="button" className="btn" onClick={aoFechar}>
             Fechar
           </button>
@@ -247,14 +256,8 @@ export function CampanhaDaLista({
   )
 }
 
-const plural = (n: number, um: string, varios: string): string => `${n.toLocaleString('pt-BR')} ${n === 1 ? um : varios}`
-
 export function resultadoEmTexto(r: CampanhaDaListaCriada, campanha: string): string {
-  const onde = campanha === '' ? 'na campanha' : `em "${campanha}"`
-  const criadas = `${plural(r.criadas, 'tarefa criada', 'tarefas criadas')} ${onde}`
-  return r.ignoradas === 0
-    ? `${criadas}.`
-    : `${criadas}. ${plural(r.ignoradas, 'paciente já tinha', 'pacientes já tinham')} a tarefa aberta e ${r.ignoradas === 1 ? 'ficou' : 'ficaram'} de fora.`
+  return textoDoResultado(r, campanha)
 }
 
 /** O texto de cada recusa do servidor, com o que fazer em seguida. */

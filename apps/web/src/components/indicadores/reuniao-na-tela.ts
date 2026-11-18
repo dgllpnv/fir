@@ -75,3 +75,52 @@ export function tituloDoSlide(s: Slide): string {
 /** O próximo índice, preso às pontas: a seta no último slide não volta à capa. */
 export const indiceVizinho = (atual: number, total: number, passo: -1 | 1): number =>
   Math.min(Math.max(atual + passo, 0), Math.max(total - 1, 0))
+
+/** O que do clique importa para decidir a tela cheia. */
+export type GestoDoClique = {
+  readonly button: number
+  readonly ctrlKey: boolean
+  readonly metaKey: boolean
+  readonly shiftKey: boolean
+  readonly altKey: boolean
+}
+
+/**
+ * **"Modo reunião" já abre em tela cheia** (spec I-43; validação G.3).
+ *
+ * O navegador só concede `requestFullscreen` DENTRO de um gesto da pessoa: na
+ * página da reunião, depois da navegação, o pedido seria recusado. Por isso
+ * o pedido sai no clique do botão, e a navegação é do lado do cliente (o
+ * `Link`), que preserva a tela cheia — um `<a>` comum recarregaria a página e
+ * a perderia.
+ *
+ * Clique com Ctrl/Cmd/Shift/Alt ou com o botão do meio abre outra aba ou
+ * janela: ali a tela cheia não é desta, e não se pede. A recusa do navegador
+ * é ignorada (a reunião abre igual, com o botão "Tela cheia" à vista), e o
+ * iPhone, que não tem a API no documento, simplesmente não a ganha.
+ * Devolve se pediu.
+ */
+export function pedirTelaCheia(
+  gesto: GestoDoClique,
+  raiz: { readonly requestFullscreen?: () => Promise<void> },
+  emTelaCheia: unknown,
+): boolean {
+  if (gesto.button !== 0 || gesto.ctrlKey || gesto.metaKey || gesto.shiftKey || gesto.altKey) return false
+  if (emTelaCheia !== null && emTelaCheia !== undefined) return false
+  if (typeof raiz.requestFullscreen !== 'function') return false
+  try {
+    raiz.requestFullscreen().catch(() => undefined)
+  } catch {
+    // Navegador antigo que lança em vez de rejeitar: a reunião abre igual.
+  }
+  return true
+}
+
+/**
+ * **Em tela cheia, o Esc é do navegador**: ele sai da tela cheia e a página
+ * nem recebe a tecla. Para o Esc continuar fazendo o que a spec diz — sair do
+ * Modo reunião —, a tela cheia que caiu SEM o botão "Sair da tela cheia" é
+ * lida como o Esc (ou o gesto de voltar, no celular), e a reunião fecha.
+ */
+export const saiuDaTelaCheiaPeloEsc = (estavaEmTelaCheia: boolean, estaEmTelaCheia: boolean, peloBotao: boolean): boolean =>
+  estavaEmTelaCheia && !estaEmTelaCheia && !peloBotao

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { precisaPerguntar, rotuloDoContador, textoDoContador } from './fora-da-aba'
 import { ConteudoDoSlide } from './reuniao-modo'
-import { indiceVizinho, resumoDaCapa, slidesDaReuniao, textoDaSemana, tituloDoSlide } from './reuniao-na-tela'
+import { indiceVizinho, pedirTelaCheia, resumoDaCapa, saiuDaTelaCheiaPeloEsc, slidesDaReuniao, textoDaSemana, tituloDoSlide } from './reuniao-na-tela'
 
 /**
  * O Modo reunião escolhe e ordena o que o servidor mandou (1.9 F), e o
@@ -198,5 +198,51 @@ describe('o contador do menu', () => {
     expect(precisaPerguntar(null, 1_000, 60_000)).toBe(true)
     expect(precisaPerguntar(1_000, 30_000, 60_000)).toBe(false)
     expect(precisaPerguntar(1_000, 61_000, 60_000)).toBe(true)
+  })
+})
+
+describe('pedirTelaCheia: o toque em "Modo reunião" já abre em tela cheia', () => {
+  const toque = { button: 0, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false }
+  const raiz = () => {
+    const pedidos: number[] = []
+    return { pedidos, requestFullscreen: () => (pedidos.push(1), Promise.resolve()) }
+  }
+
+  it('toque simples pede a tela cheia uma vez, no próprio gesto', () => {
+    const r = raiz()
+    expect(pedirTelaCheia(toque, r, null)).toBe(true)
+    expect(r.pedidos).toHaveLength(1)
+  })
+
+  it('Ctrl, Cmd, Shift, Alt ou o botão do meio abrem outra aba: nada de tela cheia aqui', () => {
+    for (const e of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
+      const r = raiz()
+      expect(pedirTelaCheia({ ...toque, ...e }, r, null)).toBe(false)
+      expect(r.pedidos).toHaveLength(0)
+    }
+  })
+
+  it('já em tela cheia, não pede de novo', () => {
+    const r = raiz()
+    expect(pedirTelaCheia(toque, r, {})).toBe(false)
+    expect(r.pedidos).toHaveLength(0)
+  })
+
+  it('a recusa do navegador é ignorada, e sem a API (iPhone) nada quebra', async () => {
+    const recusa = { requestFullscreen: () => Promise.reject(new Error('negado')) }
+    expect(pedirTelaCheia(toque, recusa, null)).toBe(true)
+    await new Promise((ok) => setTimeout(ok, 0))
+    expect(pedirTelaCheia(toque, {}, null)).toBe(false)
+  })
+})
+
+describe('saiuDaTelaCheiaPeloEsc: em tela cheia, o Esc continua saindo da reunião', () => {
+  it('a tela cheia caiu sem o botão "Sair da tela cheia": foi o Esc (ou o voltar), e a reunião fecha', () => {
+    expect(saiuDaTelaCheiaPeloEsc(true, false, false)).toBe(true)
+  })
+  it('pelo botão, só a tela cheia sai; entrar, ou continuar, não fecha nada', () => {
+    expect(saiuDaTelaCheiaPeloEsc(true, false, true)).toBe(false)
+    expect(saiuDaTelaCheiaPeloEsc(false, true, false)).toBe(false)
+    expect(saiuDaTelaCheiaPeloEsc(false, false, false)).toBe(false)
   })
 })

@@ -19,7 +19,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import type pg from 'pg'
-import { SISTEMA, pessoaDoAtor, pessoaIdDeFonteConfiavel } from '../banco/ator'
+import { SISTEMA, pessoaDoAtor, pessoaIdDeFonteConfiavel, type OperadorId } from '../banco/ator'
 import { BancoService } from '../banco/banco.service'
 import { clinicaIdDeFonteConfiavel, type ClinicaId } from '../banco/clinica-id'
 import { semaforoArgon2 } from '../autenticacao/concorrencia'
@@ -738,6 +738,65 @@ export class AcessoPorEmailService {
     pessoaId: string,
     finalidade: 'convite' | 'redefinicao',
   ): Promise<{ enviadoPara: string }> {
+    return this.enviarParaOutraPessoa(pessoaId, finalidade, contexto.clinicaNome, (emitir) =>
+      this.banco.naClinica(contexto.clinicaId, contexto.ator, async (c) => {
+        await travarAcessoDaClinica(c, contexto.clinicaId)
+        const ator = await lerAtorDeAcesso(c, contexto.ator)
+        const perfis = await lerPerfisDoDominio(c)
+        const alvo = await alvoDaAdmin(c, pessoaId)
+        exigirDominio(podeAgirSobre(ator, alvo, perfis))
+        return emitir(c, alvo, contexto.clinicaId, pessoaDoAtor(contexto.ator))
+      }),
+    )
+  }
+
+  /**
+   * O MESMO envio, pelo painel (spec 2.7, ADR 2026-11-16). O operador age
+   * sobre qualquer pessoa da clínica — inclusive a administradora, que é o elo
+   * que a clínica não tem (D-10) —, então não há `podeAgirSobre`; o resto é a
+   * regra de `enviarPelaAdmin`, inteira: só o confirmado recebe redefinição,
+   * o anterior morre, o mesmo teto por pessoa-alvo e o 503 do desligado.
+   *
+   * `porPessoaId: null`: o operador não é pessoa da clínica. Quem assina o
+   * link na trilha é a trigger, com `ator_tipo = 'operador'`.
+   */
+  async enviarPeloOperador(
+    clinica: { readonly id: ClinicaId; readonly nome: string },
+    ator: OperadorId,
+    pessoaId: string,
+    finalidade: 'convite' | 'redefinicao',
+  ): Promise<{ enviadoPara: string }> {
+    return this.enviarParaOutraPessoa(pessoaId, finalidade, clinica.nome, (emitir) =>
+      this.banco.comoPainel(clinica.id, ator, async (c) => {
+        await travarAcessoDaClinica(c, clinica.id)
+        const alvo = await alvoDaAdmin(c, pessoaId)
+        return emitir(c, alvo, clinica.id, null)
+      }),
+    )
+  }
+
+  /**
+   * O núcleo dos dois envios a OUTRA pessoa. Quem chama abre a transação no
+   * pool dele, julga quem pode agir e entrega o alvo travado; daqui em diante
+   * a regra é uma só.
+   *
+   * O teto é por PESSOA-ALVO e é um orçamento só (`admin:<id>`), venha o
+   * envio da administradora ou do operador: dois caminhos com dois tetos
+   * dariam o dobro de e-mails à caixa de quem está sendo alvo (appsec 12).
+   */
+  private async enviarParaOutraPessoa(
+    pessoaId: string,
+    finalidade: 'convite' | 'redefinicao',
+    clinicaNome: string,
+    naTransacao: (
+      emitir: (
+        c: pg.PoolClient,
+        alvo: AlvoDoEnvio,
+        clinicaId: ClinicaId,
+        porPessoaId: string | null,
+      ) => Promise<{ token: string; para: string; nome: string }>,
+    ) => Promise<{ token: string; para: string; nome: string }>,
+  ): Promise<{ enviadoPara: string }> {
     if (!this.ligado) throw new EnvioDesligado()
     if (!this.porPessoa.registrar(`admin:${pessoaId}`)) {
       throw new HttpException(
@@ -746,12 +805,7 @@ export class AcessoPorEmailService {
       )
     }
     const agora = this.relogio.agora()
-    const r = await this.banco.naClinica(contexto.clinicaId, contexto.ator, async (c) => {
-      await travarAcessoDaClinica(c, contexto.clinicaId)
-      const ator = await lerAtorDeAcesso(c, contexto.ator)
-      const perfis = await lerPerfisDoDominio(c)
-      const alvo = await alvoDaAdmin(c, pessoaId)
-      exigirDominio(podeAgirSobre(ator, alvo, perfis))
+    const r = await naTransacao(async (c, alvo, clinicaId, porPessoaId) => {
       if (!alvo.ativo) throw new ConflictException('Esta pessoa está desativada.')
 
       let para: string | null
@@ -773,17 +827,17 @@ export class AcessoPorEmailService {
         }
       }
       const token = await emitirLink(c, {
-        clinicaId: contexto.clinicaId,
+        clinicaId,
         pessoaId,
         finalidade,
         emailHmac: this.chave.hmac(para),
         agora,
       })
       await gravarEvento(c, {
-        clinicaId: contexto.clinicaId,
+        clinicaId,
         pessoaId,
         evento: finalidade === 'convite' ? 'convite_reenviado' : 'redefinicao_enviada_pela_admin',
-        porPessoaId: pessoaDoAtor(contexto.ator),
+        porPessoaId,
       })
       return { token, para, nome: alvo.nome }
     })
@@ -791,7 +845,7 @@ export class AcessoPorEmailService {
     const saiu = await this.entregar(
       this.mensagemComLink(finalidade, r.token, {
         para: r.para,
-        clinicaNome: contexto.clinicaNome,
+        clinicaNome,
         nomeDaPessoa: r.nome,
       }),
     )
@@ -804,10 +858,7 @@ export class AcessoPorEmailService {
 const falhaDeEnvio = () =>
   new HttpException('Não consegui enviar o e-mail agora. Tente de novo em instantes.', HttpStatus.BAD_GATEWAY)
 
-async function alvoDaAdmin(
-  c: pg.PoolClient,
-  id: string,
-): Promise<{
+type AlvoDoEnvio = {
   id: string
   admin: boolean
   perfilId: string | null
@@ -816,7 +867,9 @@ async function alvoDaAdmin(
   email: string | null
   email_pendente: string | null
   aguardando_primeira_senha: boolean
-}> {
+}
+
+async function alvoDaAdmin(c: pg.PoolClient, id: string): Promise<AlvoDoEnvio> {
   const r = await c.query<{
     id: string
     admin: boolean

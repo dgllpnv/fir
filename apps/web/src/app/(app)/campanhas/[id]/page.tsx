@@ -1,5 +1,6 @@
 import { temPerm } from '@fir/domain'
 import { notFound } from 'next/navigation'
+import { recadoDaCampanhaCriada } from '@/components/relatorios/campanha-criada'
 import { SemAcesso } from '@/components/sem-acesso'
 import { TelaCampanha } from '@/components/tela-campanha'
 import { sessaoAtual } from '@/lib/sessao'
@@ -14,7 +15,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  * conveniência. As tarefas da campanha NÃO dependem de `tarefas.equipe`
  * (ADR 2026-11-13).
  *
- * `?mes=` leva de volta à lista de onde a pessoa veio.
+ * `?mes=` leva de volta à lista de onde a pessoa veio. `?criadas=&ignoradas=`
+ * vem de "Criar campanha com esta lista" (Relatórios), para a campanha
+ * confirmar o que aconteceu.
  */
 export default async function CampanhaPage({
   params,
@@ -34,6 +37,7 @@ export default async function CampanhaPage({
     <TelaCampanha
       id={id}
       mesDaLista={mes}
+      recadoAoChegar={recadoDaCampanhaCriada(q)}
       eu={minhaPessoaId}
       podeGerir={temPerm(quem, perfis, 'campanhas.gerir')}
       podeEquipe={temPerm(quem, perfis, 'tarefas.equipe')}

@@ -557,7 +557,7 @@ Os dois números ficam **lado a lado e nunca se somam**: o do MedX não entra no
       {
         titulo: 'Equipe',
         texto: `Em **Configurações › Usuários e acessos**, cadastre cada pessoa com nome, **usuário para entrar**, **e-mail** (obrigatório; prefira o de trabalho) e função, e escolha o **perfil de acesso**. Com o envio de e-mail ligado, ela recebe um **convite** para criar a própria senha, e você nunca a vê. Com o envio desligado, a senha provisória é gerada pela ferramenta e aparece uma única vez, para ser passada à pessoa.
-- **Selos:** "Convite pendente", "Convite vencido" (o link de 7 dias passou) e "E-mail não confirmado". Ao abrir a pessoa, **Reenviar convite** manda um link novo e invalida o anterior; **Enviar link para redefinir senha** só vale para quem tem e-mail confirmado. Esvaziar o e-mail no cadastro o retira.
+- **Selos:** "Convite pendente", "Convite vencido" (o link de 7 dias passou) e "E-mail não confirmado". Ao abrir a pessoa, **Reenviar convite** manda um link novo e invalida o anterior; **Enviar link para redefinir senha** só vale para quem tem e-mail confirmado. Com o envio ligado, é o link que aparece primeiro: a pessoa cria a senha nova e ninguém mais a conhece. Se ela não consegue abrir o e-mail agora, **Sem acesso ao e-mail? Gerar senha provisória** continua disponível, e a provisória aparece uma única vez. Esvaziar o e-mail no cadastro o retira.
 - **Perfil de acesso:** é ele que decide o que a pessoa vê — valores em reais, Painel geral e Equipe estão em perfis próprios. Os perfis são editados na aba **Perfis de acesso**, desta mesma tela.
 - **Pode entrar na ferramenta?** responda “Não” quando a pessoa sair da clínica. O acesso dela cai na hora e o histórico é mantido.`,
       },
@@ -904,7 +904,7 @@ No Modo reunião, o mesmo botão fica no slide de cada KPI: o plano nasce durant
 - um slide por KPI de Saúde da clínica em vermelho ou amarelo;
 - no fim, **Planos de ação da semana**.
 
-Passe com as setas do teclado ou com os botões dos cantos de baixo; o contador mostra "4 de 9". **Tela cheia** ocupa a tela toda; **Esc** ou o **✕** sai. Nenhum nome de paciente aparece na reunião.`,
+Passe com as setas do teclado ou com os botões dos cantos de baixo; o contador mostra "4 de 9". Ela já abre em tela cheia (no celular que não permite, o botão **Tela cheia** fica no topo); **Esc** ou o **✕** sai da reunião. Nenhum nome de paciente aparece na reunião.`,
       },
       {
         titulo: 'Indicadores em Hoje, no menu e na Visão do mês',

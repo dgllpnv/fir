@@ -1,4 +1,4 @@
-import { SENHA_MAX, canonizarUsuario, ehErro, validarUsuario } from '@fir/domain'
+import { SENHA_MAX, SITUACOES_DO_ACESSO, canonizarUsuario, ehErro, validarUsuario } from '@fir/domain'
 import { EmailCanonico } from './acesso-por-email'
 import { z } from 'zod'
 import { DiaCivil, Uuid } from './comum'
@@ -274,6 +274,13 @@ export const PessoaNoPainel = z.object({
    */
   email: z.string().nullable(),
   emailPendente: z.string().nullable(),
+  /**
+   * A mesma situação da lista da clínica (`situacaoDoAcesso` do domínio):
+   * convidada que ainda não criou a senha, ou com senha. É o que decide se a
+   * tela oferece "Reenviar convite" ou "Enviar link de redefinição" — o
+   * operador já vê o e-mail e o pendente, e isto não diz nada além.
+   */
+  situacaoDoAcesso: z.enum(SITUACOES_DO_ACESSO),
 })
 export type PessoaNoPainel = z.infer<typeof PessoaNoPainel>
 

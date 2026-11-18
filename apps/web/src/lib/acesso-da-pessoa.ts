@@ -7,10 +7,14 @@ import { canonizarEmail, ehErro, validarEmail } from '@fir/domain'
  * (`podeAgirSobre`, 409, 503). Isto só escolhe o que a tela oferece e como diz.
  */
 
-type AcessoNaLista = Pick<
-  PessoaNaLista,
-  'situacaoDoAcesso' | 'emailConfirmado' | 'emailPendente' | 'email' | 'ativo' | 'euMesma'
->
+/**
+ * O que as DUAS telas sabem da pessoa: a da clínica (`PessoaNaLista`) e a do
+ * painel (`PessoaNoPainel`, que não tem `euMesma` — o operador não é pessoa
+ * da clínica — nem `emailConfirmado`, que é `email !== null` nas duas).
+ */
+type AcessoDaPessoa = Pick<PessoaNaLista, 'situacaoDoAcesso' | 'email' | 'emailPendente' | 'ativo'> & {
+  readonly euMesma?: boolean
+}
 
 /**
  * O SELO, um por pessoa. A ordem é a da urgência para a admin: o convite que
@@ -26,34 +30,55 @@ export function seloDoAcesso(
   return null
 }
 
-export type AcaoDeEmail = { readonly habilitada: boolean; readonly motivo: string | null }
-
 /**
- * "Reenviar convite" e "Enviar link para redefinir senha".
+ * **O caminho da senha de OUTRA pessoa** (spec 2.7): quem administra manda o
+ * link e **nunca vê a senha**; a provisória fica como saída para quem não tem
+ * e-mail que receba.
  *
- * - Com o envio DESLIGADO, nenhuma das duas existe: o servidor responderia
- *   503, e duas opções mortas em cada pessoa só ensinam a não olhar o menu.
- * - Sobre si mesma, nenhuma: a própria senha se troca em "Trocar senha".
- * - **Reenviar convite** só para quem foi convidada e ainda não criou a senha
- *   (é o `aguardando_primeira_senha` que o servidor exige).
- * - **Enviar link** só para quem já tem senha, e só com e-mail CONFIRMADO
- *   (appsec 4): o pendente pode ter erro de digitação, e mandar para ele um
- *   link que troca a senha é entregar a conta a quem for dono do endereço.
- * - Pessoa desativada não recebe nada: o link não serviria (spec 3.9).
+ * - `link` — o PRINCIPAL. `convite` para quem foi convidada e ainda não criou
+ *   a senha (é o `aguardando_primeira_senha` que o servidor exige), indo ao
+ *   pendente; `redefinicao` para quem já tem senha e e-mail CONFIRMADO. A
+ *   provisória continua ao alcance, como "Sem acesso ao e-mail?".
+ * - `provisoria` — o caminho de hoje, e o único. `motivo` diz por que o link
+ *   não serve, quando há o que dizer; `null` quando o envio está desligado ou
+ *   não há e-mail nenhum (aí não há o que explicar: é como sempre foi).
+ *
+ * Só o CONFIRMADO recebe redefinição (appsec 4): o pendente pode ter erro de
+ * digitação, e mandar para ele um link que troca a senha é entregar a conta a
+ * quem for dono do endereço. Desativada não recebe nada: o link não serviria
+ * (spec 3.9). Sobre si mesma, nada de link: a própria senha se troca em
+ * "Trocar senha".
+ *
+ * Nada aqui decide acesso: o servidor recusa (403, 409, 503) o que não pode.
  */
-export function acoesDeEmail(
-  p: AcessoNaLista,
-  envioDeEmail: boolean,
-): { convite: AcaoDeEmail | null; redefinicao: AcaoDeEmail | null } {
-  if (!envioDeEmail || p.euMesma) return { convite: null, redefinicao: null }
-  const inativa = p.ativo ? null : 'Ela está desativada.'
-  if (p.situacaoDoAcesso !== 'ativo') {
-    const motivo = inativa ?? (p.emailPendente === null ? 'Cadastre o e-mail dela antes.' : null)
-    return { convite: { habilitada: motivo === null, motivo }, redefinicao: null }
+export type CaminhoDaSenha =
+  | { readonly tipo: 'link'; readonly finalidade: 'convite' | 'redefinicao' }
+  | { readonly tipo: 'provisoria'; readonly motivo: string | null }
+
+export function caminhoDaSenha(p: AcessoDaPessoa, envioDeEmail: boolean): CaminhoDaSenha {
+  const provisoria = (motivo: string | null): CaminhoDaSenha => ({ tipo: 'provisoria', motivo })
+  if (!envioDeEmail || p.euMesma === true) return provisoria(null)
+  if (p.email === null && p.emailPendente === null) {
+    return provisoria(p.situacaoDoAcesso === 'ativo' ? null : 'Cadastre o e-mail dela para reenviar o convite.')
   }
-  const motivo =
-    inativa ?? (p.emailConfirmado ? null : 'Ela ainda não confirmou o e-mail. Use Redefinir senha.')
-  return { convite: null, redefinicao: { habilitada: motivo === null, motivo } }
+  if (!p.ativo) return provisoria('Ela está desativada: o link não serviria.')
+  if (p.situacaoDoAcesso !== 'ativo') {
+    return p.emailPendente === null
+      ? provisoria('Cadastre o e-mail dela para reenviar o convite.')
+      : { tipo: 'link', finalidade: 'convite' }
+  }
+  if (p.email !== null) return { tipo: 'link', finalidade: 'redefinicao' }
+  return provisoria(
+    'Ela ainda não confirmou o e-mail: o link de redefinição só vai para e-mail confirmado.',
+  )
+}
+
+/** O recado depois do envio: o endereço MASCARADO que o servidor devolveu, nunca uma senha. */
+export function recadoDoEnvio(finalidade: 'convite' | 'redefinicao', enviadoPara: string | null): string {
+  const para = enviadoPara ?? 'o e-mail dela'
+  return finalidade === 'convite'
+    ? `Convite reenviado para ${para}. O anterior deixou de valer.`
+    : `Link para redefinir a senha enviado para ${para}. Vale por 1 hora.`
 }
 
 /** O e-mail que o campo de edição mostra: o pendente (o que ainda espera), senão o confirmado. */

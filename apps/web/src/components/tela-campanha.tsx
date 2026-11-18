@@ -10,7 +10,7 @@ import { METRICAS_DE_CAMPANHA } from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAcoesDeTarefa } from '@/lib/acoes-de-tarefa'
 import { chamar } from '@/lib/api'
 import { consultaEmTexto, useDados } from '@/lib/dados'
@@ -75,6 +75,7 @@ type Aberto = {
 export function TelaCampanha({
   id,
   mesDaLista,
+  recadoAoChegar = null,
   eu,
   podeGerir,
   podeEquipe,
@@ -86,6 +87,8 @@ export function TelaCampanha({
   id: string
   /** Os recortes da lista de onde a pessoa veio, para o "← Campanhas" voltar a ela. */
   mesDaLista: string | undefined
+  /** "3 tarefas criadas na campanha." — quem chegou de "Criar campanha com esta lista". */
+  recadoAoChegar?: string | null
   eu: string
   podeGerir: boolean
   podeEquipe: boolean
@@ -104,7 +107,12 @@ export function TelaCampanha({
   const [rascunho, setRascunho] = useState<RascunhoDeCampanha | null>(null)
   const [confirmando, setConfirmando] = useState(false)
   const [salvando, setSalvando] = useState(false)
-  const [recadoDaTela, setRecadoDaTela] = useState<string | null>(null)
+  const [recadoDaTela, setRecadoDaTela] = useState<string | null>(recadoAoChegar)
+  // O recado é dito uma vez: a URL perde as contagens, e recarregar a página
+  // não repete "3 tarefas criadas".
+  useEffect(() => {
+    if (recadoAoChegar !== null) router.replace(`/campanhas/${id}${consultaEmTexto({ mes: mesDaLista })}`, { scroll: false })
+  }, [recadoAoChegar, router, id, mesDaLista])
 
   const detalhe = useDados<CampanhaDetalhe>(`v1/campanhas/${id}`)
   const lista = useDados<TarefasDaCampanha>(

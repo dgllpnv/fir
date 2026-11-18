@@ -37,6 +37,8 @@ export type KpiParaACarteira = {
   readonly prazo: string | null
   readonly situacao: string | null
   readonly percentualDaMeta: number | null
+  /** Sem meta vigente: o início da próxima já definida. Só a data, nunca o alvo. */
+  readonly inicioDaProximaMeta: string | null
 }
 
 /** A permissão que o job tem: só `valores`. Nunca `pessoas.gerir` (C5). */
@@ -86,6 +88,7 @@ export async function kpisParaACarteira(
       prazo: meta?.prazo ?? null,
       situacao: meta?.situacao ?? null,
       percentualDaMeta: meta?.atual.percentualDaMeta ?? null,
+      inicioDaProximaMeta: meta === null ? (k.inicioDaProximaMeta ?? null) : null,
     })
   }
   return { hoje: lista.hoje, kpis }
@@ -112,8 +115,9 @@ export async function gravarKpisNaCarteira(
       const r = await c.query(
         `INSERT INTO kpis_na_carteira (
            cliente_carteira_id, grupo_id, kpi_ref, dia, chave_catalogo, nome, pilar, unidade,
-           valor_centavos, valor_numero, alvo_centavos, alvo_numero, prazo, situacao, percentual_da_meta)
-         SELECT $1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11, $12, $13::date, $14, $15
+           valor_centavos, valor_numero, alvo_centavos, alvo_numero, prazo, situacao, percentual_da_meta,
+           inicio_da_proxima_meta)
+         SELECT $1, $2, $3, $4::date, $5, $6, $7, $8, $9, $10, $11, $12, $13::date, $14, $15, $17::date
           WHERE EXISTS (SELECT 1 FROM participacao_clinica_grupo p
                          WHERE p.clinica_id = $16 AND p.grupo_id = $2 AND p.ate IS NULL)
          ON CONFLICT (cliente_carteira_id, kpi_ref, dia) DO UPDATE SET
@@ -128,6 +132,7 @@ export async function gravarKpisNaCarteira(
            prazo              = EXCLUDED.prazo,
            situacao           = EXCLUDED.situacao,
            percentual_da_meta = EXCLUDED.percentual_da_meta,
+           inicio_da_proxima_meta = EXCLUDED.inicio_da_proxima_meta,
            atualizado_em      = now()`,
         [
           cliente.id,
@@ -146,6 +151,7 @@ export async function gravarKpisNaCarteira(
           k.situacao,
           k.percentualDaMeta,
           cliente.clinica_id,
+          k.inicioDaProximaMeta,
         ],
       )
       gravadas += r.rowCount ?? 0

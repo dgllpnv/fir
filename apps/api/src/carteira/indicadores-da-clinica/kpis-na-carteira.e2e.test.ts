@@ -214,6 +214,12 @@ beforeAll(async () => {
   kpisDeA.rh = await kpiDoCatalogo(clinicaA, 'saldo_banco_de_horas')
   kpisDeA.desp = await kpiDoCatalogo(clinicaA, 'despesas_fixas_sobre_recebido')
   kpiDeB = await kpiManual(clinicaB, await novaPessoa(clinicaB), 'Faturamento B', 'Financeiro', 'reais', 999n, null)
+  // Só uma meta FUTURA (dezembro): sem vigente hoje, o selo diz quando ela começa.
+  await migrate.query(
+    `INSERT INTO metas_de_kpi (clinica_id, kpi_id, tipo, inicio, prazo, alvo_centavos, partida_centavos)
+     VALUES ($1, $2, 'mes', '2026-12-01', '2026-12-31', 5000000, 0)`,
+    [clinicaB, kpiDeB],
+  )
   kpiDeC = await kpiManual(clinicaC, await novaPessoa(clinicaC), 'Faturamento C', 'Financeiro', 'reais', 777n, null)
 
   const mod = await Test.createTestingModule({ imports: [AppModule] }).compile()
@@ -389,6 +395,15 @@ describe('a leitura na ficha do Cliente Firmare', () => {
       [clinicaA, clienteA],
     )
     expect(r.rowCount).toBeGreaterThan(0)
+  })
+
+  it('meta só futura: a ficha recebe a data em que ela começa, nunca o alvo; com vigente, null', async () => {
+    const b = (await ler('grupob', clienteB).expect(200)).body as IndicadoresDaClinicaNaCarteiraSaida
+    const k = b.kpis.find((x) => x.kpiRef === kpiDeB)!
+    expect(k).toMatchObject({ inicioDaProximaMeta: '2026-12-01', alvo: null, prazo: null, situacao: null })
+    expect(JSON.stringify(b)).not.toContain('5000000')
+    const a = (await ler('comvalores', clienteA).expect(200)).body as IndicadoresDaClinicaNaCarteiraSaida
+    expect(a.kpis.find((x) => x.kpiRef === kpisDeA.fin)!.inicioDaProximaMeta).toBeNull()
   })
 
   it('id malformado e sem sessão: o mesmo 404', async () => {

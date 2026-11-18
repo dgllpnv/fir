@@ -2,6 +2,7 @@ import { CHAVES_DE_RELATORIO, FILTROS_DOS_RELATORIOS } from '@fir/contracts'
 import { describe, expect, it } from 'vitest'
 import { ErroDaApi } from '@/lib/api'
 import { mensagemDoErro, resultadoEmTexto } from './campanha-da-lista'
+import { enderecoDaCampanhaCriada, recadoDaCampanhaCriada } from './campanha-criada'
 import { camposIniciais, deFiltros, paraFiltros, pedidoDoLink, ROTULO_DA_SITUACAO } from './na-tabela'
 
 const HOJE = '2026-11-17'
@@ -60,5 +61,29 @@ describe('campanha da lista: o que a tela diz', () => {
   it('422 e 409 dizem que nada foi criado', () => {
     expect(mensagemDoErro(new ErroDaApi(422, 'A lista está vazia; nada foi criado.'))).toContain('Nada foi criado')
     expect(mensagemDoErro(new ErroDaApi(409, 'Já existe uma campanha chamada "X".'))).toContain('tente de novo')
+  })
+})
+
+describe('campanha da lista: depois de criar, a tela vai para a campanha', () => {
+  const ID = '0b6f3c1e-8a52-4d1f-9a0e-1f2b3c4d5e6f'
+
+  it('o endereço é o da campanha devolvida pelo servidor, com as contagens para o recado', () => {
+    expect(enderecoDaCampanhaCriada({ campanhaId: ID, criadas: 3, ignoradas: 1 })).toBe(
+      `/campanhas/${ID}?criadas=3&ignoradas=1`,
+    )
+  })
+
+  it('a campanha lê as contagens e confirma o que aconteceu', () => {
+    expect(recadoDaCampanhaCriada({ criadas: '3', ignoradas: '0' })).toBe('3 tarefas criadas na campanha.')
+    expect(recadoDaCampanhaCriada({ criadas: '1', ignoradas: '2' })).toBe(
+      '1 tarefa criada na campanha. 2 pacientes já tinham a tarefa aberta e ficaram de fora.',
+    )
+  })
+
+  it('sem as contagens, ou com lixo na URL, não há recado', () => {
+    expect(recadoDaCampanhaCriada({})).toBeNull()
+    expect(recadoDaCampanhaCriada({ criadas: 'x', ignoradas: '0' })).toBeNull()
+    expect(recadoDaCampanhaCriada({ criadas: '-1', ignoradas: '0' })).toBeNull()
+    expect(recadoDaCampanhaCriada({ criadas: ['1', '2'], ignoradas: '0' })).toBeNull()
   })
 })

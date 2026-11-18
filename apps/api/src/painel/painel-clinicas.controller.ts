@@ -6,6 +6,7 @@ import {
   CriarPessoaNoPainelEntrada,
   EditarClinicaEntrada,
   EditarPessoaNoPainelEntrada,
+  type EnvioFeito,
   type PessoaCriadaNoPainel,
   type PessoaEditadaNoPainel,
   type PessoaNoPainel,
@@ -339,6 +340,41 @@ export class PainelClinicasController {
       }
       throw e
     }
+  }
+
+  /**
+   * **Enviar o link de redefinição** e **reenviar o convite** pelo painel
+   * (spec 2.7): com o envio ligado, este é o caminho — o operador nunca vê a
+   * senha. A provisória (`/senha`, acima) fica como saída para quem não tem
+   * e-mail confirmado, ou para o envio desligado.
+   *
+   * As regras são as da rota da administradora (`/v1/pessoas/:id/redefinicao`):
+   * só o e-mail CONFIRMADO recebe redefinição (409 sem ele, appsec 4); o
+   * convite só para quem ainda não criou a senha; 429 no teto por pessoa-alvo;
+   * 503 com o envio desligado — nunca um 202 que não mandou nada.
+   */
+  @Post(':clinicaId/pessoas/:pessoaId/redefinicao')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async enviarRedefinicao(
+    @Param('clinicaId') clinicaId: string,
+    @Param('pessoaId') pessoaId: string,
+    @Req() req: RequisicaoComPainel,
+  ): Promise<EnvioFeito> {
+    const painel = painelDe(req)
+    const clinica = await this.resolver(clinicaId)
+    return this.pessoas.enviarLink(clinica, painel.ator, uuidOu404(pessoaId), 'redefinicao')
+  }
+
+  @Post(':clinicaId/pessoas/:pessoaId/convite')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async reenviarConvite(
+    @Param('clinicaId') clinicaId: string,
+    @Param('pessoaId') pessoaId: string,
+    @Req() req: RequisicaoComPainel,
+  ): Promise<EnvioFeito> {
+    const painel = painelDe(req)
+    const clinica = await this.resolver(clinicaId)
+    return this.pessoas.enviarLink(clinica, painel.ator, uuidOu404(pessoaId), 'convite')
   }
 
   /**

@@ -5,7 +5,14 @@ import { formatarValorNaTela } from '@fir/domain'
 import { useEffect, useState } from 'react'
 import { Dica } from '@/components/dica'
 import { Carregando } from '@/components/estados'
-import { agruparPorPilar, diaCompleto, numeroDoCartao, ROTULO_DA_SITUACAO, TOM_DA_SITUACAO } from '@/components/indicadores/na-tela'
+import {
+  agruparPorPilar,
+  diaCompleto,
+  numeroDoCartao,
+  textoDoSelo,
+  type Tom,
+  TOM_DA_SITUACAO,
+} from '@/components/indicadores/na-tela'
 import { chamar, ErroDaApi } from '@/lib/api'
 
 /**
@@ -33,6 +40,16 @@ const alvoDoKpi = (k: KpiDaClinicaNaCarteira): string | null => {
   if (k.alvo === null) return null
   const alvo = formatarValorNaTela({ unidade: k.unidade, ...k.alvo })
   return alvo === null ? null : `de ${alvo}`
+}
+
+/**
+ * O selo fala como o cartão da tela Indicadores (`textoDoSelo`): sem meta
+ * vigente e com a próxima já definida, "Meta a partir de dez/2026" — a data
+ * veio pronta do servidor (`inicioDaProximaMeta`), o alvo dela não atravessa.
+ */
+export function seloDoKpiNaCarteira(k: KpiDaClinicaNaCarteira): { tom: Tom; texto: string } {
+  const situacao = k.situacao ?? 'sem_meta'
+  return { tom: TOM_DA_SITUACAO[situacao], texto: textoDoSelo(situacao, k.inicioDaProximaMeta) }
 }
 
 export function IndicadoresDaClinica({ clienteId }: { clienteId: string }) {
@@ -106,15 +123,13 @@ export function IndicadoresDaClinica({ clienteId }: { clienteId: string }) {
               ) : null}
               <ul className="carteira-kpis-lista">
                 {g.itens.map((k) => {
-                  const situacao = k.situacao ?? 'sem_meta'
+                  const selo = seloDoKpiNaCarteira(k)
                   const alvo = alvoDoKpi(k)
                   return (
                     <li key={k.kpiRef} className="carteira-kpi">
                       <div className="carteira-kpi-cabeca">
                         <span className="carteira-kpi-nome">{k.nome}</span>
-                        <span className={`carteira-kpi-selo carteira-kpi-tom-${TOM_DA_SITUACAO[situacao]}`}>
-                          {ROTULO_DA_SITUACAO[situacao]}
-                        </span>
+                        <span className={`carteira-kpi-selo carteira-kpi-tom-${selo.tom}`}>{selo.texto}</span>
                       </div>
                       <div className="carteira-kpi-valor num">
                         <b>{numeroDoKpi(k)}</b>

@@ -35,6 +35,15 @@ export const ASSUNTOS: Readonly<Record<string, string>> = {
   conversas_1a1: 'Conversas 1:1',
   relatorio: 'Relatórios',
   exportacao_de_relatorio: 'Exportação de relatório',
+  // Indicadores & Insights (0098, 0104), com os nomes do glossário.
+  kpis: 'KPIs',
+  lancamentos_de_kpi: 'Lançamentos de KPI',
+  metas_de_kpi: 'Metas de KPI',
+  series_de_meta: 'Metas recorrentes de KPI',
+  fotografias_de_kpi: 'Fotografias diárias de KPI',
+  okrs: 'OKRs',
+  resultados_chave: 'Resultados-chave',
+  relatorios_favoritos: 'Relatórios favoritos',
 }
 
 export const ACOES: Readonly<Record<string, string>> = {

@@ -98,10 +98,12 @@ describe('as duas telas têm EDITAR e EXCLUIR', () => {
     expect(semComentarios(CLINICA)).toMatch(/p\.euMesma \? null/)
   })
 
-  it('a tela do painel: Editar, Redefinir senha e Excluir, nessa ordem', () => {
+  it('a tela do painel: Editar, a senha (link ou provisória) e Excluir, nessa ordem', () => {
     const p = semComentarios(PAINEL)
     const iEditar = p.indexOf(">\n                    {editando?.id === p.id ? 'Fechar' : 'Editar'}")
-    const iSenha = p.indexOf('Redefinir senha')
+    // O rótulo da senha vem de `rotuloDaSenha` (spec 2.7): "Enviar link para
+    // redefinir senha", "Reenviar convite" ou "Redefinir senha".
+    const iSenha = p.indexOf('rotuloDaSenha(caminhoDaSenha(p, envioDeEmail))')
     const iExcluir = p.indexOf('>\n                    Excluir\n')
     expect(iEditar).toBeGreaterThan(0)
     expect(iSenha).toBeGreaterThan(iEditar)

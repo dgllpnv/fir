@@ -2,6 +2,8 @@
 
 import type {
   ClinicaNaLista,
+  ConfigDoAcesso,
+  EnvioFeito,
   PessoaCriadaNoPainel,
   PessoaEditadaNoPainel,
   PessoaNoPainel,
@@ -14,7 +16,13 @@ import { useEffect, useState } from 'react'
 import { Carregando, Toast, Vazio } from '@/components/estados'
 import { ExcluirPessoa } from '@/components/excluir-pessoa'
 import { SenhaProvisoria } from '@/components/senha-provisoria'
-import { emailDoCampo, emailParaOPatch } from '@/lib/acesso-da-pessoa'
+import {
+  type CaminhoDaSenha,
+  caminhoDaSenha,
+  emailDoCampo,
+  emailParaOPatch,
+  recadoDoEnvio,
+} from '@/lib/acesso-da-pessoa'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { usePainel } from '../../../contexto'
 import { ErroDoPainel } from '../../../pecas'
@@ -66,8 +74,42 @@ export default function PessoasDaClinica() {
    * antes de anotar não tinha como recuperá-la.
    */
   const [senhaEscolhida, setSenhaEscolhida] = useState('')
+  /**
+   * A provisória foi pedida como SAÍDA ("Sem acesso ao e-mail?"). Com o envio
+   * ligado e um e-mail que receba, a caixa abre no link (spec 2.7); só este
+   * toque a leva para a provisória.
+   */
+  const [provisoriaComoSaida, setProvisoriaComoSaida] = useState(false)
+  /** O erro da caixa de senha fica DENTRO dela: a lista não some por um 409. */
+  const [erroDaSenha, setErroDaSenha] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  /**
+   * O envio de e-mail está ligado nesta instalação? A mesma rota pública que a
+   * tela da clínica lê. Enquanto não responde — ou se falhar —, vale o caminho
+   * de hoje, a provisória: o servidor é quem decide de verdade (503).
+   */
+  const [envioDeEmail, setEnvioDeEmail] = useState(false)
 
   const base = `v1/superadmin/clinicas/${id}/pessoas`
+
+  useEffect(() => {
+    let valeu = true
+    chamar<ConfigDoAcesso>('v1/acesso/config')
+      .then((r) => {
+        if (valeu) setEnvioDeEmail(r.envioDeEmail)
+      })
+      .catch(() => undefined)
+    return () => {
+      valeu = false
+    }
+  }, [])
+
+  function abrirSenha(p: PessoaNoPainel | null) {
+    setRedefinindo(p)
+    setSenhaEscolhida('')
+    setProvisoriaComoSaida(false)
+    setErroDaSenha('')
+  }
 
   useEffect(() => {
     let valeu = true
@@ -94,6 +136,26 @@ export default function PessoasDaClinica() {
     recarregarPainel()
   }
 
+  /**
+   * O link de redefinição, ou o convite de novo (spec 2.7). O operador
+   * **nunca vê a senha**: a resposta é o endereço mascarado, e é ele que o
+   * recado repete. As sessões dela não caem — nada mudou até ela usar o link.
+   */
+  async function enviarLink(p: PessoaNoPainel, finalidade: 'convite' | 'redefinicao') {
+    setErroDaSenha('')
+    setEnviando(true)
+    try {
+      const r = await chamar<EnvioFeito>(`${base}/${p.id}/${finalidade}`, { method: 'POST' })
+      abrirSenha(null)
+      setRecado(recadoDoEnvio(finalidade, r.enviadoPara))
+      setTentativa((n) => n + 1)
+    } catch (x) {
+      setErroDaSenha(x instanceof ErroDaApi ? x.message : 'Sem conexão com o servidor.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
   async function redefinir(p: PessoaNoPainel, escolhida: string) {
     setErro('')
     try {
@@ -102,8 +164,7 @@ export default function PessoasDaClinica() {
         method: 'POST',
         body: JSON.stringify(senha === '' ? {} : { senha }),
       })
-      setRedefinindo(null)
-      setSenhaEscolhida('')
+      abrirSenha(null)
       // `senhaProvisoria === null` é o servidor dizendo "você escolheu, já
       // sabe". O modal existe porque a GERADA não pode ser recuperada depois;
       // abri-lo para a escolhida seria ruído.
@@ -232,13 +293,12 @@ export default function PessoasDaClinica() {
                   <button
                     type="button"
                     className="link"
-                    onClick={() => {
-                      setRedefinindo(redefinindo?.id === p.id ? null : p)
-                      setSenhaEscolhida('')
-                    }}
+                    onClick={() => abrirSenha(redefinindo?.id === p.id ? null : p)}
                     aria-expanded={redefinindo?.id === p.id}
                   >
-                    {redefinindo?.id === p.id ? 'Cancelar' : 'Redefinir senha'}
+                    {redefinindo?.id === p.id
+                      ? 'Cancelar'
+                      : rotuloDaSenha(caminhoDaSenha(p, envioDeEmail))}
                   </button>
                   <button type="button" className="link" onClick={() => setExcluindo(p)}>
                     Excluir
@@ -250,13 +310,43 @@ export default function PessoasDaClinica() {
         </table>
       )}
 
-      {redefinindo === null ? null : (
+      {/*
+        A CAIXA DA SENHA (spec 2.7). Com o envio ligado e um e-mail que
+        receba, ela abre no LINK: a pessoa cria a senha, e o operador não a
+        conhece. A provisória fica atrás de "Sem acesso ao e-mail?" — a saída,
+        com o mesmo modal de sempre (D-14). Sem envio ou sem e-mail, é a caixa
+        de hoje.
+      */}
+      {redefinindo === null ? null : (() => {
+        const caminho = caminhoDaSenha(redefinindo, envioDeEmail)
+        return caminho.tipo === 'link' && !provisoriaComoSaida ? (
+          <CaixaDoLink
+            p={redefinindo}
+            finalidade={caminho.finalidade}
+            enviando={enviando}
+            erro={erroDaSenha}
+            aoEnviar={() => void enviarLink(redefinindo, caminho.finalidade)}
+            aoPedirProvisoria={() => {
+              setErroDaSenha('')
+              setProvisoriaComoSaida(true)
+            }}
+            aoFechar={() => abrirSenha(null)}
+          />
+        ) : caminho.tipo === 'provisoria' && caminho.motivo !== null ? (
+          <p className="nota">{caminho.motivo}</p>
+        ) : null
+      })()}
+
+      {redefinindo === null ||
+      (caminhoDaSenha(redefinindo, envioDeEmail).tipo === 'link' && !provisoriaComoSaida) ? null : (
         <div className="superadmin-dossie" role="group" aria-label="Redefinir senha">
           {/* `superadmin-dossie`, e não `painel`: o painel tem identidade
               própria, e `identidade.test.ts` acusa classe do produto usada
               aqui — foi assim que a faixa dele virou, uma vez, uma barra de
               progresso de 8 px. */}
-          <b>Redefinir a senha de {redefinindo.nome}</b>
+          <b>
+            {provisoriaComoSaida ? 'Senha provisória para' : 'Redefinir a senha de'} {redefinindo.nome}
+          </b>
           <label className="campo">
             Senha nova <small>(deixe vazio para o sistema gerar)</small>
             <input
@@ -290,14 +380,7 @@ export default function PessoasDaClinica() {
                 ? 'Gerar senha nova'
                 : 'Usar esta senha'}
             </button>
-            <button
-              type="button"
-              className="btn ghost"
-              onClick={() => {
-                setRedefinindo(null)
-                setSenhaEscolhida('')
-              }}
-            >
+            <button type="button" className="btn ghost" onClick={() => abrirSenha(null)}>
               Deixar como está
             </button>
           </div>
@@ -371,6 +454,79 @@ export default function PessoasDaClinica() {
 
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
+  )
+}
+
+/** O rótulo da ação na linha: diz o que o toque vai oferecer primeiro. */
+function rotuloDaSenha(c: CaminhoDaSenha): string {
+  if (c.tipo === 'provisoria') return 'Redefinir senha'
+  return c.finalidade === 'convite' ? 'Reenviar convite' : 'Enviar link para redefinir senha'
+}
+
+/**
+ * O link é o PRINCIPAL; a provisória, a saída rotulada. Nenhuma senha passa
+ * por esta caixa: o servidor devolve o endereço mascarado, e mais nada.
+ */
+function CaixaDoLink({
+  p,
+  finalidade,
+  enviando,
+  erro,
+  aoEnviar,
+  aoPedirProvisoria,
+  aoFechar,
+}: {
+  p: PessoaNoPainel
+  finalidade: 'convite' | 'redefinicao'
+  enviando: boolean
+  erro: string
+  aoEnviar: () => void
+  aoPedirProvisoria: () => void
+  aoFechar: () => void
+}) {
+  return (
+    <div
+      className="superadmin-dossie"
+      role="group"
+      aria-label={finalidade === 'convite' ? 'Reenviar convite' : 'Enviar link para redefinir senha'}
+    >
+      <b>
+        {finalidade === 'convite' ? 'Reenviar o convite de' : 'Nova senha para'} {p.nome}
+      </b>
+      <p className="nota">
+        {finalidade === 'convite' ? (
+          <>
+            {p.nome} recebe um link novo para criar a senha, no e-mail cadastrado. O convite anterior
+            deixa de valer.
+          </>
+        ) : (
+          <>
+            {p.nome} recebe no e-mail confirmado um link para criar uma senha nova. Vale por 1 hora, e{' '}
+            <b>só ela conhece a senha</b>. A atual continua valendo até ela usar o link.
+          </>
+        )}
+      </p>
+      <p role="alert" aria-live="polite" className="erro-do-painel">
+        {erro}
+      </p>
+      <div className="botoes">
+        <button type="button" className="btn" disabled={enviando} onClick={aoEnviar}>
+          {enviando
+            ? 'Enviando…'
+            : finalidade === 'convite'
+              ? 'Reenviar convite'
+              : 'Enviar link para redefinir senha'}
+        </button>
+        <button type="button" className="btn ghost" onClick={aoFechar} disabled={enviando}>
+          Deixar como está
+        </button>
+      </div>
+      <p className="nota">
+        <button type="button" className="link" onClick={aoPedirProvisoria} disabled={enviando}>
+          Sem acesso ao e-mail? Gerar senha provisória
+        </button>
+      </p>
+    </div>
   )
 }
 

@@ -1,5 +1,6 @@
 import type {
   CriarPessoaNoPainelEntrada,
+  EnvioFeito,
   EditarPessoaNoPainelEntrada,
   PessoaCriadaNoPainel,
   PessoaEditadaNoPainel,
@@ -13,6 +14,7 @@ import {
   podeDesativar,
   podeExcluirPessoa,
   podeTrocarAcesso,
+  situacaoDoAcesso,
 } from '@fir/domain'
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common'
 import type pg from 'pg'
@@ -59,29 +61,15 @@ export class PainelPessoasService {
 
   async listar(clinica: ClinicaResolvida, ator: OperadorId): Promise<PessoaNoPainel[]> {
     const r = await this.banco.comoPainel(clinica.id, ator, (c) =>
-      c.query<{
-        id: string
-        nome: string
-        usuario: string
-        funcao: string
-        admin: boolean
-        perfil_id: string | null
-        ativo: boolean
-        senha_provisoria: boolean
-        email: string | null
-        email_pendente: string | null
-      }>(
-        // Nunca `senha_hash`, nunca o prazo interno. A ficha do painel diz
-        // SE a pessoa precisa trocar a senha, nunca qual ela é.
-        // `excluida_em IS NULL` (0023): quem saiu da clínica de vez sai da
-        // lista aqui como sai lá dentro. O painel não é a porta dos fundos
-        // para ver quem a clínica excluiu.
-        `SELECT id, nome, usuario, funcao, admin, perfil_id, ativo, senha_provisoria,
-                  email, email_pendente
-           FROM pessoas WHERE excluida_em IS NULL ORDER BY nome`,
+      // `excluida_em IS NULL` (0023): quem saiu da clínica de vez sai da
+      // lista aqui como sai lá dentro. O painel não é a porta dos fundos
+      // para ver quem a clínica excluiu.
+      c.query<LinhaDoPainel>(
+        `SELECT ${COLUNAS_DO_PAINEL} FROM pessoas WHERE excluida_em IS NULL ORDER BY nome`,
       ),
     )
-    return r.rows.map(paraOPainel)
+    const agora = this.relogio.agora()
+    return r.rows.map((l) => paraOPainel(l, agora))
   }
 
   async ficha(
@@ -90,21 +78,8 @@ export class PainelPessoasService {
     pessoaId: string,
   ): Promise<PessoaNoPainel> {
     const r = await this.banco.comoPainel(clinica.id, ator, (c) =>
-      c.query<{
-        id: string
-        nome: string
-        usuario: string
-        funcao: string
-        admin: boolean
-        perfil_id: string | null
-        ativo: boolean
-        senha_provisoria: boolean
-        email: string | null
-        email_pendente: string | null
-      }>(
-        `SELECT id, nome, usuario, funcao, admin, perfil_id, ativo, senha_provisoria,
-                  email, email_pendente
-           FROM pessoas WHERE id = $1 AND excluida_em IS NULL`,
+      c.query<LinhaDoPainel>(
+        `SELECT ${COLUNAS_DO_PAINEL} FROM pessoas WHERE id = $1 AND excluida_em IS NULL`,
         [pessoaId],
       ),
     )
@@ -112,7 +87,7 @@ export class PainelPessoasService {
     // Sem clínica no `WHERE`: a RLS já a impõe, e a pessoa da vizinha
     // simplesmente não existe vista daqui.
     if (!linha) throw new PessoaNaoExiste()
-    return paraOPainel(linha)
+    return paraOPainel(linha, this.relogio.agora())
   }
 
   async criar(
@@ -182,6 +157,20 @@ export class PainelPessoasService {
       senhaProvisoria: provisoria.senha,
       senhaProvisoriaExpiraEm: provisoria.expiraEm.toISOString(),
     }
+  }
+
+  /**
+   * Manda à pessoa o link de redefinição, ou reenvia o convite (spec 2.7). O
+   * operador **nunca vê a senha**: a resposta é o endereço mascarado. A regra
+   * inteira é a da administradora, em `AcessoPorEmailService`.
+   */
+  async enviarLink(
+    clinica: ClinicaResolvida,
+    ator: OperadorId,
+    pessoaId: string,
+    finalidade: 'convite' | 'redefinicao',
+  ): Promise<EnvioFeito> {
+    return this.acessoPorEmail.enviarPeloOperador(clinica, ator, pessoaId, finalidade)
   }
 
   /**
@@ -296,7 +285,7 @@ export class PainelPessoasService {
     const envioDeEmail =
       enviar === null ? null : (await this.acessoPorEmail.entregar(enviar)) ? 'enviado' : 'falhou'
     if (avisar !== null) this.acessoPorEmail.entregarDepois(avisar)
-    return { ...paraOPainel(linha), envioDeEmail }
+    return { ...paraOPainel(linha, this.relogio.agora()), envioDeEmail }
   }
 
   /**
@@ -360,13 +349,7 @@ function exigirDominio(r: Result<void, ErroDeDominio>): void {
   })
 }
 
-type LinhaDoPainel = Parameters<typeof paraOPainel>[0]
-
-/** Nunca `senha_hash`, nunca o prazo interno da provisória. */
-const COLUNAS_DO_PAINEL = `id, nome, usuario, funcao, admin, perfil_id, ativo, senha_provisoria,
-  email, email_pendente`
-
-const paraOPainel = (p: {
+type LinhaDoPainel = {
   id: string
   nome: string
   usuario: string
@@ -377,7 +360,26 @@ const paraOPainel = (p: {
   senha_provisoria: boolean
   email: string | null
   email_pendente: string | null
-}): PessoaNoPainel => ({
+  aguardando_primeira_senha: boolean
+  convite_expira_em: Date | null
+}
+
+/**
+ * Nunca `senha_hash`, nunca o prazo interno da provisória. A ficha do painel
+ * diz SE a pessoa precisa trocar a senha, nunca qual ela é.
+ *
+ * O prazo do convite VIVO mais recente é a mesma subconsulta da lista da
+ * clínica (`acesso.service.ts`): é dele que sai o selo, e o selo decide se o
+ * painel oferece "Reenviar convite" ou "Enviar link de redefinição".
+ */
+const COLUNAS_DO_PAINEL = `id, nome, usuario, funcao, admin, perfil_id, ativo, senha_provisoria,
+  email, email_pendente, aguardando_primeira_senha,
+  (SELECT l.expira_em FROM links_de_acesso l
+    WHERE l.pessoa_id = pessoas.id AND l.finalidade = 'convite'
+      AND l.usado_em IS NULL AND l.invalidado_em IS NULL
+    ORDER BY l.criado_em DESC LIMIT 1) AS convite_expira_em`
+
+const paraOPainel = (p: LinhaDoPainel, agora: Date): PessoaNoPainel => ({
   id: p.id,
   nome: p.nome,
   usuario: p.usuario,
@@ -391,6 +393,11 @@ const paraOPainel = (p: {
   precisaTrocarSenha: p.senha_provisoria,
   email: p.email,
   emailPendente: p.email_pendente,
+  situacaoDoAcesso: situacaoDoAcesso(
+    { aguardandoPrimeiraSenha: p.aguardando_primeira_senha },
+    p.convite_expira_em === null ? null : { expiraEm: p.convite_expira_em },
+    agora,
+  ),
 })
 
 export { PessoaNaoExiste }

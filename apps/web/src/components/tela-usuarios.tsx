@@ -26,10 +26,10 @@ import { useState } from 'react'
 import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import {
-  type AcaoDeEmail,
-  acoesDeEmail,
+  caminhoDaSenha,
   emailDoCampo,
   emailParaOPatch,
+  recadoDoEnvio,
   seloDoAcesso,
 } from '@/lib/acesso-da-pessoa'
 import { Carregando, Erro, Toast } from './estados'
@@ -461,7 +461,8 @@ function FormularioDePessoa({
   const [email, setEmail] = useState(p === undefined ? '' : emailDoCampo(p))
   /** O erro do e-mail fica DEBAIXO do campo, não no fim do formulário. */
   const [erroDoEmail, setErroDoEmail] = useState('')
-  const acoes = p === undefined ? null : acoesDeEmail(p, envioDeEmail)
+  /** Link primeiro, provisória como saída (spec 2.7) — ver `caminhoDaSenha`. */
+  const caminho = p === undefined ? null : caminhoDaSenha(p, envioDeEmail)
   /** `__admin` é a opção "Administradora"; o resto é id de perfil. */
   const [acesso, setAcesso] = useState(p === undefined ? '' : p.admin ? '__admin' : (p.perfilId ?? ''))
   const [ativo, setAtivo] = useState(p?.ativo ?? true)
@@ -667,12 +668,7 @@ function FormularioDePessoa({
     setOcupado(true)
     try {
       const r = await chamar<EnvioFeito>(`v1/pessoas/${p.id}/${finalidade}`, { method: 'POST' })
-      const para = r.enviadoPara ?? 'o e-mail dela'
-      aoMudar?.(
-        finalidade === 'convite'
-          ? `Convite reenviado para ${para}. O anterior deixou de valer.`
-          : `Link para redefinir a senha enviado para ${para}. Vale por 1 hora.`,
-      )
+      aoMudar?.(recadoDoEnvio(finalidade, r.enviadoPara))
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não consegui enviar o e-mail.')
     } finally {
@@ -932,7 +928,8 @@ function FormularioDePessoa({
               Deixar como está
             </button>
           </>
-        ) : (
+        ) : caminho !== null && caminho.tipo === 'provisoria' ? (
+          // O caminho de hoje: sem envio ligado, ou sem e-mail que receba.
           // Dois toques, porque redefinir **derruba as sessões dela**: se ela
           // estiver atendendo agora, cai no meio.
           <button
@@ -943,30 +940,37 @@ function FormularioDePessoa({
           >
             Redefinir senha
           </button>
-        )}
+        ) : null}
       </div>
-      {/* O ACESSO POR E-MAIL — só com o envio ligado e nunca sobre si mesma
-          (`acoesDeEmail`). Opção que não vale agora aparece desligada e diz
-          por quê, em vez de sumir sem explicação. */}
-      {acoes === null || (acoes.convite === null && acoes.redefinicao === null) ? null : (
+      {/*
+        O ACESSO POR E-MAIL (spec 2.7): com o envio ligado e um e-mail que
+        receba, o PRINCIPAL é o link — a pessoa cria a senha e ninguém mais a
+        conhece. A provisória continua ao alcance, rotulada como o que é: a
+        saída para quem não consegue abrir o e-mail agora.
+      */}
+      {caminho === null || confirmandoSenha ? null : caminho.tipo === 'link' ? (
         <div className="acoes-de-email">
-          {acoes.convite === null ? null : (
-            <AcaoPorEmail
-              rotulo="Reenviar convite"
-              acao={acoes.convite}
-              ocupado={ocupado}
-              aoTocar={() => void enviarPorEmail('convite')}
-            />
-          )}
-          {acoes.redefinicao === null ? null : (
-            <AcaoPorEmail
-              rotulo="Enviar link para redefinir senha"
-              acao={acoes.redefinicao}
-              ocupado={ocupado}
-              aoTocar={() => void enviarPorEmail('redefinicao')}
-            />
-          )}
+          <span className="acao-de-email">
+            <button
+              type="button"
+              className="btn ghost"
+              disabled={ocupado}
+              onClick={() => void enviarPorEmail(caminho.finalidade)}
+            >
+              {caminho.finalidade === 'convite' ? 'Reenviar convite' : 'Enviar link para redefinir senha'}
+            </button>
+            <small>
+              {caminho.finalidade === 'convite'
+                ? 'Ela recebe um link novo para criar a senha. O anterior deixa de valer.'
+                : 'Ela recebe um link para criar uma senha nova, e só ela a conhece. Vale por 1 hora.'}
+            </small>
+          </span>
+          <button type="button" className="link" onClick={() => setConfirmandoSenha(true)}>
+            Sem acesso ao e-mail? Gerar senha provisória
+          </button>
         </div>
+      ) : caminho.motivo === null ? null : (
+        <p className="nota">{caminho.motivo}</p>
       )}
       {confirmandoSenha ? (
         <>
@@ -1020,27 +1024,6 @@ function FormularioDePessoa({
         />
       ) : null}
     </div>
-  )
-}
-
-function AcaoPorEmail({
-  rotulo,
-  acao,
-  ocupado,
-  aoTocar,
-}: {
-  rotulo: string
-  acao: AcaoDeEmail
-  ocupado: boolean
-  aoTocar: () => void
-}) {
-  return (
-    <span className="acao-de-email">
-      <button type="button" className="btn ghost" disabled={!acao.habilitada || ocupado} onClick={aoTocar}>
-        {rotulo}
-      </button>
-      {acao.motivo === null ? null : <small>{acao.motivo}</small>}
-    </span>
   )
 }
 

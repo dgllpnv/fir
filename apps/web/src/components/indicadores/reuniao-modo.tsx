@@ -25,6 +25,7 @@ import {
   indiceVizinho,
   resumoDaCapa,
   ROTULO_DO_STATUS_DO_PLANO,
+  saiuDaTelaCheiaPeloEsc,
   type Slide,
   slidesDaReuniao,
   textoDaSemana,
@@ -65,8 +66,14 @@ export function ModoReuniao({ minhaPessoaId }: { minhaPessoaId: string }) {
   const atual = Math.min(indice, Math.max(total - 1, 0))
   const slide = slides[atual] ?? null
 
+  // `peloBotao`: a próxima saída da tela cheia é nossa (✕ ou "Sair da tela
+  // cheia"), não o Esc do navegador. Ver o efeito do `fullscreenchange`.
+  const peloBotao = useRef(false)
   const sair = useCallback(() => {
-    if (document.fullscreenElement !== null) void document.exitFullscreen().catch(() => undefined)
+    if (document.fullscreenElement !== null) {
+      peloBotao.current = true
+      void document.exitFullscreen().catch(() => undefined)
+    }
     router.push('/indicadores')
   }, [router])
 
@@ -86,11 +93,25 @@ export function ModoReuniao({ minhaPessoaId }: { minhaPessoaId: string }) {
     if (montado) raiz.current?.focus()
   }, [montado])
 
+  // O botão "Modo reunião" já pediu a tela cheia no clique (`pedirTelaCheia`).
+  // Em tela cheia o Esc é do navegador: a tela cheia que cai sem o nosso botão
+  // é o Esc, e ele continua saindo da reunião — menos com o formulário aberto,
+  // em que o Esc é dele.
+  const estavaEmTelaCheia = useRef(false)
   useEffect(() => {
-    const aoMudar = () => setTelaCheia(document.fullscreenElement !== null)
+    estavaEmTelaCheia.current = document.fullscreenElement !== null
+    setTelaCheia(estavaEmTelaCheia.current)
+    const aoMudar = () => {
+      const agora = document.fullscreenElement !== null
+      const sairDaReuniao = saiuDaTelaCheiaPeloEsc(estavaEmTelaCheia.current, agora, peloBotao.current)
+      estavaEmTelaCheia.current = agora
+      peloBotao.current = false
+      setTelaCheia(agora)
+      if (sairDaReuniao && plano === null) sair()
+    }
     document.addEventListener('fullscreenchange', aoMudar)
     return () => document.removeEventListener('fullscreenchange', aoMudar)
-  }, [])
+  }, [plano, sair])
 
   // Com o formulário aberto, o teclado é dele: a seta move o cursor no campo
   // e o Esc fecha o formulário, não a reunião.
@@ -122,8 +143,12 @@ export function ModoReuniao({ minhaPessoaId }: { minhaPessoaId: string }) {
   }, [plano, ir, sair, total])
 
   const alternarTelaCheia = () => {
-    if (document.fullscreenElement !== null) void document.exitFullscreen().catch(() => undefined)
-    else void document.documentElement.requestFullscreen?.().catch(() => undefined)
+    if (document.fullscreenElement !== null) {
+      peloBotao.current = true
+      void document.exitFullscreen().catch(() => {
+        peloBotao.current = false
+      })
+    } else void document.documentElement.requestFullscreen?.().catch(() => undefined)
   }
 
   const recarregar = r.recarregar
