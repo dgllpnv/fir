@@ -690,6 +690,33 @@ else
   echo "  A leitura das planilhas vai falhar. Confira a rede 'fir_saida-planilhas'." >&2
 fi
 
+# 7.6e' · a regra de egress da `saida-planilhas` está aplicada: o worker abre
+# TCP com sheets.googleapis.com:443 e NÃO abre com github.com:80. ATENÇÃO, não
+# erro, como o resto do 7.6d/e: sem a regra o worker lê as planilhas do mesmo
+# jeito, e o que se perde é a segunda camada (ADR 2026-11-17-saida-das-planilhas).
+# Mas é o único lugar que diz que a regra sumiu — reboot sem a unidade
+# `<projeto>-egress.service`, ou alguém que esvaziou a DOCKER-USER.
+# A 80 e não a 25: a 25 costuma ser bloqueada pelo provedor da VPS, e passaria
+# com ou sem a nossa regra.
+tcp_planilhas() {
+  docker compose exec -T worker-planilhas node -e "
+    const s = require('node:net').connect({ host: process.argv[1], port: Number(process.argv[2]) });
+    const fim = (c) => { s.destroy(); process.exit(c) };
+    s.setTimeout(6000, () => fim(1));
+    s.on('connect', () => fim(0));
+    s.on('error', () => fim(1));" "$1" "$2" 2>/dev/null
+}
+if tcp_planilhas github.com 80; then
+  echo "  ATENÇÃO: o worker-planilhas alcança github.com:80 — a regra de egress da" >&2
+  echo "  'saida-planilhas' não está aplicada (ou se perdeu). Rode" >&2
+  echo "  'systemctl restart <projeto>-egress' (README, 'Regras de egress')." >&2
+elif tcp_planilhas sheets.googleapis.com 443; then
+  echo "  ok  o worker-planilhas só sai pela 443 (sheets.googleapis.com:443 abre, github.com:80 não)"
+else
+  echo "  ATENÇÃO: o worker-planilhas não abre TCP com sheets.googleapis.com:443." >&2
+  echo "  A leitura das planilhas vai falhar. Confira a regra de egress (README)." >&2
+fi
+
 # 7.6f · com o envio ligado, a API alcança o SMTP do provedor.
 # ATENÇÃO, não erro, pela razão do 7.6d: depende de fora da VPS, e um envio que
 # falha não muda nada que o cliente veja (a rota responde igual; spec, appsec

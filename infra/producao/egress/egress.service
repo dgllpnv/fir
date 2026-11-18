@@ -1,0 +1,19 @@
+# Persistência das regras de egress do FIR (regras-de-egress.sh ao lado).
+# Instalar como /etc/systemd/system/<projeto>-egress.service — ver o README de
+# produção, "Regras de egress". Na VPS de produção, <projeto> = firmaregestao.
+#
+# After/Requires docker: roda depois que o Docker montou a FORWARD e a
+# DOCKER-USER. Com Requires, reiniciar o docker reinicia esta unidade — o
+# script é idempotente, então rodar de novo só confere.
+[Unit]
+Description=Regras de egress do FIR (DOCKER-USER)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/firmaregestao-egress.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

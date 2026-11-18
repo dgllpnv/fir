@@ -138,31 +138,61 @@ worker-planilhas.js`. A chave da conta de serviço (`GOOGLE_SA_JSON`) existe
 Rede própria `saida-planilhas` (sub-rede fixa `172.31.248.0/24`), separada da
 `saida` do worker-agenda. O código já fala só com `oauth2.googleapis.com` e
 `sheets.googleapis.com` (URLs fixas, sem seguir redirecionamento, teto de
-tamanho). **A restrição de rede a esses hosts NÃO existe enquanto alguém não
-aplicar uma regra de egress na VPS** — Docker sozinho não filtra destino por
-nome. Proposta (não aplicada; aplicar exige decisão do dono, porque a VPS é
-compartilhada com outros negócios):
+tamanho). A rede é a segunda camada: **da `saida-planilhas` saem só DNS (53)
+e TCP 443**, por regra em `DOCKER-USER` (ver "Regras de egress", abaixo).
+Aplicada na VPS em 2026-11-17 — até então a regra só existia como proposta, e
+o worker tinha saída livre.
 
-```bash
-# DOCKER-USER é a cadeia que o Docker reserva para regras do operador e não reescreve.
-# 1. DNS para o resolvedor do Docker continua liberado (o container resolve nomes).
-# 2. HTTPS só para as faixas do Google; o resto da sub-rede é recusado.
-SUB=172.31.248.0/24
-iptables -I DOCKER-USER -s $SUB -j DROP
-iptables -I DOCKER-USER -s $SUB -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-iptables -I DOCKER-USER -s $SUB -p udp --dport 53 -j ACCEPT
-iptables -I DOCKER-USER -s $SUB -p tcp --dport 443 -m set --match-set google-apis dst -j ACCEPT
-# O conjunto `google-apis` (ipset hash:net) é alimentado pelas faixas publicadas
-# pelo Google em https://www.gstatic.com/ipranges/goog.json, por um cron diário.
-```
-
-Alternativa mais simples de manter: um proxy de saída (Squid/tinyproxy) num
-container só, com allowlist `*.googleapis.com`, e `HTTPS_PROXY` no worker — o
-filtro passa a ser por nome em vez de por faixa de IP. As duas exigem
-mudança de infraestrutura e ficam para o dono decidir.
+**Por porta, não por destino.** A regra não prende o worker aos hosts do
+Google: com o processo comprometido, ele ainda alcança qualquer servidor na
+443. O que ela tira é todo o resto (80, 22, 25, portas altas, protocolos
+não-TCP). Prender por faixa do Google (ipset alimentado por `goog.json`) foi
+recusado: as faixas são largas — incluem o Google Cloud, onde qualquer um
+hospeda um servidor — e dinâmicas, e uma lista desatualizada derrubaria a
+leitura em silêncio. Decisão e alternativa (proxy com allowlist por nome) em
+`docs/adr/2026-11-17-saida-das-planilhas.md`.
 
 O passo 7.6e do `implantar.sh` avisa se o worker não resolve
-`sheets.googleapis.com`.
+`sheets.googleapis.com`; o 7.6e' avisa se ele alcança `github.com:80` (a regra
+sumiu) ou se não abre `sheets.googleapis.com:443`.
+
+## Regras de egress (persistidas)
+
+As redes de saída com filtro são duas, cada uma com sub-rede fixa e um só
+serviço:
+
+| Rede | Sub-rede | Serviço | Sai por |
+|---|---|---|---|
+| `saida-email` (opt-in) | `172.31.247.0/24` | `api` | DNS 53, TCP 465 |
+| `saida-planilhas` | `172.31.248.0/24` | `worker-planilhas` | DNS 53, TCP 443 |
+
+A `saida` do `worker-agenda` **não tem filtro**, de propósito: o iCal das
+clínicas pode estar em qualquer host e porta. A `saida-antivirus` também não
+(o freshclam fala com os mirrors do ClamAV).
+
+As regras moram em `egress/regras-de-egress.sh` e sobrevivem a reboot por uma
+unidade systemd (`egress/egress.service`), que roda depois do Docker. O script
+é idempotente por sub-rede: se as regras já estão exatas, não toca em nada; se
+faltam ou sobram, refaz só as daquela sub-rede. Nunca toca em regra de outra
+faixa — a `DOCKER-USER` é da máquina inteira, e a VPS é compartilhada.
+
+Instalar (ou atualizar depois de mudar o script), como root na VPS —
+`<projeto>` é o nome do projeto do compose (`firmaregestao` na VPS de
+produção):
+
+```bash
+install -m 755 egress/regras-de-egress.sh /usr/local/sbin/<projeto>-egress.sh
+install -m 644 egress/egress.service /etc/systemd/system/<projeto>-egress.service
+# confira o ExecStart do .service contra o caminho acima
+systemctl daemon-reload
+systemctl enable --now <projeto>-egress.service
+systemctl restart <projeto>-egress.service   # reaplica; idempotente
+journalctl -u <projeto>-egress -n 5 -o cat   # "já aplicada" / "aplicada", por sub-rede
+iptables -S DOCKER-USER
+```
+
+Só IPv4: as duas redes têm `EnableIPv6=false`. Ligar IPv6 numa delas abre uma
+rota que o script não filtra.
 
 ## Ligar o envio de e-mail (acesso por e-mail)
 
@@ -223,10 +253,10 @@ iptables -I DOCKER-USER -s $SUB -p tcp --dport 465 -j ACCEPT
 
 As regras só tocam a sub-rede `172.31.247.0/24`, que é só da `api` do FIR:
 nenhum container de outro negócio passa por elas. Mesmo assim, é mudança no
-firewall de uma máquina compartilhada — **aplicar é decisão do dono**. E elas
-não sobrevivem a um reboot sem persistência (`iptables-save` /
-`netfilter-persistent`): conferir depois de todo reinício da VPS, que é para
-isso que o deploy mede (abaixo).
+firewall de uma máquina compartilhada — **aplicar é decisão do dono**. Elas
+já estão em `egress/regras-de-egress.sh`, persistidas pela unidade systemd
+(ver "Regras de egress"): instalar a unidade é aplicar esta regra. Mesmo
+assim, o deploy mede (abaixo) — é o que pega a regra perdida.
 
 Se o `docker compose up` recusar a rede com `Pool overlaps with other one on
 this address space`, outra rede da VPS já usa a faixa: escolha outra `/24`

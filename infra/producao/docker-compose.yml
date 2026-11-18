@@ -678,8 +678,9 @@ networks:
     driver: bridge
 
   # A saída do `worker-planilhas`, e só dele: Google Sheets por conta de
-  # serviço. Sub-rede FIXA para a regra de egress (só *.googleapis.com:443)
-  # poder ser escrita contra ela — ver infra/producao/README.md.
+  # serviço. Sub-rede FIXA para a regra de egress (só DNS e TCP 443, em
+  # infra/producao/egress/) poder ser escrita contra ela — ver o README de
+  # produção, "Regras de egress", e ADR 2026-11-17-saida-das-planilhas.
   saida-planilhas:
     driver: bridge
     ipam:
