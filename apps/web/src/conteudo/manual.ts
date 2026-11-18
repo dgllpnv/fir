@@ -293,7 +293,7 @@ Não é preciso criar outra tarefa. O mesmo vale para Procedimento agendado.`,
         titulo: 'Registrar um recebimento',
         texto: `Todo dinheiro recebido entra por **Financeiro › Recebimentos**. Atendimento é tarefa; dinheiro é recebimento.
 - Escolha o **paciente**.
-- Diga **o que ele está pagando**: Consulta, Sinal de consulta, Procedimento ou programa novo (venda), Programa em andamento ou Saldo em aberto.
+- Diga **o que ele está pagando**: Consulta ou procedimento, Sinal de consulta, Orçamento fechado (venda), Programa em andamento ou Saldo em aberto.
 - Informe o **valor recebido**, a **forma de pagamento** (Pix, Dinheiro, Cartão de crédito, Cartão de débito ou Nota promissória) e a data.
 - Se ficou uma parte para depois, informe em **“Ficou valor em aberto?”**.
 
@@ -304,7 +304,7 @@ O formulário mostra os recebimentos do paciente nos últimos 7 dias, para evita
         texto: `São duas coisas diferentes:
 - A **consulta** é o atendimento: conclua a tarefa da consulta.
 - O **dinheiro** é o recebimento. Se o paciente pagou na hora, responda **“Recebeu algum valor?”** ao concluir a consulta. Pronto: não lance de novo.
-- Se pagou em outro momento (sinal antes, ou restante depois), use **Recebimento › Consulta** ou **Sinal de consulta**.`,
+- Se pagou em outro momento (sinal antes, ou restante depois), use **Recebimento › Consulta ou procedimento** ou **Sinal de consulta**.`,
       },
       {
         titulo: 'Desfazer um lançamento feito por engano',
@@ -317,7 +317,7 @@ Dica: antes de lançar de novo, confira a lista de recebimentos da paciente. Um 
       },
       {
         titulo: 'Programa em andamento × programa novo',
-        texto: `- **Programa novo:** o paciente acabou de fechar (venda). Use Recebimento › Procedimento ou programa novo; dá para programar as sessões do catálogo na mesma tela.
+        texto: `- **Programa novo:** o paciente acabou de fechar (venda). Use Recebimento › Orçamento fechado; dá para programar as sessões do catálogo na mesma tela.
 - **Programa em andamento:** o paciente já faz o programa e está pagando uma parcela ou uma sessão. Use Recebimento › Programa em andamento e escolha o programa. O valor abate o saldo dele.
 
 Nunca registre como “programa novo” o pagamento de um programa que já está rodando: isso conta uma venda que não aconteceu.`,
@@ -334,7 +334,7 @@ Também é possível usar **“Registrar recebimento”** na ficha do paciente, 
         titulo: 'Orçamento com programa ou procedimento do catálogo',
         texto: `O caminho mais simples é montar o programa **no orçamento** (cartão da jornada › Registrar orçamento › “É um programa”): escolha o procedimento e o número de sessões; intervalo, dose, responsável e valor já vêm do cadastro e ficam em “Ajustar”. No **Fechou**, o programa já vem montado e o saldo é calculado sozinho.
 
-Sem orçamento registrado, monte no Recebimento › Procedimento ou programa novo, marcando **“É um programa de acompanhamento: montar agora”**.`,
+Sem orçamento registrado, monte no Recebimento › Orçamento fechado, marcando **“É um programa de acompanhamento: montar agora”**.`,
       },
       {
         titulo: 'O que conta como receita',
@@ -387,7 +387,7 @@ Para o administrativo, mostra também:
 
 Atalhos da ficha: Editar cadastro, Registrar recebimento e Adesão a programa.
 
-**Produtos utilizados:** tudo o que saiu do estoque para o paciente, com data, produto, dose, procedimento, lote e quem aplicou. Entram sozinhas as baixas das sessões e dos procedimentos com insumo; para lançar um uso avulso, toque em **Registrar uso de produto** (o paciente já vem escolhido). O mesmo lançamento pode ser feito pelo estoque, em Registrar saída › Uso em paciente.`,
+**Consumo:** tudo o que saiu do estoque para o paciente, com data, produto, dose, procedimento, lote e quem aplicou. As baixas das sessões de programa entram sozinhas; um uso avulso se lança pelo estoque, em **Registrar saída › Uso em paciente**.`,
       },
       {
         titulo: 'Excluir paciente',
@@ -428,15 +428,15 @@ Procedimentos de sessão única (ex.: toxina botulínica) também entram como pr
 
 “+ Adicionar procedimento” inclui mais itens. O resumo mostra as datas de cada item e o valor sugerido. Depois informe o **valor total do programa**, o **pago na adesão** e a forma de pagamento. Se o valor total for maior que o pago, a diferença vira **saldo a receber** do programa, abatido a cada pagamento.
 
-O mesmo montador aparece no **Recebimento › Procedimento ou programa novo**, ao marcar “É um programa de acompanhamento”.`,
+O mesmo montador aparece no **Recebimento › Orçamento fechado**, ao marcar “É um programa de acompanhamento”.`,
       },
       {
         titulo: 'Baixa automática no estoque',
         texto: `Ao concluir uma sessão, a ferramenta **dá baixa sozinha** no estoque: o insumo do item na quantidade definida (a dose) e os descartáveis do procedimento. Se a sessão for reaberta ou o programa excluído, a baixa é desfeita.
 
-Nas tarefas avulsas de **Procedimento realizado**, escolha “Qual procedimento?” para dar baixa dos insumos padrão daquele procedimento.
+Nas tarefas avulsas de **Procedimento realizado** a baixa não é automática: lance o que foi usado no estoque, em **Registrar saída › Uso em paciente**.
 
-Cada baixa fica ligada ao paciente, com a dose e o lote, em **Produtos utilizados** na ficha. Na análise do estoque, o saldo esperado (contagem inicial + entradas − saídas registradas) é comparado com a contagem final: a diferença mostra o que saiu sem registro (desperdício, sessão não lançada ou desvio).`,
+Cada baixa fica ligada ao paciente, com a dose e o lote, na aba **Consumo** da ficha. Na análise do estoque, o saldo esperado (contagem inicial + entradas − saídas registradas) é comparado com a contagem final: a diferença mostra o que saiu sem registro (desperdício, sessão não lançada ou desvio).`,
       },
       {
         titulo: 'Concluir uma sessão',

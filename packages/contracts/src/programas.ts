@@ -252,7 +252,7 @@ const fechaOEncadeamento = (
 
 /**
  * O MONTADOR — o mesmo corpo em três entradas: `Programas › Nova adesão`,
- * `Recebimento › Procedimento ou programa novo` e o `programa` do orçamento.
+ * `Recebimento › Orçamento fechado` e o `programa` do orçamento.
  *
  * `pagamento` ausente = programa SEM total: cada sessão registra o que foi
  * pago no dia (`modo_de_cobranca = 'avulso'`).

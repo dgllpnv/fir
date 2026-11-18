@@ -84,6 +84,12 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   },
   {
     tema: 'Rotina e tarefas',
+    pergunta: 'Preciso começar pela consulta para registrar um procedimento?',
+    resposta: 'Não. Procedimento feito hoje, sem agendamento antes: crie uma Nova tarefa do tipo “Procedimento realizado”, escolha o paciente e escreva o procedimento na descrição (em “+ Mais opções”); o pagamento vai no bloco “Houve pagamento?” da mesma tarefa, e o produto usado se lança em Estoque › Registrar saída › Uso em paciente. Paciente que fechou e pagou agora: use Recebimento › Orçamento fechado, onde também dá para montar o programa. Só o orçamento enviado (para retomar o contato depois) nasce dentro de um cartão de consulta ou de procedimento, pelo botão “Registrar orçamento”.',
+    chaves: 'procedimento sem consulta direto avulso realizado registrar orcamento fechado venda programa',
+  },
+  {
+    tema: 'Rotina e tarefas',
     pergunta: 'Como uso o código QR do estoque?',
     resposta: 'Toque em “Ler código” no Estoque (ou ao lado do campo Item na entrada e na saída), aponte a câmera ou tire uma foto da etiqueta. A ferramenta abre o item e você escolhe Uso em paciente, Entrada ou Descarte. O código da caixa do medicamento também funciona: na primeira vez, ligue ao item; depois, validade e lote vêm preenchidos.',
     chaves: 'qr code codigo etiqueta camera celular bipar ler leitura caixa barras datamatrix',
@@ -183,7 +189,7 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   {
     tema: 'Atendimentos e pagamentos',
     pergunta: 'O paciente já faz um programa e pagou uma parcela. Como lanço?',
-    resposta: 'Use Recebimento › Programa em andamento e escolha o programa do paciente. O valor fica ligado ao programa e abate o saldo dele. Não use “Procedimento ou programa novo”: essa opção é só para venda nova.',
+    resposta: 'Use Recebimento › Programa em andamento e escolha o programa do paciente. O valor fica ligado ao programa e abate o saldo dele. Não use “Orçamento fechado”: essa opção é só para venda nova.',
     chaves: 'programa programa andamento parcela pagamento sessao vendido rodando',
   },
   {
@@ -271,7 +277,7 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   {
     tema: 'Rotina e tarefas',
     pergunta: 'Como registro o produto usado em um paciente?',
-    resposta: 'Pela ficha do paciente, em Produtos utilizados › Registrar uso de produto, ou pelo estoque, em Registrar saída › Uso em paciente. Informe o produto, a dose (ex.: 2,5 mg ou 20 UI), o procedimento e o lote. Sessões de programa e procedimentos com insumo registram sozinhos.',
+    resposta: 'Pelo estoque, em Registrar saída › Uso em paciente. Informe o paciente, o produto, a dose (ex.: 2,5 mg ou 20 UI), o procedimento e o lote. As sessões de programa registram sozinhas, e tudo aparece na aba Consumo da ficha do paciente.',
     chaves: 'produto paciente uso dose saida estoque lote aplicacao botox toxina',
   },
   {

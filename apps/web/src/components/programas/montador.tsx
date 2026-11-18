@@ -27,7 +27,7 @@ export type { EstadoDoMontador, ItemNoMontador }
 /**
  * **O MONTADOR — UM componente, três entradas** (MANUAL cap. 8).
  *
- * `Programas › Nova adesão`, `Recebimento › Procedimento ou programa novo` e a
+ * `Programas › Nova adesão`, `Recebimento › Orçamento fechado` e a
  * caixa *"É um programa: montar agora"* do `registrarOrcamento` (épico 3) usam
  * **este** componente. Duplicá-lo é como a terceira entrada deixa de aceitar
  * `depoisDe` e ninguém percebe — e `depoisDe` é a escalada de dose, que é a
