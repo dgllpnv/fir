@@ -28,6 +28,46 @@ dela corre sozinho.
 
 ## Agora — e é nossa
 
+### D-BK · O backup não tem cópia fora da VPS
+
+O `backup.sh` grava o dump cifrado no **mesmo disco** do banco. Se o disco ou a
+VPS se perder, os 30 diários e os 12 mensais se perdem junto. Isso é cópia, não
+backup. O script avisa em toda execução.
+
+O código do envio já existe (`ssh` ou `rclone`, configurado em
+`/opt/fir/backup-remoto.conf`). Falta só o destino e a credencial, que dependem do
+dono. Opções e custo em `docs/operacao/backup.md`, seção "O que NÃO existe".
+
+Junto, **duas conferências na VPS**, porque o repositório não as responde:
+
+- **O cron aponta para o checkout certo?** `cron-fir-backup` faz `cd
+  /opt/fir/repo/infra/producao`. Na VPS de produção o projeto deste sistema não é o
+  `fir`. Se a linha instalada em `/etc/cron.d/fir-backup` não foi ajustada, o backup
+  noturno pode estar copiando outro banco, ou nenhum. Confira com `cat
+  /etc/cron.d/fir-backup` e com a última linha de `manifesto.txt`.
+- **Falha de backup não avisa ninguém.** O erro vai só para `/var/log/fir-backup.log`.
+
+**Gatilho:** já passou — há dado de saúde de clínica real no banco. **Quem decide:** o
+dono (destino e credencial). **Sintoma se esquecer:** nenhum, até o dia em que o disco
+morre.
+
+---
+
+### D-LOG · O compose não limita o tamanho dos logs
+
+`infra/producao/docker-compose.yml` não declara `logging:` em nenhum serviço. Vale o
+driver do daemon da VPS, e o padrão de fábrica (`json-file`) cresce sem limite. O disco
+é compartilhado com outros negócios. Ver `docs/operacao/logs.md`, "Rotação".
+
+**O conserto** é nosso e pequeno: `logging: { driver: json-file, options: { max-size:
+10m, max-file: '3' } }` em cada serviço. **Não** se mexe no `/etc/docker/daemon.json`,
+que é da máquina inteira.
+
+**Gatilho:** conferir na VPS (`docker info`, `daemon.json`). Se não houver rotação, já
+passou. **Sintoma se esquecer:** disco cheio derruba o FIR e os vizinhos.
+
+---
+
 ### D-M · `migrar.ts` não tem checksum: editar migration aplicada passa em silêncio
 
 O migrador registra o **NOME** do arquivo em `migrations_aplicadas`, não o conteúdo.

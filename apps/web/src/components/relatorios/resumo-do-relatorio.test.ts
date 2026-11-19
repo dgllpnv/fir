@@ -25,16 +25,19 @@ const resultado = (resumo: {
   diasAnterioresAguardando: number
   hojeAguardando: boolean
   total?: string | null
-}) =>
-  ResultadoDoRelatorio.parse({
+}) => {
+  const total = resumo.total === undefined ? '38000' : resumo.total
+  return ResultadoDoRelatorio.parse({
     relatorio: 'recebimentos',
     classe: 'pessoal',
     cabecalho: { titulo: 'Recebimentos', filtrosEmTexto: [] },
     colunas: [],
     linhas: [],
+    // Sem `valores`, o servidor não manda soma nenhuma (a coluna não sai).
+    somas: total === null ? [] : [{ coluna: 'valor', rotulo: 'Total', valor: total }],
     resumo: {
       recebimentos: 3,
-      total: reais(resumo.total === undefined ? '38000' : resumo.total),
+      total: reais(total),
       porForma: [],
       porTipo: [],
       aguardandoFechamento: resumo.aguardandoFechamento,
@@ -43,6 +46,7 @@ const resultado = (resumo: {
     },
     truncado: false,
   })
+}
 
 const html = (r: ReturnType<typeof resultado>): string =>
   renderToStaticMarkup(createElement(ResumoDoRelatorio, { resultado: r }))
@@ -86,5 +90,30 @@ describe('relatório 8 — os dias aguardando o fechamento do caixa', () => {
   it('nada aguardando: nenhum aviso', () => {
     const t = html(resultado({ aguardandoFechamento: '0', diasAnterioresAguardando: 0, hojeAguardando: false }))
     expect(t).not.toContain('aguard')
+  })
+})
+
+describe('a faixa de resumo com as somas do servidor (backlog 1.8)', () => {
+  const pacientes = (somas: { coluna: string; rotulo: string; valor: string | null }[]) =>
+    ResultadoDoRelatorio.parse({
+      relatorio: 'pacientes-sem-atendimento',
+      classe: 'pessoal',
+      cabecalho: { titulo: 'Pacientes sem atendimento', filtrosEmTexto: [] },
+      colunas: [],
+      linhas: [],
+      somas,
+      resumo: { pacientes: 148 },
+      truncado: false,
+    })
+
+  it('"148 pacientes · LTV somado R$ 312.400,00", pelo formatador central', () => {
+    const t = html(pacientes([{ coluna: 'ltv', rotulo: 'LTV somado', valor: '31240000' }]))
+    expect(t).toMatch(/148 pacientes · LTV somado R\$\s312\.400,00/)
+  })
+
+  it('sem somas (sem `valores`), só a contagem e nenhum R$', () => {
+    const t = html(pacientes([]))
+    expect(t).toContain('148 pacientes')
+    expect(t).not.toMatch(/R\$|somado/)
   })
 })

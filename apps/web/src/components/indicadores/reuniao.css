@@ -10,6 +10,35 @@
  * número é tabular; nada rola de lado em 390 px.
  */
 .rn {
+  /*
+   * SEMPRE CLARA (1.9 F: "fundo claro, o mesmo creme da FIR Clinic, com
+   * cartões brancos"; critério de aceite "Modo reunião abre com fundo
+   * claro"). A reunião vai para a TV da sala, e a clínica a reconhece pelo
+   * papel creme — o tema escuro do aparelho de quem a abriu não decide o que
+   * a sala vê. Por isso o escopo refixa os tokens do tema claro, com os
+   * MESMOS valores de `:root` em `tokens.css` (pares já medidos em
+   * `contraste.test.ts`; nenhum par novo nasce aqui). O formulário de plano
+   * de ação e o aviso abrem DENTRO deste elemento, e herdam o claro também.
+   */
+  --bg: #f9f7f2;
+  --surface: #ffffff;
+  --ink: #2e1f0e;
+  --muted: #6e5e4b;
+  --line: #e6dfd1;
+  --gold: #c5a467;
+  --gold-ink: #86672e;
+  --gold-soft: #f1e8d5;
+  --on-gold-soft: #7d5f2a;
+  --btn-bg: #2e1f0e;
+  --btn-ink: #f9f7f2;
+  --ok: #3f7d4e;
+  --ok-soft: #e3f0e5;
+  --warn: #a8701a;
+  --warn-soft: #f7ecd8;
+  --warn-ink: #99670f;
+  --bad: #b4442f;
+  --bad-soft: #f9e9e6;
+  color-scheme: light;
   position: fixed;
   inset: 0;
   z-index: 36;

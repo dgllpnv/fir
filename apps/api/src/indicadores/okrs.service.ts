@@ -1,12 +1,13 @@
-import type {
-  ConsultaDeOkrs,
-  CriarOkr,
-  DuplicarOkr,
-  EditarOkr,
-  ListaDeOkrs,
-  OkrNaSaida,
-  ResultadoChaveNaSaida,
-  ResultadoChavePedido,
+import {
+  CODIGO_PRAZO_DO_KR_FORA_DO_PERIODO,
+  type ConsultaDeOkrs,
+  type CriarOkr,
+  type DuplicarOkr,
+  type EditarOkr,
+  type ListaDeOkrs,
+  type OkrNaSaida,
+  type ResultadoChaveNaSaida,
+  type ResultadoChavePedido,
 } from '@fir/contracts'
 import {
   alvoDaCampanha,
@@ -17,6 +18,7 @@ import {
   ordenarOkrs,
   type PeriodoDoOkr,
   periodoDoOkr,
+  prazoDoKr,
   prioridadesDoTrimestre,
   progressoDoOkr,
   proximoPeriodoDoOkr,
@@ -64,12 +66,14 @@ type LinhaDeOkr = {
 
 type LinhaDeKr = { id: string; kpi_id: string; ordem: number }
 
-/** O alvo e a partida de um KR, já na unidade do KPI e validados pela meta (I-22). */
+/** O alvo, a partida e o prazo de um KR, já na unidade do KPI e validados pela meta (I-22). */
 type KrPreparado = {
   readonly kpi: LinhaDeKpi
   readonly definicao: Definicao
   readonly alvo: NumeroDoKpi
   readonly partida: NumeroDoKpi
+  /** Inclusivo, dentro do período do OKR (backlog 1.9 D.2). */
+  readonly prazo: string
 }
 
 /** O servidor sempre manda `prioridades`; o contrato o deixa opcional só para a web. */
@@ -88,7 +92,10 @@ const TRAVA = 'okr_de_1_a_5_krs'
  * Um KR é o vínculo do OKR com um KPI, com uma META PRÓPRIA em `metas_de_kpi`
  * (`resultado_chave_id`). A meta do KR sai pelas mesmas contas da meta de
  * saúde (`IndicadoresService.metaNaSaida`), e o KPI só entra pela porta única
- * `kpisVisiveis` (appsec C5): KR de KPI que a pessoa não pode ver não existe
+ * `kpisVisiveis` (appsec C5). O prazo do KR é o `prazo` dessa meta — por
+ * padrão o fim do período, ou o próprio, dentro dele (`prazoDoKr`; backlog
+ * 1.9 D.2); ritmo, projeção e o congelar depois do prazo já saem dele.
+ * KR de KPI que a pessoa não pode ver não existe
  * na resposta, e o progresso do OKR é a média dos KRs EXIBIDOS (números c.12).
  *
  * Toda escrita de alvo ou partida em reais exige `valores` (appsec C3) —
@@ -165,9 +172,10 @@ export class OkrsService {
           responsavelId: dados.responsavelId ?? null,
         })
         const preparados: KrPreparado[] = []
-        for (const pedido of dados.resultadosChave) {
+        for (const [i, pedido] of dados.resultadosChave.entries()) {
           const k = await this.indicadores.kpiVisivel(c, ctx, pedido.kpiId)
-          preparados.push(await this.prepararKr(c, ctx, k, periodo, pedido, null))
+          const prazo = exigirPrazo(prazoDoKr(periodo, pedido.prazo, null), i)
+          preparados.push(await this.prepararKr(c, ctx, k, periodo, prazo, pedido, null))
         }
         for (const [i, p] of preparados.entries()) await this.inserirKr(c, ctx, okr.id, i + 1, p, periodo, okr.responsavel_id)
         await c.query(`SET CONSTRAINTS ${TRAVA} IMMEDIATE`)
@@ -203,7 +211,7 @@ export class OkrsService {
 
         const porId = new Map(meus.map((kr) => [kr.id, kr]))
         const preparados: { pedido: ResultadoChavePedido; p: KrPreparado }[] = []
-        for (const pedido of pedidos) {
+        for (const [i, pedido] of pedidos.entries()) {
           let existente: LinhaDeMeta | null = null
           if (pedido.id !== undefined) {
             const kr = porId.get(pedido.id)
@@ -212,7 +220,9 @@ export class OkrsService {
             existente = await this.metaDoKr(c, ctx, kr.id)
           }
           const k = await this.indicadores.kpiVisivel(c, ctx, pedido.kpiId)
-          preparados.push({ pedido, p: await this.prepararKr(c, ctx, k, periodo, pedido, existente) })
+          const atualDoKr = existente === null ? null : { prazo: existente.prazo, fimAnterior: atual.fim }
+          const prazo = exigirPrazo(prazoDoKr(periodo, pedido.prazo, atualDoKr), i)
+          preparados.push({ pedido, p: await this.prepararKr(c, ctx, k, periodo, prazo, pedido, existente) })
         }
 
         const mantidos = new Set(pedidos.flatMap((p) => (p.id === undefined ? [] : [p.id])))
@@ -222,11 +232,16 @@ export class OkrsService {
           else await this.atualizarKr(c, ctx, pedido.id, i + 1, p, periodo, responsavelId)
         }
         // Os KRs que a pessoa não vê acompanham o período e o responsável do OKR — sem tocar no alvo.
+        // O prazo próprio fica quando cabe no período novo; quando não cabe, vai para o fim: um 422
+        // sobre um KR que ela não recebeu contaria que ele existe (C5).
         for (const kr of krs.filter((x) => !visiveis.has(x.kpi_id))) {
+          const meta = await this.metaDoKr(c, ctx, kr.id)
+          const r = prazoDoKr(periodo, undefined, meta === null ? null : { prazo: meta.prazo, fimAnterior: atual.fim })
+          const prazo = r.tipo === 'ok' ? r.valor : periodo.fim
           await c.query(
             `UPDATE metas_de_kpi SET tipo = $3, inicio = $4::date, prazo = $5::date, responsavel_id = $6
               WHERE clinica_id = $1 AND resultado_chave_id = $2 AND arquivada_em IS NULL`,
-            [ctx.clinicaId, kr.id, tipoDaMetaDoKr(periodo), periodo.inicio, periodo.fim, responsavelId],
+            [ctx.clinicaId, kr.id, tipoDaMetaDoKr({ inicio: periodo.inicio, fim: prazo }), periodo.inicio, prazo, responsavelId],
           )
         }
         await c.query(`SET CONSTRAINTS ${TRAVA} IMMEDIATE`)
@@ -285,7 +300,8 @@ export class OkrsService {
             : ((await this.indicadores.valorDoPeriodoCorrente(c, ctx, k, hoje))?.emMenorUnidade.toString() ??
               (d.unidade === 'reais' ? meta.partida_centavos : meta.partida_numero) ??
               '0')
-          preparados.push(await this.prepararKr(c, ctx, k, periodo, { alvo, partida }, null, alvoNovo === undefined))
+          // O período é outro: o KR duplicado nasce com o prazo padrão, o fim dele.
+          preparados.push(await this.prepararKr(c, ctx, k, periodo, periodo.fim, { alvo, partida }, null, alvoNovo === undefined))
         }
         if (preparados.length === 0) throw new UnprocessableEntityException('Este OKR não tem resultado-chave para duplicar.')
         const okr = await this.inserirOkr(c, ctx, {
@@ -369,6 +385,7 @@ export class OkrsService {
     ctx: ContextoDeIndicadores,
     k: LinhaDeKpi,
     periodo: PeriodoDoOkr,
+    prazo: string,
     pedido: Pick<ResultadoChavePedido, 'alvo' | 'partida'>,
     existente: LinhaDeMeta | null,
     alvoCopiado = false,
@@ -398,9 +415,9 @@ export class OkrsService {
     const partidaTexto =
       pedido.partida ?? (existente === null ? null : emReais ? existente.partida_centavos : existente.partida_numero) ?? '0'
     const partida = NumeroDoKpi.de(d.unidade, BigInt(partidaTexto))
-    const v = validarMeta(d, { tipo: tipoDaMetaDoKr(periodo), inicio: periodo.inicio, prazo: periodo.fim, partida, alvo })
+    const v = validarMeta(d, { tipo: tipoDaMetaDoKr({ inicio: periodo.inicio, fim: prazo }), inicio: periodo.inicio, prazo, partida, alvo })
     if (v.tipo === 'erro') throw new UnprocessableEntityException(v.erro.mensagem)
-    return { kpi: k, definicao: d, alvo, partida }
+    return { kpi: k, definicao: d, alvo, partida, prazo }
   }
 
   private async inserirOkr(
@@ -436,7 +453,7 @@ export class OkrsService {
       `INSERT INTO metas_de_kpi (clinica_id, kpi_id, resultado_chave_id, tipo, inicio, prazo, alvo_centavos, alvo_numero,
                                  partida_centavos, partida_numero, responsavel_id, medida_por, definida_por)
        VALUES ($1, $2, $3, $4, $5::date, $6::date, $7, $8, $9, $10, $11, $12, $13)`,
-      [ctx.clinicaId, p.kpi.id, kr.rows[0]!.id, tipoDaMetaDoKr(periodo), periodo.inicio, periodo.fim,
+      [ctx.clinicaId, p.kpi.id, kr.rows[0]!.id, tipoDaMetaDoKr({ inicio: periodo.inicio, fim: p.prazo }), periodo.inicio, p.prazo,
         emReais ? p.alvo.emMenorUnidade.toString() : null, emReais ? null : p.alvo.emMenorUnidade.toString(),
         emReais ? p.partida.emMenorUnidade.toString() : null, emReais ? null : p.partida.emMenorUnidade.toString(),
         responsavelId, medidaPor, pessoaDoAtor(ctx.ator)],
@@ -458,7 +475,7 @@ export class OkrsService {
       `UPDATE metas_de_kpi SET tipo = $3, inicio = $4::date, prazo = $5::date, alvo_centavos = $6, alvo_numero = $7,
               partida_centavos = $8, partida_numero = $9, responsavel_id = $10, definida_por = $11, definida_em = now()
         WHERE clinica_id = $1 AND resultado_chave_id = $2 AND arquivada_em IS NULL`,
-      [ctx.clinicaId, krId, tipoDaMetaDoKr(periodo), periodo.inicio, periodo.fim,
+      [ctx.clinicaId, krId, tipoDaMetaDoKr({ inicio: periodo.inicio, fim: p.prazo }), periodo.inicio, p.prazo,
         emReais ? p.alvo.emMenorUnidade.toString() : null, emReais ? null : p.alvo.emMenorUnidade.toString(),
         emReais ? p.partida.emMenorUnidade.toString() : null, emReais ? null : p.partida.emMenorUnidade.toString(),
         responsavelId, pessoaDoAtor(ctx.ator)],
@@ -518,6 +535,20 @@ const periodoDaLinha = (o: LinhaDeOkr): PeriodoDoOkr => ({ tipo: o.tipo_periodo,
 function exigirOk<T>(r: { tipo: 'ok'; valor: T } | { tipo: 'erro'; erro: { mensagem: string } }): T {
   if (r.tipo === 'erro') throw new UnprocessableEntityException(r.erro.mensagem)
   return r.valor
+}
+
+/**
+ * O prazo do KR, ou 422 com o código e a posição do KR no corpo: a tela põe a
+ * mensagem embaixo do campo certo (backlog 1.9 D.2).
+ */
+function exigirPrazo(r: ReturnType<typeof prazoDoKr>, indice: number): string {
+  if (r.tipo === 'ok') return r.valor
+  throw new UnprocessableEntityException({
+    statusCode: 422,
+    codigo: CODIGO_PRAZO_DO_KR_FORA_DO_PERIODO,
+    indice,
+    message: r.erro.mensagem,
+  })
 }
 
 /** C3 (appsec): alvo ou partida em reais exige `valores` — 403, antes de qualquer conta. */

@@ -20,10 +20,12 @@ import {
   ORIGEM_NAO_INFORMADA,
   ORIGENS,
   ROTULO_DA_ORIGEM_DO_FILTRO,
+  ROTULO_DA_SITUACAO_DO_ORCAMENTO_NO_RELATORIO,
   ROTULO_DO_MOTIVO_DE_SAIDA,
+  SITUACOES_DO_ORCAMENTO_NO_RELATORIO,
   TIPOS_DE_ATENDIMENTO_DO_FILTRO,
 } from '@fir/contracts'
-import { CATEGORIAS_DESP, ETAPAS, ROTULO_DE_ETAPA, TIPOS } from '@fir/domain'
+import { CATEGORIAS_DESP, TIPOS } from '@fir/domain'
 import { type FormEvent, type ReactNode, useState } from 'react'
 import { useDados } from '@/lib/dados'
 import { type Campos, SITUACOES_DO_PROGRAMA_NA_TELA, temMaisOpcoesEmUso } from './campos-do-filtro'
@@ -195,7 +197,13 @@ export function FiltrosDoRelatorio({
           </>
         ) : null}
         {chave === 'orcamentos' ? (
-          <Escolha rotulo="Etapa" valor={campos.etapa} mudar={(v) => mudar({ etapa: v })} opcoes={ETAPAS.map((e) => [e, ROTULO_DE_ETAPA[e]])} vazio="Todas" />
+          <Escolha
+            rotulo="Situação"
+            valor={campos.situacaoDoOrcamento}
+            mudar={(v) => mudar({ situacaoDoOrcamento: v })}
+            opcoes={SITUACOES_DO_ORCAMENTO_NO_RELATORIO.map((s) => [s, ROTULO_DA_SITUACAO_DO_ORCAMENTO_NO_RELATORIO[s]])}
+            vazio="Todas"
+          />
         ) : null}
         {chave === 'faltas-e-desmarcacoes' ? (
           <Escolha

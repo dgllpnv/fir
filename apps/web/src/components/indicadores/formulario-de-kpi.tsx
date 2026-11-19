@@ -14,7 +14,15 @@ import { useCallback, useId, useMemo, useState } from 'react'
 import { Carregando, Erro } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useDados } from '@/lib/dados'
-import { CamposDaMeta, corpoDaMetaNova, type ErrosDaMeta, estadoInicialDaMeta, type KpiDaMeta, validarEstadoDaMeta } from './campos-da-meta'
+import {
+  CamposDaMeta,
+  corpoDaMetaNova,
+  erroDaMetaNoCampo,
+  type ErrosDaMeta,
+  estadoInicialDaMeta,
+  type KpiDaMeta,
+  validarEstadoDaMeta,
+} from './campos-da-meta'
 import {
   AVISO_DO_NOME_DO_KPI,
   DIAS_DA_SEMANA_DO_LANCAMENTO,
@@ -33,7 +41,14 @@ const UNIDADES_DO_MANUAL: readonly UnidadeDeKpi[] = ['reais', 'percentual', 'qua
 
 const semAcento = (s: string): string => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-type Erros = Partial<Record<'nome' | 'campanha' | 'okrAlvo' | 'comoMedir', string>>
+type Erros = Partial<Record<'nome' | 'campanha' | 'okrAlvo' | 'comoMedir' | 'dia' | 'frequencia', string>>
+
+/** O campo de cada recusa de `POST /v1/indicadores/kpis`, pelo código — nunca pelo texto. */
+const CAMPO_DO_CODIGO_DO_KPI: Readonly<Record<string, keyof Erros>> = {
+  CampanhaNaoEncontrada: 'campanha',
+  DiaDeLancamentoInvalido: 'dia',
+  FrequenciaInvalida: 'frequencia',
+}
 
 /**
  * **D.1 — Novo KPI.** Primeiro a escolha em dois cartões; depois o catálogo
@@ -44,9 +59,14 @@ type Erros = Partial<Record<'nome' | 'campanha' | 'okrAlvo' | 'comoMedir', strin
  * medir" leva o aviso fixo dos textos livres (LGPD R-e).
  *
  * Salvar é uma sequência de chamadas, porque cada coisa tem a sua rota: criar
- * o KPI, renomear (o catálogo cria com o nome padrão), a meta e a ligação a
- * cada OKR (o OKR recebe a lista nova de resultados-chave). Se o KPI nasceu e
+ * o KPI, renomear (o catálogo cria com o nome padrão), a ligação a cada OKR
+ * (o OKR recebe a lista nova de resultados-chave) e a meta. Se o KPI nasceu e
  * um passo seguinte falhou, o recado diz exatamente o que ficou faltando.
+ *
+ * O erro do servidor vai embaixo do campo dele (1.9 D), pelo código da
+ * recusa; só o que não é de campo fica no fim do formulário. A meta recusada
+ * num campo deixa o formulário aberto com o KPI já criado: salvar de novo
+ * manda só a meta, e Cancelar fecha com o indicador sem ela.
  */
 export function FormularioDeKpi({
   kpis,
@@ -55,6 +75,7 @@ export function FormularioDeKpi({
   equipe,
   aoFechar,
   aoSalvo,
+  direto = null,
 }: {
   kpis: readonly KpiNaLista[]
   /** Os OKRs ativos do período: a lista do "Ligar a um OKR". */
@@ -63,9 +84,11 @@ export function FormularioDeKpi({
   equipe: readonly PessoaDaEquipe[]
   aoFechar: () => void
   aoSalvo: (recado: string, kpiId: string | null) => void
+  /** "Abrir catálogo" do cartão vazio (1.9 C): direto na lista, sem a escolha. */
+  direto?: 'catalogo' | null
 }) {
   const id = useId()
-  const [passo, setPasso] = useState<'escolha' | 'catalogo' | 'manual'>('escolha')
+  const [passo, setPasso] = useState<'escolha' | 'catalogo' | 'manual'>(direto ?? 'escolha')
   const [item, setItem] = useState<ItemDoCatalogo | null>(null)
   const [busca, setBusca] = useState('')
   const catalogo = useDados<CatalogoDeKpisNaSaida>(passo === 'catalogo' ? 'v1/indicadores/catalogo' : null)
@@ -93,6 +116,8 @@ export function FormularioDeKpi({
   const [erros, setErros] = useState<Erros>({})
   const [erroGeral, setErroGeral] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
+  // O KPI já criado quando a meta foi recusada num campo, e o que faltou antes dela.
+  const [criadoAntes, setCriadoAntes] = useState<{ readonly kpi: DetalheDoKpi; readonly faltou: readonly string[] } | null>(null)
 
   const kpisPorId = useMemo(() => new Map(kpis.map((k) => [k.id, k])), [kpis])
   const daCampanha = item?.parametros.includes('campanhaId') === true
@@ -101,9 +126,18 @@ export function FormularioDeKpi({
   /** A unidade e a agregação do KPI que vai nascer — `null` quando só o servidor sabe (campanha). */
   const kpiDaMeta: KpiDaMeta | null =
     passo === 'manual'
-      ? { id: null, unidade, agregacao: 'posicao', responsavelId: responsavelId === '' ? null : responsavelId, atual: null }
+      ? { id: null, chave: null, unidade, agregacao: 'posicao', responsavelId: responsavelId === '' ? null : responsavelId, atual: null }
       : item !== null && item.unidade !== 'da_metrica'
-        ? { id: null, unidade: item.unidade, agregacao: item.agregacao, responsavelId: responsavelId === '' ? null : responsavelId, atual: null }
+        ? {
+            id: null,
+            // Com "Só pacientes desta origem", a prévia do catálogo (sem parâmetro) mediria outra
+            // coisa: aí vai só o ritmo, pela unidade.
+            chave: origem.trim() === '' ? item.chave : null,
+            unidade: item.unidade,
+            agregacao: item.agregacao,
+            responsavelId: responsavelId === '' ? null : responsavelId,
+            atual: null,
+          }
         : null
 
   const escolherDoCatalogo = (i: ItemDoCatalogo) => {
@@ -115,9 +149,11 @@ export function FormularioDeKpi({
 
   const salvar = useCallback(async () => {
     const e: Erros = {}
-    if (nome.trim() === '') e.nome = 'Escreva o nome do indicador.'
-    if (daCampanha && campanhaId === '') e.campanha = 'Escolha a campanha.'
-    const precisaAlvoNoOkr = okrIds.length > 0 && !daCampanha
+    if (criadoAntes === null) {
+      if (nome.trim() === '') e.nome = 'Escreva o nome do indicador.'
+      if (daCampanha && campanhaId === '') e.campanha = 'Escolha a campanha.'
+    }
+    const precisaAlvoNoOkr = criadoAntes === null && okrIds.length > 0 && !daCampanha
     const unidadeDoAlvo = kpiDaMeta?.unidade ?? null
     const alvoOkr = unidadeDoAlvo === null ? null : menorUnidadeDoTexto(unidadeDoAlvo, alvoNoOkr)
     if (precisaAlvoNoOkr && alvoOkr === null) e.okrAlvo = 'Escreva o alvo deste indicador no OKR.'
@@ -129,59 +165,85 @@ export function FormularioDeKpi({
     setSalvando(true)
     setErroGeral(null)
     let criado: DetalheDoKpi
-    try {
-      const corpo =
-        passo === 'manual'
-          ? {
-              origem: 'manual',
-              nome: nome.trim(),
-              pilar,
-              unidade,
-              direcao,
-              frequencia,
-              diaDeLancamento: dia,
-              comoMedir,
-              responsavelId: responsavelId === '' ? null : responsavelId,
-            }
-          : {
-              origem: 'catalogo',
-              chave: item?.chave,
-              frequencia,
-              responsavelId: responsavelId === '' ? null : responsavelId,
-              ...(daCampanha ? { parametros: { campanhaId } } : origem.trim() !== '' ? { parametros: { origem: origem.trim() } } : {}),
-            }
-      criado = await chamar<DetalheDoKpi>('v1/indicadores/kpis', { method: 'POST', body: JSON.stringify(corpo) })
-    } catch (x) {
-      setErroGeral(x instanceof ErroDaApi ? x.message : 'Não consegui criar o indicador. Confira a conexão.')
-      setSalvando(false)
-      return
-    }
+    const faltou: string[] = [...(criadoAntes?.faltou ?? [])]
+    if (criadoAntes !== null) criado = criadoAntes.kpi
+    else {
+      try {
+        const corpo =
+          passo === 'manual'
+            ? {
+                origem: 'manual',
+                nome: nome.trim(),
+                pilar,
+                unidade,
+                direcao,
+                frequencia,
+                diaDeLancamento: dia,
+                comoMedir,
+                responsavelId: responsavelId === '' ? null : responsavelId,
+              }
+            : {
+                origem: 'catalogo',
+                chave: item?.chave,
+                frequencia,
+                responsavelId: responsavelId === '' ? null : responsavelId,
+                ...(daCampanha ? { parametros: { campanhaId } } : origem.trim() !== '' ? { parametros: { origem: origem.trim() } } : {}),
+              }
+        criado = await chamar<DetalheDoKpi>('v1/indicadores/kpis', { method: 'POST', body: JSON.stringify(corpo) })
+      } catch (x) {
+        // A recusa de um campo vai embaixo dele (1.9 D); só a que não é de campo fica no rodapé.
+        const campo = x instanceof ErroDaApi && x.codigo !== undefined ? CAMPO_DO_CODIGO_DO_KPI[x.codigo] : undefined
+        if (campo !== undefined && x instanceof ErroDaApi) setErros({ [campo]: x.message })
+        else setErroGeral(x instanceof ErroDaApi ? x.message : 'Não consegui criar o indicador. Confira a conexão.')
+        setSalvando(false)
+        return
+      }
 
-    const faltou: string[] = []
-    if (passo === 'catalogo' && item !== null && nome.trim() !== item.nome) {
-      await chamar(`v1/indicadores/kpis/${criado.id}`, { method: 'PUT', body: JSON.stringify({ nome: nome.trim() }) }).catch(
-        (x: unknown) => faltou.push(`o nome (${x instanceof ErroDaApi ? x.message : 'sem conexão'})`),
-      )
+      if (passo === 'catalogo' && item !== null && nome.trim() !== item.nome) {
+        await chamar(`v1/indicadores/kpis/${criado.id}`, { method: 'PUT', body: JSON.stringify({ nome: nome.trim() }) }).catch(
+          (x: unknown) => faltou.push(`o nome (${x instanceof ErroDaApi ? x.message : 'sem conexão'})`),
+        )
+      }
+      for (const okrId of okrIds) {
+        const okr = okrs.find((o) => o.id === okrId)
+        if (okr === undefined) continue
+        const resultadosChave = [
+          ...okr.resultadosChave.map((kr) => ({ id: kr.id, kpiId: kr.kpi.id })),
+          { kpiId: criado.id, ...(alvoOkr === null || daCampanha ? {} : { alvo: alvoOkr.toString() }) },
+        ]
+        await chamar(`v1/indicadores/okrs/${okr.id}`, { method: 'PUT', body: JSON.stringify({ resultadosChave }) }).catch(
+          (x: unknown) => faltou.push(`a ligação ao OKR "${okr.objetivo}" (${x instanceof ErroDaApi ? x.message : 'sem conexão'})`),
+        )
+      }
     }
     if (comMeta) {
-      await chamar('v1/indicadores/metas', { method: 'POST', body: JSON.stringify(corpoDaMetaNova(criado, meta)) }).catch(
-        (x: unknown) => faltou.push(`a meta (${x instanceof ErroDaApi ? x.message : 'sem conexão'})`),
-      )
-    }
-    for (const okrId of okrIds) {
-      const okr = okrs.find((o) => o.id === okrId)
-      if (okr === undefined) continue
-      const resultadosChave = [
-        ...okr.resultadosChave.map((kr) => ({ id: kr.id, kpiId: kr.kpi.id })),
-        { kpiId: criado.id, ...(alvoOkr === null || daCampanha ? {} : { alvo: alvoOkr.toString() }) },
-      ]
-      await chamar(`v1/indicadores/okrs/${okr.id}`, { method: 'PUT', body: JSON.stringify({ resultadosChave }) }).catch(
-        (x: unknown) => faltou.push(`a ligação ao OKR "${okr.objetivo}" (${x instanceof ErroDaApi ? x.message : 'sem conexão'})`),
-      )
+      try {
+        await chamar('v1/indicadores/metas', { method: 'POST', body: JSON.stringify(corpoDaMetaNova(criado, meta)) })
+      } catch (x) {
+        const noCampo = x instanceof ErroDaApi ? erroDaMetaNoCampo(x.codigo, x.message, meta.tipo) : null
+        if (noCampo !== null) {
+          // O KPI fica; a meta volta para o campo dela, e salvar de novo manda só a meta.
+          setCriadoAntes({ kpi: criado, faltou })
+          setErrosDaMeta(noCampo)
+          setSalvando(false)
+          return
+        }
+        faltou.push(`a meta (${x instanceof ErroDaApi ? x.message : 'sem conexão'})`)
+      }
     }
     setSalvando(false)
     aoSalvo(faltou.length === 0 ? 'Indicador criado.' : `Indicador criado, mas faltou salvar ${faltou.join('; ')}.`, criado.id)
-  }, [nome, daCampanha, campanhaId, okrIds, kpiDaMeta, alvoNoOkr, comMeta, meta, passo, pilar, unidade, direcao, frequencia, dia, comoMedir, responsavelId, item, origem, okrs, aoSalvo])
+  }, [criadoAntes, nome, daCampanha, campanhaId, okrIds, kpiDaMeta, alvoNoOkr, comMeta, meta, passo, pilar, unidade, direcao, frequencia, dia, comoMedir, responsavelId, item, origem, okrs, aoSalvo])
+
+  // Com o KPI já criado, fechar não o desfaz: a tela recarrega e diz o que ficou.
+  const fechar =
+    criadoAntes === null
+      ? aoFechar
+      : () =>
+          aoSalvo(
+            `Indicador criado, sem a meta${criadoAntes.faltou.length === 0 ? '' : `; faltou também ${criadoAntes.faltou.join('; ')}`}.`,
+            criadoAntes.kpi.id,
+          )
 
   /* ------------------------------------------------------------ 1. a escolha */
   if (passo === 'escolha') {
@@ -261,7 +323,14 @@ export function FormularioDeKpi({
   const frequencias: readonly FrequenciaDeKpi[] = passo === 'manual' ? ['semanal', 'mensal'] : (item?.frequencias ?? [])
 
   return (
-    <PainelLateral titulo={titulo} aoFechar={aoFechar} aoSalvar={() => void salvar()} salvando={salvando}>
+    <PainelLateral titulo={titulo} aoFechar={fechar} aoSalvar={() => void salvar()} salvando={salvando}>
+      {criadoAntes === null ? null : (
+        <p className="nota" role="status" style={{ margin: 0 }}>
+          O indicador já foi criado. Corrija a meta e salve de novo, ou cancele para ficar sem ela.
+        </p>
+      )}
+      {/* Com o KPI já criado, só a meta se edita. `display: contents`: o grupo não muda o desenho. */}
+      <fieldset disabled={criadoAntes !== null} style={{ display: 'contents' }}>
       {passo === 'catalogo' ? (
         <button type="button" className="link" style={{ justifySelf: 'start', minHeight: 44 }} onClick={() => setItem(null)}>
           Voltar ao catálogo
@@ -357,6 +426,7 @@ export function FormularioDeKpi({
               </label>
             ))}
           </div>
+          <ErroDoCampo id={`${id}-frequencia`} mensagem={erros.frequencia} />
         </fieldset>
         {passo === 'manual' ? (
           <label className="campo">
@@ -375,6 +445,7 @@ export function FormularioDeKpi({
                   ))}
             </select>
             {frequencia === 'mensal' && dia > 28 ? <small>No mês curto, cai no último dia.</small> : null}
+            <ErroDoCampo id={`${id}-dia`} mensagem={erros.dia} />
           </label>
         ) : null}
       </div>
@@ -452,10 +523,12 @@ export function FormularioDeKpi({
         </fieldset>
       )}
 
+      </fieldset>
+
       {kpiDaMeta === null ? null : (
         <>
           <label className="ii-marcar">
-            <input type="checkbox" checked={comMeta} onChange={(e) => setComMeta(e.target.checked)} />
+            <input type="checkbox" checked={comMeta} disabled={criadoAntes !== null} onChange={(e) => setComMeta(e.target.checked)} />
             Definir meta agora
           </label>
           {comMeta ? (

@@ -14,6 +14,7 @@ import {
   situacaoDoCartao,
   textoDaMeta,
   textoDaVariacao,
+  textoDoAguardando,
   textoDoSelo,
   TOM_DA_SITUACAO,
   type Tom,
@@ -63,6 +64,7 @@ export function CartaoDoKpi({
   const deMeta = textoDaMeta(meta)
   const variacao = textoDaVariacao(kpi.variacao, kpi.direcao)
   const dica = dicaDoKpi(kpi.chave)
+  const aguardando = textoDoAguardando(kpi)
   const nome = (
     <a className="ii-kpi-nome" href={`/indicadores/${kpi.id}`}>
       {kpi.nome}
@@ -96,6 +98,7 @@ export function CartaoDoKpi({
         <strong className={numero.soPercentual ? 'ii-so-percentual' : undefined}>{numero.texto}</strong>
         {deMeta === null ? null : <span>{deMeta}</span>}
       </div>
+      {aguardando === null ? null : <span className="ii-kpi-aguardando">{aguardando}</span>}
       {avisoDeUnidade(kpi) === null ? null : <span className="ii-fonte">{avisoDeUnidade(kpi)}</span>}
 
       {meta === null ? null : (

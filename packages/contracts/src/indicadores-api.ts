@@ -317,9 +317,28 @@ export const EditarMetaDeKpi = z
   .strict()
 export type EditarMetaDeKpi = z.infer<typeof EditarMetaDeKpi>
 
+/**
+ * O KPI da prévia é UM de três (D.3 e a caixa "Definir meta agora" do D.1):
+ * `kpiId` do KPI que existe; `chave` do catálogo que ainda vai nascer (o
+ * atual é medido como a prévia da linha do catálogo); ou só a `unidade` do
+ * KPI manual que vai nascer — ele não tem valor ainda, e a prévia traz só o
+ * ritmo esperado.
+ */
 export const ConsultaDaPrevia = z
-  .object({ kpiId: Uuid, inicio: DiaDoKpi, prazo: DiaDoKpi, alvo: InteiroDoKpi, partida: InteiroDoKpi.optional() })
+  .object({
+    kpiId: Uuid.optional(),
+    chave: ChaveDoCatalogoSchema.optional(),
+    unidade: UnidadeDeKpiSchema.optional(),
+    inicio: DiaDoKpi,
+    prazo: DiaDoKpi,
+    alvo: InteiroDoKpi,
+    partida: InteiroDoKpi.optional(),
+  })
   .strict()
+  .refine((q) => [q.kpiId, q.chave, q.unidade].filter((x) => x !== undefined).length === 1, {
+    message: 'Informe o indicador da prévia: kpiId, chave ou unidade.',
+  })
+export type ConsultaDaPrevia = z.infer<typeof ConsultaDaPrevia>
 
 /** Prévia D.3 (I-23): números estruturados, SEM frase pronta (appsec C8). */
 export const PreviaDaMeta = z

@@ -1,6 +1,6 @@
 import type { DetalheDoKpi, MetaDeKpiNaSaida, SerieDoKpi } from '@fir/contracts'
 import { diasEntre, fimDoMes, formatarValorNaTela, somarMeses } from '@fir/domain'
-import { diaCompleto, diaEMes, nomeDoMes } from './na-tela'
+import { diaCompleto, diaEMes, nomeDoMes, textoDaMenorUnidade } from './na-tela'
 
 /**
  * **O detalhe do KPI (1.9 E) — o que a tela escreve e desenha.**
@@ -289,6 +289,22 @@ export function enderecoDoRelatorio(r: { chave: string; de: string; ate: string 
 export const rotuloDoRelatorio = (chave: string): string => (chave === 'recebimentos' ? 'Ver recebimentos' : 'Ver no relatório')
 
 /** O valor de um lançamento, na unidade do KPI; `—` quando a redação o apagou. */
+/**
+ * O lápis de uma linha da tabela de lançamentos (1.9 E): a janela D.4 abre
+ * com a referência, o valor e o comentário DAQUELA linha — relançar a mesma
+ * referência corrige (I-31). O valor vem como texto de campo, na unidade do
+ * KPI; se a redação o apagou (reais sem `valores`), o campo fica vazio.
+ */
+export type CorrecaoDoLancamento = { readonly referencia: string; readonly valor: string; readonly comentario: string }
+
+export function correcaoDoLancamento(
+  unidade: Ponto['numero']['unidade'],
+  l: { readonly referencia: string; readonly comentario: string; readonly lancado: { readonly emDinheiro: string | null; readonly emNumero: string | null } },
+): CorrecaoDoLancamento {
+  const t = unidade === 'reais' ? l.lancado.emDinheiro : l.lancado.emNumero
+  return { referencia: l.referencia, valor: t === null ? '' : textoDaMenorUnidade(unidade, BigInt(t)), comentario: l.comentario }
+}
+
 export function valorDoLancamento(
   unidade: Ponto['numero']['unidade'],
   v: { readonly emDinheiro: string | null; readonly emNumero: string | null },

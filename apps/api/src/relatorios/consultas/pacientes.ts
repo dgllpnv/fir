@@ -12,6 +12,7 @@ import {
   type ResumoPacientesQueIndicaram,
   ROTULO_DA_SITUACAO_DO_PROGRAMA,
   SITUACOES_DO_PROGRAMA_NO_FILTRO,
+  TIPOS_DE_ATENDIMENTO_DO_FILTRO,
 } from '@fir/contracts'
 import {
   diaEMesDoAniversario,
@@ -75,6 +76,10 @@ export async function pacientesSemAtendimento(
   const todas = base
     .map((p) => ({ ...p, ultimoAtendimento: doTipo === null ? p.ultimoAtendimento : (doTipo.get(p.pacienteId) ?? null) }))
     .filter((p): p is typeof p & { ultimoAtendimento: string } => p.ultimoAtendimento !== null && p.ultimoAtendimento < corte)
+  // O TIPO do último atendimento: com o filtro, o do filtro; sem ele, o do
+  // último atendimento registrado, se for ele o movimento — quando a régua é a
+  // "última consulta" do cadastro (mais recente, ou sozinha), não há tipo.
+  const ultimo = f.tipo === undefined ? await ultimoTipoDeAtendimento(c, ctx) : null
   if (doTipo !== null) {
     todas.sort((a, b) =>
       a.ultimoAtendimento !== b.ultimoAtendimento
@@ -86,18 +91,41 @@ export async function pacientesSemAtendimento(
   }
   const { linhas, truncado } = cortar(todas, ctx.limite)
   return {
-    linhas: linhas.map((p) => ({
-      pacienteId: p.pacienteId,
-      nome: p.nome,
-      ultimoAtendimento: p.ultimoAtendimento,
-      ...telefoneSe(ctx, p.telefone),
-    })),
+    linhas: linhas.map((p) => {
+      const u = ultimo?.get(p.pacienteId)
+      return {
+        pacienteId: p.pacienteId,
+        nome: p.nome,
+        ultimoAtendimento: p.ultimoAtendimento,
+        tipo: f.tipo ?? (u !== undefined && u.dia === p.ultimoAtendimento ? u.tipo : null),
+        ltv: p.ltv.toString(),
+        tarefaAberta: p.tarefasAbertas > 0 ? ('sim' as const) : ('nao' as const),
+        ...telefoneSe(ctx, p.telefone),
+      }
+    }),
     resumo: { pacientes: todas.length },
     truncado,
     filtrosEmTexto,
     pacienteIds: linhas.map((p) => p.pacienteId),
     optIn: optInDe(ctx),
   }
+}
+
+/**
+ * O tipo e o dia do último atendimento CONCLUÍDO de cada paciente — os tipos
+ * que `atende`, o mesmo conjunto do "último atendimento" da lista. No empate do
+ * instante, o maior id, para a resposta não depender da ordem do disco.
+ */
+async function ultimoTipoDeAtendimento(c: pg.PoolClient, ctx: ContextoDaConsulta): Promise<Map<string, { tipo: string; dia: string }>> {
+  const r = await c.query<{ id: string; tipo: string; dia: string }>(
+    `SELECT DISTINCT ON (t.paciente_id) t.paciente_id::text AS id, t.tipo, ((t.concluida_em AT TIME ZONE $2)::date)::text AS dia
+       FROM tarefas t
+      WHERE t.clinica_id = $1 AND t.status = 'concluida' AND t.excluida_em IS NULL
+        AND t.paciente_id IS NOT NULL AND t.tipo = ANY($3::text[])
+      ORDER BY t.paciente_id, t.concluida_em DESC, t.id DESC`,
+    [ctx.clinicaId, ctx.fuso, [...TIPOS_DE_ATENDIMENTO_DO_FILTRO]],
+  )
+  return new Map(r.rows.map((l) => [l.id, { tipo: l.tipo, dia: l.dia }]))
 }
 
 /** O último atendimento CONCLUÍDO de cada paciente, de um tipo, no dia civil da clínica. */
@@ -125,7 +153,7 @@ export async function pacientesMaiorLtv(
   // Com período, as MESMAS compras da ficha dentro de `[de, ate]`; sem, o LTV da ficha.
   const fonte =
     f.de !== undefined && f.ate !== undefined
-      ? await comprasDoPeriodo(c, ctx.clinicaId, janela(f.de, f.ate, ctx.fuso))
+      ? await comprasDoPeriodo(c, ctx.clinicaId, janela(f.de, f.ate, ctx.fuso), ctx.fuso)
       : await comprasDosPacientes(c, ctx.clinicaId, ctx.fuso, null)
   const todas = fonte.filter((p) => recorte === null || recorte.has(p.pacienteId)).sort((a, b) =>
     a.ltv === b.ltv ? (a.nome === b.nome ? (a.pacienteId < b.pacienteId ? -1 : 1) : a.nome.localeCompare(b.nome, 'pt-BR')) : a.ltv > b.ltv ? -1 : 1,
@@ -133,13 +161,16 @@ export async function pacientesMaiorLtv(
   const topo = todas.slice(0, f.quantos)
   const { linhas, truncado } = cortar(topo, ctx.limite)
   return {
-    linhas: linhas.map((p) => ({
+    // A posição é a da ordem acima (LTV, depois nome): o ranking que o servidor decidiu.
+    linhas: linhas.map((p, i) => ({
       pacienteId: p.pacienteId,
+      posicao: i + 1,
       nome: p.nome,
       ltv: p.ltv.toString(),
+      compras: p.compras,
       // `comprasDosPacientes` só devolve quem tem ao menos uma compra.
       ticketMedio: Dinheiro.deCentavos(p.ltv).media(p.compras).centavos.toString(),
-      compras: p.compras,
+      ultimaCompra: p.ultimaCompra,
       ...telefoneSe(ctx, p.telefone),
     })),
     resumo: { pacientes: topo.length },
@@ -222,6 +253,7 @@ type ItemDoPrograma = {
   procedimento: string
   valor: string | null
   encerrado: boolean
+  inicio: string
 }
 
 type Situacao = (typeof SITUACOES_DO_PROGRAMA_NO_FILTRO)[number]
@@ -266,7 +298,7 @@ export async function pacientesPorProcedimento(
   const itens = await c.query<ItemDoPrograma>(
     `SELECT p.id AS programa_id, p.paciente_id, pa.nome, pa.telefone, i.chave,
             i.procedimento_id, i.procedimento_nome AS procedimento, i.valor::text AS valor,
-            (p.situacao = 'encerrado') AS encerrado
+            (p.situacao = 'encerrado') AS encerrado, p.inicio::text AS inicio
        FROM programas p
        JOIN pacientes pa ON pa.id = p.paciente_id AND pa.clinica_id = p.clinica_id
        JOIN itens_do_programa i ON i.programa_id = p.id AND i.clinica_id = p.clinica_id
@@ -310,6 +342,7 @@ export async function pacientesPorProcedimento(
         procedimentoId: i.procedimento_id,
         nome: i.nome,
         procedimento: i.procedimento,
+        inicio: i.inicio,
         sessoesFeitas: feitas.length,
         sessoesRestantes: validas.length - feitas.length,
         valor: i.valor,

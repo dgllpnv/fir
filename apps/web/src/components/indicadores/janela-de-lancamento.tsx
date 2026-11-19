@@ -11,6 +11,7 @@ import { Modal } from '@/components/modal'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { useDados } from '@/lib/dados'
 import { ErroDoCampo } from './painel-lateral'
+import type { CorrecaoDoLancamento } from './detalhe-na-tela'
 import { type AlvoDoLancamento, EXEMPLO_DA_UNIDADE, menorUnidadeDoTexto, recadoDoLancamento, ROTULO_DA_UNIDADE } from './na-tela'
 
 /**
@@ -29,19 +30,23 @@ import { type AlvoDoLancamento, EXEMPLO_DA_UNIDADE, menorUnidadeDoTexto, recadoD
  */
 export function JanelaDeLancamento({
   alvo,
+  correcao = null,
   aoFechar,
   aoSalvo,
 }: {
   alvo: AlvoDoLancamento
+  /** O lápis da tabela de lançamentos: a referência, o valor e o comentário daquela linha. */
+  correcao?: CorrecaoDoLancamento | null
   aoFechar: () => void
   aoSalvo: (recado: string) => void
 }) {
   const id = useId()
   const detalhe = useDados<DetalheDoKpi>(alvo.comoMedir === null ? `v1/indicadores/kpis/${alvo.kpiId}` : null)
   const semanal = alvo.semanal
-  const [referencia, setReferencia] = useState(semanal === false ? alvo.referencia.slice(0, 7) : alvo.referencia)
-  const [valor, setValor] = useState('')
-  const [comentario, setComentario] = useState('')
+  const referenciaInicial = correcao?.referencia ?? alvo.referencia
+  const [referencia, setReferencia] = useState(semanal === false ? referenciaInicial.slice(0, 7) : referenciaInicial)
+  const [valor, setValor] = useState(correcao?.valor ?? '')
+  const [comentario, setComentario] = useState(correcao?.comentario ?? '')
   const [erroDoValor, setErroDoValor] = useState<string | null>(null)
   const [erroDaReferencia, setErroDaReferencia] = useState<string | null>(null)
   const [erroGeral, setErroGeral] = useState<string | null>(null)
@@ -78,7 +83,7 @@ export function JanelaDeLancamento({
   const comoMedir = alvo.comoMedir ?? detalhe.dados?.comoMedir ?? ''
 
   return (
-    <Modal titulo={`Lançar: ${alvo.nome}`} aoFechar={aoFechar}>
+    <Modal titulo={`${correcao === null ? 'Lançar' : 'Corrigir'}: ${alvo.nome}`} aoFechar={aoFechar}>
       <form onSubmit={(e) => void salvar(e)} noValidate style={{ display: 'grid', gap: 12 }}>
         {comoMedir === '' ? null : <p className="nota">{comoMedir}</p>}
 

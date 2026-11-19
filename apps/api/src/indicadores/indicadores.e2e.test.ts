@@ -201,6 +201,37 @@ describe('permissão e redação (appsec C3, C5, C7)', () => {
     expect(m.statusCode).toBe(403)
     const p = await pegar(c, '/v1/indicadores/metas/previa', { kpiId: id, inicio: '2026-11-01', prazo: '2026-11-30', alvo: '100000' }, 'juliana')
     expect(p.statusCode).toBe(403)
+    // O KPI que ainda vai nascer (D.1) passa pela MESMA porta.
+    const porChave = await pegar(c, '/v1/indicadores/metas/previa', { chave: 'faturamento_conferido', inicio: '2026-11-01', prazo: '2026-11-30', alvo: '100000' }, 'juliana')
+    expect(porChave.statusCode).toBe(403)
+    const porUnidade = await pegar(c, '/v1/indicadores/metas/previa', { unidade: 'reais', inicio: '2026-11-01', prazo: '2026-11-30', alvo: '100000' }, 'juliana')
+    expect(porUnidade.statusCode).toBe(403)
+  })
+
+  it('previa-do-kpi-que-vai-nascer (D.1): pela chave, o ritmo e o atual, iguais aos do KPI criado; pela unidade, só o ritmo', async () => {
+    await recebimentoEm('2026-10-05T12:00:00Z', '300000')
+    const q = { inicio: '2026-10-01', prazo: '2026-10-31', alvo: '1000000' }
+    const porChave = await pegar(c, '/v1/indicadores/metas/previa', { ...q, chave: 'faturamento_conferido' }, 'beatriz')
+    expect(porChave.statusCode).toBe(200)
+    expect(porChave.body.ritmoPorDiaUtil.emDinheiro).not.toBeNull()
+    expect(porChave.body.atualPorDiaUtil.emDinheiro).not.toBeNull()
+    const id = await kpiNoBanco('faturamento_conferido')
+    const porId = await pegar(c, '/v1/indicadores/metas/previa', { ...q, kpiId: id }, 'beatriz')
+    expect(porChave.body).toEqual(porId.body)
+
+    const manual = await pegar(c, '/v1/indicadores/metas/previa', { ...q, unidade: 'quantidade', alvo: '3000' }, 'beatriz')
+    expect(manual.statusCode).toBe(200)
+    expect(manual.body.ritmoPorDiaUtil.emNumero).not.toBeNull()
+    expect(manual.body.atualPorDiaUtil.emNumero).toBeNull()
+
+    // A recusa da meta traz o código do domínio: é o que a tela casa para pôr o erro embaixo do campo.
+    const zero = await postar(c, '/v1/indicadores/metas', { kpiId: id, tipo: 'mes', inicio: '2026-11-01', prazo: '2026-11-30', alvo: '0' }, 'beatriz')
+    expect(zero.statusCode).toBe(422)
+    expect(zero.body).toMatchObject({ codigo: 'AlvoPiorQueAPartida', message: 'O alvo precisa ser maior que zero.' })
+
+    // Nenhum, ou mais de um: 400.
+    expect((await pegar(c, '/v1/indicadores/metas/previa', q, 'beatriz')).statusCode).toBe(400)
+    expect((await pegar(c, '/v1/indicadores/metas/previa', { ...q, kpiId: id, chave: 'faturamento_conferido' }, 'beatriz')).statusCode).toBe(400)
   })
 
   it('kpi-rh-some-sem-pessoas-gerir e razao-monetaria-some-sem-valores: o KPI não existe na resposta', async () => {

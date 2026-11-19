@@ -4,7 +4,7 @@ import type { KpiNaLista, OkrNaSaida, SerieDoKpi } from '@fir/contracts'
 import { larguraDaBarra } from '@/lib/financeiro'
 import { CartaoDoKpi, Selo } from './cartao-do-kpi'
 import { ICONE_TRES_PONTOS, MenuSuspenso } from './menu-suspenso'
-import { diaCompleto, numeroDoCartao, ROTULO_DA_SITUACAO, TOM_DA_SITUACAO } from './na-tela'
+import { diaCompleto, diaEMes, numeroDoCartao, ROTULO_DA_SITUACAO, TOM_DA_SITUACAO } from './na-tela'
 
 /**
  * **O cartão do OKR** (1.9 C, faixa 1).
@@ -13,6 +13,9 @@ import { diaCompleto, numeroDoCartao, ROTULO_DA_SITUACAO, TOM_DA_SITUACAO } from
  * "Responsável · até", os KPIs ligados (um por linha, dois no computador) e o
  * rodapé com "Editar OKR" e os três pontos. O progresso e a situação vêm do
  * servidor — média dos progressos EXIBIDOS, pior situação (números c.12).
+ *
+ * O KR com prazo próprio (backlog 1.9 D.2) diz "até 15/02" acima do cartão
+ * dele; o que vai até o fim do OKR não repete a data do cabeçalho.
  */
 export function CartaoDoOkr({
   okr,
@@ -71,6 +74,10 @@ export function CartaoDoOkr({
         <div className="ii-okr-krs">
           {okr.resultadosChave.map((kr) => {
             const k = kpis.get(kr.kpi.id)
+            const prazoProprio =
+              kr.metaDoKr.prazo === okr.periodo.fim ? null : (
+                <small className="ii-okr-meta">até {diaEMes(kr.metaDoKr.prazo)}</small>
+              )
             if (k === undefined) {
               // O KPI saiu da lista pelo filtro de pilar ou responsável: o KR
               // continua no OKR, com o número da meta dele.
@@ -84,10 +91,11 @@ export function CartaoDoOkr({
                   <div className="ii-kpi-valor">
                     <strong className={n.soPercentual ? 'ii-so-percentual' : undefined}>{n.texto}</strong>
                   </div>
+                  {prazoProprio}
                 </div>
               )
             }
-            return (
+            const cartao = (
               <CartaoDoKpi
                 key={kr.id}
                 kpi={k}
@@ -98,6 +106,13 @@ export function CartaoDoOkr({
                 fuso={fuso}
                 aoLancarAgora={lancarDoKpi(k)}
               />
+            )
+            if (prazoProprio === null) return cartao
+            return (
+              <div key={kr.id} style={{ display: 'grid', gap: 4, minWidth: 0 }}>
+                {prazoProprio}
+                {cartao}
+              </div>
             )
           })}
         </div>

@@ -230,6 +230,20 @@ describe('exportacao-redacao-mutacao (appsec C16): cada camada, SOZINHA, apaga o
     expect(JSON.stringify(r)).toContain('987654')
   })
 
+  it('as somas da faixa de resumo: o motor sem `valores` não as monta; o interceptor sozinho apaga o valor', () => {
+    const duas: SaidaDaConsulta<unknown, unknown> = {
+      ...saida,
+      linhas: [...saida.linhas, { ...(saida.linhas[0] as object), pacienteId: '00000000-0000-4000-8000-000000000002', ltv: '12346' }],
+    }
+    const com = montar('pacientes-sem-compra', 'pessoal', { semCompraHaMeses: 3 }, duas, comValores)
+    // 987.654 + 12.346 = 1.000.000, pelo value object.
+    expect(com.somas).toEqual([{ coluna: 'ltv', rotulo: 'LTV somado', valor: '1000000' }])
+    const sem = montar('pacientes-sem-compra', 'pessoal', { semCompraHaMeses: 3 }, duas, semValores)
+    expect(sem.somas).toEqual([])
+    expect(JSON.stringify(sem)).not.toContain('1000000')
+    expect(JSON.stringify(redigir(com, semValores))).not.toContain('1000000')
+  })
+
   // T9: a mesma prova num relatório novo, com dinheiro na linha E no resumo.
   const do9: SaidaDaConsulta<unknown, unknown> = {
     linhas: [

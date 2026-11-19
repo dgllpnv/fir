@@ -136,11 +136,25 @@ const TipoDoCatalogo = z.enum(nomesDeTipo(TIPOS))
 const NOMES_DE_CATEGORIA = CATEGORIAS_DESP.map((c) => c.nome) as [NomeDeCategoria, ...NomeDeCategoria[]]
 
 /**
- * Relatório 11. O motivo é o TIPO da saída — "uso em paciente" é `consumo`.
- * O ajuste não é saída (é a coluna assinada da Análise, números B8): filtrá-lo
- * aqui mudaria o que o relatório é. O texto livre do motivo nunca é filtro.
+ * Relatório 11. O motivo é o TIPO do movimento — "uso em paciente" é `consumo`.
+ * O texto livre do motivo nunca é filtro.
+ *
+ * `ajuste` (backlog 1.8) entra SÓ quando pedido: ele não é saída na Análise (é
+ * a coluna assinada `ajustesEmEstoque`, números B8), então sem o filtro o
+ * relatório continua sendo as saídas, e no modo análise Σ = `saidasEmEstoque`.
+ * Com `motivo: 'ajuste'`, as linhas são os ajustes dos DOIS sentidos, com a
+ * quantidade no sinal do relatório (positiva = tirou do estoque), e no modo
+ * análise Σ = −`ajustesEmEstoque`.
  */
-export const MOTIVOS_DE_SAIDA = ['consumo', 'descarte', 'interno'] as const
+export const MOTIVOS_DE_SAIDA = ['consumo', 'descarte', 'interno', 'ajuste'] as const
+
+/**
+ * Relatório 13: a situação do ORÇAMENTO (backlog 1.8), dos eventos do cartão —
+ * `fechar` vivo é fechado, `perder` vivo é perdido, e o orçamento registrado
+ * sem um dos dois é enviado. O pagamento de orçamento sem cartão é fechado.
+ */
+export const SITUACOES_DO_ORCAMENTO_NO_RELATORIO = ['enviado', 'fechado', 'perdido'] as const
+export type SituacaoDoOrcamentoNoRelatorio = (typeof SITUACOES_DO_ORCAMENTO_NO_RELATORIO)[number]
 
 /** Relatório 5: a situação do programa, a de `situacaoDoPrograma` (encerrado > concluído > o resto). */
 export const SITUACOES_DO_PROGRAMA_NO_FILTRO = ['ativo', 'concluido', 'encerrado'] as const
@@ -368,15 +382,25 @@ export const FiltrosEntradasDeEstoque = z
 
 /**
  * Relatório 13. Os orçamentos REGISTRADOS em `[de, ate]` (evento vivo
- * `registrarOrcamento`). `etapa` é a situação do cartão (a coluna "Etapa");
- * `motivoDePerdaId`, o motivo do último `perder` vivo — só cartão perdido.
+ * `registrarOrcamento`). `situacao` é a do orçamento (enviado, fechado,
+ * perdido — a coluna "Situação"); `motivoDePerdaId`, o motivo do último
+ * `perder` vivo — só cartão perdido.
+ *
+ * `etapa` (a etapa da jornada) é o filtro de antes, mantido para os favoritos
+ * gravados (I-41); a tela não o oferece mais. Os dois juntos é 422.
  */
 export const FiltrosOrcamentos = CamposDoPeriodo.extend({
+  situacao: z.enum(SITUACOES_DO_ORCAMENTO_NO_RELATORIO).optional(),
   etapa: z.enum(ETAPAS).optional(),
   motivoDePerdaId: Uuid.optional(),
 })
   .strict()
-  .superRefine(comPeriodo)
+  .superRefine((f, ctx) => {
+    if (f.situacao !== undefined && f.etapa !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['etapa'], message: 'Use só a situação do orçamento.' })
+    }
+    comPeriodo(f, ctx)
+  })
 
 /** Relatório 14. As faltas e desmarcações com dia em `[de, ate]`. `recontatada`: sim = houve recontato (no prazo ou depois). */
 export const FiltrosFaltasEDesmarcacoes = CamposDoPeriodo.extend({ recontatada: z.enum(['sim', 'nao']).optional() })
@@ -392,6 +416,12 @@ export const ROTULO_DO_MOTIVO_DE_SAIDA: Readonly<Record<(typeof MOTIVOS_DE_SAIDA
   consumo: 'Uso em paciente',
   descarte: 'Descarte',
   interno: 'Uso interno',
+  ajuste: 'Ajuste',
+}
+export const ROTULO_DA_SITUACAO_DO_ORCAMENTO_NO_RELATORIO: Readonly<Record<SituacaoDoOrcamentoNoRelatorio, string>> = {
+  enviado: 'Enviado',
+  fechado: 'Fechado',
+  perdido: 'Perdido',
 }
 export const ROTULO_DA_SITUACAO_DO_PROGRAMA: Readonly<Record<(typeof SITUACOES_DO_PROGRAMA_NO_FILTRO)[number], string>> = {
   ativo: 'Ativo',
@@ -440,6 +470,13 @@ export type ColunaDoCatalogo = {
   readonly optIn?: 'telefone' | 'paciente'
   /** Só sai quando o filtro está presente (I-38: "procedimento só se filtrado"). */
   readonly seFiltradoPor?: string
+  /**
+   * Coluna `dinheiro` que a faixa de resumo e o arquivo SOMAM, com o rótulo da
+   * soma ("LTV somado"). A soma é do servidor (`somasDasColunas`, pelo value
+   * object), e só existe quando a coluna sai — sem `valores`, não há soma.
+   * O orçado (13) não tem: orçamento não é receita (regra 4).
+   */
+  readonly soma?: string
 }
 
 export type DefinicaoDeRelatorio = {
@@ -470,7 +507,7 @@ export const CATALOGO_DE_RELATORIOS = {
       { chave: 'ultimaCompra', rotulo: 'Última compra', tipo: 'data' },
       { chave: 'procedimento', rotulo: 'Procedimento', tipo: 'texto', seFiltradoPor: 'procedimentoId' },
       { chave: 'valorDaUltimaCompra', rotulo: 'Valor da última compra', tipo: 'dinheiro' },
-      { chave: 'ltv', rotulo: 'LTV', tipo: 'dinheiro' },
+      { chave: 'ltv', rotulo: 'LTV', tipo: 'dinheiro', soma: 'LTV somado' },
       { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
     ],
   },
@@ -483,6 +520,9 @@ export const CATALOGO_DE_RELATORIOS = {
     colunas: [
       { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
       { chave: 'ultimoAtendimento', rotulo: 'Último atendimento', tipo: 'data' },
+      { chave: 'tipo', rotulo: 'Tipo do atendimento', tipo: 'texto' },
+      { chave: 'ltv', rotulo: 'LTV', tipo: 'dinheiro', soma: 'LTV somado' },
+      { chave: 'tarefaAberta', rotulo: 'Tem tarefa aberta?', tipo: 'situacao' },
       { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
     ],
   },
@@ -494,10 +534,12 @@ export const CATALOGO_DE_RELATORIOS = {
     classe: 'pessoal',
     listaDePacientes: true,
     colunas: [
+      { chave: 'posicao', rotulo: 'Posição', tipo: 'numero' },
       { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
-      { chave: 'ltv', rotulo: 'LTV', tipo: 'dinheiro' },
-      { chave: 'ticketMedio', rotulo: 'Ticket médio', tipo: 'dinheiro' },
+      { chave: 'ltv', rotulo: 'LTV', tipo: 'dinheiro', soma: 'LTV somado' },
       { chave: 'compras', rotulo: 'Compras', tipo: 'numero' },
+      { chave: 'ticketMedio', rotulo: 'Ticket médio', tipo: 'dinheiro' },
+      { chave: 'ultimaCompra', rotulo: 'Última compra', tipo: 'data' },
       { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
     ],
   },
@@ -511,7 +553,7 @@ export const CATALOGO_DE_RELATORIOS = {
       { chave: 'indicadora', rotulo: 'Indicadora', tipo: 'texto' },
       { chave: 'indicadas', rotulo: 'Indicadas', tipo: 'numero' },
       { chave: 'viraramPacientes', rotulo: 'Viraram pacientes', tipo: 'numero' },
-      { chave: 'receitaDasIndicadas', rotulo: 'Receita das indicadas', tipo: 'dinheiro' },
+      { chave: 'receitaDasIndicadas', rotulo: 'Receita das indicadas', tipo: 'dinheiro', soma: 'Receita das indicadas somada' },
       { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
     ],
   },
@@ -525,9 +567,10 @@ export const CATALOGO_DE_RELATORIOS = {
     colunas: [
       { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
       { chave: 'procedimento', rotulo: 'Procedimento', tipo: 'texto' },
+      { chave: 'inicio', rotulo: 'Início', tipo: 'data' },
       { chave: 'sessoesFeitas', rotulo: 'Sessões feitas', tipo: 'numero' },
       { chave: 'sessoesRestantes', rotulo: 'Sessões restantes', tipo: 'numero' },
-      { chave: 'valor', rotulo: 'Valor', tipo: 'dinheiro' },
+      { chave: 'valor', rotulo: 'Valor', tipo: 'dinheiro', soma: 'Valor somado' },
       { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
     ],
   },
@@ -542,7 +585,7 @@ export const CATALOGO_DE_RELATORIOS = {
       { chave: 'origem', rotulo: 'Origem', tipo: 'texto' },
       { chave: 'campanha', rotulo: 'Campanha', tipo: 'texto' },
       { chave: 'convertido', rotulo: 'Convertido?', tipo: 'situacao' },
-      { chave: 'receita', rotulo: 'Receita', tipo: 'dinheiro' },
+      { chave: 'receita', rotulo: 'Receita', tipo: 'dinheiro', soma: 'Receita somada' },
       { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
     ],
   },
@@ -570,7 +613,7 @@ export const CATALOGO_DE_RELATORIOS = {
       { chave: 'data', rotulo: 'Data', tipo: 'data' },
       { chave: 'tipo', rotulo: 'Tipo', tipo: 'texto' },
       { chave: 'forma', rotulo: 'Forma', tipo: 'texto' },
-      { chave: 'valor', rotulo: 'Valor', tipo: 'dinheiro' },
+      { chave: 'valor', rotulo: 'Valor', tipo: 'dinheiro', soma: 'Total' },
       { chave: 'paciente', rotulo: 'Paciente', tipo: 'texto' },
       { chave: 'registradoPor', rotulo: 'Quem registrou', tipo: 'texto' },
     ],
@@ -584,7 +627,7 @@ export const CATALOGO_DE_RELATORIOS = {
     colunas: [
       { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
       { chave: 'adesao', rotulo: 'Adesão', tipo: 'texto' },
-      { chave: 'valorAberto', rotulo: 'Valor em aberto', tipo: 'dinheiro' },
+      { chave: 'valorAberto', rotulo: 'Valor em aberto', tipo: 'dinheiro', soma: 'A receber' },
       { chave: 'desde', rotulo: 'Em aberto desde', tipo: 'data' },
       { chave: 'telefone', rotulo: 'Telefone', tipo: 'texto', optIn: 'telefone' },
     ],
@@ -599,9 +642,9 @@ export const CATALOGO_DE_RELATORIOS = {
       { chave: 'vencimento', rotulo: 'Vencimento', tipo: 'data' },
       { chave: 'descricao', rotulo: 'Descrição', tipo: 'texto' },
       { chave: 'categoria', rotulo: 'Categoria', tipo: 'texto' },
-      { chave: 'valor', rotulo: 'Valor', tipo: 'dinheiro' },
+      { chave: 'valor', rotulo: 'Valor', tipo: 'dinheiro', soma: 'Valor somado' },
       { chave: 'pagoEm', rotulo: 'Pago em', tipo: 'data' },
-      { chave: 'valorPago', rotulo: 'Valor pago', tipo: 'dinheiro' },
+      { chave: 'valorPago', rotulo: 'Valor pago', tipo: 'dinheiro', soma: 'Valor pago somado' },
       { chave: 'forma', rotulo: 'Forma', tipo: 'texto' },
     ],
   },
@@ -619,7 +662,7 @@ export const CATALOGO_DE_RELATORIOS = {
       { chave: 'unidade', rotulo: 'Unidade', tipo: 'texto' },
       { chave: 'motivo', rotulo: 'Motivo', tipo: 'texto' },
       { chave: 'registradoPor', rotulo: 'Quem registrou', tipo: 'texto' },
-      { chave: 'custo', rotulo: 'Custo', tipo: 'dinheiro' },
+      { chave: 'custo', rotulo: 'Custo', tipo: 'dinheiro', soma: 'Custo somado' },
       { chave: 'paciente', rotulo: 'Paciente', tipo: 'texto', optIn: 'paciente' },
     ],
   },
@@ -635,7 +678,7 @@ export const CATALOGO_DE_RELATORIOS = {
       { chave: 'quantidadeEmEstoque', rotulo: 'Quantidade', tipo: 'quantidade' },
       { chave: 'unidade', rotulo: 'Unidade', tipo: 'texto' },
       { chave: 'lote', rotulo: 'Lote (validade)', tipo: 'data' },
-      { chave: 'custo', rotulo: 'Custo', tipo: 'dinheiro' },
+      { chave: 'custo', rotulo: 'Custo', tipo: 'dinheiro', soma: 'Custo somado' },
     ],
   },
   orcamentos: {
@@ -647,10 +690,10 @@ export const CATALOGO_DE_RELATORIOS = {
     colunas: [
       { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
       { chave: 'data', rotulo: 'Orçado em', tipo: 'data' },
-      { chave: 'etapa', rotulo: 'Etapa', tipo: 'situacao' },
+      { chave: 'situacao', rotulo: 'Situação', tipo: 'situacao' },
       { chave: 'motivo', rotulo: 'Motivo da perda', tipo: 'texto' },
       { chave: 'valorOrcamento', rotulo: 'Valor orçado', tipo: 'dinheiro' },
-      { chave: 'valorFechado', rotulo: 'Valor fechado', tipo: 'dinheiro' },
+      { chave: 'valorFechado', rotulo: 'Valor fechado', tipo: 'dinheiro', soma: 'Valor fechado somado' },
     ],
   },
   'faltas-e-desmarcacoes': {
@@ -780,19 +823,40 @@ export const LinhaTarefaDaEquipe = z
 
 /* ---- linhas do T9 (as colunas padrão da I-38, LGPD L-IN-6) ----------- */
 
-/** Relatório 2: nome e o último atendimento; telefone opt-in. Nunca aniversário nem observação. */
+/**
+ * Relatório 2: nome, o último atendimento e o TIPO dele (`null` quando o
+ * movimento é a "última consulta" do cadastro, que não tem tipo), o LTV da
+ * ficha (com `valores`) e "tem tarefa aberta?" (tarefa viva com a paciente e
+ * `status = 'aberta'`, a contagem da lista de pacientes); telefone opt-in.
+ * Nunca aniversário nem observação.
+ */
 export const LinhaPacientesSemAtendimento = z
-  .object({ pacienteId: Uuid, nome: z.string(), ultimoAtendimento: Dia, telefone: z.string().optional() })
-  .strict()
-
-/** Relatório 3: o ranking por LTV. `ticketMedio` = LTV ÷ compras, por `Dinheiro.media`. Nunca procedimento. */
-export const LinhaPacientesMaiorLtv = z
   .object({
     pacienteId: Uuid,
     nome: z.string(),
+    ultimoAtendimento: Dia,
+    tipo: z.string().nullable(),
     ltv: centavosNaSaida,
-    ticketMedio: centavosNaSaida,
+    tarefaAberta: z.enum(['sim', 'nao']),
+    telefone: z.string().optional(),
+  })
+  .strict()
+
+/**
+ * Relatório 3: o ranking por LTV. `posicao` = 1..N na ordem do servidor (LTV,
+ * depois nome); `ticketMedio` = LTV ÷ compras, por `Dinheiro.media`;
+ * `ultimaCompra` = o dia da compra mais recente do mesmo conjunto (com período,
+ * a do período). Nunca procedimento.
+ */
+export const LinhaPacientesMaiorLtv = z
+  .object({
+    pacienteId: Uuid,
+    posicao: z.number().int().positive(),
+    nome: z.string(),
+    ltv: centavosNaSaida,
     compras: z.number().int(),
+    ticketMedio: centavosNaSaida,
+    ultimaCompra: Dia,
     telefone: z.string().optional(),
   })
   .strict()
@@ -813,7 +877,7 @@ export const LinhaPacientesQueIndicaram = z
   })
   .strict()
 
-/** Relatório 5: um item de programa por linha. Nunca dose nem lote. */
+/** Relatório 5: um item de programa por linha; `inicio` é o do programa (a adesão). Nunca dose nem lote. */
 export const LinhaPacientesPorProcedimento = z
   .object({
     pacienteId: Uuid,
@@ -821,6 +885,7 @@ export const LinhaPacientesPorProcedimento = z
     procedimentoId: Uuid,
     nome: z.string(),
     procedimento: z.string(),
+    inicio: Dia,
     sessoesFeitas: z.number().int(),
     sessoesRestantes: z.number().int(),
     valor: centavosNaSaida,
@@ -916,7 +981,7 @@ export const LinhaOrcamento = z
     pacienteId: Uuid.nullable(),
     nome: z.string().nullable(),
     data: Dia,
-    etapa: z.string(),
+    situacao: z.enum(SITUACOES_DO_ORCAMENTO_NO_RELATORIO),
     motivo: z.string().nullable(),
     valorOrcamento: centavosNaSaida,
     valorFechado: centavosNaSaida,
@@ -1038,6 +1103,20 @@ export type ColunaNaSaida = z.infer<typeof ColunaNaSaida>
 /** Pronto do servidor, sem dinheiro (appsec C8): procedimento e item pelo nome, a faixa de valor só como "aplicada". */
 export const CabecalhoDoRelatorio = z.object({ titulo: z.string(), filtrosEmTexto: z.array(z.string()) }).strict()
 
+/**
+ * **A SOMA DE UMA COLUNA `dinheiro`** (backlog 1.8: "148 pacientes · LTV
+ * somado R$ 312.400"), para a faixa de resumo e para o fim do arquivo.
+ *
+ * Calculada NO SERVIDOR, pelo value object, sobre as MESMAS linhas que saem:
+ * Σ da coluna = `valor`, centavo a centavo (linha com o valor `null` não soma
+ * — o dia aguardando do 8, a conta não paga do 10). Só existe para a coluna
+ * que sai: sem `valores`, a coluna não sai e a soma não existe; `valor` está
+ * em `CAMPOS_MONETARIOS`, e o interceptor é a segunda camada (C16). O rótulo
+ * é do catálogo e nunca leva número (appsec C8).
+ */
+export const SomaDaColuna = z.object({ coluna: z.string(), rotulo: z.string(), valor: centavosNaSaida }).strict()
+export type SomaDaColuna = z.infer<typeof SomaDaColuna>
+
 const resultado = <K extends ChaveDeRelatorio, L extends z.ZodTypeAny, R extends z.ZodTypeAny>(chave: K, linha: L, resumo: R) =>
   z
     .object({
@@ -1047,6 +1126,8 @@ const resultado = <K extends ChaveDeRelatorio, L extends z.ZodTypeAny, R extends
       colunas: z.array(ColunaNaSaida),
       linhas: z.array(linha),
       resumo,
+      /** Na ordem das colunas. Ausente na entrada = nenhuma (o favorito e o teste de antes). */
+      somas: z.array(SomaDaColuna).default([]),
       truncado: z.boolean(),
     })
     .strict()

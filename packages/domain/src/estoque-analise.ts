@@ -246,13 +246,36 @@ export function saidasDoPeriodoDaAnalise(
   de: string,
   ate: string,
 ): readonly MovimentoDeEstoque[] | null {
+  return doPeriodoDaAnalise(movs, de, ate, (m) => SAIDAS.has(m.tipo))
+}
+
+/**
+ * **OS AJUSTES QUE A ANÁLISE SOMOU, linha a linha** — o relatório de saídas com
+ * o motivo "ajuste" no modo "período da análise". O mesmo recorte das saídas;
+ * por item, `Σ milesimos` destas linhas é exatamente `analiseDoPeriodo(...).ajustes`
+ * (assinado: o ajuste é o único tipo dos dois sentidos).
+ */
+export function ajustesDoPeriodoDaAnalise(
+  movs: readonly MovimentoDeEstoque[],
+  de: string,
+  ate: string,
+): readonly MovimentoDeEstoque[] | null {
+  return doPeriodoDaAnalise(movs, de, ate, (m) => m.tipo === 'ajuste')
+}
+
+function doPeriodoDaAnalise(
+  movs: readonly MovimentoDeEstoque[],
+  de: string,
+  ate: string,
+  quer: (m: MovimentoDeEstoque) => boolean,
+): readonly MovimentoDeEstoque[] | null {
   const ordenados = [...movs].sort(ordemDeMovimento)
   const r = recorteDoPeriodo(ordenados, de, ate)
   if (r === null) return null
   const doFinal = indicesDoGrupo(ordenados, r.final.chave)
   const doInicial = indicesDoGrupo(ordenados, r.inicial.chave)
   if (doFinal.length === 0 || doInicial.length === 0) return null
-  return movimentosEntre(ordenados, doInicial, doFinal[0]!).filter((m) => SAIDAS.has(m.tipo))
+  return movimentosEntre(ordenados, doInicial, doFinal[0]!).filter(quer)
 }
 
 type GrupoDeContagem = { readonly chave: string; readonly dia: string }

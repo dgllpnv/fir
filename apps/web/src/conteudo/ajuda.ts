@@ -484,7 +484,7 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   {
     tema: 'Indicadores e relatórios',
     pergunta: 'Como exporto um relatório em Excel ou PDF?',
-    resposta: 'Depois de gerar o relatório, toque em “Exportar” e escolha Excel, CSV ou PDF (o PDF abre em outra aba, para imprimir ou salvar). O arquivo sai com a clínica, os filtros, a data, quem exportou e um código, e a exportação fica registrada em Atividades. Lista com dado de saúde pergunta para que é o arquivo.',
+    resposta: 'Depois de gerar o relatório, toque em “Exportar” e escolha Excel, CSV ou PDF (o PDF abre em outra aba, para imprimir ou salvar). O arquivo sai com a clínica, os filtros, a data, quem exportou e um código, e termina com a linha “Total”, com as mesmas somas em reais do resumo (só para quem vê valores). A exportação fica registrada em Atividades. Lista com dado de saúde pergunta para que é o arquivo.',
     chaves: 'exportar excel csv pdf imprimir planilha baixar arquivo relatorio',
     gestao: true,
   },

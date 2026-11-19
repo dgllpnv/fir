@@ -1,93 +1,134 @@
 # Firmare Rotinas de Gestão
 
-Ferramenta multi-clínica que instala os rituais de gestão na rotina da equipe.
-Roda **ao lado** do sistema da clínica, não no lugar dele.
+Ferramenta multi-clínica que instala os rituais de gestão na rotina da equipe:
+confirmar consultas, recontatar quem faltou, retomar orçamentos, acompanhar
+sessões, contar o estoque, fechar o caixa, pagar contas no prazo, cobrar
+saldos, conduzir 1:1.
 
-> **Status: fundação.** O plano 1 está implementado: ambiente local, domínio
-> puro (Dinheiro, Quantidade, Relógio, Permissões, Tipos), banco multi-clínica
-> com RLS, autenticação por e-mail e senha, e um shell web com menu por
-> permissão. Os módulos de negócio (tarefas, jornada, financeiro, estoque) e
-> a paridade com o protótipo **ainda não existem** — isso é o plano 9. Ver
-> `docs/superpowers/plans/2026-10-23-mapa-de-execucao.md`.
+Ela **não** é o sistema da clínica (agenda, prontuário, faturamento). Roda
+**ao lado** dele, aberta o dia inteiro pela recepção.
 
-## Começar
+Lida com dinheiro de clínicas reais, estoque de medicamento controlado e dado
+de saúde de pacientes. Leia `CLAUDE.md` antes de mudar qualquer coisa.
 
-Precisa de Docker Desktop e Node 22.
+## Estado
+
+**Em produção**, numa VPS compartilhada, ao lado de outros negócios. O passo a
+passo está em [`infra/producao/README.md`](infra/producao/README.md).
+
+O sistema tem quatro áreas, cada uma com login próprio:
+
+| Área | Para quem | O que tem |
+|---|---|---|
+| **Produto da clínica** (`/hoje` e demais) | A equipe da clínica | Hoje, Tarefas, Recebimento, Jornada do paciente, Pacientes, Programas, Campanhas, Recebimentos, Outras entradas, Caixa do dia, Contas a pagar, Cobranças, Visão do mês, Estoque, Equipe, Minhas metas, Indicadores & Insights, Painel geral, Unidades, Usuários e acessos, Atividades, Procedimentos, Agenda do sistema, Ajuda e manual |
+| **Gestão** (`/gestao`) | Operadores da Firmare | Clínicas, grupos, usuários de gestão, atividades |
+| **Carteira** (`/carteira`) | Equipe comercial da Firmare | Clientes, leads, metas, mensalidades, campanhas, rotina interna |
+| **Portal** (`/portal`) | Cliente da Firmare (grupo) | O espaço do cliente |
+
+A paridade com o protótipo, ação por ação, está em
+[`docs/paridade.md`](docs/paridade.md). O que falta, em ordem, está em
+[`docs/fila.md`](docs/fila.md).
+
+## Rodar na sua máquina
+
+Precisa de Docker Desktop, Node 22 e pnpm (`corepack enable`).
 
 ```bash
-pnpm install   # uma vez, depois de clonar — e de novo só quando as
-               # dependências mudarem
+pnpm install        # uma vez, depois de clonar
 ```
 
+Depois, na raiz, no Windows:
+
 ```
-fir            sobe tudo e deixa a aplicação rodando
-fir infra      só os containers (banco, Redis, Mailpit) — para os testes
+fir            sobe banco, Redis e Mailpit, aplica migrations, semeia e roda API + web
+fir infra      só os containers (para os testes)
 fir down       derruba, preservando os dados
 fir reset      zera o banco local
 fir status     estado dos serviços
 fir logs       logs em tempo real
 fir psql       shell psql no banco local
+fir workers    sobe os workers (filas) para testar à mão; exige "fir infra" antes
 ```
 
-Depois de `fir`, **a janela fica ocupada transmitindo os logs da API e da web.
-Isso é o certo — ela não travou, está servindo.** Deixe aberta e abra
-`http://127.0.0.1:4810` no navegador. `Ctrl+C` encerra os dois e devolve o prompt.
+Depois de `fir`, a janela fica transmitindo os logs da API e da web. Isso é o
+certo: ela está servindo. Abra `http://127.0.0.1:4810`. `Ctrl+C` encerra.
 
-Das 17 telas do menu, só **Hoje** existe hoje. As outras mostram o que vão
-entregar e em qual épico — não dão 404, e não são bug. A semente cria seis pessoas na
-clínica de demonstração (`demo`), todas com a senha `firmare-demonstracao` —
-uma por perfil, para exercitar cada nível de permissão, mais a
-administradora:
+### Portas — bloco 48xx
 
-| E-mail | Perfil |
+| Serviço | Porta |
 |---|---|
-| `demo@firmare.local` | Administradora (sem perfil — acesso total) |
-| `beatriz@firmare.local` | Supervisão |
-| `juliana@firmare.local` | Recepção |
-| `camila@firmare.local` | Enfermagem |
-| `patricia@firmare.local` | Comercial interno |
-| `rosa@firmare.local` | Financeiro |
+| web | 4810 |
+| API | 4811 |
+| Postgres | 4832 |
+| Redis | 4879 |
+| Mailpit (tela) | 4825 |
+| Mailpit (SMTP) | 4826 |
 
-Credenciais valem só neste ambiente.
+Tudo publicado em `127.0.0.1`, nunca em `0.0.0.0`. O 47xx é do Mavia. Os
+containers rodam em UTC. Detalhes em [`infra/README.md`](infra/README.md).
 
-## Antes de dizer que algo está pronto
+### Clínica de demonstração
+
+A semente cria a clínica `demo`. O login é **clínica + usuário + senha**. A
+senha de todos é `quatro-pedras-no-caminho`, e vale só neste ambiente.
+
+| Usuário | Perfil |
+|---|---|
+| `helena` | Administradora |
+| `beatriz` | Supervisão |
+| `juliana` | Recepção |
+| `camila` | Enfermagem |
+| `patricia` | Comercial interno |
+| `rosa` | Financeiro |
+
+### Comandos do monorepo
 
 ```bash
-pnpm typecheck && pnpm test
+pnpm dev            # api + web
+pnpm test           # suíte completa (usa cache do Turborepo)
+pnpm test:domain    # só o domínio, rápido
+pnpm typecheck
+pnpm build
+pnpm db:migrate
+pnpm db:seed
 ```
 
-178 testes, hoje, cobrindo domínio (64), API (79), transversais (19), UI (7),
-web (5) e contratos (4). Os transversais são os que mais pegam: RLS com
-canários de view, matview e partição; redação de dinheiro varrendo os esquemas
-Zod; isolamento de clínica; e a varredura que falha se alguma rota do Nest
-ficar sem guard.
+Antes de dizer que algo está pronto:
 
-`pnpm test` usa o cache do Turborepo. Para uma execução de verdade —
-antes de afirmar que algo passou — use `npx turbo run test --force`.
+```bash
+pnpm typecheck && pnpm test && pnpm build
+```
+
+O `build` está na lista porque já quebrou um deploy com a suíte verde. Para
+uma execução sem cache, use `npx turbo run test --force`.
+
+## Documentação técnica
+
+| Documento | O que responde |
+|---|---|
+| [`infra/producao/README.md`](infra/producao/README.md) | Deploy, máquina nova do zero, variáveis do `.env`, redes e egress |
+| [`docs/operacao/estrutura-do-banco.md`](docs/operacao/estrutura-do-banco.md) | Tabelas por módulo e as regras transversais do banco |
+| [`docs/operacao/rotinas-agendadas.md`](docs/operacao/rotinas-agendadas.md) | Todos os jobs, filas e crons: o que fazem, quando, onde, o que acontece se falharem |
+| [`docs/operacao/logs.md`](docs/operacao/logs.md) | Onde ficam os logs, o que é proibido neles, comandos prontos |
+| [`docs/operacao/backup.md`](docs/operacao/backup.md) | Backup, ensaio de restauração e RTO medido |
+| [`docs/arquitetura/sistema.md`](docs/arquitetura/sistema.md) | Módulos, seams, superfície de API |
+| [`docs/adr/`](docs/adr/) | Decisões de arquitetura |
+| [`docs/dividas.md`](docs/dividas.md) | Dívida carregada, cada uma com gatilho |
+| [`docs/compliance/retencao.md`](docs/compliance/retencao.md) | Prazo e base legal de cada classe de dado pessoal |
 
 ## Mapa do repositório
 
 | Caminho | O que é |
 |---|---|
-| `CLAUDE.md` | Regras inegociáveis, convenções e fluxo de trabalho. **Leia antes de tudo.** |
-| `CONTEXT.md` | Linguagem ubíqua: glossário, invariantes e termos proibidos |
-| `docs/superpowers/plans/` | O mapa de execução e os planos |
-| `docs/adr/` | Decisões de arquitetura registradas (ADRs) |
-| `docs/team.md` · `docs/pipeline.md` | Quem decide o quê e como o trabalho flui |
-| `docs/decisoes.md` | As escolhas do dono, com data, e o que ainda depende dele |
-| `docs/paridade.md` | **As 59 ações do protótipo, com estado.** É o que "paridade" significa |
-| `docs/dividas.md` | Dívida carregada, cada uma com o gatilho que a torna urgente |
-| `docs/diferencas-versao-po-vs-nossa.md` | As diferenças entre o que a PO entregou e o que construímos |
-| `packages/domain`, `packages/contracts`, `packages/ui` | Domínio puro, contratos (zod) e componentes compartilhados |
-| `apps/api`, `apps/web` | API (NestJS/Fastify) e web (Next.js) |
-| `teste/` | Testes transversais, que atravessam mais de um pacote |
-| `infra/` | Docker Compose do ambiente local e o SQL de provisionamento de papéis |
-| `prototipo-rotinas-de-gestao.html` | **Especificação funcional.** Nunca entra em build |
-| `versoes/v20-producao/` | **Produção atual e origem dos dados.** Nunca entra em build — e **não está neste repositório**: é o código rodando em 4 clínicas reais, e o repositório é público. Fica no disco da equipe, no `.gitignore` |
-
-## Monorepo
-
-6 pacotes `@fir/*`: `domain`, `contracts`, `ui`, `api`, `web`, `teste` —
-listados em `pnpm-workspace.yaml` (`packages/*`, `apps/*` e `teste`).
-Orquestrado com pnpm workspaces + Turborepo — `pnpm test` e `pnpm typecheck`
-na raiz cobrem todos eles, incluindo `teste/`.
+| `CLAUDE.md` | Regras inegociáveis, convenções e fluxo de trabalho |
+| `CONTEXT.md` | Glossário do domínio e termos proibidos |
+| `apps/api` | API (NestJS + Fastify, `pg`, BullMQ) e os workers |
+| `apps/web` | Web (Next.js App Router) |
+| `packages/domain` | Regras puras: Dinheiro, Quantidade, permissões, estoque |
+| `packages/contracts` | Schemas Zod da API |
+| `packages/ui` | Design system |
+| `teste/` | Testes transversais (RLS, redação de valores, rotas protegidas) |
+| `infra/` | Compose local, papéis do banco, produção |
+| `docs/` | ADRs, specs, operação, compliance |
+| `prototipo-rotinas-de-gestao.html` | Especificação funcional. Nunca entra em build |
+| `versoes/v20-producao/` | Sistema anterior. **Não está no repositório** (ele é público). Fica no disco da equipe |

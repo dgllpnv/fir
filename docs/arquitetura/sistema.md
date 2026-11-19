@@ -183,7 +183,9 @@ fora dele ficaria **na frente da allowlist**; rota de produto dentro dele
 seria bloqueada para a clínica inteira. As duas reprovam na varredura.
 
 ## 5. Jobs
-O que roda em BullMQ, com que frequência, e o que acontece quando roda duas vezes.
+O que roda em BullMQ, com que frequência, e o que acontece quando roda duas vezes:
+ver [`docs/operacao/rotinas-agendadas.md`](../operacao/rotinas-agendadas.md). O mapa
+das tabelas está em [`docs/operacao/estrutura-do-banco.md`](../operacao/estrutura-do-banco.md).
 
 ## 6. Onde a redação de valores acontece
 O tradutor único que apaga campo monetário de quem não tem `valores`. **Um diagrama de onde ele fica na pilha**, porque é o controle que mais tende a ser contornado.

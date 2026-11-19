@@ -2,6 +2,8 @@
 
 import {
   AVISO_DO_TEXTO_DO_OKR,
+  CODIGO_PRAZO_DO_KR_FORA_DO_PERIODO,
+  ErroDePrazoDoKr,
   type KpiNaLista,
   LIMITES_DO_OKR,
   type OkrNaSaida,
@@ -13,18 +15,32 @@ import { chamar, ErroDaApi } from '@/lib/api'
 import { diaCompleto, EXEMPLO_DA_UNIDADE, menorUnidadeDoTexto, ROTULO_DA_UNIDADE, textoDoCampo, trimestresDesde } from './na-tela'
 import { ErroDoCampo, PainelLateral } from './painel-lateral'
 
-type LinhaDeKr = { readonly chave: number; readonly id: string | null; readonly kpiId: string; readonly alvo: string; readonly travado: boolean }
+type LinhaDeKr = {
+  readonly chave: number
+  readonly id: string | null
+  readonly kpiId: string
+  readonly alvo: string
+  readonly travado: boolean
+  /** O prazo digitado. Só vale com `prazoProprio`; sem ele, o campo mostra o fim do período e o acompanha. */
+  readonly prazo: string
+  readonly prazoProprio: boolean
+}
 
-type Erros = Partial<Record<'objetivo' | 'krs' | 'datas', string>> & { porKr?: Record<number, string> }
+type Erros = Partial<Record<'objetivo' | 'krs' | 'datas', string>> & {
+  porKr?: Record<number, string>
+  prazoPorKr?: Record<number, string>
+}
 
 /**
  * **D.2 — Novo OKR** (e "Editar OKR"). Objetivo, período (trimestre atual por
  * padrão, ou datas livres), responsável, de 1 a 5 resultados-chave com o
  * aviso acima de 4, e o "por que isso importa".
  *
- * O prazo de cada resultado-chave é o fim do período do OKR: é o que a rota
- * grava (`ResultadoChavePedido` não tem prazo próprio). O progresso do OKR é
- * do servidor, nunca daqui.
+ * O prazo de cada resultado-chave (backlog 1.9 D.2) nasce no fim do período
+ * e o acompanha enquanto a pessoa não o mexe; mexido, fica. Quem confere se
+ * ele cabe no período é o servidor (422 `PRAZO_DO_KR_FORA_DO_PERIODO`, com a
+ * posição do KR), e a mensagem vai embaixo do campo. O progresso do OKR é do
+ * servidor, nunca daqui.
  *
  * `objetivo` e `porque` levam o aviso fixo dos textos livres (LGPD R-e).
  */
@@ -51,7 +67,15 @@ export function FormularioDeOkr({
 }) {
   const id = useId()
   const proxima = useRef(0)
-  const nova = (kpiId = ''): LinhaDeKr => ({ chave: proxima.current++, id: null, kpiId, alvo: '', travado: false })
+  const nova = (kpiId = ''): LinhaDeKr => ({
+    chave: proxima.current++,
+    id: null,
+    kpiId,
+    alvo: '',
+    travado: false,
+    prazo: '',
+    prazoProprio: false,
+  })
 
   const trimestres = trimestresDesde(hoje)
   const [objetivo, setObjetivo] = useState(okr?.objetivo ?? '')
@@ -70,13 +94,18 @@ export function FormularioDeOkr({
           kpiId: kr.kpi.id,
           alvo: textoDoCampo(kr.metaDoKr.alvo),
           travado: kr.alvoTravado,
+          prazo: kr.metaDoKr.prazo,
+          // O mesmo critério do servidor: prazo igual ao fim do período é o padrão, e acompanha.
+          prazoProprio: kr.metaDoKr.prazo !== okr.periodo.fim,
         })),
   )
   const [erros, setErros] = useState<Erros>({})
   const [erroGeral, setErroGeral] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
+  const inicioDoPeriodo = tipo === 'trimestre' ? trimestre : inicio
   const fimDoPeriodo = tipo === 'trimestre' ? trimestreDe(trimestre).fim : fim
+  const prazoDe = (kr: LinhaDeKr) => (kr.prazoProprio ? kr.prazo : fimDoPeriodo)
   const opcoesDeTrimestre =
     okr !== null && okr.periodo.tipo === 'trimestre' && !trimestres.some((t) => t.inicio === okr.periodo.inicio)
       ? [{ inicio: okr.periodo.inicio, fim: okr.periodo.fim, rotulo: `${diaCompleto(okr.periodo.inicio)} a ${diaCompleto(okr.periodo.fim)}` }, ...trimestres]
@@ -88,10 +117,11 @@ export function FormularioDeOkr({
   const salvar = useCallback(async () => {
     const e: Erros = {}
     const porKr: Record<number, string> = {}
+    const prazoPorKr: Record<number, string> = {}
     if (objetivo.trim() === '') e.objetivo = 'Escreva o objetivo.'
     if (tipo === 'datas' && (inicio === '' || fim === '' || fim < inicio)) e.datas = 'Escolha um início e um fim depois dele.'
     if (krs.length === 0) e.krs = 'Um OKR tem pelo menos um resultado-chave.'
-    const corpoDosKrs: { id?: string; kpiId: string; alvo?: string }[] = []
+    const corpoDosKrs: { id?: string; kpiId: string; alvo?: string; prazo: string }[] = []
     for (const kr of krs) {
       const k = kpis.find((x) => x.id === kr.kpiId)
       if (k === undefined) {
@@ -101,9 +131,12 @@ export function FormularioDeOkr({
       const alvo = kr.travado || k.chave === 'resultado_de_campanha' ? null : menorUnidadeDoTexto(k.unidade, kr.alvo)
       const podeFicarEmBranco = kr.travado || k.chave === 'resultado_de_campanha' || (kr.id !== null && kr.alvo.trim() === '')
       if (alvo === null && !podeFicarEmBranco) porKr[kr.chave] = 'Escreva o valor-alvo, só com números.'
-      corpoDosKrs.push({ ...(kr.id === null ? {} : { id: kr.id }), kpiId: k.id, ...(alvo === null ? {} : { alvo: alvo.toString() }) })
+      const prazo = kr.prazoProprio ? kr.prazo : fimDoPeriodo
+      if (prazo === '') prazoPorKr[kr.chave] = 'Escolha o prazo.'
+      corpoDosKrs.push({ ...(kr.id === null ? {} : { id: kr.id }), kpiId: k.id, ...(alvo === null ? {} : { alvo: alvo.toString() }), prazo })
     }
     if (Object.keys(porKr).length > 0) e.porKr = porKr
+    if (Object.keys(prazoPorKr).length > 0) e.prazoPorKr = prazoPorKr
     setErros(e)
     if (Object.keys(e).length > 0) return
 
@@ -125,11 +158,15 @@ export function FormularioDeOkr({
         aoSalvo('OKR atualizado.')
       }
     } catch (x) {
-      setErroGeral(x instanceof ErroDaApi ? x.message : 'Não consegui salvar o OKR. Confira a conexão.')
+      // O prazo fora do período vai embaixo do campo do KR: a lista do corpo tem a ordem de `krs`.
+      const doPrazo = x instanceof ErroDaApi && x.codigo === CODIGO_PRAZO_DO_KR_FORA_DO_PERIODO ? ErroDePrazoDoKr.safeParse(x.corpo) : null
+      const linha = doPrazo?.success === true ? krs[doPrazo.data.indice] : undefined
+      if (x instanceof ErroDaApi && linha !== undefined) setErros({ prazoPorKr: { [linha.chave]: x.message } })
+      else setErroGeral(x instanceof ErroDaApi ? x.message : 'Não consegui salvar o OKR. Confira a conexão.')
     } finally {
       setSalvando(false)
     }
-  }, [objetivo, porque, tipo, trimestre, inicio, fim, responsavelId, krs, kpis, okr, aoSalvo])
+  }, [objetivo, porque, tipo, trimestre, inicio, fim, responsavelId, krs, kpis, okr, aoSalvo, fimDoPeriodo])
 
   return (
     <PainelLateral titulo={okr === null ? 'Novo OKR' : 'Editar OKR'} aoFechar={aoFechar} aoSalvar={() => void salvar()} salvando={salvando} inativo={inativo}>
@@ -225,21 +262,35 @@ export function FormularioDeOkr({
                     ))}
                 </select>
               </label>
-              <label className="campo">
-                Valor-alvo {k === null ? null : <small>({ROTULO_DA_UNIDADE[k.unidade]})</small>}
-                {travado ? (
-                  <input value="a meta da campanha" disabled readOnly />
-                ) : (
+              <div className="par">
+                <label className="campo">
+                  Valor-alvo {k === null ? null : <small>({ROTULO_DA_UNIDADE[k.unidade]})</small>}
+                  {travado ? (
+                    <input value="a meta da campanha" disabled readOnly />
+                  ) : (
+                    <input
+                      inputMode="decimal"
+                      value={kr.alvo}
+                      placeholder={k === null ? '' : EXEMPLO_DA_UNIDADE[k.unidade]}
+                      aria-invalid={erros.porKr?.[kr.chave] !== undefined}
+                      onChange={(e) => mudarKr(kr.chave, { alvo: e.target.value })}
+                    />
+                  )}
+                </label>
+                <label className="campo">
+                  Prazo
                   <input
-                    inputMode="decimal"
-                    value={kr.alvo}
-                    placeholder={k === null ? '' : EXEMPLO_DA_UNIDADE[k.unidade]}
-                    aria-invalid={erros.porKr?.[kr.chave] !== undefined}
-                    onChange={(e) => mudarKr(kr.chave, { alvo: e.target.value })}
+                    type="date"
+                    value={prazoDe(kr)}
+                    min={inicioDoPeriodo}
+                    max={fimDoPeriodo}
+                    aria-invalid={erros.prazoPorKr?.[kr.chave] !== undefined}
+                    aria-describedby={erros.prazoPorKr?.[kr.chave] === undefined ? undefined : `${id}-prazo-${kr.chave}`}
+                    onChange={(e) => mudarKr(kr.chave, { prazo: e.target.value, prazoProprio: true })}
                   />
-                )}
-                <small>até {diaCompleto(fimDoPeriodo)}</small>
-              </label>
+                  <ErroDoCampo id={`${id}-prazo-${kr.chave}`} mensagem={erros.prazoPorKr?.[kr.chave]} />
+                </label>
+              </div>
               <button
                 type="button"
                 className="link perigo"

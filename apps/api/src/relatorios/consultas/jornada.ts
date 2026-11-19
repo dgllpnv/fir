@@ -1,10 +1,12 @@
-import type {
-  FiltrosDoRelatorio,
-  LinhaFaltaOuDesmarcacao,
-  LinhaOrcamento,
-  ResumoFaltasEDesmarcacoes,
-  ResumoOrcamentos,
-  SituacaoDoRecontato,
+import {
+  type FiltrosDoRelatorio,
+  type LinhaFaltaOuDesmarcacao,
+  type LinhaOrcamento,
+  type ResumoFaltasEDesmarcacoes,
+  type ResumoOrcamentos,
+  ROTULO_DA_SITUACAO_DO_ORCAMENTO_NO_RELATORIO,
+  type SituacaoDoOrcamentoNoRelatorio,
+  type SituacaoDoRecontato,
 } from '@fir/contracts'
 import { Dinheiro, faltaMadura, janela, recontatoEmAteDoisDias, ROTULO_DE_ETAPA, somarDias } from '@fir/domain'
 import type pg from 'pg'
@@ -30,6 +32,17 @@ import { type ContextoDaConsulta, cortar, type Linha, nomeOu422, periodoEmTexto,
 
 type PagamentoSemCartao = { id: string; paciente_id: string; nome: string | null; dia: string }
 
+/**
+ * **A SITUAÇÃO DO ORÇAMENTO** (backlog 1.8: enviado, fechado, perdido), a
+ * partir dos eventos do cartão. A etapa É o resultado deles na máquina da
+ * jornada (`fechar` → `fechado`, `perder` → `perdido`, e de nenhum dos dois se
+ * sai — ADR 2026-11-13): a leitura pela etapa é a mesma, sem repetir a
+ * máquina em SQL. O orçamento registrado que não fechou nem perdeu foi
+ * enviado — inclusive o reaberto, cujo cartão voltou a uma etapa da jornada.
+ */
+const situacaoDoOrcamento = (etapa: string): SituacaoDoOrcamentoNoRelatorio =>
+  etapa === 'fechado' ? 'fechado' : etapa === 'perdido' ? 'perdido' : 'enviado'
+
 export async function orcamentos(
   c: pg.PoolClient,
   ctx: ContextoDaConsulta,
@@ -47,6 +60,7 @@ export async function orcamentos(
     pagamentos.map((p) => p.tarefaId),
   )
   const filtrosEmTexto = [periodoEmTexto(f.de, f.ate), 'Pela data do orçamento ou do pagamento do orçamento']
+  if (f.situacao !== undefined) filtrosEmTexto.push(`Situação: ${ROTULO_DA_SITUACAO_DO_ORCAMENTO_NO_RELATORIO[f.situacao]}`)
   if (f.etapa !== undefined) filtrosEmTexto.push(`Etapa: ${ROTULO_DE_ETAPA[f.etapa]}`)
   if (f.motivoDePerdaId !== undefined) {
     const nome = await nomeOu422(
@@ -57,14 +71,17 @@ export async function orcamentos(
     )
     filtrosEmTexto.push(`Motivo da perda: ${nome}`)
   }
-  // A etapa é a do CARTÃO (a coluna); o motivo, o do último `perder` vivo — só
-  // cartão perdido o tem. O pagamento sem cartão é "fechado" e não tem motivo.
+  // A situação sai da etapa do CARTÃO (a coluna); `etapa` é o filtro dos
+  // favoritos de antes. O motivo é o do último `perder` vivo — só cartão
+  // perdido o tem. O pagamento sem cartão é "fechado" e não tem motivo.
   const casa = (etapa: string, motivoId: string | null): boolean =>
-    (f.etapa === undefined || etapa === f.etapa) && (f.motivoDePerdaId === undefined || motivoId === f.motivoDePerdaId)
+    (f.situacao === undefined || situacaoDoOrcamento(etapa) === f.situacao) &&
+    (f.etapa === undefined || etapa === f.etapa) &&
+    (f.motivoDePerdaId === undefined || motivoId === f.motivoDePerdaId)
   const todos = (await orcamentosDaJanela(c, ctx.clinicaId, j, ctx.fuso, [...new Set(cartaoDe.values())])).filter((o) =>
     casa(o.etapa, o.motivoId),
   )
-  const comRecorte = f.etapa !== undefined || f.motivoDePerdaId !== undefined
+  const comRecorte = f.situacao !== undefined || f.etapa !== undefined || f.motivoDePerdaId !== undefined
   const funil = await contarConversaoDeOrcamentos(c, ctx.clinicaId, j)
 
   // Cada pagamento vai para a linha do seu cartão; o sem cartão vira linha própria.
@@ -104,7 +121,7 @@ export async function orcamentos(
     ...todos.map((o) => ({
       ...anonima(o.nome, o.tarefaId, o.pacienteId),
       data: o.dia,
-      etapa: o.etapa,
+      situacao: situacaoDoOrcamento(o.etapa),
       motivo: o.motivo,
       valorOrcamento: o.valorOrcamento === null ? null : o.valorOrcamento.toString(),
       valorFechado: doCartao.get(o.tarefaId)?.centavos.toString() ?? null,
@@ -112,7 +129,7 @@ export async function orcamentos(
     ...avulsos.map((a) => ({
       ...anonima(a.nome, a.id, a.paciente_id),
       data: a.dia,
-      etapa: 'fechado',
+      situacao: 'fechado' as const,
       motivo: null,
       valorOrcamento: null,
       valorFechado: semCartao.get(a.id)!.centavos.toString(),

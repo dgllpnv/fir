@@ -476,7 +476,7 @@ export function TelaRelatorios({
                         <p style={{ margin: 0 }}>Nada com estes filtros. Tente um período maior ou outro filtro.</p>
                       </Vazio>
                     ) : (
-                      <TabelaDoRelatorio key={`${resultado.relatorio}:${JSON.stringify(gerado?.filtros ?? {})}`} colunas={resultado.colunas} linhas={resultado.linhas} rotulo={definicao.titulo} />
+                      <TabelaDoRelatorio key={`${resultado.relatorio}:${JSON.stringify(gerado?.filtros ?? {})}`} colunas={resultado.colunas} linhas={resultado.linhas} somas={resultado.somas} rotulo={definicao.titulo} />
                     )}
                   </div>
                 )}

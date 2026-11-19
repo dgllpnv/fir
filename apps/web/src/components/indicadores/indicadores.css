@@ -159,6 +159,7 @@
 .ii-kpi-valor strong { font-family: var(--display); font-size: 26px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums lining-nums; overflow-wrap: anywhere; }
 .ii-kpi-valor strong.ii-so-percentual { font-size: 22px; }
 .ii-kpi-valor span { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.ii-kpi-aguardando { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .ii-kpi-rodape { display: flex; justify-content: space-between; align-items: center; gap: 6px 10px; flex-wrap: wrap; font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .ii-kpi-rodape .ii-fonte { color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
 .ii-kpi-acoes { display: flex; flex-wrap: wrap; gap: 4px 14px; }

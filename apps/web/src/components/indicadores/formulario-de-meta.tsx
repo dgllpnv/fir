@@ -7,6 +7,7 @@ import {
   CamposDaMeta,
   corpoDaMetaEditada,
   corpoDaMetaNova,
+  erroDaMetaNoCampo,
   type ErrosDaMeta,
   estadoInicialDaMeta,
   validarEstadoDaMeta,
@@ -69,7 +70,10 @@ export function FormularioDeMeta({
         aoSalvo('Meta atualizada.')
       }
     } catch (x) {
-      setErroGeral(x instanceof ErroDaApi ? x.message : 'Não consegui salvar a meta. Confira a conexão.')
+      // A recusa de um campo vai embaixo dele (1.9 D); só a que não é de campo fica no rodapé.
+      const noCampo = x instanceof ErroDaApi ? erroDaMetaNoCampo(x.codigo, x.message, estado.tipo) : null
+      if (noCampo !== null) setErros(noCampo)
+      else setErroGeral(x instanceof ErroDaApi ? x.message : 'Não consegui salvar a meta. Confira a conexão.')
     } finally {
       setSalvando(false)
     }

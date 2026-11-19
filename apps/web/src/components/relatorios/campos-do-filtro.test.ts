@@ -21,7 +21,7 @@ const cheios: Campos = {
   motivoDaSaida: 'descarte',
   localId: ID,
   fornecedorId: ID,
-  etapa: 'perdido',
+  situacaoDoOrcamento: 'perdido',
   motivoDePerdaId: ID,
   recontatada: 'nao',
   situacaoDoPrazo: 'atrasada',
@@ -51,6 +51,26 @@ describe('os campos dos filtros da 1.8 (S2) e o contrato', () => {
     const m = paraFiltros('pacientes-por-procedimento', antigo)
     expect(m).toEqual({ filtros: { situacoes: ['ativo', 'concluido', 'encerrado'], procedimentoIds: [ID] } })
     expect(deFiltros('pacientes-por-procedimento', {}, camposIniciais(HOJE)).situacaoDoPrograma).toBe('ativos-e-concluidos')
+  })
+
+  it('o favorito de antes do relatório 13 (etapa) volta como situação, e sai no formato novo', () => {
+    const OUT = { de: '2026-10-01', ate: '2026-10-31' }
+    expect(paraFiltros('orcamentos', deFiltros('orcamentos', { ...OUT, etapa: 'orcamento' }, camposIniciais(HOJE)))).toEqual({
+      filtros: { ...OUT, situacao: 'enviado' },
+    })
+    expect(paraFiltros('orcamentos', deFiltros('orcamentos', { ...OUT, etapa: 'perdido' }, camposIniciais(HOJE)))).toEqual({
+      filtros: { ...OUT, situacao: 'perdido' },
+    })
+    // Etapa sem orçamento (agendado) não tem situação: cai em "todas".
+    expect(paraFiltros('orcamentos', deFiltros('orcamentos', { ...OUT, etapa: 'agendado' }, camposIniciais(HOJE)))).toEqual({ filtros: OUT })
+  })
+
+  it('o motivo "ajuste" do relatório 11 vai e volta', () => {
+    const m = paraFiltros('saidas-de-estoque', { ...camposIniciais(HOJE), motivoDaSaida: 'ajuste' })
+    if ('erro' in m) throw new Error(m.erro)
+    expect(m.filtros['motivo']).toBe('ajuste')
+    expect(FILTROS_DOS_RELATORIOS['saidas-de-estoque'].safeParse(m.filtros).success).toBe(true)
+    expect(deFiltros('saidas-de-estoque', m.filtros, camposIniciais(HOJE)).motivoDaSaida).toBe('ajuste')
   })
 
   it('o aniversário por intervalo manda o par De/Até, e o mês some', () => {

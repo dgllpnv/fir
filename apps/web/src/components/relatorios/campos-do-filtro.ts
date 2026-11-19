@@ -3,6 +3,7 @@ import {
   DIAS_MAXIMOS_SEM_ATENDIMENTO,
   JANELA_MAXIMA_EM_MESES,
   MOTIVOS_DE_SAIDA,
+  SITUACOES_DO_ORCAMENTO_NO_RELATORIO,
   SITUACOES_DO_PROGRAMA_NO_FILTRO,
 } from '@fir/contracts'
 import { centavosDoTexto, textoDeCentavos } from '@/lib/dinheiro-digitado'
@@ -62,7 +63,8 @@ export type Campos = {
   readonly motivoDaSaida: string
   readonly localId: string
   readonly fornecedorId: string
-  readonly etapa: string
+  /** Relatório 13: enviado, fechado ou perdido; vazio = todas. */
+  readonly situacaoDoOrcamento: string
   readonly motivoDePerdaId: string
   readonly recontatada: '' | 'sim' | 'nao'
   readonly situacaoDoPrazo: string
@@ -112,7 +114,7 @@ export function camposIniciais(hoje: string): Campos {
     motivoDaSaida: '',
     localId: '',
     fornecedorId: '',
-    etapa: '',
+    situacaoDoOrcamento: '',
     motivoDePerdaId: '',
     recontatada: '',
     situacaoDoPrazo: '',
@@ -239,7 +241,7 @@ export function paraFiltros(chave: ChaveDeRelatorio, c: Campos): FiltrosMontados
     }
     case 'orcamentos': {
       const f: Record<string, unknown> = { ...periodo }
-      se(f, 'etapa', c.etapa)
+      se(f, 'situacao', c.situacaoDoOrcamento)
       se(f, 'motivoDePerdaId', c.motivoDePerdaId)
       return { filtros: f }
     }
@@ -272,6 +274,18 @@ function situacaoDoProgramaDe(f: Readonly<Record<string, unknown>>): SituacaoDoP
       : ['ativo', 'concluido']
   const chave = [...gravadas].sort().join('|')
   return SITUACOES_DO_PROGRAMA_NA_TELA.find((s) => [...s.situacoes].sort().join('|') === chave)?.valor ?? 'ativos-e-concluidos'
+}
+
+/**
+ * A situação do orçamento de um favorito. O de antes guarda a ETAPA da jornada
+ * (o servidor ainda a aceita); na tela ela vira a situação equivalente, e o
+ * favorito sai no formato novo. Etapa sem equivalente cai em "todas".
+ */
+function situacaoDoOrcamentoDe(f: Readonly<Record<string, unknown>>): string {
+  const s = f['situacao']
+  if (typeof s === 'string' && (SITUACOES_DO_ORCAMENTO_NO_RELATORIO as readonly string[]).includes(s)) return s
+  const etapa = f['etapa']
+  return etapa === 'fechado' ? 'fechado' : etapa === 'perdido' ? 'perdido' : etapa === 'orcamento' ? 'enviado' : ''
 }
 
 const ehMotivoDeSaida = (v: unknown): v is string => typeof v === 'string' && (MOTIVOS_DE_SAIDA as readonly string[]).includes(v)
@@ -351,7 +365,7 @@ export function deFiltros(chave: ChaveDeRelatorio, f: Readonly<Record<string, un
     case 'entradas-de-estoque':
       return { ...comPeriodo, itemId: texto(f['itemId']), fornecedorId: texto(f['fornecedorId']) }
     case 'orcamentos':
-      return { ...comPeriodo, etapa: texto(f['etapa']), motivoDePerdaId: texto(f['motivoDePerdaId']) }
+      return { ...comPeriodo, situacaoDoOrcamento: situacaoDoOrcamentoDe(f), motivoDePerdaId: texto(f['motivoDePerdaId']) }
     case 'faltas-e-desmarcacoes': {
       const r = f['recontatada']
       return { ...comPeriodo, recontatada: r === 'sim' || r === 'nao' ? r : '' }

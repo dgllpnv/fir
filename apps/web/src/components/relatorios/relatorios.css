@@ -147,10 +147,16 @@
 .rel-tabela td a { color: var(--ink); font-weight: 600; text-decoration-color: var(--gold); text-underline-offset: 3px; }
 .rel-tabela td a:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
 .rel-ordem-celular { display: none; }
+/* A linha "Total" (as somas do servidor), no pé da tabela. */
+.rel-tabela tfoot td { font-weight: 600; border-top: 2px solid var(--gold); border-bottom: 0; }
 
 @media (max-width: 719px) {
   .rel-ordem-celular { display: grid; }
-  .rel-tabela, .rel-tabela tbody, .rel-tabela tr, .rel-tabela td { display: block; width: 100%; }
+  .rel-tabela, .rel-tabela tbody, .rel-tabela tfoot, .rel-tabela tr, .rel-tabela td { display: block; width: 100%; }
+  /* No celular o pé vira um bloco: só "Total" e as colunas somadas. */
+  .rel-tabela tfoot td:empty { display: none; }
+  .rel-tabela tfoot td { border-top: 0; }
+  .rel-tabela tfoot tr { border-top: 2px solid var(--gold); border-bottom: 0; }
   .rel-tabela thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .rel-tabela tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
   .rel-tabela td {
@@ -197,6 +203,9 @@
   .rel-impressao .rel-tabela { display: table; font-size: 9pt; }
   .rel-impressao .rel-tabela thead { display: table-header-group; position: static; width: auto; height: auto; clip-path: none; }
   .rel-impressao .rel-tabela tbody { display: table-row-group; }
+  /* `table-row-group`, e não `table-footer-group`: o navegador repetiria o Total em toda página. */
+  .rel-impressao .rel-tabela tfoot { display: table-row-group; }
+  .rel-impressao .rel-tabela tfoot td:empty { display: table-cell; }
   .rel-impressao .rel-tabela tr { display: table-row; padding: 0; break-inside: avoid; }
   /* No papel a palavra quebra inteira: "Consulta", nunca "Cons-ulta". */
   .rel-impressao .rel-tabela td { display: table-cell; padding: 3pt 4pt; border-bottom: 0.5pt solid var(--line); overflow-wrap: break-word; }

@@ -86,6 +86,8 @@ describe('o arquivo (L-IN-12)', () => {
         { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
         { chave: 'ultimaCompra', rotulo: 'Última compra', tipo: 'data' },
       ],
+      // Sem `valores` (as colunas em reais não saíram), nenhuma soma.
+      somas: [],
       linhas: [
         {
           pacienteId: '0b6f2a3e-8a3b-4c1d-9e2f-1a2b3c4d5e6f',
@@ -120,5 +122,40 @@ describe('o arquivo (L-IN-12)', () => {
     const csv = montarCsv(tabelaDaExportacao(exportacao))
     expect(csv).toContain("Clínica;'=Clínica\r\n")
     expect(csv).toContain("'@Maria;02/06/2026\r\n")
+  })
+
+  it('no fim, a linha "Total" com as somas do SERVIDOR, debaixo de cada coluna; sem soma, nenhuma linha a mais', () => {
+    const comValores: ResultadoDaExportacao = {
+      ...exportacao,
+      resultado: {
+        relatorio: 'pacientes-sem-compra',
+        classe: 'saude',
+        cabecalho: { titulo: 'Pacientes sem compra', filtrosEmTexto: [] },
+        resumo: { pacientes: 1 },
+        truncado: false,
+        colunas: [
+          { chave: 'nome', rotulo: 'Paciente', tipo: 'texto' },
+          { chave: 'ultimaCompra', rotulo: 'Última compra', tipo: 'data' },
+          { chave: 'valorDaUltimaCompra', rotulo: 'Valor da última compra', tipo: 'dinheiro' },
+          { chave: 'ltv', rotulo: 'LTV', tipo: 'dinheiro' },
+        ],
+        linhas: [
+          { pacienteId: '0b6f2a3e-8a3b-4c1d-9e2f-1a2b3c4d5e6f', nome: '@Maria', ultimaCompra: '2026-06-02', valorDaUltimaCompra: '1000', ltv: '-125050' },
+        ],
+        // A tela não soma: escreve o que o servidor mandou.
+        somas: [{ coluna: 'ltv', rotulo: 'LTV somado', valor: '-125050' }],
+      },
+    }
+    const t = tabelaDaExportacao(comValores)
+    expect(t.linhas[t.linhas.length - 1]).toEqual([
+      { tipo: 'texto', valor: 'Total' },
+      { tipo: 'texto', valor: '' },
+      { tipo: 'texto', valor: '' },
+      { tipo: 'numero', valor: '-R$ 1.250,50' },
+    ])
+    // O número negativo sai como número, sem o apóstrofo da proteção de texto.
+    expect(montarCsv(t).endsWith('Total;;;-R$ 1.250,50\r\n')).toBe(true)
+    // Sem soma (sem `valores`): cabeçalho, linha em branco, colunas e a linha — nada a mais.
+    expect(tabelaDaExportacao(exportacao).linhas).toHaveLength(11)
   })
 })

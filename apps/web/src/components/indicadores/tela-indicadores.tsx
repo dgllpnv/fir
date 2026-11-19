@@ -37,10 +37,9 @@ import {
   trimestresAte,
   unidadesDoFiltro,
 } from './na-tela'
-import { pedirTelaCheia } from './reuniao-na-tela'
 
 type Aberto =
-  | { readonly tipo: 'kpi' }
+  | { readonly tipo: 'kpi'; readonly direto: 'catalogo' | null }
   | { readonly tipo: 'okr'; readonly okr: OkrNaSaida | null }
   | { readonly tipo: 'meta'; readonly kpi: KpiNaLista | null }
   | { readonly tipo: 'lancar'; readonly alvo: AlvoDoLancamento }
@@ -224,7 +223,12 @@ export function TelaIndicadores({
     (o) => (escolhido === null || okrNoPeriodo(o, escolhido)) && (responsavel === '' || o.responsavelId === responsavel),
   )
   const prioridades = okrs.dados?.prioridades ?? null
-  const okrsAtivos = (okrs.dados?.itens ?? []).filter((o) => o.estado === 'ativo')
+  // "Ligar a um OKR" do D.1 (1.9 D.1): os OKRs ATIVOS do período escolhido no
+  // filtro — não os de todos os trimestres. O filtro Responsável não entra:
+  // ele recorta a tela, não a lista do formulário.
+  const okrsAtivosDoPeriodo = (okrs.dados?.itens ?? []).filter(
+    (o) => o.estado === 'ativo' && (escolhido === null || okrNoPeriodo(o, escolhido)),
+  )
 
   // ---- faixa 2
   const saude = listaDeKpis.filter((k) => k.okrIds.length === 0)
@@ -241,13 +245,10 @@ export function TelaIndicadores({
           <h2>Indicadores &amp; Insights</h2>
         </div>
         <div className="ii-acoes">
-          {/* Tela cheia pedida no próprio clique (o navegador só a concede num
-              gesto), e navegação pelo `Link`, que não recarrega e a preserva. */}
-          <Link
-            className="btn ghost"
-            href="/indicadores/reuniao"
-            onClick={(e) => pedirTelaCheia(e, document.documentElement, document.fullscreenElement)}
-          >
+          {/* A tela cheia é pedida no clique pelo layout (`TelaCheiaDaReuniao`), para
+              este botão e o da aba Relatórios do mesmo jeito; o `Link` navega sem
+              recarregar, e a preserva. */}
+          <Link className="btn ghost" href="/indicadores/reuniao">
             Modo reunião
           </Link>
           {/* Backlog 1.5. É o mesmo desenho da tela: sem `valores`, o servidor já
@@ -262,7 +263,7 @@ export function TelaIndicadores({
               conteudoDoBotao="+ Novo"
               opcoes={[
                 { rotulo: 'Novo OKR', aoTocar: () => setAberto({ tipo: 'okr', okr: null }) },
-                { rotulo: 'Novo KPI', aoTocar: () => setAberto({ tipo: 'kpi' }) },
+                { rotulo: 'Novo KPI', aoTocar: () => setAberto({ tipo: 'kpi', direto: null }) },
                 { rotulo: 'Nova meta', aoTocar: () => setAberto({ tipo: 'meta', kpi: null }) },
               ]}
             />
@@ -341,7 +342,7 @@ export function TelaIndicadores({
           <h3 id="ii-faixa-okrs">Prioridades do trimestre</h3>
           {prioridades === null || prioridades.quantos === 0 ? null : (
             <span className="ii-resumo">
-              {prioridades.quantos} em andamento
+              {prioridades.quantos} {prioridades.quantos === 1 ? 'objetivo' : 'objetivos'}
               {prioridades.media === null ? '' : ` · média ${prioridades.media}%`}
             </span>
           )}
@@ -397,7 +398,7 @@ export function TelaIndicadores({
                 : 'Escolha os indicadores que a clínica vai acompanhar.'}
             </p>
             {podeGerir && pilar === '' && responsavel === '' ? (
-              <button type="button" className="btn" onClick={() => setAberto({ tipo: 'kpi' })}>
+              <button type="button" className="btn" onClick={() => setAberto({ tipo: 'kpi', direto: 'catalogo' })}>
                 Abrir catálogo
               </button>
             ) : null}
@@ -429,7 +430,15 @@ export function TelaIndicadores({
 
       {/* ------------------------------------------------- os formulários */}
       {aberto?.tipo === 'kpi' ? (
-        <FormularioDeKpi kpis={listaDeKpis} okrs={okrsAtivos} hoje={hoje} equipe={pessoas} aoFechar={fechar} aoSalvo={salvo} />
+        <FormularioDeKpi
+          kpis={listaDeKpis}
+          okrs={okrsAtivosDoPeriodo}
+          hoje={hoje}
+          equipe={pessoas}
+          aoFechar={fechar}
+          aoSalvo={salvo}
+          direto={aberto.direto}
+        />
       ) : null}
       {aberto?.tipo === 'okr' ? (
         <FormularioDeOkr

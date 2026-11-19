@@ -17,6 +17,7 @@ import {
   rotuloDaComparacao,
   textoDaMenorUnidade,
   textoDaVariacao,
+  textoDoAguardando,
   trimestresAte,
   avisoDeUnidade,
   unidadesDoFiltro,
@@ -96,6 +97,16 @@ describe('o cartão do KPI sem `valores` (1.10 item 6)', () => {
     expect(html).not.toMatch(DINHEIRO)
     // A comparação continua: a variação é relativa, não é dinheiro.
     expect(html).toContain('▲ 12% vs. mesmo dia de outubro')
+  })
+
+  it('aguardando fechamento (1.9 C.1): os dias, nunca o valor (ADR meta-medida-pelos-dias-de-caixa, item 5)', () => {
+    const k = { ...kpi(false), diasAguardando: 2 }
+    const html = renderToStaticMarkup(
+      createElement(CartaoDoKpi, { kpi: k, meta: k.metaVigente, atual: k.atual, serie: null, acoes: [], fuso: FUSO }),
+    )
+    expect(html).toContain('Aguardando fechamento de 2 dias')
+    expect(textoDoAguardando({ diasAguardando: 1 })).toBe('Aguardando fechamento de 1 dia')
+    expect(textoDoAguardando({ diasAguardando: 0 })).toBeNull()
   })
 
   it('com `valores`, o valor e "de R$ …" da meta', () => {

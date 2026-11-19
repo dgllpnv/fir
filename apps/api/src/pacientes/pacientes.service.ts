@@ -275,6 +275,10 @@ export type MovimentoDoPaciente = {
   readonly ultimoAtendimento: string | null
   /** O nascimento: só para o domínio derivar dia/mês e idade. Nunca sai inteiro (I-38). */
   readonly aniversario: string | null
+  /** O LTV da ficha (o mesmo `SELECT_BASE`), em centavos (relatório 2). */
+  readonly ltv: bigint
+  /** Tarefas vivas abertas da paciente, a contagem da lista (relatório 2: "tem tarefa aberta?"). */
+  readonly tarefasAbertas: number
 }
 
 /**
@@ -293,10 +297,18 @@ export async function movimentosDosPacientes(
   recorte: { readonly comMovimento: true } | { readonly aniversarioNoMes: number },
 ): Promise<MovimentoDoPaciente[]> {
   const aniversario = 'aniversarioNoMes' in recorte
-  const r = await c.query<{ id: string; nome: string; telefone: string; aniversario: string | null; movimento: string | null }>(
+  const r = await c.query<{
+    id: string
+    nome: string
+    telefone: string
+    aniversario: string | null
+    movimento: string | null
+    ltv: string
+    tarefas_abertas: string
+  }>(
     `WITH base AS (${SELECT_BASE} AND p.ativo
                      AND ($4::int IS NULL OR extract(month FROM p.aniversario) = $4::int))
-     SELECT id, nome, telefone, aniversario, (${MOVIMENTO})::text AS movimento
+     SELECT id, nome, telefone, aniversario, (${MOVIMENTO})::text AS movimento, ltv, tarefas_abertas::text AS tarefas_abertas
        FROM base
       WHERE $4::int IS NOT NULL OR ${MOVIMENTO} IS NOT NULL
       ORDER BY CASE WHEN $4::int IS NULL THEN ${MOVIMENTO} END ASC,
@@ -309,6 +321,8 @@ export async function movimentosDosPacientes(
     telefone: l.telefone,
     ultimoAtendimento: l.movimento,
     aniversario: l.aniversario,
+    ltv: BigInt(l.ltv),
+    tarefasAbertas: Number(l.tarefas_abertas),
   }))
 }
 

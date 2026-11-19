@@ -115,6 +115,23 @@ export function textoDaMeta(meta: MetaDeKpiNaSaida | null): string | null {
   return alvo === null ? null : `de ${alvo}`
 }
 
+/**
+ * "Aguardando fechamento de 2 dias" (1.9 C.1): os dias sem caixa fechado que
+ * ficam fora do número grande até fechar — hoje com o caixa aberto incluído.
+ *
+ * **Só a contagem, sem o valor.** A 1.9 pede "+ R$ 6.300 aguardando
+ * fechamento de 2 dias", mas a ADR 2026-11-17-meta-medida-pelos-dias-de-caixa
+ * (item 5) fixou que em `/v1/indicadores*` o valor aguardando nunca sai: o
+ * recebido de um dia passado sem caixa é o esperado de um caixa que ainda se
+ * fecha às cegas (regra 6; `fonte-unica.e2e.test.ts` prova por HTTP). O valor
+ * fica na Visão do mês, para quem tem `finmes`.
+ */
+export function textoDoAguardando(k: Pick<KpiNaLista, 'diasAguardando'>): string | null {
+  const dias = k.diasAguardando
+  if (dias <= 0) return null
+  return `Aguardando fechamento de ${dias} ${dias === 1 ? 'dia' : 'dias'}`
+}
+
 const MESES = [
   'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
   'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',

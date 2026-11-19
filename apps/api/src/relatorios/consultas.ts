@@ -20,6 +20,7 @@ import {
   MOTIVO_SOBRA_DE_FRASCO,
   NumeroDoKpi,
   Quantidade,
+  ajustesDoPeriodoDaAnalise,
   saidasDoPeriodoDaAnalise,
   somarMeses,
   TIPOS,
@@ -310,10 +311,15 @@ export async function saidasDeEstoque(
   const escolhidos: { item: (typeof itens)[number]; mov: MovimentoDeEstoque }[] = []
   for (const item of itens) {
     const doItem = movs.get(item.id) ?? []
+    // O ajuste entra SÓ quando pedido: ele não é saída na Análise (é a coluna
+    // assinada `ajustesEmEstoque`, B8). Sem o filtro, Σ = `saidasEmEstoque`;
+    // com ele, as linhas são os ajustes do MESMO recorte, e Σ = −`ajustesEmEstoque`.
+    const ajuste = f.motivo === 'ajuste'
+    const ehDoRecorte = (m: MovimentoDeEstoque) => (ajuste ? m.tipo === 'ajuste' : ehSaidaDeEstoque(m.tipo))
     const saidas =
       f.modo === 'analise'
-        ? (saidasDoPeriodoDaAnalise(doItem, f.de, f.ate) ?? [])
-        : doItem.filter((m) => ehSaidaDeEstoque(m.tipo) && m.dia >= f.de && m.dia <= f.ate)
+        ? ((ajuste ? ajustesDoPeriodoDaAnalise(doItem, f.de, f.ate) : saidasDoPeriodoDaAnalise(doItem, f.de, f.ate)) ?? [])
+        : doItem.filter((m) => ehDoRecorte(m) && m.dia >= f.de && m.dia <= f.ate)
     // O motivo é o TIPO da saída; a compensação de uma baixa é do mesmo tipo, e
     // fica com ela — sem isso, o recorte "consumo" perderia a reabertura (B8).
     for (const mov of saidas) if (f.motivo === undefined || mov.tipo === f.motivo) escolhidos.push({ item, mov })
@@ -349,7 +355,10 @@ export async function saidasDeEstoque(
   const pacienteIds = new Set<string>()
   const saida = linhas.map(({ item, mov }, i) => {
     const d = detalhes.get(mov.id)
-    const rotulo = ROTULO_DA_SAIDA[mov.tipo] ?? mov.tipo
+    // O ajuste é dos dois sentidos: o rótulo diz qual (a quantidade da linha
+    // tem o sinal do relatório — positiva é o que saiu da prateleira).
+    const rotulo =
+      mov.tipo === 'ajuste' ? (mov.milesimos < 0n ? 'Ajuste para menos' : 'Ajuste para mais') : (ROTULO_DA_SAIDA[mov.tipo] ?? mov.tipo)
     // O motivo é TEXTO LIVRE ("Frasco da Ana caiu"): sai só no recorte de
     // classe `saude` (com a coluna de paciente, que exige `jornada`, e com aviso
     // e finalidade na exportação). Fora dele, só o rótulo e o motivo que o

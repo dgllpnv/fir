@@ -9,12 +9,13 @@ import { LIMITE_EM_TEXTO } from './na-tabela'
 const plural = (n: number, um: string, varios: string): string => `${n} ${n === 1 ? um : varios}`
 
 /**
- * **A faixa de resumo** (1.9 G, item 3): "148 pacientes · …".
+ * **A faixa de resumo** (1.9 G, item 3): "148 pacientes · LTV somado R$ 312.400".
  *
- * Todo número aqui veio pronto no `resumo` do servidor — contagem, total, os
- * totais por forma e por tipo, o aguardando fechamento. A tela só escreve.
- * Sem `valores`, os campos em reais chegam `null` e a frase simplesmente não
- * os tem: não há `if` de permissão aqui.
+ * Todo número aqui veio pronto do servidor — a contagem, os totais por forma e
+ * por tipo e o aguardando fechamento no `resumo`; as somas em reais em `somas`
+ * (Σ das colunas, pelo value object). A tela só escreve. Sem `valores`,
+ * `somas` chega vazio e os campos em reais do resumo chegam `null`: a frase
+ * simplesmente não os tem, e não há `if` de permissão aqui.
  */
 export function ResumoDoRelatorio({ resultado }: { resultado: ResultadoDoRelatorio }) {
   return (
@@ -29,19 +30,39 @@ export function ResumoDoRelatorio({ resultado }: { resultado: ResultadoDoRelator
   )
 }
 
+/** " · LTV somado R$ 312.400,00": uma por coluna somada, na ordem das colunas. */
+function Somas({ resultado }: { resultado: ResultadoDoRelatorio }) {
+  return (
+    <>
+      {resultado.somas.map((s) =>
+        s.valor === null ? null : (
+          <span key={s.coluna}>
+            {' '}
+            · {s.rotulo} <span className="rel-num">{formatarDinheiro(BigInt(s.valor))}</span>
+          </span>
+        ),
+      )}
+    </>
+  )
+}
+
 function Frase({ resultado: r }: { resultado: ResultadoDoRelatorio }) {
   switch (r.relatorio) {
     case 'pacientes-sem-compra':
-      return <p className="rel-resumo-linha">{plural(r.resumo.pacientes, 'paciente', 'pacientes')}</p>
+      return (
+        <p className="rel-resumo-linha">
+          {plural(r.resumo.pacientes, 'paciente', 'pacientes')}
+          <Somas resultado={r} />
+        </p>
+      )
     case 'recebimentos': {
-      const total = formatarValorNaTela(r.resumo.total)
       // Sem `valores`, todo total chega `null`: a lista de totais some inteira.
       const totais = [...r.resumo.porForma, ...r.resumo.porTipo]
       return (
         <>
           <p className="rel-resumo-linha">
             {plural(r.resumo.recebimentos, 'recebimento', 'recebimentos')}
-            {total === null ? null : <> · total {total}</>}
+            <Somas resultado={r} />
           </p>
           {totais.some((t) => t.valor !== null) ? (
             <dl className="rel-totais">
@@ -57,7 +78,7 @@ function Frase({ resultado: r }: { resultado: ResultadoDoRelatorio }) {
       return (
         <p className="rel-resumo-linha">
           {plural(r.resumo.linhas, 'saída', 'saídas')}
-          {r.resumo.custo === null ? null : <> · custo {formatarDinheiro(BigInt(r.resumo.custo))}</>}
+          <Somas resultado={r} />
         </p>
       )
     case 'tarefas-da-equipe': {
@@ -73,18 +94,25 @@ function Frase({ resultado: r }: { resultado: ResultadoDoRelatorio }) {
     case 'pacientes-sem-atendimento':
     case 'pacientes-maior-ltv':
     case 'aniversariantes':
-      return <p className="rel-resumo-linha">{plural(r.resumo.pacientes, 'paciente', 'pacientes')}</p>
+      return (
+        <p className="rel-resumo-linha">
+          {plural(r.resumo.pacientes, 'paciente', 'pacientes')}
+          <Somas resultado={r} />
+        </p>
+      )
     case 'pacientes-que-indicaram':
       return (
         <p className="rel-resumo-linha">
           {plural(r.resumo.indicadoras, 'paciente indicou', 'pacientes indicaram')} ·{' '}
           {plural(r.resumo.indicadas, 'indicação', 'indicações')}
+          <Somas resultado={r} />
         </p>
       )
     case 'pacientes-por-procedimento':
       return (
         <p className="rel-resumo-linha">
           {plural(r.resumo.pacientes, 'paciente', 'pacientes')} · {plural(r.resumo.programas, 'programa', 'programas')}
+          <Somas resultado={r} />
         </p>
       )
     case 'pacientes-por-origem-e-campanha':
@@ -92,6 +120,7 @@ function Frase({ resultado: r }: { resultado: ResultadoDoRelatorio }) {
         <>
           <p className="rel-resumo-linha">
             {plural(r.resumo.pacientes, 'paciente', 'pacientes')} · {plural(r.resumo.convertidos, 'convertido', 'convertidos')}
+            <Somas resultado={r} />
           </p>
           {r.resumo.porOrigem.length > 0 ? (
             <dl className="rel-totais">
@@ -114,41 +143,40 @@ function Frase({ resultado: r }: { resultado: ResultadoDoRelatorio }) {
       return (
         <p className="rel-resumo-linha">
           {plural(r.resumo.pacientes, 'paciente', 'pacientes')} · {plural(r.resumo.grupos, 'saldo', 'saldos')}
-          {r.resumo.aReceber === null ? null : <> · a receber {formatarDinheiro(BigInt(r.resumo.aReceber))}</>}
+          <Somas resultado={r} />
         </p>
       )
     case 'contas':
       return (
         <p className="rel-resumo-linha">
           {plural(r.resumo.contas, 'conta', 'contas')}
-          {r.resumo.valor === null ? null : <> · total {formatarDinheiro(BigInt(r.resumo.valor))}</>}
-          {r.resumo.valorPago === null ? null : <> · pago {formatarDinheiro(BigInt(r.resumo.valorPago))}</>}
+          <Somas resultado={r} />
         </p>
       )
     case 'entradas-de-estoque':
       return (
         <p className="rel-resumo-linha">
           {plural(r.resumo.linhas, 'entrada', 'entradas')}
-          {r.resumo.custo === null ? null : <> · custo {formatarDinheiro(BigInt(r.resumo.custo))}</>}
+          <Somas resultado={r} />
         </p>
       )
     case 'orcamentos':
-      // O total é o `valorFechado` do servidor — o mesmo do Painel —, NUNCA a
-      // soma da coluna: a coluna é por cartão orçado, o total é o pago de
-      // orçamento concluído no período (ADR T9). Os dois não se comparam.
+      // O valor fechado somado é a Σ da coluna "Valor fechado", e o servidor
+      // garante que é o `orc_valor` do Painel no período (números c.3). O orçado
+      // não tem soma: orçamento não é receita (regra 4).
       return (
         <Dica
-          rotulo="Por que a coluna não soma o total"
+          rotulo="De onde vêm estes números"
           titulo={
             <p className="rel-resumo-linha" style={{ margin: 0 }}>
               {plural(r.resumo.orcamentos, 'orçamento', 'orçamentos')} · {r.resumo.enviados} enviados ·{' '}
               {plural(r.resumo.fechados, 'fechado', 'fechados')}
-              {r.resumo.valorFechado === null ? null : <> · fechado no período {formatarDinheiro(BigInt(r.resumo.valorFechado))}</>}
+              <Somas resultado={r} />
             </p>
           }
         >
-          Enviados, fechados e o valor fechado são os do Painel no período: o pagamento de orçamento concluído nestes dias. A
-          coluna mostra cada orçamento registrado no período, e a soma dela mede outra coisa.
+          Enviados, fechados e o valor fechado são os do Painel no período: o pagamento de orçamento concluído nestes dias. O
+          valor orçado de cada linha não é somado, porque orçamento não é receita.
         </Dica>
       )
     case 'faltas-e-desmarcacoes':

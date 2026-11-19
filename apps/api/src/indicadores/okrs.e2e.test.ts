@@ -376,6 +376,112 @@ describe('permissão e clínica (appsec C3, C6)', () => {
   })
 })
 
+describe('prazo próprio do KR (backlog 1.9 D.2): padrão é o fim do período, e fica dentro dele', () => {
+  type KrComPrazo = Kr & { metaDoKr: Kr['metaDoKr'] & { prazo: string; tipo: string; ritmo: { emNumero: string | null } } }
+  const prazos = (o: { resultadosChave: Kr[] }) => (o.resultadosChave as KrComPrazo[]).map((x) => x.metaDoKr.prazo)
+  const prazoNoBanco = async (krId: string) =>
+    (
+      await c.migrate.query<{ prazo: string }>(
+        'SELECT prazo::text AS prazo FROM metas_de_kpi WHERE resultado_chave_id = $1 AND arquivada_em IS NULL',
+        [krId],
+      )
+    ).rows.map((r) => r.prazo)
+
+  it('sem prazo, o prazo da meta é o fim do período; com prazo, a meta usa o dele — e o ritmo também', async () => {
+    const a = await kpiManual('Sem prazo')
+    const b = await kpiManual('Com prazo')
+    await lancar(a, 9000)
+    await lancar(b, 9000)
+    const r = await criarOkr({
+      objetivo: 'Prazos',
+      periodo: OUTUBRO,
+      resultadosChave: [{ kpiId: a, alvo: '10000' }, { kpiId: b, alvo: '10000', prazo: '2026-10-15' }],
+    })
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201)
+    const o = r.body as Okr
+    expect(prazos(o)).toEqual(['2026-10-31', '2026-10-15'])
+    const [krA, krB] = o.resultadosChave as KrComPrazo[]
+    expect(await prazoNoBanco(krA!.id)).toEqual(['2026-10-31'])
+    expect(await prazoNoBanco(krB!.id)).toEqual(['2026-10-15'])
+    // O mês inteiro é meta "do mês"; o prazo no meio dele, "até a data".
+    expect([krA!.metaDoKr.tipo, krB!.metaDoKr.tipo]).toEqual(['mes', 'ate_data'])
+    // HOJE é 24/10: o prazo de B já passou, e o ritmo dele congela no alvo (I-16); o de A está em 77,4.
+    expect(krB!.metaDoKr.ritmo.emNumero).toBe('10000')
+    expect(krA!.metaDoKr.ritmo.emNumero).not.toBe('10000')
+  })
+
+  it('prazo fora do período é 422, ligado ao KR pelo índice — antes do início, depois do fim', async () => {
+    const a = await kpiManual('Fora A')
+    const b = await kpiManual('Fora B')
+    for (const prazo of ['2026-09-30', '2026-11-01']) {
+      const r = await criarOkr({
+        objetivo: 'Fora',
+        periodo: OUTUBRO,
+        resultadosChave: [{ kpiId: a, alvo: '100' }, { kpiId: b, alvo: '100', prazo }],
+      })
+      expect(r.statusCode, prazo).toBe(422)
+      expect(r.body).toMatchObject({ codigo: 'PRAZO_DO_KR_FORA_DO_PERIODO', indice: 1 })
+      expect(r.body.message).toMatch(/dentro do período/)
+    }
+    // As bordas são inclusivas: o primeiro e o último dia do período valem.
+    const borda = await criarOkr({
+      objetivo: 'Bordas',
+      periodo: OUTUBRO,
+      resultadosChave: [{ kpiId: a, alvo: '100', prazo: '2026-10-01' }, { kpiId: b, alvo: '100', prazo: '2026-10-31' }],
+    })
+    expect(borda.statusCode, JSON.stringify(borda.body)).toBe(201)
+    expect(prazos(borda.body as Okr)).toEqual(['2026-10-01', '2026-10-31'])
+    // Data que não existe: o contrato recusa.
+    expect((await criarOkr({ objetivo: 'X', periodo: OUTUBRO, resultadosChave: [{ kpiId: a, alvo: '100', prazo: '15/10/2026' }] })).statusCode).toBe(400)
+  })
+
+  it('editar preserva o prazo; mudar o período leva o KR sem prazo próprio junto, e o de prazo próprio fora dele é 422', async () => {
+    const a = await kpiManual('Acompanha')
+    const b = await kpiManual('Fixo')
+    const r = await criarOkr({
+      objetivo: 'Editar prazos',
+      periodo: OUTUBRO,
+      resultadosChave: [{ kpiId: a, alvo: '100' }, { kpiId: b, alvo: '100', prazo: '2026-10-15' }],
+    })
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201)
+    const id = r.body.id as string
+    const [krA, krB] = (r.body as Okr).resultadosChave
+
+    // Só o texto: os prazos ficam.
+    const texto = await botar(c, `/v1/indicadores/okrs/${id}`, { objetivo: 'Outro texto' }, 'beatriz')
+    expect(texto.statusCode).toBe(200)
+    expect(prazos(texto.body as Okr)).toEqual(['2026-10-31', '2026-10-15'])
+
+    // A lista de KRs sem `prazo`: idem.
+    const lista = await botar(c, `/v1/indicadores/okrs/${id}`, { resultadosChave: [{ id: krA!.id, kpiId: a }, { id: krB!.id, kpiId: b }] }, 'beatriz')
+    expect(lista.statusCode).toBe(200)
+    expect(prazos(lista.body as Okr)).toEqual(['2026-10-31', '2026-10-15'])
+
+    // O período cresce: A acompanha o fim; B continua em 15/10.
+    const maior = await botar(c, `/v1/indicadores/okrs/${id}`, { periodo: { tipo: 'datas', inicio: '2026-10-01', fim: '2026-11-30' } }, 'beatriz')
+    expect(maior.statusCode, JSON.stringify(maior.body)).toBe(200)
+    expect(prazos(maior.body as Okr)).toEqual(['2026-11-30', '2026-10-15'])
+
+    // O período começa depois de 15/10: o prazo próprio de B fica fora — 422, e nada muda.
+    const depois = await botar(c, `/v1/indicadores/okrs/${id}`, { periodo: { tipo: 'datas', inicio: '2026-10-20', fim: '2026-11-30' } }, 'beatriz')
+    expect(depois.statusCode).toBe(422)
+    expect(depois.body).toMatchObject({ codigo: 'PRAZO_DO_KR_FORA_DO_PERIODO', indice: 1 })
+    expect(prazos((await pegar(c, `/v1/indicadores/okrs/${id}`, {}, 'beatriz')).body as Okr)).toEqual(['2026-11-30', '2026-10-15'])
+
+    // Trocar o prazo pelo corpo vale, dentro do período.
+    const novo = await botar(c, `/v1/indicadores/okrs/${id}`, { resultadosChave: [{ id: krA!.id, kpiId: a, prazo: '2026-11-10' }, { id: krB!.id, kpiId: b }] }, 'beatriz')
+    expect(novo.statusCode, JSON.stringify(novo.body)).toBe(200)
+    expect(prazos(novo.body as Okr)).toEqual(['2026-11-10', '2026-10-15'])
+
+    // Duplicar: o próximo período, e cada KR no fim dele.
+    const dup = await postar(c, `/v1/indicadores/okrs/${id}/duplicar`, {}, 'beatriz')
+    expect(dup.statusCode, JSON.stringify(dup.body)).toBe(201)
+    const fimDoDuplicado = (dup.body as Okr).periodo.fim
+    expect(fimDoDuplicado).toBe('2027-01-30')
+    expect(prazos(dup.body as Okr)).toEqual([fimDoDuplicado, fimDoDuplicado])
+  })
+})
+
 describe('prioridades do trimestre (revisão P1): o servidor dá {quantos, media}, e a lista e a capa dão o mesmo', () => {
   it('só os ATIVOS que tocam o trimestre; o encerrado e o do trimestre seguinte ficam fora', async () => {
     const [a, b, e, f] = [await kpiManual('P-A'), await kpiManual('P-B'), await kpiManual('P-E'), await kpiManual('P-F')]

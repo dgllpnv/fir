@@ -139,7 +139,7 @@ export function ImpressaoDoRelatorio() {
       </header>
 
       <ResumoDoRelatorio resultado={r} />
-      <TabelaDoRelatorio colunas={r.colunas} linhas={r.linhas} todas rotulo={c.relatorio} />
+      <TabelaDoRelatorio colunas={r.colunas} linhas={r.linhas} somas={r.somas} todas rotulo={c.relatorio} />
       <footer className="rel-impressao-rodape">
         <span>{c.clinica}</span>
         <span className="rel-num">

@@ -1,8 +1,8 @@
 'use client'
 
-import type { ColunaNaSaida } from '@fir/contracts'
+import type { ColunaNaSaida, SomaDaColuna } from '@fir/contracts'
 import { useMemo, useState } from 'react'
-import { celula, type Linha, ordenar, POR_PAGINA, pacienteDaCelula } from './na-tabela'
+import { celula, type Linha, linhaDeTotais, ordenar, POR_PAGINA, pacienteDaCelula } from './na-tabela'
 
 type Ordem = { readonly chave: string; readonly sentido: 'asc' | 'desc' } | null
 
@@ -17,18 +17,23 @@ type Ordem = { readonly chave: string; readonly sentido: 'asc' | 'desc' } | null
  * que nenhuma tela pode ter. A ordenação, ali, é um seletor.
  *
  * `todas`: a página de impressão mostra todas as linhas, sem paginar.
+ * `somas`: as do servidor; viram a linha "Total" no pé, debaixo de cada coluna
+ * (de TODAS as linhas, não só da página).
  */
 export function TabelaDoRelatorio({
   colunas,
   linhas,
+  somas = [],
   todas = false,
   rotulo,
 }: {
   colunas: readonly ColunaNaSaida[]
   linhas: readonly Linha[]
+  somas?: readonly SomaDaColuna[]
   todas?: boolean
   rotulo: string
 }) {
+  const totais = linhaDeTotais(colunas, somas)
   const [ordem, setOrdem] = useState<Ordem>(null)
   const [pagina, setPagina] = useState(0)
 
@@ -122,6 +127,17 @@ export function TabelaDoRelatorio({
             </tr>
           ))}
         </tbody>
+        {totais === null ? null : (
+          <tfoot>
+            <tr className="rel-total">
+              {colunas.map((c, i) => (
+                <td key={c.chave} data-rotulo={i === 0 ? undefined : c.rotulo} className={totais[i]?.numerica === true ? 'rel-num' : undefined}>
+                  {totais[i]?.texto ?? ''}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        )}
       </table>
 
       {todas || paginas === 1 ? null : (

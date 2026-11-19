@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ALTURA_DO_AGUARDANDO,
   alvoComparavel,
+  correcaoDoLancamento,
   atalhosDoPersonalizado,
   conferirPersonalizado,
   desenharBarras,
@@ -283,5 +284,16 @@ describe('as metas futuras no detalhe', () => {
     const redigida = { ...dez, alvo: reais(null) }
     expect(textoDaProximaMeta(redigida)).toBe('Próxima meta em dezembro/2026')
     expect(textoDaProximaMeta(redigida)).not.toMatch(/R\$|\d+,\d{2}/)
+  })
+})
+
+describe('o lápis da tabela de lançamentos (1.9 E)', () => {
+  it('abre a D.4 com a referência, o valor e o comentário DAQUELA linha', () => {
+    const linha = { referencia: '2026-11-09', comentario: 'Google, domingo', lancado: { emDinheiro: null, emNumero: '470' } }
+    expect(correcaoDoLancamento('nota', linha)).toEqual({ referencia: '2026-11-09', valor: '4,70', comentario: 'Google, domingo' })
+  })
+  it('em reais redigido (sem `valores`), o campo fica vazio — nunca um número inventado', () => {
+    const linha = { referencia: '2026-11-01', comentario: '', lancado: { emDinheiro: null, emNumero: null } }
+    expect(correcaoDoLancamento('reais', linha).valor).toBe('')
   })
 })

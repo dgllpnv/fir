@@ -148,7 +148,10 @@ describe('relatórios 2, 3, 4, 6 e 7 — pacientes', () => {
     await c.migrate.query(`UPDATE pacientes SET ultima_consulta = '2026-09-30' WHERE id = $1`, [c.pacientes['bruna']])
     const r = await executar('pacientes-sem-atendimento', SEM_ATENDIMENTO, 'juliana')
     expect(r.statusCode, r.text).toBe(200)
-    expect(r.body.linhas).toEqual([{ pacienteId: c.pacientes['ana'], nome: 'Ana Lúcia Souza', ultimoAtendimento: '2026-01-10' }])
+    expect(r.body.linhas).toEqual([
+      // Sem `valores` (juliana), o LTV sai apagado; o movimento é o do cadastro, sem tipo.
+      { pacienteId: c.pacientes['ana'], nome: 'Ana Lúcia Souza', ultimoAtendimento: '2026-01-10', tipo: null, ltv: null, tarefaAberta: 'nao' },
+    ])
     expect(r.body.resumo).toEqual({ pacientes: 1 })
   })
 
@@ -161,8 +164,8 @@ describe('relatórios 2, 3, 4, 6 e 7 — pacientes', () => {
     expect(r.statusCode, r.text).toBe(200)
     expect(r.body.linhas).toEqual([
       // 70.001 ÷ 2 = 35.000,5 → meio-para-cima (`Dinheiro.media`).
-      { pacienteId: c.pacientes['ana'], nome: 'Ana Lúcia Souza', ltv: '70001', ticketMedio: '35001', compras: 2 },
-      { pacienteId: c.pacientes['bruna'], nome: 'Bruna Martins', ltv: '9000', ticketMedio: '9000', compras: 1 },
+      { pacienteId: c.pacientes['ana'], posicao: 1, nome: 'Ana Lúcia Souza', ltv: '70001', compras: 2, ticketMedio: '35001', ultimaCompra: '2026-03-10' },
+      { pacienteId: c.pacientes['bruna'], posicao: 2, nome: 'Bruna Martins', ltv: '9000', compras: 1, ticketMedio: '9000', ultimaCompra: '2026-10-23' },
     ])
     // O LTV é o da ficha.
     const ficha = await pegar(c, `/v1/pacientes/${c.pacientes['ana']}`, {}, 'camila')
@@ -294,7 +297,7 @@ describe('relatórios 5 e 13 — classe saúde exige jornada (L-IN-2)', () => {
     expect(r.body.classe).toBe('saude')
     // Sem `valores`, nada de dinheiro (regra 17).
     expect(r.body.linhas).toEqual([
-      expect.objectContaining({ nome: 'Ana Lúcia Souza', data: HOJE, etapa: 'orcamento', valorOrcamento: null, valorFechado: null }),
+      expect.objectContaining({ nome: 'Ana Lúcia Souza', data: HOJE, situacao: 'enviado', valorOrcamento: null, valorFechado: null }),
     ])
     const b = await executar('orcamentos', filtros)
     expect(b.body.linhas[0]).toMatchObject({ valorOrcamento: '360000', valorFechado: null })

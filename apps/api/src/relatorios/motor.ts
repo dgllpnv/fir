@@ -4,6 +4,7 @@ import {
   ChaveDeRelatorio,
   classeDoRelatorio,
   type ClasseDeRelatorio,
+  type ColunaDoCatalogo,
   type ColunaNaSaida,
   ExecutarRelatorio,
   ExportarRelatorio,
@@ -15,9 +16,10 @@ import {
   podeAbrirRelatorio,
   type ResultadoDaExportacao,
   type ResultadoDoRelatorio,
+  type SomaDaColuna,
   temFaixaDeValor,
 } from '@fir/contracts'
-import { type ChaveDePermissao, diaCivil, ehChaveDePermissao } from '@fir/domain'
+import { type ChaveDePermissao, diaCivil, Dinheiro, ehChaveDePermissao } from '@fir/domain'
 import {
   ForbiddenException,
   HttpException,
@@ -476,6 +478,39 @@ export function colunasQueSaem(
     .map((c) => ({ chave: c.chave, rotulo: c.rotulo, tipo: c.tipo }))
 }
 
+const CENTAVOS = /^-?\d+$/
+
+/**
+ * **AS SOMAS DA FAIXA DE RESUMO E DO ARQUIVO** (backlog 1.8): para cada coluna
+ * que SAI e que o catálogo marca com `soma`, a Σ das linhas que saem, pelo
+ * value object — nenhum `number`, nenhuma soma na tela.
+ *
+ * Partir de `colunas` (as que `colunasQueSaem` já decidiu) é o que faz a
+ * redação morar num ponto só: sem `valores` não há coluna `dinheiro`, então
+ * não há soma — a chave nem existe na resposta, e `redigir` ainda apaga o
+ * `valor` se um dia alguém montar a soma por outro caminho (C16).
+ *
+ * As linhas, e não o total do resumo: com `truncado`, o arquivo e a tela têm as
+ * linhas que saíram, e a soma tem de bater com elas centavo a centavo.
+ */
+export function somasDasColunas(
+  chave: ChaveDeRelatorio,
+  colunas: readonly ColunaNaSaida[],
+  linhas: readonly unknown[],
+): SomaDaColuna[] {
+  const catalogo: readonly ColunaDoCatalogo[] = CATALOGO_DE_RELATORIOS[chave].colunas
+  const saem = new Set(colunas.filter((c) => c.tipo === 'dinheiro').map((c) => c.chave))
+  return catalogo.flatMap((col) => {
+    if (col.soma === undefined || !saem.has(col.chave)) return []
+    let total = Dinheiro.zero()
+    for (const l of linhas) {
+      const v = typeof l === 'object' && l !== null ? (l as Record<string, unknown>)[col.chave] : undefined
+      if (typeof v === 'string' && CENTAVOS.test(v)) total = total.mais(Dinheiro.deCentavos(BigInt(v)))
+    }
+    return [{ coluna: col.chave, rotulo: col.soma, valor: total.centavos.toString() }]
+  })
+}
+
 /**
  * A resposta montada, JÁ REDIGIDA: a primeira das duas camadas (C16). É
  * exportada para que a prova por mutação exercite esta camada sozinha, sem o
@@ -488,13 +523,15 @@ export function montar(
   saida: SaidaDaConsulta<unknown, unknown>,
   pode: (k: ChaveDePermissao) => boolean,
 ): ResultadoDoRelatorio {
+  const colunas = colunasQueSaem(chave, filtros, saida.optIn, pode)
   const bruto = {
     relatorio: chave,
     classe,
     cabecalho: { titulo: CATALOGO_DE_RELATORIOS[chave].titulo, filtrosEmTexto: [...saida.filtrosEmTexto] },
-    colunas: colunasQueSaem(chave, filtros, saida.optIn, pode),
+    colunas,
     linhas: [...saida.linhas],
     resumo: saida.resumo,
+    somas: somasDasColunas(chave, colunas, saida.linhas),
     truncado: saida.truncado,
   }
   // `as`: `redigir` devolve `unknown` porque é estrutural; a forma é a de

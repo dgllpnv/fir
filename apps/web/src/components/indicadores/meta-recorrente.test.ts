@@ -1,6 +1,6 @@
 import type { MetaDeKpiNaSaida } from '@fir/contracts'
 import { describe, expect, it } from 'vitest'
-import { corpoDaMetaEditada, corpoDaMetaNova, estadoInicialDaMeta, janelaDoEstado, validarEstadoDaMeta } from './campos-da-meta'
+import { corpoDaMetaEditada, corpoDaMetaNova, erroDaMetaNoCampo, estadoInicialDaMeta, janelaDoEstado, validarEstadoDaMeta } from './campos-da-meta'
 import { daSerie, proximaDaSerie } from './detalhe-na-tela'
 
 /**
@@ -86,5 +86,22 @@ describe('a série no detalhe do KPI', () => {
     expect(proximaDaSerie([out, nov], nov)).toBeNull()
     expect(proximaDaSerie([avulsa], avulsa)).toBeNull()
     expect(proximaDaSerie([nov, dez], null)).toBeNull()
+  })
+})
+
+describe('a recusa do servidor vai embaixo do campo (1.9 D)', () => {
+  it('pelo código do domínio, nunca pelo texto', () => {
+    expect(erroDaMetaNoCampo('AlvoPiorQueAPartida', 'O alvo precisa ser maior que zero.', 'ate_data')).toEqual({ alvo: 'O alvo precisa ser maior que zero.' })
+    expect(erroDaMetaNoCampo('PartidaNaRecorrente', 'x', 'recorrente')).toEqual({ partida: 'x' })
+    expect(erroDaMetaNoCampo('ResultadoDoMesSoMesCivil', 'x', 'ate_data')).toEqual({ tipo: 'x' })
+    expect(erroDaMetaNoCampo('PrazoAntesDoInicio', 'x', 'ate_data')).toEqual({ prazo: 'x' })
+  })
+  it('"Do mês" e "Todo mês" mostram o mês, não as datas: o erro de data vai para ele', () => {
+    expect(erroDaMetaNoCampo('DataInvalida', 'x', 'mes')).toEqual({ mes: 'x' })
+    expect(erroDaMetaNoCampo('PrazoAntesDoInicio', 'x', 'recorrente')).toEqual({ mes: 'x' })
+  })
+  it('sem código, ou código que não é de campo: null, e o erro fica no rodapé', () => {
+    expect(erroDaMetaNoCampo(undefined, 'Já existe uma meta viva deste indicador nesse período; edite-a.', 'mes')).toBeNull()
+    expect(erroDaMetaNoCampo('SENHA_PROVISORIA', 'x', 'mes')).toBeNull()
   })
 })

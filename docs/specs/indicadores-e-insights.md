@@ -429,20 +429,22 @@ Reutilizáveis como estão:
 
   | Relatório | Padrão (tela e arquivo) | Opt-in | Nunca |
   |---|---|---|---|
-  | 1, 2 | nome, data do último atendimento ou compra, procedimento só se filtrado (no 1: valor e LTV, com `valores`) | telefone | aniversário, observação |
-  | 3 | nome, LTV, ticket médio, nº de compras (exige `valores`) | telefone | procedimento |
+  | 1 | nome, data da última compra, procedimento só se filtrado, valor da última compra e LTV (com `valores`) | telefone | aniversário, observação |
+  | 2 | nome, último atendimento, tipo do último atendimento (vazio quando a régua é a "última consulta" do cadastro), LTV (com `valores`), tem tarefa aberta? (sim/não) | telefone | aniversário, observação, procedimento |
+  | 3 | posição (1..N na ordem do LTV), nome, LTV, nº de compras, ticket médio, última compra (exige `valores`) | telefone | procedimento |
   | 4 | indicadora, nº de indicadas, nº que viraram pacientes, receita das indicadas (com `valores`) | telefone | **nome das indicadas** |
-  | 5 | nome, procedimento, sessões feitas e restantes, valor (com `valores`) | telefone | dose, lote |
+  | 5 | nome, procedimento, início do programa, sessões feitas e restantes, valor (com `valores`) | telefone | dose, lote |
   | 6 | nome, origem/campanha, convertido (sim/não), receita (com `valores`) | telefone | procedimento |
   | 7 | nome, dia/mês, idade, último atendimento | telefone | data completa de nascimento |
   | 8 | data, tipo, forma, valor, quem registrou (paciente pelo nome; classe `pessoal`) | — | telefone |
   | 9 | nome, adesão (o grupo do saldo), valor em aberto, desde quando (com `valores`) | telefone | procedimento além do nome do programa |
   | 10 | vencimento, descrição, categoria, valor, pago em, forma | — | — |
-  | 11 | data, item, lote, quantidade, unidade, motivo, quem registrou, custo (com `valores`) | paciente (com `jornada`) | telefone |
+  | 11 | data, item, lote, quantidade, unidade, motivo, quem registrou, custo (com `valores`); filtro de motivo uso em paciente, descarte, interno **ou ajuste** | paciente (com `jornada`) | telefone |
   | 12 | data, item, quantidade, lote, validade, custo | — | — |
-  | 13, 14 | nome, data, etapa ou situação, motivo, valor orçado e fechado (13, com `valores`) | telefone | nota livre do histórico |
+  | 13, 14 | nome, data, situação (13: enviado, fechado ou perdido; 14: a do recontato), motivo, valor orçado e fechado (13, com `valores`) | telefone (14) | nota livre do histórico |
   | 15 | tarefa, responsável, prazo, concluída em, no prazo? | — | paciente |
 
+  - **Somas da faixa de resumo e do arquivo** (backlog 1.8, "148 pacientes · LTV somado R$ 312.400"): toda coluna `dinheiro` marcada com `soma` no catálogo ganha `somas: [{ coluna, rotulo, valor }]` na resposta, calculada no servidor pelo `Dinheiro` sobre as linhas que saem (Σ da coluna = `valor`, centavo a centavo). Ela parte das colunas que saem: sem `valores` não há coluna em reais, e não há soma (a chave nem existe); o interceptor apaga `valor` como segunda camada. Somam: LTV (1, 2, 3), receita das indicadas (4), valor (5), receita (6), valor (8), valor em aberto (9), valor e valor pago (10), custo (11, 12), valor fechado (13). **O valor orçado do 13 não soma** (regra 4). O arquivo (CSV, XLSX, impressão) termina com a linha "Total", as mesmas somas debaixo das colunas.
   - **Divergências da 1.8, por lei:** o relatório 4 não traz os nomes das indicadas (terceiras), e o 7 não traz a data completa de nascimento. Decisão de LGPD sobre texto da PO, registrada no Manual.
   - **Telefone é opt-in** ("Incluir telefone"), desligado por padrão. Para contatar, o caminho é "Criar campanha".
 - **I-39. Exportação.** `POST /v1/relatorios/:chave/exportacoes { filtros, formato, incluirTelefone, finalidade? }`.
@@ -614,7 +616,7 @@ Os campos de cada linha são os da I-38. Permissão e classe:
 | 10 | `contas` | `contas.gerir` | `nenhuma` | não | `contas_a_pagar` |
 | 11 | `saidas-de-estoque` | `estoque.gerir` (+ `jornada` para o paciente) | `nenhuma`; `saude` com paciente | não | movimentos de saída, modo B8 |
 | 12 | `entradas-de-estoque` | `estoque.gerir` | `nenhuma` | não | movimentos de entrada |
-| 13 | `orcamentos` | `jornada` | `saude` | não | eventos do orçamento. "Valor fechado" = `orc_valor` (c.3), nunca `valorOrcamento` |
+| 13 | `orcamentos` | `jornada` | `saude` | não | eventos do orçamento. Situação: `fechar` vivo = fechado, `perder` vivo = perdido, o resto = enviado (filtro `situacao`; `etapa` fica só para os favoritos de antes). "Valor fechado" = `orc_valor` (c.3), nunca `valorOrcamento` |
 | 14 | `faltas-e-desmarcacoes` | `jornada` | `pessoal` | sim | `noshow`/`desmarcar` + I-11 |
 | 15 | `tarefas-da-equipe` | `tarefas.equipe` | `nenhuma` | não | condição de `consultarPrazos` |
 
@@ -627,6 +629,7 @@ Os campos de cada linha são os da I-38. Permissão e classe:
   - "N recebimentos" = `count(DISTINCT r.id)` com `r.valor > 0`, e não o número de linhas.
 - **Relatório 9, saldos em aberto.** Com o corte em hoje, Σ = `aReceber`. Com corte passado, o pagamento depois do corte não abate. O agrupamento é por adesão.
 - **Relatório 11, saídas de estoque** *(números B8)*.
+  - O ajuste **não** é saída: sem o filtro de motivo, as linhas são consumo, descarte e uso interno, e Σ = `saidasEmEstoque`. Com `motivo: ajuste`, as linhas são só os ajustes dos dois sentidos, no sinal do relatório (positivo = tirou do estoque), e no modo análise Σ = −`ajustesEmEstoque` (`ajustesDoPeriodoDaAnalise`, o mesmo recorte).
   - Ganha o modo **"período da análise"**: escolhe-se a contagem, e o recorte é o `entreGrupos` da análise, por índice.
   - Por item, Σ quantidade das linhas = `saidasEmEstoque`, com as compensações de reabertura em **linha negativa**.
   - Custo por linha com arredondamento meio-para-cima, como em `valorDaFalta`, e o total é a soma das linhas.
@@ -675,6 +678,7 @@ Os testes têm o nome entre crases. O índice final os mapeia.
 1. CRUD, encerrar, duplicar (recalcula a partida, exige `valores` para KR em reais) e arquivar.
 2. De 1 a 5 KRs, aviso acima de 4, trimestre por padrão e datas livres.
 3. KPI ligado sai da faixa Saúde. O mesmo KPI em dois OKRs tem duas metas. (1.10, item 5)
+4. Cada KR tem prazo próprio (backlog 1.9 D.2): `ResultadoChavePedido.prazo`, ausente = fim do período, e é o `prazo` da meta do KR (sem coluna nova). Fora de `[início, fim]` do OKR (inclusivo) → `422 PRAZO_DO_KR_FORA_DO_PERIODO` com `indice` do KR. Editar sem `prazo` preserva o próprio; o KR cujo prazo era o fim acompanha o fim novo; mudar o período deixando um prazo próprio fora é `422`. Duplicar nasce no fim do período novo.
 
 ### F. Redação e permissão (T1–T9)
 1. Sem `valores`, nenhum `emDinheiro` em nenhuma rota nova, com prova por mutação (`redacao-em-dinheiro`). (1.10, itens 6 e 17)

@@ -6,8 +6,9 @@ import {
   type ColunaNaSaida,
   LIMITE_DE_LINHAS,
   type ResultadoDaExportacao,
+  ROTULO_DA_SITUACAO_DO_ORCAMENTO_NO_RELATORIO,
+  type SomaDaColuna,
 } from '@fir/contracts'
-import { ROTULO_DE_ETAPA } from '@fir/domain'
 import { formatarDinheiro, formatarQuantidade } from '@fir/ui'
 import { diaEmTexto } from '@/lib/formato'
 import type { CelulaDaPlanilha, TabelaDaPlanilha } from '@/lib/planilha'
@@ -59,9 +60,9 @@ export const FRASE_DO_RELATORIO: Readonly<Record<ChaveDeRelatorio, string>> = {
   recebimentos: 'Cada pagamento do período, com os totais por forma e por tipo.',
   'saldos-em-aberto': 'O que cada paciente ainda deve, por adesão, até a data de corte.',
   contas: 'As contas com vencimento no período, pagas e a pagar.',
-  'saidas-de-estoque': 'Tudo o que saiu do estoque no período: uso em paciente, descarte e ajuste.',
+  'saidas-de-estoque': 'Tudo o que saiu do estoque no período: uso em paciente, descarte e uso interno — e os ajustes, pelo filtro de motivo.',
   'entradas-de-estoque': 'Tudo o que entrou no estoque no período, com lote e custo.',
-  orcamentos: 'Os orçamentos registrados no período, com a etapa e o que foi fechado.',
+  orcamentos: 'Os orçamentos registrados no período: enviados, fechados e perdidos, e o que foi fechado.',
   'faltas-e-desmarcacoes': 'Quem faltou ou desmarcou no período, e se houve recontato.',
   'tarefas-da-equipe': 'As tarefas com prazo no período, e se foram feitas no prazo.',
 }
@@ -88,8 +89,8 @@ export function temOptInDeTelefone(chave: ChaveDeRelatorio): boolean {
 
 /**
  * Os rótulos das colunas `situacao` de todos os relatórios. Os valores não se
- * repetem entre eles: prazo (15), convertido (6), motivo e recontato (14) e a
- * etapa da jornada (13), com os rótulos que a recepção já conhece.
+ * repetem entre eles: prazo (15), sim/não (convertido no 6, tarefa aberta no
+ * 2), motivo e recontato (14) e a situação do orçamento (13).
  */
 export const ROTULO_DA_SITUACAO: Readonly<Record<string, string>> = {
   ok: 'No prazo',
@@ -104,7 +105,7 @@ export const ROTULO_DA_SITUACAO: Readonly<Record<string, string>> = {
   'recontatada-depois': 'Recontatada depois',
   'aguardando-prazo': 'No prazo de recontato',
   'sem-recontato': 'Sem recontato',
-  ...ROTULO_DE_ETAPA,
+  ...ROTULO_DA_SITUACAO_DO_ORCAMENTO_NO_RELATORIO,
 }
 
 /** A ordem do mais urgente para o resolvido; o que não está aqui ordena pelo rótulo. */
@@ -213,11 +214,29 @@ export const POR_PAGINA = 50
 export const LIMITE_EM_TEXTO = LIMITE_DE_LINHAS.toLocaleString('pt-BR')
 
 /**
+ * **A linha "Total"** do fim da tabela e do arquivo (backlog 1.8): as somas que
+ * o SERVIDOR mandou, cada uma debaixo da sua coluna, pelo formatador central;
+ * "Total" na primeira coluna. Nenhuma conta aqui. Sem soma com valor (sem
+ * `valores`, o servidor não manda nenhuma), não há linha — `null`.
+ */
+export function linhaDeTotais(colunas: readonly ColunaNaSaida[], somas: readonly SomaDaColuna[]): Celula[] | null {
+  const porColuna = new Map(somas.filter((s) => s.valor !== null).map((s) => [s.coluna, s]))
+  if (porColuna.size === 0) return null
+  return colunas.map((col, i) => {
+    const s = porColuna.get(col.chave)
+    if (s !== undefined) return celula({ chave: 'valor', tipo: 'dinheiro' }, { valor: s.valor })
+    if (i === 0) return { texto: 'Total', arquivo: { tipo: 'texto', valor: 'Total' }, ordem: null, numerica: false }
+    return { texto: '', arquivo: { tipo: 'texto', valor: '' }, ordem: null, numerica: false }
+  })
+}
+
+/**
  * A tabela do arquivo (L-IN-12): o cabeçalho que o servidor montou — clínica,
  * relatório, filtros, data, quem exportou, código, finalidade e aviso —, uma
- * linha em branco, as colunas e as linhas. O cabeçalho é texto do servidor e
- * passa pela mesma proteção de fórmula que o resto (o nome da clínica também
- * é texto digitado).
+ * linha em branco, as colunas, as linhas e, no fim, a linha "Total" com as
+ * somas do servidor (só as que a pessoa pode ver). O cabeçalho é texto do
+ * servidor e passa pela mesma proteção de fórmula que o resto (o nome da
+ * clínica também é texto digitado).
  */
 export function tabelaDaExportacao(e: ResultadoDaExportacao): TabelaDaPlanilha {
   const c = e.exportacao.cabecalho
@@ -238,6 +257,7 @@ export function tabelaDaExportacao(e: ResultadoDaExportacao): TabelaDaPlanilha {
   ]
   const r = e.resultado
   const linhas: readonly Linha[] = r.linhas
+  const totais = linhaDeTotais(r.colunas, r.somas)
   return {
     nomeDaAba: c.relatorio,
     linhas: [
@@ -245,6 +265,7 @@ export function tabelaDaExportacao(e: ResultadoDaExportacao): TabelaDaPlanilha {
       [],
       r.colunas.map((col) => ({ tipo: 'texto' as const, valor: col.rotulo })),
       ...linhas.map((l) => r.colunas.map((col) => celula(col, l).arquivo)),
+      ...(totais === null ? [] : [totais.map((x) => x.arquivo)]),
     ],
   }
 }

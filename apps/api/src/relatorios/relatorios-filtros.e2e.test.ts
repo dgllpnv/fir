@@ -164,7 +164,16 @@ describe('relatório 2 — dias ou meses, tipo de atendimento, unidade', () => {
     expect(nomes(dias.body.linhas)).toEqual(['Ana Lúcia Souza', 'Bruna Martins'])
 
     const doTipo = await executar('pacientes-sem-atendimento', { semAtendimentoHaMeses: 3, tipo: 'Procedimento realizado' })
-    expect(doTipo.body.linhas).toEqual([{ pacienteId: c.pacientes['bruna'], nome: 'Bruna Martins', ultimoAtendimento: '2026-05-01' }])
+    expect(doTipo.body.linhas).toEqual([
+      {
+        pacienteId: c.pacientes['bruna'],
+        nome: 'Bruna Martins',
+        ultimoAtendimento: '2026-05-01',
+        tipo: 'Procedimento realizado',
+        ltv: '0',
+        tarefaAberta: 'nao',
+      },
+    ])
     expect(doTipo.body.resumo).toEqual({ pacientes: 1 })
 
     expect(nomes((await executar('pacientes-sem-atendimento', { semAtendimentoHaDias: 2, unidadeId: c.unidades['pituba'] })).body.linhas)).toEqual([
@@ -188,8 +197,8 @@ describe('relatório 3 — período, unidade e origem', () => {
     const outubro = await executar('pacientes-maior-ltv', { quantos: 5, ...OUTUBRO }, 'camila')
     expect(outubro.statusCode, outubro.text).toBe(200)
     expect(outubro.body.linhas).toEqual([
-      { pacienteId: c.pacientes['bruna'], nome: 'Bruna Martins', ltv: '9000', ticketMedio: '9000', compras: 1 },
-      { pacienteId: c.pacientes['ana'], nome: 'Ana Lúcia Souza', ltv: '5000', ticketMedio: '5000', compras: 1 },
+      { pacienteId: c.pacientes['bruna'], posicao: 1, nome: 'Bruna Martins', ltv: '9000', compras: 1, ticketMedio: '9000', ultimaCompra: '2026-10-12' },
+      { pacienteId: c.pacientes['ana'], posicao: 2, nome: 'Ana Lúcia Souza', ltv: '5000', compras: 1, ticketMedio: '5000', ultimaCompra: '2026-10-10' },
     ])
     expect(nomes((await executar('pacientes-maior-ltv', { quantos: 5, unidadeId: c.unidades['principal'] }, 'camila')).body.linhas)).toEqual([
       'Ana Lúcia Souza',
@@ -400,8 +409,10 @@ describe('relatórios 11 e 12 — motivo, local e fornecedor', () => {
     expect(naSala.body.cabecalho.filtrosEmTexto).toContain('Local: Sala 1')
 
     expect((await executar('saidas-de-estoque', { ...base, localId: await local('Vizinho', c.outraClinica) })).statusCode).toBe(422)
-    // Ajuste não é saída (B8): fora da lista.
-    expect((await executar('saidas-de-estoque', { ...base, motivo: 'ajuste' })).statusCode).toBe(422)
+    // Ajuste não é saída (B8): sem o filtro, fora; com ele, só os ajustes (aqui, nenhum).
+    // O caso com ajustes está em `relatorios-lacunas.e2e.test.ts`.
+    expect((await executar('saidas-de-estoque', { ...base, motivo: 'ajuste' })).body.linhas).toEqual([])
+    expect((await executar('saidas-de-estoque', { ...base, motivo: 'inventado' })).statusCode).toBe(422)
   })
 
   it('12: o fornecedor é o emissor da nota, por id opaco listado em opções; 422 para id que não é desta clínica', async () => {

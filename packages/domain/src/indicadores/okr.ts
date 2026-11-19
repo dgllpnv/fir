@@ -138,6 +138,32 @@ export function tipoDaMetaDoKr(p: Pick<PeriodoDoOkr, 'inicio' | 'fim'>): 'mes' |
   return p.inicio.endsWith('-01') && p.fim === fimDoMes(p.inicio.slice(0, 7)) ? 'mes' : 'ate_data'
 }
 
+/**
+ * **O prazo do KR** (backlog 1.9 D.2): padrão, o fim do período do OKR; com
+ * prazo próprio, ele — sempre dentro do período, bordas inclusivas.
+ *
+ * Sem `pedido`, o KR que já existe guarda o prazo PRÓPRIO e acompanha o fim
+ * quando não tinha um. "Próprio" é o prazo diferente do fim do período
+ * ANTERIOR (`atual.fimAnterior`): não há coluna a mais para o que o prazo já
+ * diz. Escolher o próprio fim é o mesmo que não escolher — e acompanha.
+ *
+ * O prazo próprio que fica fora do período novo é erro, nunca puxado para
+ * dentro: mover o prazo em silêncio mudaria a meta que a pessoa definiu.
+ */
+export function prazoDoKr(
+  periodo: Pick<PeriodoDoOkr, 'inicio' | 'fim'>,
+  pedido: string | undefined,
+  atual: { readonly prazo: string; readonly fimAnterior: string } | null,
+): Result<string> {
+  const prazo =
+    pedido ?? (atual !== null && atual.prazo !== atual.fimAnterior ? atual.prazo : periodo.fim)
+  if (!ehDiaDoCalendario(prazo)) return erro(erroDe('DataInvalida', 'Escolha um prazo que existe no calendário.'))
+  if (prazo < periodo.inicio || prazo > periodo.fim) {
+    return erro(erroDe('PrazoDoKrForaDoPeriodo', 'O prazo do resultado-chave precisa ficar dentro do período do OKR.'))
+  }
+  return ok(prazo)
+}
+
 // ---------------------------------------------------------------------------
 // Resultados-chave (spec E.2)
 // ---------------------------------------------------------------------------

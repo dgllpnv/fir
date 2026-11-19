@@ -18,8 +18,23 @@ export function AtalhoDoIndicador({
   podeIndicadores: boolean
 }) {
   if (!podeIndicadores || kpiId === null || kpiId === undefined) return null
+  return <LinkDoAtalho href={`/indicadores/${kpiId}`} />
+}
+
+/**
+ * O mesmo atalho para a ABA, quando a tela não tem um KPI só seu — Minhas
+ * metas: a meta é da pessoa, e o KPI que a agrega ("Atingimento das metas
+ * individuais") é de RH e some para quem não tem `pessoas.gerir`. Levar a
+ * recepção a ele seria levá-la a um 404; a aba ela abre.
+ */
+export function AtalhoParaIndicadores({ podeIndicadores }: { podeIndicadores: boolean }) {
+  if (!podeIndicadores) return null
+  return <LinkDoAtalho href="/indicadores" />
+}
+
+function LinkDoAtalho({ href }: { href: string }) {
   return (
-    <Link className="link" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', justifySelf: 'start' }} href={`/indicadores/${kpiId}`}>
+    <Link className="link" style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', justifySelf: 'start' }} href={href}>
       Acompanhar em Indicadores &amp; Insights
     </Link>
   )

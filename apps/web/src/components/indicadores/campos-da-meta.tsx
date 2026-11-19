@@ -33,10 +33,14 @@ export type EstadoDaMeta = {
 
 /**
  * O que os campos precisam saber do KPI. `id` é `null` no D.1, antes de o
- * KPI existir: aí não há prévia (ela é medida pelo servidor sobre o KPI).
+ * KPI existir: aí a prévia é pedida pela `chave` do catálogo (o servidor
+ * mede o atual como na linha do catálogo) ou, no manual — e no catálogo com
+ * parâmetro, que a prévia não mede —, só pela unidade, e traz só o ritmo.
  */
 export type KpiDaMeta = Pick<KpiNaLista, 'unidade' | 'agregacao' | 'responsavelId'> & {
   readonly id: string | null
+  /** A chave do catálogo do KPI que ainda vai nascer; sem ela, a prévia vai pela unidade. */
+  readonly chave?: KpiNaLista['chave'] | undefined
   readonly atual: KpiNaLista['atual'] | null
 }
 
@@ -51,7 +55,36 @@ export const OPCOES_DE_TIPO_DA_META: readonly (readonly [TipoDaMetaNaTela, strin
   ['recorrente', 'Todo mês (recorrente)'],
 ]
 
-export type ErrosDaMeta = Partial<Record<'alvo' | 'partida' | 'prazo' | 'mes', string>>
+export type ErrosDaMeta = Partial<Record<'tipo' | 'alvo' | 'partida' | 'prazo' | 'mes', string>>
+
+/**
+ * O campo de cada recusa da meta que vem do servidor (422), pelo CÓDIGO do
+ * domínio (`validarMeta`) — nunca pelo texto. É o que põe o erro em vermelho
+ * embaixo do campo (1.9 D), e não no fim do formulário. Código sem campo
+ * (ou erro sem código) fica de fora: cai no rodapé.
+ */
+const CAMPO_DO_CODIGO_DA_META: Readonly<Record<string, keyof ErrosDaMeta>> = {
+  DataInvalida: 'prazo',
+  PrazoAntesDoInicio: 'prazo',
+  MetaDoMesForaDoMes: 'mes',
+  ResultadoDoMesSoMesCivil: 'tipo',
+  UnidadeDaMetaDiferente: 'alvo',
+  ValorForaDoDominio: 'alvo',
+  AlvoPiorQueAPartida: 'alvo',
+  PartidaDaSomaNaoEZero: 'partida',
+  PartidaNaRecorrente: 'partida',
+}
+
+/**
+ * A recusa do servidor no campo da meta, ou `null` se ela não é de campo.
+ * "Do mês" e "Todo mês" não mostram início e prazo — mostram o mês —, e o
+ * erro de data vai para ele.
+ */
+export function erroDaMetaNoCampo(codigo: string | undefined, mensagem: string, tipo: TipoDaMetaNaTela): ErrosDaMeta | null {
+  const campo = codigo === undefined ? undefined : CAMPO_DO_CODIGO_DA_META[codigo]
+  if (campo === undefined) return null
+  return { [campo === 'prazo' && tipoPorMes(tipo) ? 'mes' : campo]: mensagem }
+}
 
 /** Soma começa do zero, sempre (I-17): o campo de partida fica travado. */
 export const partidaTravada = (k: Pick<KpiNaLista, 'agregacao'>): boolean => k.agregacao === 'soma'
@@ -143,6 +176,7 @@ export function CamposDaMeta({
               </label>
             ))}
           </div>
+          <ErroDoCampo id={`${id}-tipo`} mensagem={erros.tipo} />
         </fieldset>
       )}
 
@@ -249,10 +283,17 @@ function PreviaAoVivo({ kpi, estado }: { kpi: KpiDaMeta; estado: EstadoDaMeta })
   const partida = semPartida(kpi, estado) ? null : menorUnidadeDoTexto(kpi.unidade, estado.partida)
   const { inicio, prazo } = janelaDoEstado(estado)
   const pronto = alvo !== null && /^\d{4}-\d{2}-\d{2}$/.test(inicio) && /^\d{4}-\d{2}-\d{2}$/.test(prazo) && prazo >= inicio
+  // Um dos três, nesta ordem: o KPI que existe, a chave do catálogo, a unidade (D.1).
+  const doKpi =
+    kpi.id !== null
+      ? { kpiId: kpi.id }
+      : kpi.chave !== null && kpi.chave !== undefined
+        ? { chave: kpi.chave }
+        : { unidade: kpi.unidade }
   const caminho =
-    pronto && kpi.id !== null
+    pronto
     ? `v1/indicadores/metas/previa${consultaEmTexto({
-        kpiId: kpi.id,
+        ...doKpi,
         inicio,
         prazo,
         alvo: alvo.toString(),

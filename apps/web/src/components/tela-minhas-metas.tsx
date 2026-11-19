@@ -9,6 +9,7 @@ import { ICONE_ANTERIOR, ICONE_PROXIMO } from '@/lib/icones'
 import { mudarMes } from './equipe/aba-metas'
 import { MetaDoMes } from './equipe/meta-do-mes'
 import { Carregando, Erro, Vazio } from './estados'
+import { AtalhoParaIndicadores } from './indicadores/atalho-do-indicador'
 
 /**
  * **Minhas metas** — as metas do mês de quem está olhando, e só.
@@ -32,9 +33,12 @@ import { Carregando, Erro, Vazio } from './estados'
 export function TelaMinhasMetas({
   hoje,
   podeGerirEquipe,
+  podeIndicadores = false,
 }: {
   hoje: string
   podeGerirEquipe: boolean
+  /** O atalho "Acompanhar em Indicadores & Insights" (1.9 H), só para quem abre a aba. */
+  podeIndicadores?: boolean
 }) {
   const [mes, setMes] = useState(hoje.slice(0, 7))
   const dados = useDados<MinhasMetas>(`v1/minhas-metas/${mes}`)
@@ -117,6 +121,7 @@ export function TelaMinhasMetas({
           </p>
         </>
       )}
+      {d === null || !d.temFicha ? null : <AtalhoParaIndicadores podeIndicadores={podeIndicadores} />}
     </section>
   )
 }

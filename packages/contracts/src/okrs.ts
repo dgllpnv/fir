@@ -34,6 +34,12 @@ export const PeriodoDoOkrPedido = z.discriminatedUnion('tipo', [
  * Um KR no corpo. Com `id`, é um KR que já existe (o KPI não muda); sem, é
  * novo. `alvo`/`partida` na menor unidade do KPI. No KR de campanha o alvo é
  * a meta da campanha, travado: mandar outro é 422.
+ *
+ * `prazo` (backlog 1.9 D.2) é o dia, inclusivo, dentro do período do OKR;
+ * ausente, o fim do período — e, no KR que já existe, o prazo que ele tinha
+ * (o próprio fica; o que era o fim acompanha o fim novo). Fora do período é
+ * 422 `PRAZO_DO_KR_FORA_DO_PERIODO`, com `indice` = a posição do KR na lista.
+ * O prazo sai em `metaDoKr.prazo`.
  */
 export const ResultadoChavePedido = z
   .object({
@@ -41,9 +47,21 @@ export const ResultadoChavePedido = z
     kpiId: Uuid,
     alvo: InteiroDoKpi.optional(),
     partida: InteiroDoKpi.optional(),
+    prazo: DiaDoKpi.optional(),
   })
   .strict()
 export type ResultadoChavePedido = z.infer<typeof ResultadoChavePedido>
+
+/**
+ * O 422 do prazo fora do período: `indice` liga a mensagem ao campo do KR na
+ * tela (a posição em `resultadosChave` do corpo; no `PUT` sem a lista, a do
+ * KR na ordem do OKR).
+ */
+export const CODIGO_PRAZO_DO_KR_FORA_DO_PERIODO = 'PRAZO_DO_KR_FORA_DO_PERIODO'
+export const ErroDePrazoDoKr = z
+  .object({ codigo: z.literal(CODIGO_PRAZO_DO_KR_FORA_DO_PERIODO), indice: z.number().int().min(0) })
+  .passthrough()
+export type ErroDePrazoDoKr = z.infer<typeof ErroDePrazoDoKr>
 
 const ListaDeKrs = z.array(ResultadoChavePedido).min(MINIMO_DE_KRS).max(MAXIMO_DE_KRS)
 

@@ -2,7 +2,7 @@ import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 import { Dinheiro } from '../dinheiro'
 import type { MovimentoDeEstoque, TipoDeMovimento } from '../estoque'
-import { analiseDoPeriodo, saidasDoPeriodoDaAnalise } from '../estoque-analise'
+import { ajustesDoPeriodoDaAnalise, analiseDoPeriodo, saidasDoPeriodoDaAnalise } from '../estoque-analise'
 import { Quantidade } from '../quantidade'
 import { custoDaQuantidade, valorDaFalta } from './valor-da-falta'
 
@@ -84,6 +84,44 @@ describe('saidasDoPeriodoDaAnalise — as linhas que a Análise somou', () => {
         const linhas = saidasDoPeriodoDaAnalise(movs, de, ate)
         if (a === null) return linhas === null
         return linhas !== null && somaDasLinhas(linhas) === a.saidas.milesimos
+      }),
+    )
+  })
+})
+
+describe('ajustesDoPeriodoDaAnalise — o relatório 11 com o motivo "ajuste"', () => {
+  it('os ajustes do recorte, dos dois sentidos; o de depois da contagem final fica fora', () => {
+    const movs = [
+      contagem(10_000n, '2026-03-01', 'c1'),
+      mov('consumo', -2_000n, '2026-03-05'),
+      mov('ajuste', -1_000n, '2026-03-06'),
+      mov('ajuste', 250n, '2026-03-07'),
+      contagem(7_000n, '2026-03-20', 'c2'),
+      mov('ajuste', -3_000n, '2026-03-22'),
+    ]
+    const linhas = ajustesDoPeriodoDaAnalise(movs, '2026-03-01', '2026-03-31')!
+    expect(linhas.map((m) => m.milesimos)).toEqual([-1_000n, 250n])
+    expect(analiseDoPeriodo(movs, '2026-03-01', '2026-03-31', 'ampola')!.ajustes.milesimos).toBe(-750n)
+    expect(ajustesDoPeriodoDaAnalise([contagem(1_000n, '2026-03-01', 'c1')], '2026-03-01', '2026-03-31')).toBeNull()
+  })
+
+  it('PROPRIEDADE: por item, a soma assinada das linhas é exatamente o `ajustes` da Análise', () => {
+    const tipo = fc.constantFrom<TipoDeMovimento>('entrada', 'consumo', 'descarte', 'interno', 'ajuste', 'contagem')
+    const passo = fc.record({ tipo, q: fc.bigInt({ min: 1n, max: 50_000n }), dia: fc.integer({ min: 1, max: 28 }), mais: fc.boolean() })
+    fc.assert(
+      fc.property(fc.array(passo, { maxLength: 25 }), fc.integer({ min: 1, max: 28 }), fc.integer({ min: 0, max: 27 }), (passos, d0, largura) => {
+        const dia = (d: number) => `2026-02-${String(d).padStart(2, '0')}`
+        const movs = passos.map((p, i) => {
+          if (p.tipo === 'contagem') return contagem(p.q, dia(p.dia), `g${i}`)
+          const sinal = p.tipo === 'entrada' || (p.tipo === 'ajuste' && p.mais) ? 1n : -1n
+          return mov(p.tipo, sinal * p.q, dia(p.dia))
+        })
+        const de = dia(d0)
+        const ate = dia(Math.min(28, d0 + largura))
+        const a = analiseDoPeriodo(movs, de, ate, 'ampola')
+        const linhas = ajustesDoPeriodoDaAnalise(movs, de, ate)
+        if (a === null) return linhas === null
+        return linhas !== null && linhas.every((m) => m.tipo === 'ajuste') && linhas.reduce((s, m) => s + m.milesimos, 0n) === a.ajustes.milesimos
       }),
     )
   })

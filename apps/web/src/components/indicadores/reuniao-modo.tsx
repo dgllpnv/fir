@@ -93,7 +93,7 @@ export function ModoReuniao({ minhaPessoaId }: { minhaPessoaId: string }) {
     if (montado) raiz.current?.focus()
   }, [montado])
 
-  // O botão "Modo reunião" já pediu a tela cheia no clique (`pedirTelaCheia`).
+  // O clique em "Modo reunião" já pediu a tela cheia (`TelaCheiaDaReuniao`, no layout).
   // Em tela cheia o Esc é do navegador: a tela cheia que cai sem o nosso botão
   // é o Esc, e ele continua saindo da reunião — menos com o formulário aberto,
   // em que o Esc é dele.

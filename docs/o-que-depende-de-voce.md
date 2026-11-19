@@ -16,7 +16,7 @@ Os documentos jurídicos ficam **fora do repositório** (ele é público), em `C
 
 ## Resolvidos
 
-- **Domínio:** `firmaregestao.com.br` está no ar, com o DNS na Hostinger e o `A` em `2.24.79.49`.
+- **Domínio:** `firmaregestao.com.br` está no ar, com o DNS na Hostinger e o `A` em o IP da VPS.
 - **Sessão no balcão:** a D-17 decidiu que a sessão vai até o fim do dia da clínica, com teto de 12 horas. Já está implementada.
 - **`PROXY_SALTOS_CONFIAVEIS = 1`** e o piso de tempo do login: estão medidos e no compose. Se um CDN entrar na frente do Traefik, isso volta a ser item de conferência.
 - **Infraestrutura do e-mail** (commits `332c8f6` e `da1aeb4`, ADR `2026-11-17-saida-de-email-da-api`). Antes, mesmo com o provedor pronto, o e-mail não sairia de produção: a API estava numa rede sem saída e não recebia as variáveis de SMTP.

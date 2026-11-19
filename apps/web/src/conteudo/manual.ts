@@ -869,7 +869,7 @@ A linha **Recebido** da Visão do mês continua sendo o mês inteiro. Fechar o c
         gestao: true,
         texto: `Um OKR é um objetivo em linguagem de dono ("Ter uma agenda previsível") com **1 a 5 resultados-chave**; o recomendado é até 4. Em **+ Novo › Novo OKR**:
 - **Objetivo**, **Período** (o trimestre, já marcado, ou **Datas livres**) e **Responsável**.
-- **+ Adicionar resultado-chave:** escolha o KPI, o valor-alvo e o prazo (vem o fim do período). Falta o KPI? Crie ali mesmo, sem sair do formulário.
+- **+ Adicionar resultado-chave:** escolha o KPI, o valor-alvo e o prazo (vem o fim do período e o acompanha; um prazo antes dele precisa ficar dentro do período, e aparece no cartão como “até 15/02”). Falta o KPI? Crie ali mesmo, sem sair do formulário.
 - **Por que isso importa** (opcional): aparece no Modo reunião.
 
 O progresso do OKR é a **média** dos resultados-chave, e a cor é a do pior deles. O KPI ligado sai de Saúde da clínica e passa a aparecer dentro do OKR. O mesmo KPI pode estar em mais de um OKR, cada um com a sua meta.
@@ -924,7 +924,14 @@ Passe com as setas do teclado ou com os botões dos cantos de baixo; o contador 
 - **Comercial:** orçamentos, faltas e desmarcações.
 - **Equipe:** tarefas da equipe.
 
-Escolha o relatório, preencha os filtros e toque em **Gerar**. Aparecem o resumo (quantas linhas e os totais), a tabela (50 linhas por página, com ordenação por coluna) e os botões **Exportar**, **Salvar como favorito** e, nas listas de pacientes, **Criar campanha com esta lista**. Tocar no nome de uma paciente abre a ficha em outra aba. No celular, **Trocar de relatório** volta à lista.
+Escolha o relatório, preencha os filtros e toque em **Gerar**. Aparecem o resumo (quantas linhas e as somas em reais, como "148 pacientes · LTV somado R$ 312.400,00"), a tabela (50 linhas por página, com ordenação por coluna e a linha **Total** no pé) e os botões **Exportar**, **Salvar como favorito** e, nas listas de pacientes, **Criar campanha com esta lista**. Tocar no nome de uma paciente abre a ficha em outra aba. No celular, **Trocar de relatório** volta à lista.
+
+Algumas colunas:
+- **Pacientes sem atendimento:** o último atendimento e o tipo dele (fica em branco quando a data veio da última consulta do cadastro), o LTV e **Tem tarefa aberta?**.
+- **Pacientes com maior LTV:** a posição no ranking, o LTV, as compras, o ticket médio e a última compra.
+- **Pacientes por procedimento:** o início do programa, as sessões feitas e restantes e o valor.
+- **Saídas de estoque:** no filtro **Motivo**, **Ajuste** mostra só os ajustes manuais, para menos e para mais (o para mais aparece com a quantidade negativa). Sem esse filtro, ajuste não entra, como na Análise.
+- **Orçamentos:** a **Situação** é Enviado, Fechado ou Perdido, e o filtro usa a mesma. O valor orçado não é somado: orçamento não é receita.
 
 Cada relatório só aparece para quem tem a permissão da tela de onde vêm os dados: Recebimentos pede a Visão do mês, Orçamentos pede a Jornada do paciente. Em Recebimentos, o dinheiro dos dias com caixa ainda aberto fica num total à parte, aguardando fechamento.`,
       },
@@ -935,7 +942,8 @@ Cada relatório só aparece para quem tem a permissão da tela de onde vêm os d
 - Todo arquivo sai com o nome da clínica, o relatório, os filtros, a data, quem exportou e um **código**, que também vai no nome do arquivo. A exportação fica registrada em **Atividades**.
 - Lista com dados de pacientes pede a confirmação do aviso. Lista com dado de saúde (pacientes por procedimento, orçamentos, sem compra filtrado por procedimento, saídas de estoque com a paciente) pede também **Para que é este arquivo?**: Acompanhamento do tratamento, Recall de lote ou Conferência interna.
 - **Incluir telefone** vem desligado. Marque só se o telefone precisar estar no arquivo. Para ligar ou mandar mensagem para a lista, o caminho é **Criar campanha com esta lista**, sem arquivo nenhum.
-- Quem não tem acesso a valores exporta sem as colunas em reais.
+- O arquivo termina com a linha **Total**: as mesmas somas do resumo, cada uma debaixo da sua coluna.
+- Quem não tem acesso a valores exporta sem as colunas em reais e sem a linha Total.
 - A sessão de suporte da Firmare vê o relatório, mas não exporta dado de paciente.
 
 Arquivo exportado tem dado de paciente: não encaminhe e apague quando terminar.`,
@@ -988,7 +996,7 @@ Escreva o que se mede e o que se vai fazer ("Ligar para os orçamentos de outubr
 - No detalhe, "Meta e prazo" mostra "Meta definida", e o gráfico sai em percentual da meta.
 - **Despesas fixas sobre o recebido** não aparece. Os indicadores de equipe (banco de horas, metas individuais e conversas 1:1) só aparecem para quem tem a permissão de Equipe.
 - Meta, alvo ou KPI manual em reais só é criado por quem vê valores.
-- Nos relatórios, as colunas em reais somem da tela e do arquivo, e **Pacientes com maior LTV** não aparece.`,
+- Nos relatórios, as colunas em reais e as somas do resumo somem da tela e do arquivo, e **Pacientes com maior LTV** não aparece.`,
       },
       {
         titulo: 'Indicadores da clínica na carteira da Firmare',

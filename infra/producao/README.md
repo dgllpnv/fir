@@ -7,11 +7,24 @@ próprio, rede de dados sem rota de saída, só o `web` encarando a internet.
 ## O deploy, em um comando
 
 ```bash
-ssh root@2.24.79.49
-cd /opt/fir/repo && git fetch origin && git reset --hard origin/fundacao
+ssh -i <chave> root@<VPS>
+cd <checkout> && git fetch origin && git merge --ff-only origin/<branch>
 cd infra/producao && bash implantar.sh
-./redefinir-superadmin.sh <usuario> "Nome"   # cria o PRIMEIRO operador
+./redefinir-superadmin.sh <usuario> "Nome"   # só na primeira vez: cria o PRIMEIRO operador
 ```
+
+`<VPS>`, `<chave>`, `<checkout>` e `<branch>` são placeholders: os valores
+reais ficam onde a equipe guarda senhas, não neste repositório público.
+**Não use `git reset --hard`** num checkout com ajustes locais (o nome do
+projeto, por exemplo): ele os apaga. Se houver ajustes, `git stash` antes e
+`git stash pop` depois.
+
+**Confira o projeto antes de qualquer comando.** Na VPS de produção o projeto
+do Compose se chama `firmaregestao`. Containers `fir-*` que existam lá são de
+outra aplicação, e não se tocam. Rode tudo de dentro de
+`<checkout>/infra/producao`.
+
+Máquina nova, do zero: ver [Máquina nova](#máquina-nova-do-zero), no fim.
 
 **`implantar.sh` constrói as imagens.** Era em dois comandos, e o segundo
 sozinho mentia: as oito asserções passavam, ele imprimia "FIR em https://…", e
@@ -33,13 +46,21 @@ reflexo.
 ## A ordem obrigatória, e o que acontece fora dela
 
 ```
-1.  segredos no .env  (incluindo SENHA_PAINEL e DATABASE_URL_PAINEL)
+1.  segredos no .env  (incluindo SENHA_PAINEL e todas as DATABASE_URL_*)
 2.  docker compose up -d postgres redis    # 10-papeis.sh roda AQUI, uma vez
 3.  ./provisionar-painel.sh                # cria e credencia fir_painel
+    ./provisionar-carteira.sh              # fir_carteira
+    ./provisionar-portal.sh                # fir_portal
+    ./provisionar-integracoes.sh           # fir_integracoes
 4.  migrar.js, como fir_migrate            # a 0013 CONFERE o papel
-5.  docker compose up -d api web worker-agenda
+5.  docker compose up -d clamav-atualizador clamav
+    docker compose up -d api web worker-agenda worker-uso-diario worker-cobrancas \
+      worker-rotinas-internas worker-anexos worker-planilhas worker-campanhas
 6.  ./redefinir-superadmin.sh <usuario> "Nome"   # cria o PRIMEIRO operador
 ```
+
+O `implantar.sh` faz 1 a 5 nessa ordem. A lista acima é para entender, não
+para digitar.
 
 ### Conferência antes da migration 0084 (tarefas para grupo)
 
@@ -346,6 +367,18 @@ quiser). A regra de egress pode ficar: ela casa uma sub-rede sem ninguém.
 | `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA`, `EMAIL_REMETENTE`, `URL_PUBLICA` | você (opcional) | o envio de e-mail da API. Vazias = envio desligado e API sem rota de saída. `SMTP_HOST` preenchido inclui `docker-compose.email.yml`. **Só com a LGPD L10 feita e a regra de egress aplicada** — ver "Ligar o envio de e-mail" |
 | `COMPOSE_FILE` | você (só com envio ligado) | `docker-compose.yml:docker-compose.email.yml`, para comandos do Compose à mão concordarem com o deploy |
 | `FIR_CHAVE_SEGUNDO_FATOR_CARTEIRA` | `implantar.sh` | cifra o segredo TOTP de cada Usuário de Gestão e é o pepper dos códigos de recuperação. **Nunca troque**: trocar exige resetar o segundo fator de todos |
+| `SENHA_CARTEIRA`, `DATABASE_URL_CARTEIRA` | `implantar.sh` / `provisionar-carteira.sh` | o papel `fir_carteira` |
+| `SENHA_PORTAL`, `DATABASE_URL_PORTAL` | `implantar.sh` / `provisionar-portal.sh` | o papel `fir_portal` |
+| `SENHA_INTEGRACOES`, `DATABASE_URL_INTEGRACOES` | `implantar.sh` / `provisionar-integracoes.sh` | o papel `fir_integracoes`, só do `worker-agenda` |
+| `CHAVE_ANEXOS` | `implantar.sh` | cifra cada anexo da carteira. **Nunca troque**: os anexos já gravados ficam ilegíveis |
+| `FIR_CHAVE_SUPRESSAO_DE_CONTATO` | `implantar.sh` | HMAC da lista de "não contatar". **Nunca troque**: quem pediu para sair volta a ser contatado |
+| `FIR_INTEGRACOES_CHAVE_PUBLICA`, `FIR_INTEGRACOES_CHAVE_PRIVADA`, `FIR_INTEGRACOES_PEPPER` | `implantar.sh` (par gerado com `openssl`) | selam a credencial do MedX de cada clínica. A privada vai só para o `worker-agenda`. **Nunca troque**: as integrações cadastradas deixam de abrir |
+| `MEDX_API_BASE` | padrão do compose | a base da API do MedX, por ambiente |
+| `PISO_RESPOSTA_ENTRAR_MS` | padrão do compose (150) | piso de tempo do login, calibrado nesta máquina |
+| `SEGUNDO_FATOR_CARTEIRA_LIGADO` | padrão do compose (`false`) | exigência do segundo fator na carteira (D-23) |
+
+As chaves marcadas **Nunca troque** cifram dado que também está no backup.
+Restaurar o backup numa máquina nova exige **o `.env` antigo**, não um novo.
 
 `.env` **não é versionado** — está no `.gitignore`, e
 `teste/allowlist-do-painel.test.ts` cobra isso.
@@ -448,3 +481,139 @@ há segundo par de olhos para nada.
   e 4). Este painel implementa **acesso total com registro obrigatório**, que
   é o que a D-10 pede. Enquanto ele só tratar identidade, é defensável; deixa
   de ser no dia em que ele ler ficha de paciente. É a pendência **P-10**.
+
+## Máquina nova, do zero
+
+Para subir o FIR numa máquina que nunca o teve, com ou sem backup para
+restaurar. `<checkout>`, `<dominio>` e `<projeto>` são placeholders.
+
+> **O caminho com restauração (B) ainda não foi ensaiado de ponta a ponta
+> numa máquina nova.** O que está medido é o ensaio em banco descartável
+> (`docs/operacao/backup.md`). Ensaie B antes de precisar dele, cronometre e
+> anote o número lá.
+
+### Pré-requisitos
+
+- Linux com acesso root, `bash`, `git`, `openssl`, `gpg`, `cron` e `systemd`.
+- Docker Engine com o plugin Compose v2 (`docker compose version`).
+- O **Traefik do EasyPanel** no ar, com o que o compose espera dele, com estes
+  nomes: rede externa `easypanel`, provider Docker ligado, entradas `http` e
+  `https`, resolver `letsencrypt` e o middleware `redirect-to-https@file`.
+  Sem EasyPanel, essas peças precisam existir com os mesmos nomes.
+- DNS de `<dominio>` apontando para a máquina, **sem CDN na frente** (o
+  Traefik tem de ser o primeiro salto; ver "A allowlist").
+- Memória: os tetos do compose somam cerca de 4,3 GB (clamd 2 GB, sete
+  workers e o atualizador a 256 MB cada), mais API, web, Postgres e Redis.
+  A primeira subida do antivírus baixa ~300 MB.
+- Acesso ao cofre da equipe: é para lá que vão o `.env` e a chave do backup.
+
+### 1 · Clonar
+
+```bash
+git clone <url-do-repositorio> <checkout>
+cd <checkout>/infra/producao
+```
+
+Se a máquina já tem outra aplicação com projeto `fir`, troque `name:` no
+`docker-compose.yml` (por exemplo, `firmaregestao`) **antes** do primeiro
+`implantar.sh`. Esse ajuste é local; guarde-o com `git stash` nas
+atualizações.
+
+### 2 · O `.env`
+
+**A · Instalação nova, sem dado.** Deixe o `implantar.sh` gerar tudo:
+
+```bash
+DOMINIO=<dominio> bash implantar.sh
+```
+
+Sem `.env`, ele cria o arquivo (modo 600) com todas as senhas e chaves. Não
+copie o `.env.exemplo` com as senhas vazias: o script vê o arquivo, mantém, e
+o Compose recusa subir com `SENHA_*` vazia. Se preferir partir do exemplo,
+preencha `DOMINIO` e as quatro `SENHA_*` antes.
+
+Depois, preencha `IPS_DO_PAINEL` no `.env` e rode `bash implantar.sh` de
+novo.
+
+**B · Máquina substituta, com backup.** Traga do cofre o **`.env` antigo** e
+ponha em `infra/producao/.env` (`chmod 600`). Um `.env` novo geraria chaves
+novas, e o que elas cifram no backup ficaria ilegível: anexos, segundo fator
+da carteira, lista de "não contatar" e credenciais do MedX. Ajuste só o que
+mudou de verdade (por exemplo, `DOMINIO`).
+
+**Nos dois casos:** copie o `.env` para o cofre **antes de seguir**. Perder
+o arquivo com o volume do Postgres vivo torna o banco inacessível.
+
+### 3 · Subir
+
+```bash
+bash implantar.sh
+```
+
+Ele constrói as imagens (com `nice`), sobe Postgres e Redis, cria os papéis,
+aplica as migrations como `fir_migrate`, sobe API, web, antivírus e os sete
+workers, e termina com as asserções. Asserção que falha recusa o deploy.
+
+### 4 · Restaurar o backup (só no caminho B)
+
+Traga do cofre a chave do backup para `/opt/fir/backup.chave` (modo 600) e o
+arquivo `fir-<instante>.dump.gpg` (e o `fir-anexos-<instante>.tar.gpg` do
+mesmo dia) para a máquina. Com o serviço parado e o banco recém-migrado:
+
+```bash
+docker compose stop api web worker-agenda worker-uso-diario worker-cobrancas \
+  worker-rotinas-internas worker-anexos worker-planilhas worker-campanhas
+
+gpg --batch --decrypt --passphrase-file /opt/fir/backup.chave <arquivo>.dump.gpg \
+  | docker compose exec -T postgres pg_restore -U fir -d fir --clean --if-exists
+
+gpg --batch --decrypt --passphrase-file /opt/fir/backup.chave <arquivo-anexos>.tar.gpg \
+  | docker compose run --rm --no-deps -T --entrypoint tar api -C /dados/anexos -xf -
+
+bash implantar.sh            # aplica migration mais nova que o backup e confere tudo
+bash restaurar-ensaio.sh <arquivo>.dump.gpg   # as contagens têm de bater com o vivo
+```
+
+Leia a saída do `pg_restore`. Erro de `GRANT` para papel que não existe
+nesta máquina (papel temporário de migração, por exemplo) não impede o
+resto, mas anote. Qualquer outro erro: pare e investigue antes de abrir o
+acesso.
+
+### 5 · O primeiro operador
+
+```bash
+./redefinir-superadmin.sh <usuario> "Nome"
+```
+
+Ele imprime uma senha provisória **uma vez**, com prazo de 72 h. Quem entra
+com ela só consegue trocá-la. No caminho B os operadores vêm do backup e este passo não é
+necessário. Crie um segundo operador logo (ver "Dois operadores, não um").
+As clínicas são criadas depois, pelo Gestão.
+
+### 6 · O que fica na máquina, fora do Compose
+
+```bash
+# backup diário — ajuste o `cd` da linha para <checkout>/infra/producao
+install -m 644 cron-fir-backup /etc/cron.d/fir-backup
+bash backup.sh        # a primeira execução gera /opt/fir/backup.chave (caminho A)
+
+# regras de egress — ver "Regras de egress"; confira o ExecStart do .service
+install -m 755 egress/regras-de-egress.sh /usr/local/sbin/<projeto>-egress.sh
+install -m 644 egress/egress.service /etc/systemd/system/<projeto>-egress.service
+systemctl daemon-reload && systemctl enable --now <projeto>-egress.service
+```
+
+No caminho A, copie `/opt/fir/backup.chave` para o cofre assim que ela
+nascer. Sem ela, nenhum backup é restaurável.
+
+### 7 · Conferir
+
+- `https://<dominio>` abre a página de entrada, com cadeado válido.
+- `docker compose ps`: nenhum serviço em laço de reinício.
+- `bash restaurar-ensaio.sh` passa, e o RTO medido vai para
+  `docs/operacao/backup.md`.
+- **A cópia do backup para fora da máquina ainda não existe** (ver
+  `docs/dividas.md`, D-BK). Até existir, o backup morre junto com o disco.
+
+Rotinas que passam a rodar: `docs/operacao/rotinas-agendadas.md`. Logs:
+`docs/operacao/logs.md`.

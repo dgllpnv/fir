@@ -6,6 +6,8 @@ import { Carregando, Erro } from '@/components/estados'
 import { chamar, ErroDaApi } from '@/lib/api'
 import { consultaEmTexto } from '@/lib/dados'
 import {
+  type CorrecaoDoLancamento,
+  correcaoDoLancamento,
   enderecoDoRelatorio,
   larguraDoGrupo,
   MOTIVO_SEM_COMPOSICAO,
@@ -124,7 +126,8 @@ export function LancamentosNaTela({
 }: {
   kpi: DetalheDoKpi
   podeLancar: boolean
-  aoLancar: () => void
+  /** O lápis de uma linha: abre a D.4 com a referência e o valor DELA. */
+  aoLancar: (correcao: CorrecaoDoLancamento) => void
   /** Muda quando um lançamento foi salvo: a lista volta à primeira página. */
   versao: number
 }) {
@@ -197,7 +200,7 @@ export function LancamentosNaTela({
                       type="button"
                       className="kd-lapis"
                       aria-label={`Corrigir o lançamento de ${diaCompleto(l.referencia)}`}
-                      onClick={aoLancar}
+                      onClick={() => aoLancar(correcaoDoLancamento(unidade, l))}
                     >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
                         <path d="M4 20h4L19 9l-4-4L4 16v4zM14 6l4 4" />

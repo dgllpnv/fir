@@ -29,8 +29,8 @@ describe('os 15 relatórios: os campos iniciais montam filtros que o CONTRATO ac
     expect('erro' in paraFiltros('pacientes-maior-ltv', { ...camposIniciais(HOJE), quantos: '501' })).toBe(true)
   })
 
-  it('situações de todos os relatórios têm rótulo (a etapa vem do domínio)', () => {
-    for (const s of ['sim', 'nao', 'falta', 'desmarcacao', 'recontatada', 'sem-recontato', 'aguardando-prazo', 'fechado', 'orcamento']) {
+  it('situações de todos os relatórios têm rótulo (a do orçamento vem do contrato)', () => {
+    for (const s of ['sim', 'nao', 'falta', 'desmarcacao', 'recontatada', 'sem-recontato', 'aguardando-prazo', 'enviado', 'fechado', 'perdido']) {
       expect(ROTULO_DA_SITUACAO[s]).toBeTruthy()
     }
   })

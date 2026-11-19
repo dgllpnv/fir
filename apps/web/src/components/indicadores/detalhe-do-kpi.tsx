@@ -20,6 +20,7 @@ import { Selo } from './cartao-do-kpi'
 import { ComposicaoNaTela, LancamentosNaTela } from './detalhe-composicao'
 import { GraficoDoDetalhe } from './detalhe-grafico'
 import {
+  type CorrecaoDoLancamento,
   daSerie,
   metasAnteriores,
   metasFuturas,
@@ -49,7 +50,7 @@ import {
 } from './na-tela'
 
 type Aberto =
-  | { readonly tipo: 'lancar' }
+  | { readonly tipo: 'lancar'; readonly correcao: CorrecaoDoLancamento | null }
   | { readonly tipo: 'editar' }
   | { readonly tipo: 'meta' }
   | { readonly tipo: 'escolher-okr' }
@@ -191,7 +192,7 @@ export function DetalheDoKpiNaTela({
         </div>
         <div className="ii-acoes">
           {podeLancar ? (
-            <button type="button" className="btn" onClick={() => setAberto({ tipo: 'lancar' })}>
+            <button type="button" className="btn" onClick={() => setAberto({ tipo: 'lancar', correcao: null })}>
               Lançar valor
             </button>
           ) : null}
@@ -263,7 +264,7 @@ export function DetalheDoKpiNaTela({
         <section aria-labelledby="kd-de-onde">
           <h3 id="kd-de-onde">De onde vem o número</h3>
           {k.origem === 'manual' ? (
-            <LancamentosNaTela kpi={k} podeLancar={podeLancar} aoLancar={() => setAberto({ tipo: 'lancar' })} versao={versao} />
+            <LancamentosNaTela kpi={k} podeLancar={podeLancar} aoLancar={(correcao) => setAberto({ tipo: 'lancar', correcao })} versao={versao} />
           ) : (
             <ComposicaoNaTela kpi={k} temAcesso={catalogo === null || tem(catalogo.permissaoDaComposicao)} />
           )}
@@ -356,7 +357,16 @@ export function DetalheDoKpiNaTela({
       </div>
 
       {/* ------------------------------------------------ janelas */}
-      {aberto?.tipo === 'lancar' ? <JanelaDeLancamento alvo={{ ...alvoDoKpi(k), comoMedir: k.comoMedir }} aoFechar={fechar} aoSalvo={salvo} /> : null}
+      {aberto?.tipo === 'lancar' ? (
+        <JanelaDeLancamento
+          // Uma janela por linha: o estado do formulário nasce da linha clicada.
+          key={aberto.correcao?.referencia ?? 'novo'}
+          alvo={{ ...alvoDoKpi(k), comoMedir: k.comoMedir }}
+          correcao={aberto.correcao}
+          aoFechar={fechar}
+          aoSalvo={salvo}
+        />
+      ) : null}
       {aberto?.tipo === 'editar' ? <PainelDeEdicao kpi={k} equipe={pessoas} aoFechar={fechar} aoSalvo={salvo} /> : null}
       {aberto?.tipo === 'meta' ? (
         kpiDaLista === null ? (

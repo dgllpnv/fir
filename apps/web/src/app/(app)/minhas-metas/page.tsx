@@ -25,6 +25,10 @@ export default async function MinhasMetasPage() {
   const { eu, perfis, quem } = await sessaoAtual()
   // O atalho "Ir para Equipe" é conveniência de quem tem `pessoas.gerir`.
   return (
-    <TelaMinhasMetas hoje={eu.hoje} podeGerirEquipe={temPerm(quem, perfis, 'pessoas.gerir')} />
+    <TelaMinhasMetas
+      hoje={eu.hoje}
+      podeGerirEquipe={temPerm(quem, perfis, 'pessoas.gerir')}
+      podeIndicadores={temPerm(quem, perfis, 'indicadores')}
+    />
   )
 }

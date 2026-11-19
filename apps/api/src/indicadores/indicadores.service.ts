@@ -192,6 +192,26 @@ export const numeroDe = (u: UnidadeDeKpi, centavos: string | null, numero: strin
  */
 const KPI_AINDA_NAO_CRIADO = '00000000-0000-0000-0000-000000000000'
 
+/** O KPI do catálogo como `criarKpi` o criaria agora: a última frequência do catálogo, sem parâmetro. */
+function linhaDoCatalogo(chave: ChaveDoCatalogo, kpiId: string | null): LinhaDeKpi {
+  const item = kpiDoCatalogo(chave)
+  return {
+    id: kpiId ?? KPI_AINDA_NAO_CRIADO,
+    origem: 'catalogo',
+    chave_catalogo: chave,
+    parametros: {},
+    nome: item.nome,
+    pilar: null,
+    unidade: null,
+    direcao: null,
+    frequencia: item.frequencias.at(-1)!,
+    dia_de_lancamento: null,
+    como_medir: '',
+    responsavel_id: null,
+    metrica: null,
+  }
+}
+
 /** Quantas séries do lote se medem ao mesmo tempo, cada uma numa conexão do pool (de 10). */
 const SERIES_EM_PARALELO = 4
 
@@ -288,24 +308,8 @@ export class IndicadoresService {
     kpiId: string | null,
     hoje: string,
   ): Promise<CatalogoDeKpisNaSaida['itens'][number]['previa']> {
-    const item = kpiDoCatalogo(chave)
-    if (item.parametrosObrigatorios.length > 0) return null
-    // O KPI como `criarKpi` o criaria agora: a última frequência do catálogo, sem parâmetro.
-    const k: LinhaDeKpi = {
-      id: kpiId ?? KPI_AINDA_NAO_CRIADO,
-      origem: 'catalogo',
-      chave_catalogo: chave,
-      parametros: {},
-      nome: item.nome,
-      pilar: null,
-      unidade: null,
-      direcao: null,
-      frequencia: item.frequencias.at(-1)!,
-      dia_de_lancamento: null,
-      como_medir: '',
-      responsavel_id: null,
-      metrica: null,
-    }
+    if (kpiDoCatalogo(chave).parametrosObrigatorios.length > 0) return null
+    const k = linhaDoCatalogo(chave, kpiId)
     const d = definicaoDe(k)
     const de = referenciaDoPeriodo(d.somenteMesCivil ? 'mensal' : k.frequencia, hoje)
     const medidaPor = d.chave === 'faturamento_conferido' ? await this.visao.medidaPadrao(c, ctx) : 'fir'
@@ -468,21 +472,47 @@ export class IndicadoresService {
     return { kpiId: k.id, agrupamento, barrasSomamOTotal: recombinaBaldes(d.agregacao), pontos, ritmoDiario }
   }
 
-  /** Prévia D.3 (I-23): números estruturados, nunca a frase (appsec C8). */
+  /**
+   * Prévia D.3 (I-23): números estruturados, nunca a frase (appsec C8).
+   *
+   * Também para o KPI que ainda vai nascer (a caixa "Definir meta agora" do
+   * D.1): pela `chave` do catálogo, medido como a prévia da linha do catálogo
+   * (`linhaDoCatalogo`), com a mesma porta de permissão do `criarKpi`; pela
+   * `unidade` do manual, só o ritmo — o manual não tem valor antes do
+   * primeiro lançamento.
+   */
   async previa(
     ctx: ContextoDeIndicadores,
-    q: { kpiId: string; inicio: string; prazo: string; alvo: string; partida?: string | undefined },
+    q: {
+      kpiId?: string | undefined
+      chave?: ChaveDoCatalogo | undefined
+      unidade?: UnidadeDeKpi | undefined
+      inicio: string
+      prazo: string
+      alvo: string
+      partida?: string | undefined
+    },
   ): Promise<PreviaDaMeta> {
     const hoje = this.hoje(ctx)
     return this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
-      const k = await this.kpiVisivel(c, ctx, q.kpiId)
-      const d = definicaoDe(k)
-      this.exigirEscritaNaUnidade(ctx, d.unidade)
+      let k: LinhaDeKpi | null
+      if (q.kpiId !== undefined) k = await this.kpiVisivel(c, ctx, q.kpiId)
+      else if (q.chave !== undefined) {
+        if (!this.podeVer(ctx, q.chave)) throw new ForbiddenException('Sem permissão para este indicador.')
+        if (kpiDoCatalogo(q.chave).parametrosObrigatorios.length > 0) {
+          throw new UnprocessableEntityException('Este indicador só tem prévia depois de criado.')
+        }
+        k = linhaDoCatalogo(q.chave, null)
+      } else k = null
+      // `!` seguro: o `refine` de `ConsultaDaPrevia` exige exatamente um dos três.
+      const unidade = k === null ? q.unidade! : definicaoDe(k).unidade
+      this.exigirEscritaNaUnidade(ctx, unidade)
       const U = BigInt(diasUteisEntre(q.inicio, q.prazo))
-      const ritmo = ritmoPorDiaUtil(d.unidade, q.inicio, q.prazo, BigInt(q.alvo), BigInt(q.partida ?? '0'))
+      const ritmo = ritmoPorDiaUtil(unidade, q.inicio, q.prazo, BigInt(q.alvo), BigInt(q.partida ?? '0'))
       const fim = hoje < q.prazo ? hoje : q.prazo
       let atual: NumeroDoKpi | null = null
-      if (fim >= q.inicio) {
+      if (k !== null && fim >= q.inicio) {
+        const d = definicaoDe(k)
         const { medidaPor } = await this.reguaDoCartao(c, ctx, k, d, hoje)
         const m = await this.medir(c, ctx, k, d, q.inicio, fim, hoje, medidaPor)
         const dias = typeof m.corte === 'string' ? diasDe(q.inicio, m.corte) : m.corte.dias
@@ -492,8 +522,8 @@ export class IndicadoresService {
       return {
         prazo: q.prazo,
         diasUteis: Number(U),
-        ritmoPorDiaUtil: valorNaTela(d.unidade, ritmo),
-        atualPorDiaUtil: valorNaTela(d.unidade, atual),
+        ritmoPorDiaUtil: valorNaTela(unidade, ritmo),
+        atualPorDiaUtil: valorNaTela(unidade, atual),
       }
     })
   }
@@ -506,7 +536,7 @@ export class IndicadoresService {
       try {
         if (dados.origem === 'manual') {
           if (dados.frequencia === 'semanal' && dados.diaDeLancamento > 7) {
-            throw new UnprocessableEntityException('No KPI semanal, o dia de lançamento vai de 1 (segunda) a 7.')
+            throw new UnprocessableEntityException({ message: 'No KPI semanal, o dia de lançamento vai de 1 (segunda) a 7.', codigo: 'DiaDeLancamentoInvalido' })
           }
           const r = await c.query<{ id: string }>(
             `INSERT INTO kpis (clinica_id, origem, nome, pilar, unidade, direcao, frequencia, dia_de_lancamento,
@@ -527,11 +557,11 @@ export class IndicadoresService {
         if (typeof parametros['campanhaId'] === 'string') {
           // O id do corpo é conferido contra a CLÍNICA (appsec C6): de outra clínica, a RLS o esconde.
           const camp = await c.query('SELECT 1 FROM campanhas WHERE clinica_id = $1 AND id = $2', [ctx.clinicaId, parametros['campanhaId']])
-          if (camp.rowCount === 0) throw new UnprocessableEntityException('Campanha não encontrada.')
+          if (camp.rowCount === 0) throw new UnprocessableEntityException({ message: 'Campanha não encontrada.', codigo: 'CampanhaNaoEncontrada' })
         }
         const frequencia = dados.frequencia ?? k.frequencias.at(-1)!
         if (!(k.frequencias as readonly string[]).includes(frequencia)) {
-          throw new UnprocessableEntityException('Frequência que este indicador não tem.')
+          throw new UnprocessableEntityException({ message: 'Frequência que este indicador não tem.', codigo: 'FrequenciaInvalida' })
         }
         const r = await c.query<{ id: string }>(
           `INSERT INTO kpis (clinica_id, origem, chave_catalogo, parametros, nome, frequencia, responsavel_id, criado_por)
@@ -596,10 +626,13 @@ export class IndicadoresService {
       const partida = NumeroDoKpi.de(d.unidade, BigInt(dados.partida ?? '0'))
       const alvo = NumeroDoKpi.de(d.unidade, BigInt(dados.alvo))
       const v = validarMeta(d, { tipo: dados.tipo, inicio: dados.inicio, prazo: dados.prazo, partida, alvo })
-      if (v.tipo === 'erro') throw new UnprocessableEntityException(v.erro.mensagem)
+      if (v.tipo === 'erro') throw recusaDaMeta(v.erro)
       // A série não tem partida (`series_de_meta` não tem a coluna): cada mês parte do zero.
       if (dados.tipo === 'recorrente' && partida.emMenorUnidade !== 0n) {
-        throw new UnprocessableEntityException('A meta recorrente começa do zero todo mês: deixe a partida em branco.')
+        throw new UnprocessableEntityException({
+          message: 'A meta recorrente começa do zero todo mês: deixe a partida em branco.',
+          codigo: 'PartidaNaRecorrente',
+        })
       }
       const medidaPor = d.chave === 'faturamento_conferido' ? await this.visao.medidaPadrao(c, ctx) : 'fir'
       const emReais = d.unidade === 'reais'
@@ -655,7 +688,7 @@ export class IndicadoresService {
       )
       const prazo = dados.prazo ?? atual.prazo
       const v = validarMeta(d, { tipo: atual.tipo, inicio: atual.inicio, prazo, partida, alvo })
-      if (v.tipo === 'erro') throw new UnprocessableEntityException(v.erro.mensagem)
+      if (v.tipo === 'erro') throw recusaDaMeta(v.erro)
       try {
         await c.query(
           `UPDATE metas_de_kpi SET alvo_centavos = $3, alvo_numero = $4, partida_centavos = $5, partida_numero = $6,
@@ -1080,6 +1113,14 @@ function ritmoPorDiaUtil(unidade: UnidadeDeKpi, inicio: string, prazo: string, a
 }
 
 /** Erros do banco que são do USUÁRIO viram 4xx; o resto sobe. */
+/**
+ * A recusa da meta (422) com o CÓDIGO do domínio no corpo, ao lado da frase.
+ * É o código que a tela casa para pôr o erro em vermelho embaixo do campo
+ * certo (1.9 D: "logo abaixo do campo"), nunca o texto.
+ */
+const recusaDaMeta = (e: { readonly codigo: string; readonly mensagem: string }) =>
+  new UnprocessableEntityException({ message: e.mensagem, codigo: e.codigo })
+
 export function traduzirErroDoBanco(e: unknown, mensagemDeConflito: string): unknown {
   const codigo = codigoPg(e)
   if (codigo === '23505' || codigo === '23P01') return new ConflictException(mensagemDeConflito)

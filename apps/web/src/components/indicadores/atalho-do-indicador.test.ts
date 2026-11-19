@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { AtalhoDoIndicador } from './atalho-do-indicador'
+import { AtalhoDoIndicador, AtalhoParaIndicadores } from './atalho-do-indicador'
 
 /**
  * O atalho de Equipe › Metas do mês, Visão do mês e Campanhas para o KPI
@@ -22,5 +22,11 @@ describe('AtalhoDoIndicador', () => {
     expect(html(ID, false)).toBe('')
     expect(html(null, true)).toBe('')
     expect(html(undefined, true)).toBe('')
+  })
+  it('Minhas metas: o atalho para a aba, só com a permissão', () => {
+    const h = renderToStaticMarkup(createElement(AtalhoParaIndicadores, { podeIndicadores: true }))
+    expect(h).toContain('href="/indicadores"')
+    expect(h).toContain('Acompanhar em Indicadores &amp; Insights')
+    expect(renderToStaticMarkup(createElement(AtalhoParaIndicadores, { podeIndicadores: false }))).toBe('')
   })
 })
