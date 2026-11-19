@@ -761,41 +761,54 @@ fi
 # chega ao container com o endereço do gateway, não com `127.0.0.1`. Então o
 # esperado aqui é recusa.
 #
-# Os três resultados possíveis significam coisas diferentes, e colapsá-los num
+# Os resultados possíveis significam coisas diferentes, e colapsá-los num
 # "ok/erro" esconderia justamente a falha que importa.
-codigo_painel=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: ${DOMINIO}" \
-                --resolve "${DOMINIO}:443:127.0.0.1" "https://${DOMINIO}/superadmin" || echo 000)
-case "$codigo_painel" in
-  403)
+#
+# **A sonda é a API do painel, não a tela.** A tela saiu de `/superadmin` para
+# `/gestao` (que abre também para a admin da clínica, por isso fica fora da
+# allowlist), e `/superadmin` virou um redirecionamento 308 do Next — sondá-lo
+# media o redirecionamento, não o controle (visto no deploy de 2026-11-18).
+# O que a allowlist guarda são os DADOS do operador, em `/api/v1/superadmin/*`.
+#
+# Sem sessão, o guard do painel responde **404 em JSON** (esconde a rota, ver
+# `painel.guard.ts`). Um 404 que NÃO é JSON vem do Traefik: o roteador do
+# painel caiu. O `Content-Type` é o que separa os dois.
+resposta_painel=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' -H "Host: ${DOMINIO}" \
+                  --resolve "${DOMINIO}:443:127.0.0.1" \
+                  "https://${DOMINIO}/api/v1/superadmin/clinicas" || echo 000)
+codigo_painel=${resposta_painel%% *}
+case "$resposta_painel" in
+  403*)
     echo "  ok  o painel recusa origem fora da allowlist (403 do Traefik)"
     ;;
-  404)
-    echo "  ATENÇÃO: /superadmin devolveu 404." >&2
-    echo "  O roteador do painel não está na árvore — provavelmente o middleware" >&2
-    echo "  não pôde ser construído. Está FECHADO, que é o modo de falha certo," >&2
-    echo "  mas o painel não sobe assim. Confira IPS_DO_PAINEL e os logs do Traefik." >&2
-    ;;
-  200)
+  "404 application/json"*)
+    # A requisição ATRAVESSOU a allowlist e chegou ao guard da API.
     # D-24 (2026-11-08): o dono manteve o painel aberto a qualquer origem e
     # registrou o risco como aceito. Só nesse caso EXPLÍCITO — a allowlist
-    # escrita como "tudo" (0.0.0.0/0) — o 200 vira aviso. Qualquer outra lista
+    # escrita como "tudo" (0.0.0.0/0) — isso vira aviso. Qualquer outra lista
     # que deixe passar origem de fora continua sendo erro: aí o controle
     # existe e falhou, que é o defeito que esta asserção pega.
     case ",$IPS_DO_PAINEL," in
       *,0.0.0.0/0,*)
-        echo "  ATENÇÃO: /superadmin aberto a qualquer origem (IPS_DO_PAINEL=$IPS_DO_PAINEL)." >&2
-        echo "  Risco aceito pelo dono na D-24 (docs/decisoes.md). Para fechar, ponha os IPs" >&2
-        echo "  da Firmare em IPS_DO_PAINEL e rode este script de novo." >&2
+        echo "  ok  painel aberto a qualquer origem, como decidido na D-24 (IPS_DO_PAINEL=$IPS_DO_PAINEL);"
+        echo "      sem sessão, a API do painel responde 404. Para fechar, ponha os IPs da"
+        echo "      Firmare em IPS_DO_PAINEL e rode este script de novo."
         ;;
       *)
-        echo "  ERRO: /superadmin respondeu 200 de uma origem fora da allowlist." >&2
+        echo "  ERRO: a API do painel foi alcançada de uma origem fora da allowlist." >&2
         echo "  O controle da D-5 restrição 6 NÃO está no ar." >&2
         falhou=1
         ;;
     esac
     ;;
+  404*)
+    echo "  ATENÇÃO: /api/v1/superadmin devolveu 404 do Traefik." >&2
+    echo "  O roteador do painel não está na árvore — provavelmente o middleware" >&2
+    echo "  não pôde ser construído. Está FECHADO, que é o modo de falha certo," >&2
+    echo "  mas o painel não funciona assim. Confira IPS_DO_PAINEL e os logs do Traefik." >&2
+    ;;
   *)
-    echo "  ATENÇÃO: /superadmin devolveu $codigo_painel; esperado 403." >&2
+    echo "  ATENÇÃO: /api/v1/superadmin devolveu $codigo_painel; esperado 403 ou 404 da API." >&2
     ;;
 esac
 
@@ -811,6 +824,26 @@ echo
 echo "FIR em https://${DOMINIO}"
 echo "Segredos em $(pwd)/$AMBIENTE — modo 600, fora do repositório."
 echo
-echo "O PRIMEIRO OPERADOR do painel ainda não existe. Crie-o com:"
-echo "  bash redefinir-superadmin.sh <usuario> \"Nome Completo\""
-echo "Ele imprime a senha UMA VEZ, e por isso não está neste script."
+
+# O aviso do primeiro operador só sai quando ele de fato não existe. Antes era
+# impresso em todo deploy, e um aviso que sempre aparece ensina a não ler avisos.
+operadores=$(docker compose exec -T -e PGPASSWORD="$SENHA_POSTGRES" postgres \
+  psql --username fir --dbname fir -tAc \
+  'SELECT count(*) FROM operadores WHERE ativo' 2>/dev/null | tr -d '[:space:]' || true)
+case "$operadores" in
+  ''|*[!0-9]*)
+    echo "ATENÇÃO: não consegui contar os operadores do painel." >&2
+    ;;
+  0)
+    echo "O PRIMEIRO OPERADOR do painel ainda não existe. Crie-o com:"
+    echo "  bash redefinir-superadmin.sh <usuario> \"Nome Completo\""
+    echo "Ele imprime a senha UMA VEZ, e por isso não está neste script."
+    ;;
+  1)
+    echo "Painel com 1 operador ativo. Com um só, perder este acesso tranca o painel"
+    echo "até alguém com SSH agir. Um segundo: bash redefinir-superadmin.sh <usuario> \"Nome\""
+    ;;
+  *)
+    echo "Painel com $operadores operadores ativos."
+    ;;
+esac
