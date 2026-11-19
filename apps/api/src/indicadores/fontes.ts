@@ -69,6 +69,12 @@ export type MedidaDoKpi = {
   readonly corte: CorteDaMeta
   /** Por que `numero` é `null` quando não é "nada aconteceu" (vira `motivoSemValor`). */
   readonly motivo?: string
+  /**
+   * Só no `faturamento_conferido`: o `aguardando` de `medirFaturamentoConferido`
+   * (os dias anteriores a hoje sem caixa, sem hoje) e quantos dias são. Quem
+   * o lê é a redação, por `finmes` (ADR 2026-11-19-aguardando-em-reais-com-finmes).
+   */
+  readonly aguardando?: { readonly valor: Dinheiro; readonly diasAnteriores: number }
 }
 
 export type KpiParaMedir = {
@@ -120,7 +126,12 @@ export class FontesDosKpis {
       case 'faturamento_conferido': {
         const f = await medirFaturamentoConferido(c, ctx.clinicaId, p.de, p.ate, ctx.fuso, p.hoje, kpi.medidaPor)
         const numero = kpi.medidaPor === 'medx' ? reais(f.medido) : reais(f.recebidoQueConta)
-        return { numero, diasAguardando: f.diasAguardandoSemHoje, corte: f.corte }
+        return {
+          numero,
+          diasAguardando: f.diasAguardandoSemHoje,
+          corte: f.corte,
+          aguardando: { valor: f.aguardando, diasAnteriores: f.diasAnterioresAguardando },
+        }
       }
       case 'ticket_medio':
       case 'valor_fechado_em_orcamentos': {

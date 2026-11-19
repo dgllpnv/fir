@@ -391,7 +391,7 @@ Reutilizáveis como estão:
   | Nome | Onde | Ticket |
   |---|---|---|
   | `emDinheiro` | `ValorNaTela` | T1 |
-  | `aguardandoFechamento` | `/v1/metas/:mes/percentual` e Visão do mês, como centavos em texto. Prova por mutação de que sai `null` para a equipe *(números c.11d)* | T2 |
+  | `aguardandoFechamento` | `/v1/metas/:mes/percentual`, Visão do mês e, desde 2026-11-19, o KPI `faturamento_conferido` de `/v1/indicadores` (lista e detalhe; nunca `da-semana`, `reuniao` nem carteira), como centavos em texto. **Exige `finmes`**, não só `valores` (`CHAVE_DO_CAMPO`; ADR `2026-11-19-aguardando-em-reais-com-finmes`, que substitui o item 5 da `meta-medida-pelos-dias-de-caixa`). Prova por mutação de que sai `null` para a equipe *(números c.11d)* e por HTTP para `valores` sem `finmes` | T2 |
   | `valorDaUltimaCompra` | relatório 1 | T8 |
   | `receitaDasIndicadas` | relatório 4 | T9 |
   | `valorMinimo`, `valorMaximo` | filtros com dinheiro: a lista de favoritos sai redigida *(appsec C9)* | T8 |

@@ -87,7 +87,9 @@ describe('regra 6 em /v1/indicadores* (appsec C11)', () => {
     ]
     expect(depois).toEqual(antes)
     expect(depois.join('')).not.toContain('77777')
-    expect(depois.join('')).not.toContain('aguardandoFechamento')
+    // ADR 2026-11-19-aguardando-em-reais-com-finmes: `aguardandoFechamento`
+    // agora existe no cartão (para quem tem `finmes`), mas fala só dos dias
+    // ANTERIORES a hoje — a igualdade de bytes acima é a prova de que o de hoje não entra.
   })
 })
 

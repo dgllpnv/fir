@@ -94,6 +94,19 @@ describe('redacao', () => {
     expect(r['valor']).toBe('100')
   })
 
+  it('aguardandoFechamento depende de finmes, não só de valores (ADR 2026-11-19-aguardando-em-reais-com-finmes)', () => {
+    const soValores = (c: string) => c === 'valores'
+    const comFinmes = (c: string) => c === 'valores' || c === 'finmes'
+    const dado = { aguardandoFechamento: '630000', diasAguardando: 2, valor: '100' }
+    const sem = redigir(dado, soValores) as Record<string, unknown>
+    expect(sem['aguardandoFechamento']).toBeNull()
+    expect(sem['valor']).toBe('100')
+    expect(sem['diasAguardando']).toBe(2)
+    expect((redigir(dado, comFinmes) as Record<string, unknown>)['aguardandoFechamento']).toBe('630000')
+    // snake_case (a trilha) cai na mesma regra.
+    expect((redigir({ aguardando_fechamento: '1' }, soValores) as Record<string, unknown>)['aguardando_fechamento']).toBeNull()
+  })
+
   it('não quebra em null, data e tipos primitivos', () => {
     expect(redigir(null, semValores)).toBe(null)
     expect(redigir('texto', semValores)).toBe('texto')

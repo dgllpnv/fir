@@ -274,8 +274,27 @@ afterAll(async () => {
 })
 
 describe('o dia aberto no meio nunca atravessa (regra 6, c.10)', () => {
-  it('nenhuma resposta de outubro traz o valor do 15/10', () => {
-    expect(out.texto).not.toContain(VALOR_DO_DIA_ABERTO)
+  // ADR 2026-11-19-aguardando-em-reais-com-finmes (substitui o item 5 da
+  // meta-medida-pelos-dias-de-caixa): com `finmes`, o 15/10 sai UMA vez, como
+  // o total `aguardandoFechamento` do faturamento conferido — o mesmo da
+  // Visão do mês. Em nenhum outro campo, e nunca sem `finmes`.
+  it('com `finmes`: o valor do 15/10 só como `aguardandoFechamento` do faturamento conferido, igual à Visão do mês', async () => {
+    const v = (await pegar(c, '/v1/visao-do-mes', { mes: '2026-10' }, 'beatriz')).body as { aguardandoFechamento: string }
+    expect(v.aguardandoFechamento).toBe(VALOR_DO_DIA_ABERTO)
+    const fat = doKpi(out.itens, 'faturamento_conferido') as Item & { aguardandoFechamento: string | null }
+    expect(fat.aguardandoFechamento).toBe(v.aguardandoFechamento)
+    const semOAguardando = out.itens.map((k) => ({ ...k, aguardandoFechamento: undefined }))
+    expect(JSON.stringify(semOAguardando)).not.toContain(VALOR_DO_DIA_ABERTO)
+  })
+
+  it('sem `finmes` (com `valores`): nenhuma resposta de outubro traz o valor do 15/10', async () => {
+    await c.migrate.query(`UPDATE perfis SET perms = perms || ARRAY['indicadores'] WHERE clinica_id = $1 AND chave = 'pf_ter'`, [
+      c.clinica,
+    ])
+    const r = await pegar(c, '/v1/indicadores', {}, 'camila')
+    expect(r.status).toBe(200)
+    expect((r.body.itens as Item[]).some((x) => x.chave === 'faturamento_conferido')).toBe(true)
+    expect(r.text).not.toContain(VALOR_DO_DIA_ABERTO)
   })
 })
 

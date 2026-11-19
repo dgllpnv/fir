@@ -46,6 +46,7 @@ import {
   ROTULO_DA_FREQUENCIA,
   ROTULO_DA_SITUACAO,
   situacaoDoCartao,
+  textoDoAguardando,
   TOM_DA_SITUACAO,
 } from './na-tela'
 
@@ -173,6 +174,8 @@ export function DetalheDoKpiNaTela({
   }
 
   const numero = numeroDoCartao(k.atual)
+  // O mesmo texto do cartão: com `finmes`, "+ R$ … aguardando fechamento de N dias".
+  const aguardando = textoDoAguardando(k)
   const projecao = meta === null ? { numero: '—', nota: null } : textoDaProjecao(meta)
   const kpiDaLista: KpiNaLista | null = lista.dados?.itens.find((x) => x.id === k.id) ?? null
 
@@ -214,9 +217,7 @@ export function DetalheDoKpiNaTela({
           <dd className={numero.soPercentual ? 'kd-so-percentual' : undefined}>{numero.texto}</dd>
           <span className="kd-numero-nota">
             {diaEMes(k.periodo.de)} a {diaEMes(k.periodo.ate)}
-            {k.diasAguardando > 0
-              ? ` · ${k.diasAguardando} ${k.diasAguardando === 1 ? 'dia aguardando' : 'dias aguardando'} fechamento`
-              : ''}
+            {aguardando === null ? '' : ` · ${aguardando}`}
           </span>
         </div>
         <div>

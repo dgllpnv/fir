@@ -1013,6 +1013,10 @@ export class IndicadoresService {
               ? { tipo: 'relativa', percentual: v.percentual }
               : { tipo: 'novo' },
       diasAguardando: m.diasAguardando,
+      // Backlog 1.2: o total que a Visão do mês mostra, pela mesma função. Sai
+      // sempre; quem o apaga sem `finmes` é a redação (CHAVE_DO_CAMPO), não um `if` aqui.
+      aguardandoFechamento: m.aguardando === undefined ? null : m.aguardando.valor.centavos.toString(),
+      diasAnterioresAguardandoFechamento: m.aguardando === undefined ? null : m.aguardando.diasAnteriores,
       motivoSemValor: m.motivo ?? null,
       metaVigente: meta,
       inicioDaProximaMeta,

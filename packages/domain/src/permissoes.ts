@@ -474,9 +474,11 @@ export const CAMPOS_MONETARIOS = [
   'emDinheiro',
   /**
    * T2 (I-35; números c.11d): o recebido dos dias que ainda não contam para a
-   * meta, na Visão do mês e em `/v1/metas/:mes/percentual`. Um total só, em
-   * centavos; a equipe lê `null` e o `diasAguardandoFechamento`, que não é
-   * dinheiro.
+   * meta, na Visão do mês, em `/v1/metas/:mes/percentual` e no KPI
+   * `faturamento_conferido` de `/v1/indicadores`. Um total só, em centavos.
+   * **Exige `finmes`, não só `valores`** (`CHAVE_DO_CAMPO` do interceptor;
+   * ADR 2026-11-19-aguardando-em-reais-com-finmes): sem ela sai `null`, e
+   * fica a contagem de dias, que não é dinheiro.
    */
   'aguardandoFechamento',
   /**

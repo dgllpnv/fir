@@ -850,6 +850,7 @@ Cada KPI tem **uma meta por vez** no mesmo período. **A meta de faturamento da 
         gestao: true,
         texto: `O KPI **Faturamento conferido** e a meta de faturamento contam **só os dias com o caixa fechado**. É o fechamento do caixa, conferido às cegas, que confirma o dinheiro do dia.
 - O que entrou num dia ainda sem caixa fechado aparece à parte, como **aguardando fechamento** ("R$ 6.300,00 aguardando fechamento do caixa em 2 dias, fora da meta até fechar"). Fica fora da meta, do ritmo e da projeção até o caixa daquele dia ser fechado.
+- No cartão do KPI, quem tem a permissão da Visão do mês vê o valor ("+ R$ 6.300,00 aguardando fechamento de 2 dias"); para os outros, só os dias ("Aguardando fechamento de 2 dias").
 - **O dia de hoje só conta depois de fechar o caixa.** Durante o dia, o percentual da meta não sobe a cada pagamento.
 - No gráfico dia a dia, o dia que espera o fechamento aparece como **barra clara**, sem valor.
 - A regra vale a partir do **primeiro caixa fechado da clínica na ferramenta**. Os dias anteriores continuam contados como antes, por tudo o que foi recebido: nenhum mês passado muda.

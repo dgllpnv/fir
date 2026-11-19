@@ -9,6 +9,7 @@ import type {
 import {
   centavosDoTextoBrasileiro,
   diaCivil,
+  Dinheiro,
   ESCALA_DA_UNIDADE,
   type FrequenciaDeKpi,
   formatarNumeroDoKpi,
@@ -115,21 +116,31 @@ export function textoDaMeta(meta: MetaDeKpiNaSaida | null): string | null {
   return alvo === null ? null : `de ${alvo}`
 }
 
+const emDias = (n: number) => `${n} ${n === 1 ? 'dia' : 'dias'}`
+
 /**
- * "Aguardando fechamento de 2 dias" (1.9 C.1): os dias sem caixa fechado que
- * ficam fora do número grande até fechar — hoje com o caixa aberto incluído.
+ * "+ R$ 6.300,00 aguardando fechamento de 2 dias" (backlog 1.2): o recebido
+ * dos dias sem caixa fechado, fora do número grande, da meta, do ritmo e da
+ * projeção até fechar.
  *
- * **Só a contagem, sem o valor.** A 1.9 pede "+ R$ 6.300 aguardando
- * fechamento de 2 dias", mas a ADR 2026-11-17-meta-medida-pelos-dias-de-caixa
- * (item 5) fixou que em `/v1/indicadores*` o valor aguardando nunca sai: o
- * recebido de um dia passado sem caixa é o esperado de um caixa que ainda se
- * fecha às cegas (regra 6; `fonte-unica.e2e.test.ts` prova por HTTP). O valor
- * fica na Visão do mês, para quem tem `finmes`.
+ * O valor e a contagem chegam prontos e falam dos MESMOS dias — os anteriores
+ * a hoje (`aguardandoFechamento`, `diasAnterioresAguardandoFechamento`). Hoje
+ * com o caixa aberto nunca tem valor (regra 6) e vai à parte. O valor só vem
+ * para quem tem `finmes` (ADR 2026-11-19-aguardando-em-reais-com-finmes); sem
+ * ele a redação mandou `null`, e a tela escreve a contagem de antes —
+ * "Aguardando fechamento de N dias", hoje incluído — sem `if` de permissão.
  */
-export function textoDoAguardando(k: Pick<KpiNaLista, 'diasAguardando'>): string | null {
-  const dias = k.diasAguardando
-  if (dias <= 0) return null
-  return `Aguardando fechamento de ${dias} ${dias === 1 ? 'dia' : 'dias'}`
+export function textoDoAguardando(
+  k: Pick<KpiNaLista, 'diasAguardando' | 'aguardandoFechamento' | 'diasAnterioresAguardandoFechamento'>,
+): string | null {
+  const valor = k.aguardandoFechamento ?? null
+  const anteriores = k.diasAnterioresAguardandoFechamento ?? null
+  if (valor !== null && anteriores !== null && anteriores > 0) {
+    const deHoje = k.diasAguardando > anteriores ? ' · hoje também aguarda' : ''
+    return `+ ${Dinheiro.deCentavos(BigInt(valor)).formatar()} aguardando fechamento de ${emDias(anteriores)}${deHoje}`
+  }
+  if (k.diasAguardando <= 0) return null
+  return `Aguardando fechamento de ${emDias(k.diasAguardando)}`
 }
 
 const MESES = [

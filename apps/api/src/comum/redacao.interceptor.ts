@@ -18,10 +18,17 @@ import type { RequisicaoComContexto } from './contexto'
  * por controlador: o endpoint número quarenta não será revisado com o cuidado
  * do primeiro, e o esquecido vaza o salário de uma funcionária.
  *
- * `salario` é o único que depende de `pessoas.gerir` em vez de `valores` —
- * dado de RH não se libera junto com receita.
+ * Dois campos dependem de outra chave em vez de `valores`:
+ * - `salario`, de `pessoas.gerir` — dado de RH não se libera junto com receita;
+ * - `aguardandoFechamento`, de `finmes` — o recebido dos dias sem caixa é o
+ *   total da Visão do mês, e só quem a abre o lê, em qualquer rota (ADR
+ *   2026-11-19-aguardando-em-reais-com-finmes). `finmes` já exige `valores`
+ *   na tabela de `temPerm`.
  */
-const CHAVE_DO_CAMPO: Readonly<Record<string, ChaveDePermissao>> = { salario: 'pessoas.gerir' }
+const CHAVE_DO_CAMPO: Readonly<Record<string, ChaveDePermissao>> = {
+  salario: 'pessoas.gerir',
+  aguardandoFechamento: 'finmes',
+}
 
 /**
  * Só objeto simples (literal ou sem protótipo) é estrutura de dado a

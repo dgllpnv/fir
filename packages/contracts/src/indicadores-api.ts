@@ -100,6 +100,22 @@ export const KpiNaLista = z
     variacao: VariacaoSchema.nullable(),
     /** Dias que ainda não contam (caixa aberto). Só a contagem, nunca o valor (regra 6). */
     diasAguardando: z.number().int(),
+    /**
+     * Só no `faturamento_conferido` (backlog 1.2; ADR
+     * 2026-11-19-aguardando-em-reais-com-finmes): o recebido dos dias
+     * ANTERIORES a hoje ainda sem caixa, em centavos — o mesmo
+     * `aguardandoFechamento` da Visão do mês, pela mesma função. Um total só,
+     * nunca por dia nem por forma (c.10); o de hoje nunca entra (regra 6).
+     * **Sem `finmes`, `null`**, pela redação. `null` nas outras chaves.
+     * Opcional só para a web que monta o tipo à mão; o servidor sempre manda.
+     */
+    aguardandoFechamento: z.string().nullable().optional(),
+    /**
+     * Os dias de `aguardandoFechamento` — os anteriores a hoje, sem hoje. É a
+     * contagem que acompanha o valor ("R$ 0,00 em 1 dia" foi o defeito de
+     * 17/11). Não é dinheiro. `null` fora do `faturamento_conferido`.
+     */
+    diasAnterioresAguardandoFechamento: z.number().int().nullable().optional(),
     /** `fonte_fora_do_dominio` (números c.16): o valor vem `null` e o incidente foi registrado. */
     motivoSemValor: z.string().nullable(),
     metaVigente: MetaDeKpiNaSaida.nullable(),

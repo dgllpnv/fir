@@ -99,14 +99,35 @@ describe('o cartão do KPI sem `valores` (1.10 item 6)', () => {
     expect(html).toContain('▲ 12% vs. mesmo dia de outubro')
   })
 
-  it('aguardando fechamento (1.9 C.1): os dias, nunca o valor (ADR meta-medida-pelos-dias-de-caixa, item 5)', () => {
-    const k = { ...kpi(false), diasAguardando: 2 }
+  it('aguardando fechamento sem o valor (sem `finmes`, a redação mandou null): só os dias', () => {
+    const k = { ...kpi(false), diasAguardando: 2, aguardandoFechamento: null, diasAnterioresAguardandoFechamento: 2 }
     const html = renderToStaticMarkup(
       createElement(CartaoDoKpi, { kpi: k, meta: k.metaVigente, atual: k.atual, serie: null, acoes: [], fuso: FUSO }),
     )
     expect(html).toContain('Aguardando fechamento de 2 dias')
+    expect(textoDoAguardando({ diasAguardando: 2 })).toBe('Aguardando fechamento de 2 dias')
     expect(textoDoAguardando({ diasAguardando: 1 })).toBe('Aguardando fechamento de 1 dia')
     expect(textoDoAguardando({ diasAguardando: 0 })).toBeNull()
+  })
+
+  it('aguardando fechamento com o valor (backlog 1.2; ADR aguardando-em-reais-com-finmes): "+ R$ … de N dias"', () => {
+    const k = { ...kpi(false), diasAguardando: 2, aguardandoFechamento: '630000', diasAnterioresAguardandoFechamento: 2 }
+    const html = renderToStaticMarkup(
+      createElement(CartaoDoKpi, { kpi: k, meta: k.metaVigente, atual: k.atual, serie: null, acoes: [], fuso: FUSO }),
+    )
+    expect(html).toContain('+ R$ 6.300,00 aguardando fechamento de 2 dias')
+    // Singular.
+    expect(textoDoAguardando({ diasAguardando: 1, aguardandoFechamento: '5000', diasAnterioresAguardandoFechamento: 1 })).toBe(
+      '+ R$ 50,00 aguardando fechamento de 1 dia',
+    )
+    // Hoje aberto conta à parte, sem valor ao lado (regra 6).
+    expect(textoDoAguardando({ diasAguardando: 3, aguardandoFechamento: '630000', diasAnterioresAguardandoFechamento: 2 })).toBe(
+      '+ R$ 6.300,00 aguardando fechamento de 2 dias · hoje também aguarda',
+    )
+    // Só hoje aguardando: o valor dos anteriores é zero, e nunca "+ R$ 0,00 … de 1 dia".
+    expect(textoDoAguardando({ diasAguardando: 1, aguardandoFechamento: '0', diasAnterioresAguardandoFechamento: 0 })).toBe(
+      'Aguardando fechamento de 1 dia',
+    )
   })
 
   it('com `valores`, o valor e "de R$ …" da meta', () => {
