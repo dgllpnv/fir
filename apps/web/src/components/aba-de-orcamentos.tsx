@@ -1,8 +1,15 @@
 'use client'
 
-import type { OrcamentoDoPaciente, RespostaDeOrcamentosDoPaciente } from '@fir/contracts'
+import type {
+  OrcamentoDoPaciente,
+  RespostaDeOrcamentosDoPaciente,
+  TarefasAfetadas,
+} from '@fir/contracts'
 import { formatarDinheiro } from '@fir/ui'
+import { useState } from 'react'
+import { chamar } from '@/lib/api'
 import { useDados } from '@/lib/dados'
+import { FormularioDeNovoOrcamento } from './jornada/faixa-da-jornada'
 import { diaCurto, diaEmTexto, plural } from '@/lib/formato'
 import {
   fechouXdeY,
@@ -20,27 +27,80 @@ import { Carregando, Erro } from './estados'
  */
 export function AbaDeOrcamentos({
   pacienteId,
+  hoje,
+  podeValores,
   aoRetomar,
+  aoCriar,
 }: {
   readonly pacienteId: string
+  /** O dia civil de hoje, do servidor (regra 24): semeia a retomada do formulário. */
+  readonly hoje: string
+  readonly podeValores: boolean
   /** Leva ao cartão da tarefa de origem, onde mora a ação "Retomar o restante". */
   readonly aoRetomar: (tarefaId: string) => void
+  /** Depois do orçamento direto: a ficha recarrega e mostra o cartão novo. */
+  readonly aoCriar: (tarefaId: string) => void
 }) {
   const { dados, erro, recarregar } = useDados<RespostaDeOrcamentosDoPaciente>(
     `v1/pacientes/${pacienteId}/orcamentos`,
   )
+  const [novo, setNovo] = useState(false)
+
+  /**
+   * ORÇAMENTO DIRETO (ADR 2026-11-19-orcamento-direto): a reavaliação no fim do
+   * programa, o retorno que vira proposta nova. Sem isto, a recepção lançava
+   * uma consulta que não aconteceu só para ter onde registrar o orçamento.
+   */
+  const novoOrcamento = (
+    <>
+      {novo ? (
+        <FormularioDeNovoOrcamento
+          hoje={hoje}
+          podeValores={podeValores}
+          aoFechar={() => setNovo(false)}
+          aoSalvar={async (corpo) => {
+            // O formulário é o do cartão, e manda a ação; esta rota não a recebe.
+            const { acao: _acao, ...campos } = corpo
+            const r = await chamar<TarefasAfetadas>('v1/tarefas/orcamentos', {
+              method: 'POST',
+              body: JSON.stringify({ pacienteId, ...campos }),
+            })
+            setNovo(false)
+            recarregar()
+            aoCriar(r.tarefa.id)
+          }}
+        />
+      ) : (
+        <div className="botoes" style={{ marginBottom: 8 }}>
+          <button type="button" className="btn ghost" onClick={() => setNovo(true)}>
+            Novo orçamento
+          </button>
+        </div>
+      )}
+    </>
+  )
+
   if (erro !== null) return <Erro mensagem={erro} recarregar={recarregar} />
   if (dados === null) return <Carregando linhas={3} />
   if (dados.itens.length === 0) {
     return (
-      <div className="vazio">
-        <p style={{ margin: 0, color: 'var(--muted)' }}>Nenhum orçamento ainda.</p>
+      <div>
+        {novoOrcamento}
+        {novo ? null : (
+          <div className="vazio">
+            <p style={{ margin: 0, color: 'var(--muted)' }}>
+              Nenhum orçamento ainda. Ofereceu um orçamento sem consulta antes, como na reavaliação
+              do fim de um programa? Toque em <b>Novo orçamento</b>.
+            </p>
+          </div>
+        )}
       </div>
     )
   }
   const t = dados.totais
   return (
     <div>
+      {novoOrcamento}
       <p className="nota num orc-totais">
         {plural(t.orcamentos, 'orçamento', 'orçamentos')} · {t.abertos} em aberto · {t.fechados}{' '}
         {t.fechados === 1 ? 'fechado' : 'fechados'} · {t.parciais}{' '}

@@ -1,4 +1,9 @@
-import { MoverEtapa, type PreviaDeDesfazerOrcamento, type TarefasAfetadas } from '@fir/contracts'
+import {
+  MoverEtapa,
+  NovoOrcamento,
+  type PreviaDeDesfazerOrcamento,
+  type TarefasAfetadas,
+} from '@fir/contracts'
 import type { ChaveDePermissao } from '@fir/domain'
 import {
   BadRequestException,
@@ -81,6 +86,30 @@ export class JornadaController {
     const c = req.contexto!
     if (!c.pode('receber')) throw new ForbiddenException('Sem acesso a esta ação.')
     return this.desfazer.previa(c.clinicaId, c.ator, c.clinicaFuso, id)
+  }
+
+  /**
+   * Orçamento direto, sem consulta antes (ADR 2026-11-19-orcamento-direto).
+   * A mesma permissão do `registrarOrcamento`: `jornada`, e nada mais — não
+   * cria dinheiro. O dinheiro nasce no `fechar`, que segue exigindo `receber`.
+   */
+  @Post('orcamentos')
+  @HttpCode(HttpStatus.CREATED)
+  async criarOrcamento(
+    @Req() req: RequisicaoComContexto,
+    @Body() corpo: unknown,
+  ): Promise<TarefasAfetadas> {
+    const dados = NovoOrcamento.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.jornada.criarOrcamento(
+      c.clinicaId,
+      c.ator,
+      c.clinicaFuso,
+      autorDe(c),
+      dados.data,
+      c.pode('valores'),
+    )
   }
 
   @Post(':id/jornada')

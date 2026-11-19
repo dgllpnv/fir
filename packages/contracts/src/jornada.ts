@@ -187,6 +187,20 @@ export const ItensDoOrcamento = z
  * protótipo calcula na tela, e um relógio de cliente adiantado faria o
  * orçamento voltar a pedir ação no dia errado.
  */
+const CamposDoOrcamento = {
+  valor: valorDeOrcamento,
+  retomarEm: DiaCivil.optional(),
+  /** Quem faz o contato da retomada. Opcional; o servidor confere pessoa ativa da clínica. */
+  contatoId: Uuid.optional(),
+  programa: Programa.optional(),
+  /**
+   * Os procedimentos do orçamento SEM virar programa. Ou `programa` (que
+   * já carrega os itens) ou `itens` — nunca os dois (conferido no servidor).
+   */
+  itens: ItensDoOrcamento.optional(),
+  nota: Nota,
+}
+
 export const MoverEtapa = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('enviarConfirmacao') }).strict(),
   z.object({ acao: z.literal('confirmar') }).strict(),
@@ -195,22 +209,7 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('reagendar'), prazo: DiaCivil, hora: Hora.optional() }).strict(),
   z.object({ acao: z.literal('encerrar'), nota: Nota }).strict(),
   z.object({ acao: z.literal('reabrir') }).strict(),
-  z
-    .object({
-      acao: z.literal('registrarOrcamento'),
-      valor: valorDeOrcamento,
-      retomarEm: DiaCivil.optional(),
-      /** Quem faz o contato da retomada. Opcional; o servidor confere pessoa ativa da clínica. */
-      contatoId: Uuid.optional(),
-      programa: Programa.optional(),
-      /**
-       * Os procedimentos do orçamento SEM virar programa. Ou `programa` (que
-       * já carrega os itens) ou `itens` — nunca os dois (conferido no servidor).
-       */
-      itens: ItensDoOrcamento.optional(),
-      nota: Nota,
-    })
-    .strict(),
+  z.object({ acao: z.literal('registrarOrcamento'), ...CamposDoOrcamento }).strict(),
   z
     .object({
       acao: z.literal('followUp'),
@@ -332,6 +331,16 @@ export const MoverEtapa = z.discriminatedUnion('acao', [
     .strict(),
 ])
 export type MoverEtapa = z.infer<typeof MoverEtapa>
+
+/**
+ * ORÇAMENTO DIRETO, sem consulta antes (ADR 2026-11-19-orcamento-direto).
+ *
+ * Os MESMOS campos do `registrarOrcamento`, mais a paciente. O servidor cria o
+ * cartão "Orçamento enviado" e aplica o `registrarOrcamento` na mesma
+ * transação: uma regra de orçamento, duas portas.
+ */
+export const NovoOrcamento = z.object({ pacienteId: Uuid, ...CamposDoOrcamento }).strict()
+export type NovoOrcamento = z.infer<typeof NovoOrcamento>
 
 /** Um motivo de perda, como a lista suspensa da tela de perda o lê. */
 export const MotivoDePerda = z.object({ id: Uuid, nome: z.string() })

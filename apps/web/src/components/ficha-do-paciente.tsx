@@ -466,7 +466,18 @@ export function FichaDoPaciente({
 
       {abaAtiva === 'orcamentos' ? (
         <div id="painel-orcamentos" role="tabpanel" aria-labelledby="aba-orcamentos">
-          <AbaDeOrcamentos pacienteId={id} aoRetomar={retomarRestante} />
+          <AbaDeOrcamentos
+            pacienteId={id}
+            hoje={p.hoje}
+            podeValores={podeValores}
+            aoRetomar={retomarRestante}
+            aoCriar={(tarefaId) => {
+              recarregar()
+              setRecado('Orçamento registrado. Se a paciente já fechou, toque em Fechou no cartão.')
+              // Leva ao cartão, onde moram Fechou, Follow-up e Perdeu.
+              retomarRestante(tarefaId)
+            }}
+          />
         </div>
       ) : null}
 

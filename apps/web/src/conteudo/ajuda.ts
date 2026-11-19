@@ -85,7 +85,7 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   {
     tema: 'Rotina e tarefas',
     pergunta: 'Preciso começar pela consulta para registrar um procedimento?',
-    resposta: 'Não. Procedimento feito hoje, sem agendamento antes: crie uma Nova tarefa do tipo “Procedimento realizado”, escolha o paciente e escreva o procedimento na descrição (em “+ Mais opções”); o pagamento vai no bloco “Houve pagamento?” da mesma tarefa, e o produto usado se lança em Estoque › Registrar saída › Uso em paciente. Paciente que fechou e pagou agora: use Recebimento › Orçamento fechado, onde também dá para montar o programa. Só o orçamento enviado (para retomar o contato depois) nasce dentro de um cartão de consulta ou de procedimento, pelo botão “Registrar orçamento”.',
+    resposta: 'Não. Procedimento feito hoje, sem agendamento antes: crie uma Nova tarefa do tipo “Procedimento realizado”, escolha o paciente e escreva o procedimento na descrição (em “+ Mais opções”); o pagamento vai no bloco “Houve pagamento?” da mesma tarefa, e o produto usado se lança em Estoque › Registrar saída › Uso em paciente. Paciente que fechou e pagou agora: use Recebimento › Orçamento fechado, onde também dá para montar o programa. Orçamento oferecido sem consulta antes (a reavaliação do fim de um programa, por exemplo): na ficha do paciente, aba Orçamentos, toque em “Novo orçamento”. Não lance uma consulta que não aconteceu só para registrar o orçamento. Dali, o cartão tem Follow-up, Fechou (com a entrada e o saldo em aberto) e Perdeu.',
     chaves: 'procedimento sem consulta direto avulso realizado registrar orcamento fechado venda programa',
   },
   {

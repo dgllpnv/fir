@@ -453,6 +453,57 @@ function Correcao({ de, para }: { de: Retrato | undefined; para: Retrato | undef
  * front fosse a autoridade da data, a regra 24 estaria quebrada por
  * conveniência de formulário.
  */
+/** O que o formulário lê do cartão — o orçamento direto não tem cartão ainda. */
+type CartaoDoFormulario = Pick<
+  TarefaNaLista,
+  | 'prazo'
+  | 'hora'
+  | 'contatoId'
+  | 'programaOrcado'
+  | 'historico'
+  | 'valorOrcamento'
+  | 'proximoPassoEm'
+  | 'itensOrcamento'
+>
+
+/**
+ * O formulário do "Registrar orçamento", para o ORÇAMENTO DIRETO da ficha
+ * (ADR 2026-11-19-orcamento-direto). O MESMO formulário, não uma cópia: valor,
+ * lista de procedimentos, programa, retomada e contato com as mesmas checagens.
+ */
+export function FormularioDeNovoOrcamento({
+  hoje,
+  aoFechar,
+  aoSalvar,
+  podeValores,
+}: {
+  hoje: string
+  aoFechar: () => void
+  aoSalvar: (corpo: Record<string, unknown>) => Promise<void>
+  podeValores: boolean
+}) {
+  const vazio: CartaoDoFormulario = {
+    prazo: hoje,
+    hora: null,
+    contatoId: null,
+    programaOrcado: null,
+    historico: [],
+    valorOrcamento: null,
+    proximoPassoEm: null,
+    itensOrcamento: null,
+  }
+  return (
+    <FormularioDaAcao
+      acao="registrarOrcamento"
+      tarefa={vazio}
+      hoje={hoje}
+      aoFechar={aoFechar}
+      aoSalvar={aoSalvar}
+      podeValores={podeValores}
+    />
+  )
+}
+
 function FormularioDaAcao({
   acao,
   tarefa: t,
@@ -462,7 +513,7 @@ function FormularioDaAcao({
   podeValores,
 }: {
   acao: AcaoDeJornada
-  tarefa: TarefaNaLista
+  tarefa: CartaoDoFormulario
   hoje: string
   aoFechar: () => void
   aoSalvar: (corpo: Record<string, unknown>) => Promise<void>

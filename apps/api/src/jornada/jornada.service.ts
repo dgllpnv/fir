@@ -1,4 +1,4 @@
-import type { MoverEtapa, TarefasAfetadas } from '@fir/contracts'
+import type { MoverEtapa, NovoOrcamento, TarefasAfetadas } from '@fir/contracts'
 import {
   corrigirOrcamento,
   diaCivil,
@@ -7,6 +7,7 @@ import {
   situacaoDoFechamento,
   type ErroDeDominio,
   type EventoDeJornada,
+  type NomeDeTipo,
   programaCabeNoOrcamento,
   type Relogio,
   somarDias,
@@ -68,6 +69,13 @@ import { FechamentoService } from './fechamento.service'
  * evento. A trilha (regra 20) é prova, e prova com buraco não é prova.
  */
 
+/**
+ * O tipo do cartão do orçamento direto. `NomeDeTipo` faz o compilador recusar
+ * um nome fora da tabela: sem o cedilha, `infoDoTipo` o classificaria como
+ * contato desconhecido, em silêncio.
+ */
+const TIPO_ORCAMENTO_DIRETO: NomeDeTipo = 'Orçamento enviado'
+
 @Injectable()
 export class JornadaService {
   // `@Inject` explícito: o esbuild não emite `design:paramtypes`.
@@ -114,7 +122,89 @@ export class JornadaService {
     const agora = this.relogio.agora()
     const hoje = diaCivil(agora, fuso)
 
+    return this.banco.naClinica(clinicaId, ator, (c) =>
+      this.moverNaTransacao(c, { clinicaId, fuso, autor, id, dados, agora, hoje, podeVerValores }),
+    )
+  }
+
+  /**
+   * ORÇAMENTO DIRETO (ADR 2026-11-19-orcamento-direto): a paciente recebe um
+   * orçamento sem consulta antes — a reavaliação no fim de um programa, o
+   * retorno que vira proposta nova.
+   *
+   * Sem esta porta, a recepção lançava uma "Consulta realizada" que não
+   * aconteceu só para ter onde registrar o orçamento, e o atendimento de
+   * mentira entrava no funil e na contagem de atendidos.
+   *
+   * O cartão nasce "Orçamento enviado" (o tipo que não é receita nem
+   * atendimento, regra 4) e passa pelo MESMO `registrarOrcamento`, na MESMA
+   * transação: valor, itens, programa, contato e retomada têm as conferências
+   * de sempre, e daí em diante ele é um cartão da jornada como qualquer outro
+   * (Follow-up, Fechou com entrada e saldo em aberto, Perdeu). Sem o evento
+   * `concluir`, o funil não o conta como realizado.
+   */
+  async criarOrcamento(
+    clinicaId: ClinicaId,
+    ator: Ator,
+    fuso: string,
+    autor: AutorDaRequisicao,
+    dados: NovoOrcamento,
+    podeVerValores = false,
+  ): Promise<TarefasAfetadas> {
+    const agora = this.relogio.agora()
+    const hoje = diaCivil(agora, fuso)
+    const { pacienteId, ...campos } = dados
+
     return this.banco.naClinica(clinicaId, ator, async (c) => {
+      // A RLS filtra por clínica: a paciente da vizinha é "não encontrada",
+      // a mesma resposta de quem não existe (nunca 403, que confirmaria).
+      const p = await c.query<{ unidade_id: string | null }>(
+        'SELECT unidade_id FROM pacientes WHERE id = $1 AND ativo',
+        [pacienteId],
+      )
+      if (p.rowCount !== 1) throw new BadRequestException('Paciente não encontrado.')
+
+      const r = await c.query<{ id: string }>(
+        `INSERT INTO tarefas
+           (clinica_id, solicitante_id, responsavel_id, descricao, prazo, prioridade,
+            status, concluida_em, paciente_id, tipo, etapa, historico, unidade_id)
+         VALUES ($1, $2, $2, $3, $4::date, 'normal', 'concluida', $5, $6, $3,
+                 'realizado', '[]'::jsonb, $7)
+         RETURNING id`,
+        [clinicaId, autor.id, TIPO_ORCAMENTO_DIRETO, hoje, agora, pacienteId, p.rows[0]!.unidade_id],
+      )
+      return this.moverNaTransacao(c, {
+        clinicaId,
+        fuso,
+        autor,
+        id: r.rows[0]!.id,
+        dados: { acao: 'registrarOrcamento', ...campos },
+        agora,
+        hoje,
+        podeVerValores,
+      })
+    })
+  }
+
+  private async moverNaTransacao(
+    c: pg.PoolClient,
+    x: {
+      clinicaId: ClinicaId
+      fuso: string
+      autor: AutorDaRequisicao
+      id: string
+      /** As ações com porta própria (desfazer, corrigir, reabrir) já saíram em `mover`. */
+      dados: Exclude<
+        MoverEtapa,
+        { acao: 'reabrir' | 'corrigirOrcamento' | 'reabrirOrcamento' | 'excluirOrcamento' }
+      >
+      agora: Date
+      hoje: string
+      podeVerValores: boolean
+    },
+  ): Promise<TarefasAfetadas> {
+    const { clinicaId, fuso, autor, id, dados, agora, hoje, podeVerValores } = x
+    {
       const t = await carregarCartao(c, clinicaId, id)
 
       const destino = transicao({ etapa: t.etapa, status: t.status, historico: t.historico }, dados.acao)
@@ -270,7 +360,7 @@ export class JornadaService {
       const tarefa = todas[0]
       if (tarefa === undefined) throw new NotFoundException('Agendamento não encontrado.')
       return { tarefa, todas }
-    })
+    }
   }
 
   /**

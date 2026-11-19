@@ -3,7 +3,13 @@ import {
   type ConfirmacaoNecessaria,
   type MoverEtapa,
 } from '@fir/contracts'
-import { Dinheiro, ehErro, inicioJaPassou, TIPO_PAGAMENTO_DE_ORCAMENTO } from '@fir/domain'
+import {
+  aceitaPagamento,
+  Dinheiro,
+  ehErro,
+  inicioJaPassou,
+  TIPO_PAGAMENTO_DE_ORCAMENTO,
+} from '@fir/domain'
 import {
   BadRequestException,
   ConflictException,
@@ -293,13 +299,17 @@ export class FechamentoService {
     // "Pagamento de orçamento" — a MESMA que Recebimento › Orçamento fechado
     // cria —, e a consulta fica com o pagamento dela, intocado (regra 3: cada
     // pagamento conta uma vez).
+    //
+    // **Cartão cujo tipo não guarda pagamento** ("Orçamento enviado": o
+    // orçamento direto e o migrado da v20): o mesmo caminho. Sem ele, o Fechou
+    // desse cartão era 400 e a entrada e o saldo em aberto não tinham onde ir.
     const jaPaga = await c.query(
       'SELECT 1 FROM recebimentos WHERE tarefa_id = $1 AND estornado_em IS NULL',
       [x.tarefaId],
     )
     let tarefaDoPagamento = x.tarefaId
     let tipoDoPagamento = cartao.tipo
-    if (jaPaga.rowCount !== 0) {
+    if (jaPaga.rowCount !== 0 || !aceitaPagamento(cartao.tipo)) {
       const companheira = await c.query<{ id: string }>(
         `INSERT INTO tarefas
            (clinica_id, solicitante_id, responsavel_id, descricao, prazo, prioridade,
