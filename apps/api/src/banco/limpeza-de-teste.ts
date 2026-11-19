@@ -299,6 +299,9 @@ const EM_ORDEM_DE_APAGAR = [
   'categorias_de_entrada',
   'caixa_por_forma',
   'caixas_do_dia',
+  // O histórico dos reabertos (0115) aponta para `pessoas`. O dono apaga
+  // (só o UPDATE é recusado pela trigger).
+  'caixas_reabertos',
   'cobrancas',
   'configuracao_financeira',
   'contas_a_pagar',

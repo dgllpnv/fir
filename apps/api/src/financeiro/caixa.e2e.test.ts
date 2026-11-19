@@ -313,6 +313,98 @@ describe('depois do fechamento, quem vê o quê', () => {
   })
 })
 
+describe('POST /v1/caixa/reabrir (ADR 2026-11-19-reabrir-caixa)', () => {
+  const reabrir = (dia: string, motivo: string, quem = 'beatriz') => postar(c, '/v1/caixa/reabrir', { dia, motivo }, quem)
+
+  it('o dia volta a ficar aberto, às cegas, e fecha de novo com a contagem certa', async () => {
+    await registrar({ valor: '45000', forma: 'Pix' })
+    expect((await fechar(HOJE, { Pix: '40000' }, 'sonia')).statusCode).toBe(201)
+
+    const r = await reabrir(HOJE, 'Digitei o Pix errado')
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(200)
+    // O dia reaberto é um dia ABERTO: sem esperado, sem diferenca, sem porForma (regra 6).
+    expect(r.body.fechado).toBe(false)
+    expect(Object.keys(r.body)).toEqual(['dia', 'fechado', 'formas', 'responsavel', 'reaberturas'])
+    expect(r.body.reaberturas).toEqual([{ por: 'Beatriz', em: expect.any(String), motivo: 'Digitei o Pix errado' }])
+    expect(r.text).not.toContain('45000')
+    expect(r.text).not.toContain('40000')
+    const lido = await caixaDe(HOJE, 'sonia')
+    expect(lido.body.fechado).toBe(false)
+    expect(lido.text).not.toContain('45000')
+
+    const de_novo = await fechar(HOJE, { Pix: '45000' }, 'sonia')
+    expect(de_novo.statusCode, JSON.stringify(de_novo.body)).toBe(201)
+    expect(de_novo.body.conferido).toBe(true)
+    // Os últimos fechamentos têm o dia UMA vez: o fechamento que vale.
+    const u = (await pegar(c, '/v1/caixa/ultimos', {}, 'beatriz')).body.itens as { dia: string; conferido: boolean }[]
+    expect(u.filter((x) => x.dia === HOJE)).toEqual([expect.objectContaining({ dia: HOJE, conferido: true })])
+  })
+
+  it('o fechamento que saiu fica inteiro no histórico, e a trilha registra a saída', async () => {
+    await registrar({ valor: '45000', forma: 'Pix' })
+    const f = await fechar(HOJE, { Pix: '40000' }, 'sonia', 'gaveta conferida')
+    const caixaId = (await c.migrate.query<{ id: string }>('SELECT id FROM caixas_do_dia WHERE clinica_id = $1', [c.clinica])).rows[0]!.id
+    expect(f.statusCode).toBe(201)
+    expect((await reabrir(HOJE, 'Contagem refeita')).statusCode).toBe(200)
+
+    const h = await c.migrate.query<{ caixa_id: string; obs: string; fechado_por: string; reaberto_por: string; motivo: string; linhas: { forma: string; esperado: string; contado: string }[] }>(
+      'SELECT caixa_id, obs, fechado_por, reaberto_por, motivo, linhas FROM caixas_reabertos WHERE clinica_id = $1',
+      [c.clinica],
+    )
+    expect(h.rows).toHaveLength(1)
+    expect(h.rows[0]).toMatchObject({ caixa_id: caixaId, obs: 'gaveta conferida', fechado_por: c.pessoas['sonia'], reaberto_por: c.pessoas['beatriz'], motivo: 'Contagem refeita' })
+    expect(h.rows[0]!.linhas.find((l) => l.forma === 'Pix')).toEqual({ forma: 'Pix', esperado: '45000', contado: '40000' })
+    expect((await c.migrate.query('SELECT 1 FROM caixas_do_dia WHERE clinica_id = $1', [c.clinica])).rowCount).toBe(0)
+    expect((await c.migrate.query('SELECT 1 FROM caixa_por_forma WHERE clinica_id = $1', [c.clinica])).rowCount).toBe(0)
+    const trilha = await c.migrate.query(
+      `SELECT 1 FROM auditoria WHERE clinica_id = $1 AND entidade = 'caixas_do_dia' AND entidade_id = $2 AND acao = 'removeu'`,
+      [c.clinica, caixaId],
+    )
+    expect(trilha.rowCount).toBe(1)
+  })
+
+  it('sem `finmes`, 403 — inclusive para quem fecha o caixa — e nada muda', async () => {
+    await registrar({ valor: '45000', forma: 'Pix' })
+    expect((await fechar(HOJE, { Pix: '45000' }, 'sonia')).statusCode).toBe(201)
+    expect((await reabrir(HOJE, 'quero refazer', 'sonia')).statusCode).toBe(403)
+    expect((await caixaDe(HOJE, 'sonia')).body.fechado).toBe(true)
+  })
+
+  it('dia não fechado é 409; motivo curto é 400; dia futuro é 400', async () => {
+    expect((await reabrir(HOJE, 'sem caixa')).statusCode).toBe(409)
+    expect((await fechar(HOJE, {}, 'sonia')).statusCode).toBe(201)
+    expect((await reabrir(HOJE, 'x')).statusCode).toBe(400)
+    expect((await reabrir(AMANHA, 'amanhã')).statusCode).toBe(400)
+    // Reabrir duas vezes: a segunda já encontra o dia aberto.
+    expect((await reabrir(HOJE, 'primeira')).statusCode).toBe(200)
+    expect((await reabrir(HOJE, 'segunda')).statusCode).toBe(409)
+  })
+
+  it('o caixa da outra clínica não se reabre daqui (RLS): 409, e ele continua lá', async () => {
+    await c.migrate.query(`INSERT INTO caixas_do_dia (clinica_id, dia, fechado_por) VALUES ($1, $2, $3)`, [
+      c.outraClinica,
+      ONTEM,
+      (await c.migrate.query<{ id: string }>('SELECT id FROM pessoas WHERE clinica_id = $1 LIMIT 1', [c.outraClinica])).rows[0]!.id,
+    ])
+    expect((await reabrir(ONTEM, 'tentativa')).statusCode).toBe(409)
+    expect((await c.migrate.query('SELECT 1 FROM caixas_do_dia WHERE clinica_id = $1', [c.outraClinica])).rowCount).toBe(1)
+  })
+
+  it('o histórico é append-only para a aplicação: UPDATE e DELETE recusados', async () => {
+    expect((await fechar(HOJE, {}, 'sonia')).statusCode).toBe(201)
+    expect((await reabrir(HOJE, 'teste de trava')).statusCode).toBe(200)
+    // A trigger alcança até o dono da tabela.
+    await expect(c.migrate.query(`UPDATE caixas_reabertos SET motivo = 'outro' WHERE clinica_id = $1`, [c.clinica])).rejects.toThrow(/UPDATE recusado/)
+    // E a aplicação nem tem o privilégio.
+    const p = await c.migrate.query<{ upd: boolean; del: boolean; ins: boolean }>(
+      `SELECT has_table_privilege('fir_app', 'caixas_reabertos', 'UPDATE') AS upd,
+              has_table_privilege('fir_app', 'caixas_reabertos', 'DELETE') AS del,
+              has_table_privilege('fir_app', 'caixas_reabertos', 'INSERT') AS ins`,
+    )
+    expect(p.rows[0]).toEqual({ upd: false, del: false, ins: true })
+  })
+})
+
 describe('GET /v1/caixa/ultimos', () => {
   it('lista os fechamentos, do mais recente para o mais antigo', async () => {
     await registrar({ valor: '45000', forma: 'Pix' })

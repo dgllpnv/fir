@@ -10,9 +10,10 @@ import { rotuloDoCapitulo } from './busca'
  * que este arquivo protege são as duas coisas que um "ajuste rápido" quebra em
  * silêncio:
  *
- *  1. **A contagem** — 15 capítulos, 104 seções, 76 perguntas (os 14
+ *  1. **A contagem** — 15 capítulos, 104 seções, 77 perguntas (os 14
  *     capítulos e as 51 perguntas dela, mais o capítulo 15 e as entradas das
- *     três entregas do backlog final, e a do procedimento sem consulta). Uma seção que alguém apague ao
+ *     três entregas do backlog final, a do procedimento sem consulta e a de
+ *     reabrir o caixa). Uma seção que alguém apague ao
  *     resolver um conflito não acusa nada sem isto.
  *  2. **A D-10** — nenhuma menção a PIN sobrevive: um manual que ensina a
  *     trocar o PIN manda a recepção procurar um campo que não existe. O
@@ -26,10 +27,10 @@ const tudoDoManual = MANUAL.flatMap((c) =>
 const TUDO = `${tudoDaAjuda}\n${tudoDoManual}`
 
 describe('o conteúdo é o dela, inteiro', () => {
-  it('15 capítulos, 104 seções, 76 perguntas', () => {
+  it('15 capítulos, 104 seções, 77 perguntas', () => {
     expect(MANUAL).toHaveLength(15)
     expect(MANUAL.reduce((n, c) => n + c.secoes.length, 0)).toBe(104)
-    expect(AJUDA).toHaveLength(76)
+    expect(AJUDA).toHaveLength(77)
   })
 
   /**

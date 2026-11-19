@@ -832,6 +832,8 @@ export const ENTIDADES_COM_CLINICA: readonly string[] = [
   'banco_de_horas',
   'caixa_por_forma',
   'caixas_do_dia',
+  // O fechamento reaberto (0115, ADR 2026-11-19-reabrir-caixa): append-only.
+  'caixas_reabertos',
   'cobrancas',
   'compromissos_externos',
   'configuracao_de_pessoal',

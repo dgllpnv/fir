@@ -13,6 +13,7 @@ import { consultaEmTexto, useDados } from '@/lib/dados'
 import { centavos } from '@/lib/financeiro'
 import { centavosDoTexto } from '@/lib/dinheiro-digitado'
 import { diaEmTexto } from '@/lib/formato'
+import { ConfirmarEstado } from './confirmar-estado'
 import { Carregando, Erro, Toast } from './estados'
 
 /**
@@ -45,8 +46,10 @@ export function TelaCaixa({
   const [salvando, setSalvando] = useState(false)
   const [erroDoForm, setErroDoForm] = useState<string | null>(null)
   const [recado, setRecado] = useState<string | null>(null)
+  const [reabrindo, setReabrindo] = useState(false)
+  const [motivo, setMotivo] = useState('')
 
-  const caixa = useDados<ConferenciaDeCaixa>(`v1/caixa${consultaEmTexto({ dia })}`)
+  const caixa =useDados<ConferenciaDeCaixa>(`v1/caixa${consultaEmTexto({ dia })}`)
   const ultimos = useDados<ListaDeFechamentos>('v1/caixa/ultimos')
 
   async function fechar(e: React.FormEvent): Promise<void> {
@@ -115,10 +118,25 @@ export function TelaCaixa({
       ) : caixa.erro !== null ? (
         <Erro mensagem={caixa.erro} recarregar={caixa.recarregar} />
       ) : caixa.dados === null ? null : caixa.dados.fechado ? (
-        <Fechado c={caixa.dados} />
+        <>
+          <Fechado c={caixa.dados} />
+          {podeConfigurar ? (
+            <div className="botoes" style={{ marginTop: 10 }}>
+              <button type="button" className="btn ghost" onClick={() => setReabrindo(true)}>
+                Reabrir caixa
+              </button>
+            </div>
+          ) : null}
+        </>
       ) : (
         <form className="cartao" onSubmit={fechar}>
           <b>Totais conferidos em {diaEmTexto(dia)}</b>
+          {(caixa.dados.reaberturas ?? []).map((r) => (
+            <p className="nota" key={r.em} style={{ margin: 0 }}>
+              <span className="pill alerta">reaberto</span> por {r.por} em {dataEHora(r.em)}: {r.motivo}. O
+              fechamento anterior fica em Atividades; conte de novo e feche.
+            </p>
+          ))}
           <div className="grade-de-filtros">
             {caixa.dados.formas.map((f) => (
               <label className="campo" key={f}>
@@ -189,10 +207,49 @@ export function TelaCaixa({
         )}
       </div>
 
+      {reabrindo ? (
+        <ConfirmarEstado
+          titulo={`Reabrir o caixa de ${diaEmTexto(dia)}?`}
+          rotuloConfirmar="Reabrir caixa"
+          rotuloEnviando="Reabrindo…"
+          aoFechar={() => {
+            setReabrindo(false)
+            setMotivo('')
+          }}
+          aoConfirmar={async () => {
+            await chamar('v1/caixa/reabrir', { method: 'POST', body: JSON.stringify({ dia, motivo: motivo.trim() }) })
+            setReabrindo(false)
+            setMotivo('')
+            setRecado('Caixa reaberto. Informe os totais de novo e feche.')
+            caixa.recarregar()
+            ultimos.recarregar()
+          }}
+        >
+          <p>
+            O dia volta a ficar aberto, para corrigir a contagem ou um lançamento, e é fechado de novo
+            às cegas. O fechamento de agora não se perde: fica registrado em Atividades, com quem
+            reabriu e o motivo.
+          </p>
+          <label className="campo">
+            Motivo
+            <input
+              maxLength={160}
+              value={motivo}
+              placeholder="Ex.: digitei o Pix errado"
+              onChange={(e) => setMotivo(e.target.value)}
+            />
+          </label>
+        </ConfirmarEstado>
+      ) : null}
+
       <Toast recado={recado} aoFechar={() => setRecado(null)} />
     </section>
   )
 }
+
+/** "19/11 às 14:32", no fuso do navegador — é só a hora de um registro. */
+const dataEHora = (iso: string): string =>
+  new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(', ', ' às ')
 
 /**
  * O dia já fechado: a comparação, que é o que a clínica veio ver.

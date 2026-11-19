@@ -424,9 +424,27 @@ export const CaixaAberto = z
     fechado: z.literal(false),
     formas: z.array(z.enum(FORMAS_DE_CONFERENCIA)),
     responsavel: z.object({ id: Uuid, nome: z.string() }).nullable(),
+    /**
+     * O dia já foi fechado e REABERTO (ADR 2026-11-19-reabrir-caixa): quem,
+     * quando e por quê. Nenhum número — o fechamento que saiu tinha o
+     * esperado, e o dia aberto continua sem ele (regra 6). Ausente quando o
+     * dia nunca foi reaberto.
+     */
+    reaberturas: z
+      .array(z.object({ por: z.string(), em: z.string(), motivo: z.string() }).strict())
+      .optional(),
   })
   .strict()
 export type CaixaAberto = z.infer<typeof CaixaAberto>
+
+/** Reabrir o caixa de um dia fechado: o motivo é obrigatório e fica no histórico. */
+export const ReabrirCaixa = z
+  .object({
+    dia: DiaCivil,
+    motivo: z.string().trim().min(3, 'Diga por que o caixa vai ser reaberto.').max(160),
+  })
+  .strict()
+export type ReabrirCaixa = z.infer<typeof ReabrirCaixa>
 
 /** O caixa já fechado — e agora sim a comparação, que é o que a clínica veio ver. */
 export const CaixaFechado = z

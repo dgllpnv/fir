@@ -4,6 +4,7 @@ import type {
   ConferenciaDeCaixa,
   FecharCaixa,
   FechamentoNaLista,
+  ReabrirCaixa,
 } from '@fir/contracts'
 import {
   alteracoesDepoisDoFechamento,
@@ -82,14 +83,72 @@ export class CaixaService {
           WHERE f.clinica_id = $1 AND p.ativo`,
         [ctx.clinicaId],
       )
+      const reaberturas = await c.query<{ por: string; em: Date; motivo: string }>(
+        `SELECT p.nome AS por, r.reaberto_em AS em, r.motivo
+           FROM caixas_reabertos r JOIN pessoas p ON p.id = r.reaberto_por
+          WHERE r.clinica_id = $1 AND r.dia = $2::date
+          ORDER BY r.reaberto_em`,
+        [ctx.clinicaId, dia],
+      )
       const aberto: CaixaAberto = {
         dia,
         fechado: false,
         formas: [...FORMAS_DE_CONFERENCIA],
         responsavel: resp.rows[0] ?? null,
+        ...(reaberturas.rows.length === 0
+          ? {}
+          : { reaberturas: reaberturas.rows.map((r) => ({ por: r.por, em: r.em.toISOString(), motivo: r.motivo })) }),
       }
       return aberto
     })
+  }
+
+  /**
+   * **Reabrir o caixa de um dia fechado** (ADR 2026-11-19-reabrir-caixa).
+   *
+   * É o "editar" e o "excluir" que a clínica pediu, numa ação só: o dia volta
+   * a ficar aberto e pode ser fechado de novo, às cegas, com a contagem certa.
+   *
+   * O fechamento SAI de `caixas_do_dia` e ENTRA em `caixas_reabertos`, inteiro
+   * — esperado e contado por forma, quem fechou e quando — na MESMA transação,
+   * com a linha presa (`FOR UPDATE`): duas abas reabrindo ao mesmo tempo dão um
+   * 409, nunca dois registros nem um meio-apagado. Sair da tabela, e não ganhar
+   * uma coluna, é o que faz as consultas de "dia fechado" (faturamento
+   * conferido, Visão do mês, Painel, avisos) verem o dia como aberto sem que
+   * nenhuma delas mude.
+   *
+   * Exige `finmes` (no controlador): quem fecha a gaveta não reabre depois de
+   * ver o resultado para "acertar" a contagem.
+   */
+  async reabrir(ctx: Contexto, dados: ReabrirCaixa): Promise<CaixaAberto> {
+    this.exigirAteHoje(ctx, dados.dia, 'A data do caixa precisa ser até hoje.')
+    await this.banco.naClinica(ctx.clinicaId, ctx.ator, async (c) => {
+      const cx = await c.query<{ id: string; obs: string; fechado_por: string; fechado_em: Date }>(
+        `SELECT id, obs, fechado_por, fechado_em FROM caixas_do_dia
+          WHERE clinica_id = $1 AND dia = $2::date FOR UPDATE`,
+        [ctx.clinicaId, dados.dia],
+      )
+      const caixa = cx.rows[0]
+      if (caixa === undefined) throw new ConflictException('O caixa deste dia não está fechado.')
+      const linhas = await c.query<LinhaPorForma>(
+        `SELECT forma, esperado::text AS esperado, contado::text AS contado
+           FROM caixa_por_forma WHERE clinica_id = $1 AND caixa_id = $2 ORDER BY forma`,
+        [ctx.clinicaId, caixa.id],
+      )
+      await c.query(
+        `INSERT INTO caixas_reabertos (clinica_id, caixa_id, dia, obs, fechado_por, fechado_em, linhas, motivo, reaberto_por)
+         VALUES ($1, $2, $3::date, $4, $5, $6, $7::jsonb, $8, $9)`,
+        [ctx.clinicaId, caixa.id, dados.dia, caixa.obs, caixa.fechado_por, caixa.fechado_em,
+          JSON.stringify(linhas.rows), dados.motivo, exigePessoa(ctx.ator)],
+      )
+      await c.query('DELETE FROM caixa_por_forma WHERE clinica_id = $1 AND caixa_id = $2', [ctx.clinicaId, caixa.id])
+      await c.query('DELETE FROM caixas_do_dia WHERE clinica_id = $1 AND id = $2', [ctx.clinicaId, caixa.id])
+    })
+    const dia = await this.doDia(ctx, dados.dia)
+    // Uma corrida com um novo fechamento entre as duas transações devolveria o
+    // dia fechado — e aí é isso que a tela deve mostrar, não um erro.
+    if (dia.fechado) throw new ConflictException('O caixa deste dia foi fechado de novo enquanto você reabria.')
+    return dia
   }
 
   /**

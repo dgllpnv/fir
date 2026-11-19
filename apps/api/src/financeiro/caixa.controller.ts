@@ -1,5 +1,7 @@
 import {
+  type CaixaAberto,
   type CaixaFechado,
+  ReabrirCaixa,
   type ConferenciaDeCaixa,
   ConsultaDeCaixa,
   FecharCaixa,
@@ -69,6 +71,20 @@ export class CaixaController {
       fuso: c.clinicaFuso,
     })
     return { itens: [...itens] }
+  }
+
+  /**
+   * Reabrir um dia fechado (ADR 2026-11-19-reabrir-caixa). `finmes`, e não
+   * `caixa`: quem conta a gaveta não reabre depois de ver o resultado.
+   */
+  @Post('reabrir')
+  @Exige('finmes')
+  @HttpCode(HttpStatus.OK)
+  async reabrir(@Req() req: RequisicaoComContexto, @Body() corpo: unknown): Promise<CaixaAberto> {
+    const dados = ReabrirCaixa.safeParse(corpo)
+    if (!dados.success) throw new BadRequestException(primeiroErro(dados.error))
+    const c = req.contexto!
+    return this.caixa.reabrir({ clinicaId: c.clinicaId, ator: c.ator, fuso: c.clinicaFuso }, dados.data)
   }
 
   @Post()

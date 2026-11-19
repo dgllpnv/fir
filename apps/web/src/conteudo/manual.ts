@@ -731,7 +731,8 @@ O **lote** vem sugerido pelo que vence primeiro e pode ser trocado. As sessões 
         texto: `No fim do expediente, a pessoa responsável (definida pelo administrativo) abre **Financeiro › Caixa do dia** e informa os totais conferidos: Pix (extrato), cartão de crédito e débito (relatório da maquininha) e dinheiro (gaveta).
 - A conferência é **às cegas**: o valor registrado na ferramenta só aparece depois de fechar.
 - A tela mostra a diferença por forma de pagamento. Diferença costuma ser recebimento sem registro ou lançado duas vezes: confira e registre em Recebimentos.
-- O lembrete “Fechar o caixa de hoje” aparece na tela Hoje da responsável até o caixa ser fechado.`,
+- O lembrete “Fechar o caixa de hoje” aparece na tela Hoje da responsável até o caixa ser fechado.
+- **Fechou com um valor digitado errado?** Quem tem acesso ao Financeiro do mês toca em **Reabrir caixa** no dia fechado e diz o motivo. O dia volta a ficar aberto e é fechado de novo, às cegas, com a contagem certa. O fechamento anterior não se perde: fica em Atividades, com quem reabriu e o motivo. Enquanto o dia está reaberto, o dinheiro dele volta a ficar "aguardando fechamento" nos indicadores.`,
       },
       {
         titulo: 'Contas a pagar',

@@ -149,9 +149,9 @@ describe('o conteúdo de gestão só aparece para quem tem `painel` ou `config`'
     for (const c of daRecepcao) expect(c.secoes.length, rotuloDoCapitulo(c)).toBeGreaterThan(0)
   })
 
-  it('as 45 perguntas da equipe, e as 76 da gestão', () => {
-    expect(ajudaVisivel(AJUDA, false)).toHaveLength(45)
-    expect(ajudaVisivel(AJUDA, true)).toHaveLength(76)
+  it('as 46 perguntas da equipe, e as 77 da gestão', () => {
+    expect(ajudaVisivel(AJUDA, false)).toHaveLength(46)
+    expect(ajudaVisivel(AJUDA, true)).toHaveLength(77)
     // Oito temas para a equipe, nove para a gestão — "Gestão" é o nono.
     expect(new Set(ajudaVisivel(AJUDA, false).map((p) => p.tema)).size).toBe(8)
     expect(new Set(ajudaVisivel(AJUDA, true).map((p) => p.tema)).size).toBe(9)

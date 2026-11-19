@@ -349,6 +349,7 @@ export async function limparFinanceiro(c: Cenario): Promise<void> {
     'categorias_de_entrada',
     'caixa_por_forma',
     'caixas_do_dia',
+    'caixas_reabertos',
     'cobrancas',
     'contas_a_pagar',
     'metas_do_mes',

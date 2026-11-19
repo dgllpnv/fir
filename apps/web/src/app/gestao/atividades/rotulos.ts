@@ -31,6 +31,7 @@ export const ASSUNTOS: Readonly<Record<string, string>> = {
   motivos_de_perda: 'Motivos de perda',
   caixas_do_dia: 'Caixa do dia',
   caixa_por_forma: 'Caixa por forma de pagamento',
+  caixas_reabertos: 'Caixa reaberto',
   cobrancas: 'Cobranças',
   conversas_1a1: 'Conversas 1:1',
   relatorio: 'Relatórios',

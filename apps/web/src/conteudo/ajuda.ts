@@ -102,6 +102,12 @@ export const AJUDA: readonly PerguntaDaAjuda[] = [
   },
   {
     tema: 'Financeiro',
+    pergunta: 'Fechei o caixa com um valor errado. Como corrijo?',
+    resposta: 'Abra o dia em Financeiro › Caixa do dia e toque em Reabrir caixa (é preciso ter acesso ao Financeiro do mês). Diga o motivo: o dia volta a ficar aberto e você informa os totais de novo e fecha. O fechamento anterior fica registrado em Atividades, com quem reabriu e o motivo.',
+    chaves: 'caixa reabrir corrigir editar excluir errado desfazer fechamento',
+  },
+  {
+    tema: 'Financeiro',
     pergunta: 'Como registro que paguei uma conta?',
     resposta: 'As contas sob sua responsabilidade aparecem na tela Hoje 3 dias antes do vencimento. Toque em “Paguei”, confira a data e o valor e registre. Contas mensais criam sozinhas a do mês seguinte.',
     chaves: 'conta pagar paguei boleto vencimento despesa',
