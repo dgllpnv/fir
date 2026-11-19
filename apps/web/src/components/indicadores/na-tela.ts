@@ -410,6 +410,25 @@ export function trimestresAte(hoje: string, n = 4): Trimestre[] {
   return lista
 }
 
+/**
+ * O filtro Período: os trimestres FUTUROS que algum OKR toca (o duplicado vai
+ * para o próximo, e o Novo OKR oferece os três seguintes — sem isto, o OKR
+ * nasce e some da tela), do mais distante para o atual, e depois o atual e os
+ * passados de `trimestresAte`.
+ */
+export function trimestresDoFiltro(hoje: string, okrs: readonly Pick<OkrNaSaida, 'periodo'>[], n = 4): Trimestre[] {
+  const atual = trimestreDe(hoje)
+  const futuros: Trimestre[] = []
+  const maisDistante = okrs.reduce((m, o) => (o.periodo.fim > m ? o.periodo.fim : m), atual.fim)
+  let dia = somarMeses(atual.inicio, 3)
+  while (dia <= maisDistante) {
+    const t = trimestreDe(dia)
+    if (okrs.some((o) => okrNoPeriodo(o, t))) futuros.unshift({ inicio: t.inicio, fim: t.fim, rotulo: rotuloDoTrimestre(t.inicio) })
+    dia = somarMeses(t.inicio, 3)
+  }
+  return [...futuros, ...trimestresAte(hoje, n)]
+}
+
 /** Os trimestres que um OKR novo pode escolher: o atual e os três seguintes. */
 export function trimestresDesde(hoje: string, n = 4): Trimestre[] {
   const lista: Trimestre[] = []

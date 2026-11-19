@@ -34,7 +34,7 @@ import {
   okrNoPeriodo,
   ordenarPorSituacao,
   situacaoDoCartao,
-  trimestresAte,
+  trimestresDoFiltro,
   unidadesDoFiltro,
 } from './na-tela'
 
@@ -97,13 +97,18 @@ export function TelaIndicadores({
     `v1/indicadores/okrs${consultaEmTexto({ trimestre: trimestre === '' ? undefined : trimestre, responsavel: responsavel === '' ? undefined : responsavel })}`,
   )
   const hojeDoServidor = okrs.dados?.hoje ?? null
-  const trimestres = useMemo(() => (hojeDoServidor === null ? [] : trimestresAte(hojeDoServidor)), [hojeDoServidor])
-  const atual = trimestres[0] ?? null
+  const itensDeOkr = okrs.dados?.itens
+  const trimestres = useMemo(
+    () => (hojeDoServidor === null ? [] : trimestresDoFiltro(hojeDoServidor, itensDeOkr ?? [])),
+    [hojeDoServidor, itensDeOkr],
+  )
+  const atual = hojeDoServidor === null ? null : (trimestres.find((t) => t.inicio <= hojeDoServidor && hojeDoServidor <= t.fim) ?? null)
   const escolhido = trimestres.find((t) => t.inicio === trimestre) ?? atual
   // O trimestre corrente não manda janela: o cartão mostra o período corrente
   // da frequência (o mês, a semana), que é o que a 1.9 compara. Um trimestre
-  // passado manda as duas bordas, e o servidor mede a janela inteira.
-  const passado = escolhido !== null && atual !== null && escolhido.inicio !== atual.inicio
+  // passado manda as duas bordas, e o servidor mede a janela inteira. Um
+  // trimestre futuro ainda não tem o que medir: os cartões ficam no de hoje.
+  const passado = escolhido !== null && atual !== null && escolhido.inicio < atual.inicio
   const kpis = useDados<ListaDeKpis>(
     hojeDoServidor === null
       ? null
@@ -285,7 +290,7 @@ export function TelaIndicadores({
           aria-expanded={filtrosAbertos}
           onClick={() => setFiltrosAbertos((v) => !v)}
         >
-          Filtros{pilar !== '' || responsavel !== '' || unidade !== '' || passado ? ' (ativos)' : ''}
+          Filtros{pilar !== '' || responsavel !== '' || unidade !== '' || (escolhido !== null && escolhido !== atual) ? ' (ativos)' : ''}
         </button>
         <div className="ii-filtros-campos">
           <label className="campo">

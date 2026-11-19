@@ -64,7 +64,11 @@ export class ReuniaoDeIndicadoresService {
     const de = referenciaDoPeriodo('semanal', hoje)
     const ate = somarDias(de, 6)
     const metas = metasVigentes(lista, okrs)
-    const ativos = okrs.itens.filter((o) => o.estado === 'ativo')
+    // Os slides de OKR são os da faixa da capa: ativos cujo período toca o
+    // trimestre de hoje (o mesmo filtro de `prioridadesDoTrimestre`). Sem ele,
+    // o duplicado para o trimestre seguinte entrava na reunião desta semana.
+    const tri = okrs.prioridades.trimestre
+    const ativos = okrs.itens.filter((o) => o.estado === 'ativo' && o.periodo.inicio <= tri.fim && o.periodo.fim >= tri.inicio)
     const conta = (s: string) => metas.filter((m) => m.metaDoKpi.situacao === s).length
     const visiveis = new Set(lista.itens.map((k) => k.id))
 

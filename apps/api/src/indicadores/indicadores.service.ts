@@ -508,6 +508,10 @@ export class IndicadoresService {
       const unidade = k === null ? q.unidade! : definicaoDe(k).unidade
       this.exigirEscritaNaUnidade(ctx, unidade)
       const U = BigInt(diasUteisEntre(q.inicio, q.prazo))
+      // Saldo e taxa não se acumulam por dia útil: "R$ X por dia útil" de um
+      // saldo a receber é um número sem sentido. A prévia deles diz só os dias.
+      const naoAcumula = k !== null && definicaoDe(k).agregacao !== 'soma' && definicaoDe(k).agregacao !== 'analise'
+      if (naoAcumula) return { prazo: q.prazo, diasUteis: Number(U), ritmoPorDiaUtil: valorNaTela(unidade, null), atualPorDiaUtil: valorNaTela(unidade, null) }
       const ritmo = ritmoPorDiaUtil(unidade, q.inicio, q.prazo, BigInt(q.alvo), BigInt(q.partida ?? '0'))
       const fim = hoje < q.prazo ? hoje : q.prazo
       let atual: NumeroDoKpi | null = null
@@ -623,7 +627,13 @@ export class IndicadoresService {
       const k = await this.kpiVisivel(c, ctx, dados.kpiId)
       const d = definicaoDe(k)
       this.exigirEscritaNaUnidade(ctx, d.unidade)
-      const partida = NumeroDoKpi.de(d.unidade, BigInt(dados.partida ?? '0'))
+      // Partida em branco: na soma e na série é zero; no resto (saldo, taxa),
+      // é o valor de hoje do KPI, o mesmo do cartão — a regra do Duplicar do
+      // OKR. Com zero, um "menor é melhor" (saldo a receber) nunca teria alvo.
+      const partida =
+        dados.partida !== undefined || d.agregacao === 'soma' || d.agregacao === 'analise' || dados.tipo === 'recorrente'
+          ? NumeroDoKpi.de(d.unidade, BigInt(dados.partida ?? '0'))
+          : ((await this.valorDoPeriodoCorrente(c, ctx, k, hoje)) ?? NumeroDoKpi.zero(d.unidade))
       const alvo = NumeroDoKpi.de(d.unidade, BigInt(dados.alvo))
       const v = validarMeta(d, { tipo: dados.tipo, inicio: dados.inicio, prazo: dados.prazo, partida, alvo })
       if (v.tipo === 'erro') throw recusaDaMeta(v.erro)

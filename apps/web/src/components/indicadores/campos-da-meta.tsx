@@ -247,7 +247,7 @@ export function CamposDaMeta({
               aria-invalid={erros.partida !== undefined}
               onChange={(e) => mudar('partida', e.target.value)}
             />
-            <small>Vem com o valor de hoje; pode mudar.</small>
+            <small>{estado.partida.trim() === '' ? 'Em branco, parte do valor de hoje.' : 'Vem com o valor de hoje; pode mudar.'}</small>
             <ErroDoCampo id={`${id}-partida`} mensagem={erros.partida} />
           </>
         )}

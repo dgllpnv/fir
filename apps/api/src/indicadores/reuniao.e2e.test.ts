@@ -279,6 +279,20 @@ describe('T7 — da-semana, contador e reuniao (I-45, I-46)', () => {
     expect(comValores.text).toContain('1000000')
   })
 
+  it('os slides de OKR são os do trimestre de hoje: o duplicado para o próximo não entra (vídeo de 19/11)', async () => {
+    const k = await kpiNoBanco('comparecimento')
+    const agora = await postar(c, '/v1/indicadores/okrs', { objetivo: 'Deste trimestre', periodo: { tipo: 'trimestre', inicio: '2026-10-01' }, resultadosChave: [{ kpiId: k, alvo: '9000' }] }, 'beatriz')
+    expect(agora.statusCode, JSON.stringify(agora.body)).toBe(201)
+    const dup = await postar(c, `/v1/indicadores/okrs/${agora.body.id}/duplicar`, {}, 'beatriz')
+    expect(dup.statusCode, JSON.stringify(dup.body)).toBe(201)
+    expect(dup.body.periodo.inicio).toBe('2027-01-01')
+    const r = ReuniaoDeIndicadores.parse((await pegar(c, '/v1/indicadores/reuniao', {}, 'beatriz')).body)
+    expect(r.okrs.map((o) => o.id)).toEqual([agora.body.id])
+    // A capa e os slides contam o mesmo.
+    expect(r.capa.okrsAtivos).toBe(1)
+    expect(r.capa.prioridades?.quantos).toBe(1)
+  })
+
   it('sem `indicadores`, 403 nas três', async () => {
     for (const rota of TRES_ROTAS) expect((await pegar(c, rota, {}, 'rita')).statusCode, rota).toBe(403)
   })

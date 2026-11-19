@@ -19,6 +19,7 @@ import {
   textoDaVariacao,
   textoDoAguardando,
   trimestresAte,
+  trimestresDoFiltro,
   avisoDeUnidade,
   unidadesDoFiltro,
 } from './na-tela'
@@ -267,6 +268,20 @@ describe('período', () => {
       ['2026-07-01', '2026-09-30'],
       ['2026-04-01', '2026-06-30'],
     ])
+  })
+
+  it('trimestre futuro entra no filtro só quando um OKR o toca (o duplicado não some)', () => {
+    const rodar = (okrs: { periodo: { tipo: 'trimestre' | 'datas'; inicio: string; fim: string } }[]) =>
+      trimestresDoFiltro('2026-11-17', okrs, 2).map((t) => t.inicio)
+    expect(rodar([])).toEqual(['2026-10-01', '2026-07-01'])
+    expect(rodar([{ periodo: { tipo: 'trimestre', inicio: '2027-01-01', fim: '2027-03-31' } }])).toEqual(['2027-01-01', '2026-10-01', '2026-07-01'])
+    // Um OKR em julho de 2027 não puxa o 2º trimestre vazio, e o mais distante vem primeiro.
+    expect(
+      rodar([
+        { periodo: { tipo: 'trimestre', inicio: '2027-01-01', fim: '2027-03-31' } },
+        { periodo: { tipo: 'datas', inicio: '2027-07-05', fim: '2027-07-20' } },
+      ]),
+    ).toEqual(['2027-07-01', '2027-01-01', '2026-10-01', '2026-07-01'])
   })
 
   it('o OKR aparece no trimestre que o toca', () => {

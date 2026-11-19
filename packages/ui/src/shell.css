@@ -344,7 +344,10 @@
   .shell { display: grid; grid-template-columns: 240px minmax(0, 1fr); }
   /* `z-index` para a lista (fixa) passar por cima do conteúdo, que vem depois no
      DOM; `sticky` já cria o contexto de empilhamento, e o 15 é o do protótipo. */
-  .side { position: sticky; top: 0; z-index: 15; height: 100vh; height: 100dvh; overflow-y: auto; }
+  /* `overflow-x: hidden`: com só `overflow-y: auto`, o eixo x vira `auto` também,
+     e abrir a lista do tema (absoluta, dentro da lateral) fazia a lateral rolar
+     de lado e cortar os itens (visto em produção, 19/11). */
+  .side { position: sticky; top: 0; z-index: 15; height: 100vh; height: 100dvh; overflow-y: auto; overflow-x: hidden; }
   .topbar, .scrim { display: none; }
   /*
    * A LISTA FLUTUANTE. A lateral rola (`overflow-y: auto`, e precisa rolar em

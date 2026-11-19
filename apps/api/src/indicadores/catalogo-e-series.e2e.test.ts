@@ -9,6 +9,7 @@ import {
   limparIndicadores,
   montarCenario,
   pegar,
+  postar,
 } from '../tarefas/__tests__/cenario'
 
 /**
@@ -91,6 +92,27 @@ describe('S3 — o catálogo do D.1: explicação sem referência da spec, e a p
     const id = await kpiNoBanco('saldo_a_receber')
     const lista = (await pegar(c, '/v1/indicadores', {}, 'beatriz')).body as { itens: { id: string; atual: unknown }[] }
     expect(lista.itens.find((k) => k.id === id)!.atual).toEqual(previa)
+  })
+
+  it('meta de saldo sem partida parte do valor de hoje: "menor é melhor" aceita alvo abaixo dele (vídeo de 19/11)', async () => {
+    await saldoAberto()
+    const id = await kpiNoBanco('saldo_a_receber')
+    // O valor de hoje é o do CARTÃO (os recebimentos dos `it` anteriores ficam: `limparFinanceiro` não os apaga).
+    const cartao = ((await pegar(c, '/v1/indicadores', {}, 'beatriz')).body as { itens: { id: string; atual: { emDinheiro: string } }[] }).itens.find((k) => k.id === id)!
+    expect(BigInt(cartao.atual.emDinheiro)).toBeGreaterThanOrEqual(50000n)
+    const corpo = { kpiId: id, tipo: 'mes', inicio: '2026-10-01', prazo: '2026-10-31', alvo: '30000' }
+    // Controle: com a partida zero explícita, R$ 300 não é "melhor" que R$ 0 — a regra I-22 continua.
+    const zero = await postar(c, '/v1/indicadores/metas', { ...corpo, partida: '0' }, 'beatriz')
+    expect(zero.statusCode, JSON.stringify(zero.body)).toBe(422)
+    const r = await postar(c, '/v1/indicadores/metas', corpo, 'beatriz')
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201)
+    expect(r.body.partida).toMatchObject({ unidade: 'reais', emDinheiro: cartao.atual.emDinheiro })
+    // A prévia de um saldo não vira "R$ X por dia útil": só os dias úteis.
+    const p = await pegar(c, '/v1/indicadores/metas/previa', { kpiId: id, inicio: '2026-11-01', prazo: '2026-11-30', alvo: '30000' }, 'beatriz')
+    expect(p.statusCode, JSON.stringify(p.body)).toBe(200)
+    expect(p.body.ritmoPorDiaUtil.emDinheiro).toBeNull()
+    expect(p.body.atualPorDiaUtil.emDinheiro).toBeNull()
+    expect(p.body.diasUteis).toBeGreaterThan(0)
   })
 
   it('previa-redigida-sem-valores: sem `valores`, o dinheiro da prévia sai apagado; a contagem fica', async () => {

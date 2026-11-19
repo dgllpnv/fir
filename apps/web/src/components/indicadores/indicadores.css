@@ -282,7 +282,14 @@ fieldset.ii-grupo legend { font-size: 13px; font-weight: 600; padding: 0; margin
 .ii-marcar input { width: 20px; height: 20px; accent-color: var(--gold-ink); }
 .ii-bloco { display: grid; gap: 12px; border-left: 2px solid var(--gold); padding-left: 12px; }
 .ii-kr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
-@media (min-width: 480px) { .ii-kr { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto; align-items: end; } }
+/* O painel lateral tem ~560 px: três colunas espremiam valor-alvo + prazo e o
+   "Remover" caía por cima do campo. O indicador ocupa a linha; embaixo, o par
+   e o "Remover" no fim, alinhado ao campo (não ao erro embaixo dele). */
+@media (min-width: 480px) {
+  .ii-kr { grid-template-columns: minmax(0, 1fr) auto; align-items: start; }
+  .ii-kr > .campo:first-child, .ii-kr > .erro { grid-column: 1 / -1; }
+  .ii-kr > .link { margin-top: 22px; }
+}
 .ii-kr .link { min-height: 44px; }
 .ii-previa { margin: 0; padding: 10px 12px; background: var(--gold-soft); color: var(--ink); border-radius: var(--r); font-size: 13.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
 .ii-aviso-texto { font-size: 12px; font-weight: 400; color: var(--muted); }
